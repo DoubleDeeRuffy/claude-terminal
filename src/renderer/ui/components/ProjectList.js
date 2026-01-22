@@ -19,7 +19,9 @@ const {
   setSelectedProjectFilter,
   setOpenedProjectId,
   setFolderColor,
-  setProjectColor
+  setProjectColor,
+  setProjectIcon,
+  setFolderIcon
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
 
@@ -85,6 +87,38 @@ const ITEM_COLORS = [
   { name: 'Rose', value: '#ec4899' }
 ];
 
+// Available icons for project customization
+const PROJECT_ICONS = [
+  { name: 'Default', value: null },
+  { name: 'Code', value: '💻' },
+  { name: 'Web', value: '🌐' },
+  { name: 'API', value: '🔌' },
+  { name: 'Database', value: '🗄️' },
+  { name: 'Mobile', value: '📱' },
+  { name: 'Game', value: '🎮' },
+  { name: 'AI', value: '🤖' },
+  { name: 'Cloud', value: '☁️' },
+  { name: 'Security', value: '🔒' },
+  { name: 'Test', value: '🧪' },
+  { name: 'Bug', value: '🐛' },
+  { name: 'Rocket', value: '🚀' },
+  { name: 'Tool', value: '🔧' },
+  { name: 'Book', value: '📚' },
+  { name: 'Music', value: '🎵' },
+  { name: 'Video', value: '🎬' },
+  { name: 'Photo', value: '📷' },
+  { name: 'Chart', value: '📊' },
+  { name: 'Mail', value: '📧' },
+  { name: 'Shop', value: '🛒' },
+  { name: 'Money', value: '💰' },
+  { name: 'Heart', value: '❤️' },
+  { name: 'Star', value: '⭐' },
+  { name: 'Fire', value: '🔥' },
+  { name: 'Lightning', value: '⚡' },
+  { name: 'Diamond', value: '💎' },
+  { name: 'Crown', value: '👑' }
+];
+
 /**
  * Render folder HTML
  */
@@ -97,12 +131,29 @@ function renderFolderHtml(folder, depth) {
 
   let childrenHtml = '';
   if (!folder.collapsed) {
-    (folder.children || []).forEach(childId => {
+    const children = folder.children || [];
+    const renderedIds = new Set();
+
+    // Render items in children order (both folders and projects)
+    children.forEach(childId => {
       const childFolder = getFolder(childId);
-      if (childFolder) childrenHtml += renderFolderHtml(childFolder, depth + 1);
+      if (childFolder) {
+        childrenHtml += renderFolderHtml(childFolder, depth + 1);
+        renderedIds.add(childId);
+      } else {
+        const childProject = getProject(childId);
+        if (childProject && childProject.folderId === folder.id) {
+          childrenHtml += renderProjectHtml(childProject, depth + 1);
+          renderedIds.add(childId);
+        }
+      }
     });
+
+    // Render any projects not in children array (legacy data)
     childProjects.forEach(project => {
-      childrenHtml += renderProjectHtml(project, depth + 1);
+      if (!renderedIds.has(project.id)) {
+        childrenHtml += renderProjectHtml(project, depth + 1);
+      }
     });
   }
 
@@ -175,6 +226,17 @@ function renderProjectHtml(project, depth) {
       </div>
     </div>`;
 
+  // Icon picker for menu
+  const projectIcon = project.icon || null;
+  const iconPickerHtml = `
+    <div class="more-actions-item icon-picker-row" data-project-id="${project.id}">
+      <span class="icon-picker-label-icon">${projectIcon || '📁'}</span>
+      <span>Icone</span>
+      <div class="icon-picker-swatches">
+        ${PROJECT_ICONS.map(i => `<button class="icon-swatch-mini ${i.value === projectIcon ? 'selected' : ''} ${!i.value ? 'default' : ''}" data-icon="${i.value || ''}" title="${i.name}">${i.value || '📁'}</button>`).join('')}
+      </div>
+    </div>`;
+
   let menuItemsHtml = '';
   if (isFivem) {
     menuItemsHtml += `
@@ -205,6 +267,7 @@ function renderProjectHtml(project, depth) {
       Ouvrir le dossier
     </button>
     ${colorPickerHtml}
+    ${iconPickerHtml}
     <div class="more-actions-divider"></div>
     <button class="more-actions-item btn-rename-project" data-project-id="${project.id}">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -220,6 +283,16 @@ function renderProjectHtml(project, depth) {
   const colorIndicator = projectColor ? `<span class="color-indicator" style="background: ${projectColor}"></span>` : '';
   const iconColorStyle = projectColor ? `style="color: ${projectColor}"` : '';
 
+  // Build project icon HTML
+  let projectIconHtml;
+  if (isFivem) {
+    projectIconHtml = `${statusIndicator}<svg viewBox="0 0 24 24" fill="currentColor" class="fivem-icon" ${iconColorStyle}><path d="M21 16V4H3v12h18m0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h2v2H8v-2h2v-2H3a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2h18M5 6h9v5H5V6m10 0h4v2h-4V6m4 3v5h-4V9h4M5 12h4v2H5v-2m5 0h4v2h-4v-2z"/></svg>`;
+  } else if (projectIcon) {
+    projectIconHtml = `<span class="project-emoji-icon">${projectIcon}</span>`;
+  } else {
+    projectIconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" ${iconColorStyle}><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`;
+  }
+
   return `
     <div class="project-item ${isSelected ? 'active' : ''} ${isFivem ? 'fivem-project' : ''}"
          data-project-id="${project.id}" data-depth="${depth}" draggable="true"
@@ -227,7 +300,7 @@ function renderProjectHtml(project, depth) {
       <div class="project-info">
         <div class="project-name">
           ${colorIndicator}
-          ${isFivem ? `${statusIndicator}<svg viewBox="0 0 24 24" fill="currentColor" class="fivem-icon" ${iconColorStyle}><path d="M21 16V4H3v12h18m0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h2v2H8v-2h2v-2H3a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2h18M5 6h9v5H5V6m10 0h4v2h-4V6m4 3v5h-4V9h4M5 12h4v2H5v-2m5 0h4v2h-4v-2z"/></svg>` : `<svg viewBox="0 0 24 24" fill="currentColor" ${iconColorStyle}><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`}
+          ${projectIconHtml}
           <span>${escapeHtml(project.name)}</span>
           ${!isFivem && terminalCount > 0 ? `<span class="terminal-count">${terminalCount}</span>` : ''}
         </div>
@@ -588,6 +661,18 @@ function attachListeners(list) {
       const projectId = swatch.closest('.color-picker-row').dataset.projectId;
       const color = swatch.dataset.color || null;
       setProjectColor(projectId, color);
+      closeAllMoreActionsMenus();
+      if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+    };
+  });
+
+  // Project icon swatches in menu
+  list.querySelectorAll('.icon-picker-row .icon-swatch-mini').forEach(swatch => {
+    swatch.onclick = (e) => {
+      e.stopPropagation();
+      const projectId = swatch.closest('.icon-picker-row').dataset.projectId;
+      const icon = swatch.dataset.icon || null;
+      setProjectIcon(projectId, icon);
       closeAllMoreActionsMenus();
       if (callbacks.onRenderProjects) callbacks.onRenderProjects();
     };
