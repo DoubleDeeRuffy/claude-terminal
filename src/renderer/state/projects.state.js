@@ -164,6 +164,18 @@ function loadProjects() {
             needsSave = true;
           }
         });
+
+        // Migration: Ensure projects in folders are in their parent's children array
+        projects.filter(p => p.folderId !== null).forEach(p => {
+          const parentFolder = folders.find(f => f.id === p.folderId);
+          if (parentFolder) {
+            parentFolder.children = parentFolder.children || [];
+            if (!parentFolder.children.includes(p.id)) {
+              parentFolder.children.push(p.id);
+              needsSave = true;
+            }
+          }
+        });
       }
 
       projectsState.set({ projects, folders, rootOrder });
@@ -253,6 +265,12 @@ function deleteFolder(folderId) {
     project.folderId = folder.parentId;
     if (folder.parentId === null) {
       rootOrder.push(project.id);
+    } else {
+      // Add project to new parent's children array
+      const newParent = folders.find(f => f.id === folder.parentId);
+      if (newParent) {
+        newParent.children = [...(newParent.children || []), project.id];
+      }
     }
   });
 
@@ -331,6 +349,34 @@ function setProjectColor(projectId, color) {
 }
 
 /**
+ * Set project icon
+ * @param {string} projectId
+ * @param {string|null} icon - Emoji icon or null to reset
+ */
+function setProjectIcon(projectId, icon) {
+  const state = projectsState.get();
+  const projects = state.projects.map(p =>
+    p.id === projectId ? { ...p, icon: icon || undefined } : p
+  );
+  projectsState.set({ projects });
+  saveProjects();
+}
+
+/**
+ * Set folder icon
+ * @param {string} folderId
+ * @param {string|null} icon - Emoji icon or null to reset
+ */
+function setFolderIcon(folderId, icon) {
+  const state = projectsState.get();
+  const folders = state.folders.map(f =>
+    f.id === folderId ? { ...f, icon: icon || undefined } : f
+  );
+  projectsState.set({ folders });
+  saveProjects();
+}
+
+/**
  * Toggle folder collapsed state
  * @param {string} folderId
  */
@@ -388,13 +434,21 @@ function deleteProject(projectId) {
   const project = state.projects.find(p => p.id === projectId);
   if (!project) return;
 
-  let rootOrder = state.rootOrder;
+  let rootOrder = [...state.rootOrder];
+  let folders = [...state.folders];
+
   if (project.folderId === null) {
     rootOrder = rootOrder.filter(id => id !== projectId);
+  } else {
+    // Remove from parent's children array
+    const parent = folders.find(f => f.id === project.folderId);
+    if (parent && parent.children) {
+      parent.children = parent.children.filter(id => id !== projectId);
+    }
   }
 
   const projects = state.projects.filter(p => p.id !== projectId);
-  projectsState.set({ projects, rootOrder });
+  projectsState.set({ projects, folders, rootOrder });
   saveProjects();
 }
 
@@ -442,9 +496,17 @@ function moveItemToFolder(itemType, itemId, targetFolderId) {
     const project = projects.find(p => p.id === itemId);
     if (!project) return;
 
-    // Remove from rootOrder if was at root
-    if (project.folderId === null) {
+    const oldFolderId = project.folderId;
+
+    // Remove from old location
+    if (oldFolderId === null) {
       rootOrder = rootOrder.filter(id => id !== itemId);
+    } else {
+      // Remove from old parent's children
+      const oldParent = folders.find(f => f.id === oldFolderId);
+      if (oldParent && oldParent.children) {
+        oldParent.children = oldParent.children.filter(id => id !== itemId);
+      }
     }
 
     // Add to new location
@@ -454,6 +516,7 @@ function moveItemToFolder(itemType, itemId, targetFolderId) {
     } else {
       const newParent = folders.find(f => f.id === targetFolderId);
       if (newParent) {
+        newParent.children = [...(newParent.children || []), itemId];
         newParent.collapsed = false;
       }
     }
@@ -517,11 +580,22 @@ function reorderItem(itemType, itemId, targetId, position) {
     const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
     rootOrder.splice(insertIndex, 0, itemId);
   } else {
-    // Target is inside a folder
+    // Target is inside a folder - children contains both folders and projects
     const parentFolder = folders.find(f => f.id === targetParentId);
     if (parentFolder) {
       parentFolder.children = parentFolder.children || [];
-      const targetIndex = parentFolder.children.indexOf(targetId);
+      let targetIndex = parentFolder.children.indexOf(targetId);
+      // If target not in children (legacy data), find position based on item order
+      if (targetIndex === -1) {
+        // Add target to children if it belongs to this folder
+        if ((targetFolder && targetFolder.parentId === targetParentId) ||
+            (targetProject && targetProject.folderId === targetParentId)) {
+          parentFolder.children.push(targetId);
+          targetIndex = parentFolder.children.length - 1;
+        } else {
+          targetIndex = parentFolder.children.length;
+        }
+      }
       const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
       parentFolder.children.splice(insertIndex, 0, itemId);
       parentFolder.collapsed = false;
@@ -567,6 +641,8 @@ module.exports = {
   renameProject,
   setFolderColor,
   setProjectColor,
+  setProjectIcon,
+  setFolderIcon,
   toggleFolderCollapse,
   addProject,
   updateProject,
