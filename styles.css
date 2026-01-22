@@ -103,6 +103,138 @@ body {
   color: white;
 }
 
+/* Update Banner (GitHub Desktop style) */
+.update-banner {
+  background: linear-gradient(135deg, #1e3a5f 0%, #1a365d 100%);
+  border-bottom: 1px solid #2563eb;
+  padding: 0;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.update-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  max-width: 100%;
+}
+
+.update-icon {
+  width: 18px;
+  height: 18px;
+  color: #60a5fa;
+  flex-shrink: 0;
+  animation: spin 2s linear infinite;
+}
+
+.update-banner.downloaded .update-icon {
+  animation: none;
+  color: #34d399;
+}
+
+.update-message {
+  font-size: 13px;
+  color: #e0e7ff;
+  flex-shrink: 0;
+}
+
+.update-progress-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 300px;
+  min-width: 150px;
+}
+
+.update-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.update-progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: var(--progress, 0%);
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.update-progress-text {
+  font-size: 12px;
+  color: #93c5fd;
+  min-width: 40px;
+  text-align: right;
+}
+
+.update-btn {
+  padding: 6px 14px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.update-btn:hover {
+  background: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.update-btn:active {
+  transform: translateY(0);
+}
+
+.update-dismiss {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #93c5fd;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.update-dismiss:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.update-dismiss svg {
+  width: 10px;
+  height: 10px;
+}
+
 /* Main Container */
 .main-container {
   display: flex;
@@ -2696,12 +2828,11 @@ body {
 
 /* FiveM Terminal Wrapper */
 .terminal-wrapper.fivem-wrapper {
-  display: none;
-  flex-direction: column;
+  /* Inherits from .terminal-wrapper (display: none, position: absolute) */
 }
 
 .terminal-wrapper.fivem-wrapper.active {
-  display: flex;
+  display: block;
 }
 
 .fivem-terminal-area {
@@ -2799,21 +2930,26 @@ body {
 /* Git Toast Notifications */
 .git-toast {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  bottom: 24px;
+  right: 24px;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--bg-secondary);
+  gap: 14px;
+  padding: 16px 18px;
+  background: linear-gradient(145deg, var(--bg-secondary) 0%, rgba(30, 30, 35, 0.98) 100%);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.1),
+    0 12px 40px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
   z-index: 9999;
-  max-width: 380px;
+  max-width: 400px;
+  min-width: 320px;
   opacity: 0;
-  transform: translateX(100%);
-  transition: all 0.3s ease;
+  transform: translateX(calc(100% + 24px));
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
 .git-toast.visible {
@@ -2822,66 +2958,137 @@ body {
 }
 
 .git-toast-success {
-  border-left: 3px solid var(--success);
+  border-left: 4px solid var(--success);
+}
+
+.git-toast-success::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(76, 175, 80, 0.08) 0%, transparent 50%);
+  pointer-events: none;
 }
 
 .git-toast-error {
-  border-left: 3px solid var(--danger);
+  border-left: 4px solid var(--danger);
+}
+
+.git-toast-error::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(244, 67, 54, 0.08) 0%, transparent 50%);
+  pointer-events: none;
 }
 
 .git-toast-icon {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  position: relative;
+  z-index: 1;
 }
 
 .git-toast-icon svg {
-  width: 100%;
-  height: 100%;
+  width: 22px;
+  height: 22px;
 }
 
 .git-toast-success .git-toast-icon {
   color: var(--success);
+  background: rgba(76, 175, 80, 0.12);
 }
 
 .git-toast-error .git-toast-icon {
   color: var(--danger);
+  background: rgba(244, 67, 54, 0.12);
 }
 
 .git-toast-content {
   flex: 1;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .git-toast-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  letter-spacing: -0.01em;
 }
 
 .git-toast-message {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   word-break: break-word;
   line-height: 1.4;
-  font-family: 'Cascadia Code', monospace;
+  margin-top: 4px;
+}
+
+.git-toast-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.git-toast-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.git-toast-detail-icon {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.git-toast-success .git-toast-detail {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: rgba(76, 175, 80, 0.15);
+  color: var(--success);
+}
+
+.git-toast-error .git-toast-detail {
+  background: rgba(244, 67, 54, 0.1);
+  border-color: rgba(244, 67, 54, 0.15);
+  color: var(--danger);
 }
 
 .git-toast-close {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.15s;
+  transition: all 0.2s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .git-toast-close svg {
@@ -2890,8 +3097,35 @@ body {
 }
 
 .git-toast-close:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+/* Progress bar */
+.git-toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: currentColor;
+  opacity: 0.3;
+  width: 100%;
+  animation: toast-progress linear forwards;
+  border-radius: 0 0 0 12px;
+}
+
+.git-toast-success .git-toast-progress {
+  background: var(--success);
+}
+
+.git-toast-error .git-toast-progress {
+  background: var(--danger);
+}
+
+@keyframes toast-progress {
+  from { width: 100%; }
+  to { width: 0%; }
 }
 
 /* ========== FOLDER SYSTEM ========== */
@@ -3540,6 +3774,29 @@ body {
   animation: spin 1s linear infinite;
 }
 
+/* Dashboard refresh indicator */
+.dashboard-refresh-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.refresh-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 /* Quick stats bar */
 .dashboard-quick-stats {
   display: flex;
@@ -3727,6 +3984,11 @@ body {
 .sync-badge.no-remote {
   background: var(--bg-tertiary);
   color: var(--text-muted);
+}
+
+.sync-badge.not-tracking {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning, #fbbf24);
 }
 
 /* Dashboard section */

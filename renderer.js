@@ -100,15 +100,6 @@ ipcRenderer.on('notification-clicked', (event, { terminalId }) => {
   }
 });
 
-// ========== WINDOW TITLE ==========
-function updateWindowTitle(taskTitle, projectName) {
-  const fullTitle = taskTitle ? `${taskTitle} - ${projectName}` : projectName;
-  const titleElement = document.querySelector('.titlebar-title');
-  if (titleElement) titleElement.textContent = fullTitle;
-  document.title = fullTitle;
-  ipcRenderer.send('set-window-title', fullTitle);
-}
-
 // ========== GIT STATUS ==========
 async function checkAllProjectsGitStatus() {
   const projects = projectsState.get().projects;
@@ -123,7 +114,167 @@ async function checkAllProjectsGitStatus() {
   ProjectList.render();
 }
 
+// ========== GIT NOTIFICATIONS ==========
+function showGitToast({ success, title, message, details = [], duration = 5000 }) {
+  // Remove any existing toast
+  const existingToast = document.querySelector('.git-toast');
+  if (existingToast) {
+    existingToast.classList.remove('visible');
+    setTimeout(() => existingToast.remove(), 150);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `git-toast ${success ? 'git-toast-success' : 'git-toast-error'}`;
+
+  // Icônes plus modernes
+  const icon = success
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+
+  // Truncate message if too long
+  const displayMessage = message && message.length > 150 ? message.substring(0, 150) + '...' : message;
+
+  // Build details HTML if provided
+  let detailsHtml = '';
+  if (details && details.length > 0) {
+    detailsHtml = '<div class="git-toast-details">' +
+      details.map(d => `<span class="git-toast-detail"><span class="git-toast-detail-icon">${d.icon || ''}</span>${escapeHtml(d.text)}</span>`).join('') +
+      '</div>';
+  }
+
+  toast.innerHTML = `
+    <span class="git-toast-icon">${icon}</span>
+    <div class="git-toast-content">
+      <div class="git-toast-title">${escapeHtml(title)}</div>
+      ${displayMessage ? `<div class="git-toast-message">${escapeHtml(displayMessage)}</div>` : ''}
+      ${detailsHtml}
+    </div>
+    <button class="git-toast-close" aria-label="Fermer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  `;
+
+  // Progress bar for auto-hide
+  if (duration > 0) {
+    const progressBar = document.createElement('div');
+    progressBar.className = 'git-toast-progress';
+    progressBar.style.animationDuration = `${duration}ms`;
+    toast.appendChild(progressBar);
+  }
+
+  document.body.appendChild(toast);
+
+  // Close button handler
+  toast.querySelector('.git-toast-close').onclick = () => {
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  // Animate in
+  requestAnimationFrame(() => {
+    toast.classList.add('visible');
+  });
+
+  // Auto hide
+  if (duration > 0) {
+    setTimeout(() => {
+      toast.classList.remove('visible');
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
+  return toast;
+
+}
+
+// Parse git output to extract useful info
+function parseGitPullOutput(output) {
+  const details = [];
+
+  if (!output) return { message: 'Déjà à jour', details };
+
+  // Already up to date
+  if (output.includes('Already up to date') || output.includes('Déjà à jour')) {
+    return { message: 'Déjà à jour', details: [{ icon: '✓', text: 'Aucune modification' }] };
+  }
+
+  // Fast-forward merge
+  const filesChanged = output.match(/(\d+) files? changed/);
+  const insertions = output.match(/(\d+) insertions?\(\+\)/);
+  const deletions = output.match(/(\d+) deletions?\(-\)/);
+  const commits = output.match(/(\d+) commits?/);
+
+  if (filesChanged) {
+    details.push({ icon: '📄', text: `${filesChanged[1]} fichier${filesChanged[1] > 1 ? 's' : ''} modifié${filesChanged[1] > 1 ? 's' : ''}` });
+  }
+  if (insertions) {
+    details.push({ icon: '+', text: `${insertions[1]} insertion${insertions[1] > 1 ? 's' : ''}` });
+  }
+  if (deletions) {
+    details.push({ icon: '-', text: `${deletions[1]} suppression${deletions[1] > 1 ? 's' : ''}` });
+  }
+
+  return { message: '', details };
+}
+
+function parseGitPushOutput(output) {
+  const details = [];
+
+  if (!output) return { message: 'Modifications envoyées', details };
+
+  // Everything up-to-date
+  if (output.includes('Everything up-to-date')) {
+    return { message: 'Déjà synchronisé', details: [{ icon: '✓', text: 'Aucune modification à envoyer' }] };
+  }
+
+  // Extract branch info
+  const branchMatch = output.match(/(\w+)\.\.(\w+)\s+(\S+)\s+->\s+(\S+)/);
+  if (branchMatch) {
+    details.push({ icon: '↑', text: `${branchMatch[3]} → ${branchMatch[4]}` });
+  }
+
+  return { message: 'Modifications envoyées', details };
+}
+
 // ========== GIT OPERATIONS ==========
+
+// Refresh dashboard async (stale-while-revalidate pattern)
+function refreshDashboardAsync(projectId) {
+  const projects = projectsState.get().projects;
+  const projectIndex = projects.findIndex(p => p.id === projectId);
+
+  // Only refresh if dashboard tab is active and this project is selected
+  const dashboardTab = document.querySelector('[data-tab="dashboard"]');
+  const isDashboardActive = dashboardTab?.classList.contains('active');
+  const isProjectSelected = localState.selectedDashboardProject === projectIndex;
+
+  if (isDashboardActive && isProjectSelected && projectIndex !== -1) {
+    // Invalidate cache to force refresh, but keep old data visible
+    DashboardService.invalidateCache(projectId);
+
+    // Re-render - will show old data immediately then update when new data loads
+    const content = document.getElementById('dashboard-content');
+    const project = projects[projectIndex];
+    if (content && project) {
+      const terminalCount = TerminalManager.countTerminalsForProject(projectIndex);
+      const fivemStatus = localState.fivemServers.get(projectIndex)?.status || 'stopped';
+
+      DashboardService.renderDashboard(content, project, {
+        terminalCount,
+        fivemStatus,
+        onOpenFolder: (p) => ipcRenderer.send('open-in-explorer', p),
+        onOpenClaude: (proj) => {
+          createTerminalForProject(proj);
+          document.querySelector('[data-tab="claude"]')?.click();
+        },
+        onGitPull: (pid) => gitPull(pid),
+        onGitPush: (pid) => gitPush(pid),
+        onCopyPath: () => {}
+      });
+    }
+  }
+}
+
 async function gitPull(projectId) {
   const project = getProject(projectId);
   if (!project) return;
@@ -133,10 +284,36 @@ async function gitPull(projectId) {
     const result = await ipcRenderer.invoke('git-pull', { projectPath: project.path });
     localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pulling: false, lastResult: result });
     ProjectList.render();
-    alert(result.success ? `Pull reussi:\n${result.output}` : `Erreur:\n${result.error}`);
+
+    if (result.success) {
+      const parsed = parseGitPullOutput(result.output);
+      showGitToast({
+        success: true,
+        title: 'Pull réussi',
+        message: parsed.message,
+        details: parsed.details,
+        duration: 4000
+      });
+
+      // Refresh dashboard async - keep old data, load new in background
+      refreshDashboardAsync(projectId);
+    } else {
+      showGitToast({
+        success: false,
+        title: 'Erreur lors du pull',
+        message: result.error || 'Une erreur est survenue',
+        duration: 6000
+      });
+    }
   } catch (e) {
     localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pulling: false });
     ProjectList.render();
+    showGitToast({
+      success: false,
+      title: 'Erreur lors du pull',
+      message: e.message || 'Une erreur est survenue',
+      duration: 6000
+    });
   }
 }
 
@@ -149,10 +326,36 @@ async function gitPush(projectId) {
     const result = await ipcRenderer.invoke('git-push', { projectPath: project.path });
     localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pushing: false, lastResult: result });
     ProjectList.render();
-    alert(result.success ? `Push reussi:\n${result.output}` : `Erreur:\n${result.error}`);
+
+    if (result.success) {
+      const parsed = parseGitPushOutput(result.output);
+      showGitToast({
+        success: true,
+        title: 'Push réussi',
+        message: parsed.message,
+        details: parsed.details,
+        duration: 4000
+      });
+
+      // Refresh dashboard async - keep old data, load new in background
+      refreshDashboardAsync(projectId);
+    } else {
+      showGitToast({
+        success: false,
+        title: 'Erreur lors du push',
+        message: result.error || 'Une erreur est survenue',
+        duration: 6000
+      });
+    }
   } catch (e) {
     localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pushing: false });
     ProjectList.render();
+    showGitToast({
+      success: false,
+      title: 'Erreur lors du push',
+      message: e.message || 'Une erreur est survenue',
+      duration: 6000
+    });
   }
 }
 
@@ -187,95 +390,32 @@ function openFivemConsole(projectIndex) {
   const project = projects[projectIndex];
   if (!project) return;
 
-  // Get the project detail view elements
-  const detailView = document.getElementById('project-detail-view');
-  const detailIcon = document.getElementById('project-detail-icon');
-  const detailName = document.getElementById('project-detail-name');
-  const detailPath = document.getElementById('project-detail-path');
-  const detailActions = document.getElementById('project-detail-actions');
-  const detailContent = document.getElementById('project-detail-content');
-  const terminalsContainer = document.getElementById('terminals-container');
-  const emptyTerminals = document.getElementById('empty-terminals');
-  const closeBtn = document.getElementById('btn-close-detail');
-
-  // Hide terminals view, show detail view
-  terminalsContainer.style.display = 'none';
-  if (emptyTerminals) emptyTerminals.style.display = 'none';
-  detailView.style.display = 'flex';
-
-  // Set project info
-  detailIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16V4H3v12h18m0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h2v2H8v-2h2v-2H3a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2h18"/></svg>';
-  detailName.textContent = project.name;
-  detailPath.textContent = project.path;
-
-  // Set actions
-  const serverStatus = localState.fivemServers.get(projectIndex)?.status || 'stopped';
-  detailActions.innerHTML = `
-    <div class="detail-actions-row">
-      ${serverStatus === 'running' ? `
-        <button class="btn-action btn-danger" id="btn-detail-stop">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
-          Arrêter le serveur
-        </button>
-      ` : `
-        <button class="btn-action btn-success" id="btn-detail-start">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          Démarrer le serveur
-        </button>
-      `}
-      <button class="btn-action btn-secondary" id="btn-detail-open-folder">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
-        Ouvrir le dossier
-      </button>
-    </div>
-    <div class="server-status ${serverStatus}">
-      <span class="status-indicator"></span>
-      <span class="status-text">${serverStatus === 'running' ? 'Serveur en cours d\'exécution' : serverStatus === 'starting' ? 'Démarrage...' : 'Serveur arrêté'}</span>
-    </div>
-  `;
-
-  // Setup action buttons
-  document.getElementById('btn-detail-start')?.addEventListener('click', () => {
-    startFivemServer(projectIndex);
-    setTimeout(() => openFivemConsole(projectIndex), 500);
-  });
-
-  document.getElementById('btn-detail-stop')?.addEventListener('click', () => {
-    stopFivemServer(projectIndex);
-    setTimeout(() => openFivemConsole(projectIndex), 500);
-  });
-
-  document.getElementById('btn-detail-open-folder')?.addEventListener('click', () => {
-    ipcRenderer.send('open-in-explorer', project.path);
-  });
-
-  // Setup console terminal
-  detailContent.innerHTML = '<div class="fivem-console-container" id="fivem-console"></div>';
-  const consoleContainer = document.getElementById('fivem-console');
-
-  // Mount the FiveM terminal
-  FivemService.mountFivemTerminal(projectIndex, consoleContainer);
-
-  // Handle resize
-  const resizeObserver = new ResizeObserver(() => {
-    FivemService.fitFivemTerminal(projectIndex);
-  });
-  resizeObserver.observe(consoleContainer);
-
-  // Close button handler
-  const closeHandler = () => {
-    detailView.style.display = 'none';
-    terminalsContainer.style.display = 'block';
-    if (terminalsState.get().terminals.size === 0) {
-      if (emptyTerminals) emptyTerminals.style.display = 'flex';
-    }
-    resizeObserver.disconnect();
-    closeBtn.removeEventListener('click', closeHandler);
-  };
-  closeBtn.addEventListener('click', closeHandler);
+  // Create FiveM console as a terminal tab (same location as other terminals)
+  TerminalManager.createFivemConsole(project, projectIndex);
 }
 
-// Register FiveM listeners via the service
+// Register FiveM listeners - write to TerminalManager's FiveM console
+ipcRenderer.on('fivem-data', (event, { projectIndex, data }) => {
+  // Update local state logs
+  const server = localState.fivemServers.get(projectIndex) || { status: 'running', logs: [] };
+  server.logs.push(data);
+  if (server.logs.join('').length > 10000) server.logs = [server.logs.join('').slice(-10000)];
+  localState.fivemServers.set(projectIndex, server);
+
+  // Write to TerminalManager's FiveM console
+  TerminalManager.writeFivemConsole(projectIndex, data);
+});
+
+ipcRenderer.on('fivem-exit', (event, { projectIndex, code }) => {
+  localState.fivemServers.set(projectIndex, { status: 'stopped', logs: localState.fivemServers.get(projectIndex)?.logs || [] });
+
+  // Write exit message to console
+  TerminalManager.writeFivemConsole(projectIndex, `\r\n[Server exited with code ${code}]\r\n`);
+
+  ProjectList.render();
+});
+
+// Legacy FiveM listeners via the service (kept for compatibility)
 FivemService.registerFivemListeners(
   // onData callback - update local state
   (projectIndex, data) => {
@@ -325,6 +465,12 @@ function createTerminalForProject(project) {
   });
 }
 
+function createBasicTerminalForProject(project) {
+  TerminalManager.createTerminal(project, {
+    runClaude: false
+  });
+}
+
 // ========== SETUP COMPONENTS ==========
 // Setup ProjectList
 ProjectList.setExternalState({
@@ -335,6 +481,7 @@ ProjectList.setExternalState({
 
 ProjectList.setCallbacks({
   onCreateTerminal: createTerminalForProject,
+  onCreateBasicTerminal: createBasicTerminalForProject,
   onStartFivem: startFivemServer,
   onStopFivem: stopFivemServer,
   onOpenFivemConsole: openFivemConsole,
@@ -349,8 +496,7 @@ ProjectList.setCallbacks({
 // Setup TerminalManager
 TerminalManager.setCallbacks({
   onNotification: showNotification,
-  onRenderProjects: () => ProjectList.render(),
-  onUpdateWindowTitle: updateWindowTitle
+  onRenderProjects: () => ProjectList.render()
 });
 
 // ========== WINDOW CONTROLS ==========
@@ -705,7 +851,23 @@ function loadAgents() {
     if (fs.existsSync(agentsDir)) {
       fs.readdirSync(agentsDir).forEach(item => {
         const itemPath = path.join(agentsDir, item);
-        if (fs.statSync(itemPath).isDirectory()) {
+        const stat = fs.statSync(itemPath);
+
+        // Handle .md files directly in agents directory (new format)
+        if (stat.isFile() && item.endsWith('.md')) {
+          const content = fs.readFileSync(itemPath, 'utf8');
+          const parsed = parseAgentMd(content);
+          const id = item.replace(/\.md$/, '');
+          localState.agents.push({
+            id,
+            name: parsed.name || id,
+            description: parsed.description || 'Aucune description',
+            tools: parsed.tools || [],
+            path: itemPath
+          });
+        }
+        // Handle subdirectories with AGENT.md (legacy format)
+        else if (stat.isDirectory()) {
           const agentFile = path.join(itemPath, 'AGENT.md');
           if (fs.existsSync(agentFile)) {
             const content = fs.readFileSync(agentFile, 'utf8');
@@ -1253,5 +1415,95 @@ registerShortcut('Ctrl+Down', () => {
 
 // Settings shortcut
 registerShortcut('Ctrl+,', () => showSettingsModal(), { global: true });
+
+// ========== UPDATE SYSTEM (GitHub Desktop style) ==========
+const updateBanner = document.getElementById('update-banner');
+const updateMessage = document.getElementById('update-message');
+const updateProgressContainer = document.getElementById('update-progress-container');
+const updateProgressBar = document.getElementById('update-progress-bar');
+const updateProgressText = document.getElementById('update-progress-text');
+const updateBtn = document.getElementById('update-btn');
+const updateDismiss = document.getElementById('update-dismiss');
+
+let updateState = {
+  available: false,
+  downloaded: false,
+  version: null,
+  dismissed: false
+};
+
+function showUpdateBanner() {
+  if (updateState.dismissed) return;
+  updateBanner.style.display = 'block';
+  // Adjust main container height
+  document.querySelector('.main-container').style.height = 'calc(100vh - 36px - 44px)';
+}
+
+function hideUpdateBanner() {
+  updateBanner.style.display = 'none';
+  document.querySelector('.main-container').style.height = 'calc(100vh - 36px)';
+}
+
+function updateProgress(percent) {
+  const p = Math.round(percent);
+  updateProgressBar.style.setProperty('--progress', `${p}%`);
+  updateProgressText.textContent = `${p}%`;
+}
+
+// Handle update status from main process
+ipcRenderer.on('update-status', (event, data) => {
+  switch (data.status) {
+    case 'available':
+      updateState.available = true;
+      updateState.version = data.version;
+      updateMessage.textContent = `Nouvelle version disponible: v${data.version}`;
+      updateProgressContainer.style.display = 'flex';
+      updateBtn.style.display = 'none';
+      updateBanner.classList.remove('downloaded');
+      showUpdateBanner();
+      break;
+
+    case 'downloading':
+      updateProgress(data.progress || 0);
+      break;
+
+    case 'downloaded':
+      updateState.downloaded = true;
+      updateMessage.textContent = `v${data.version} prete a installer`;
+      updateProgressContainer.style.display = 'none';
+      updateBtn.style.display = 'block';
+      updateBanner.classList.add('downloaded');
+      showUpdateBanner();
+      break;
+
+    case 'not-available':
+      // Pas de nouvelle version, ne rien afficher
+      break;
+
+    case 'error':
+      console.error('Update error:', data.error);
+      hideUpdateBanner();
+      break;
+  }
+});
+
+// Restart and install button
+updateBtn.addEventListener('click', () => {
+  ipcRenderer.send('update-install');
+});
+
+// Dismiss button
+updateDismiss.addEventListener('click', () => {
+  updateState.dismissed = true;
+  hideUpdateBanner();
+});
+
+// Display current version
+ipcRenderer.invoke('get-app-version').then(version => {
+  const versionEl = document.getElementById('app-version');
+  if (versionEl) {
+    versionEl.textContent = `v${version}`;
+  }
+}).catch(() => {});
 
 console.log('Claude Terminal initialized');
