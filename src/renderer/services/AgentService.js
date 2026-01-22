@@ -9,6 +9,39 @@ const { agentsDir } = require('../utils/paths');
 const { skillsAgentsState } = require('../state');
 
 /**
+ * Parse YAML frontmatter from markdown content
+ * @param {string} content - Markdown content
+ * @returns {Object} - { metadata, body }
+ */
+function parseFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) {
+    return { metadata: {}, body: content };
+  }
+
+  const yamlStr = match[1];
+  const body = match[2];
+  const metadata = {};
+
+  // Simple YAML parsing for key: value pairs
+  yamlStr.split('\n').forEach(line => {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex > 0) {
+      const key = line.slice(0, colonIndex).trim();
+      let value = line.slice(colonIndex + 1).trim();
+      // Remove quotes if present
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      metadata[key] = value;
+    }
+  });
+
+  return { metadata, body };
+}
+
+/**
  * Load all agents from the agents directory
  * @returns {Array}
  */
@@ -19,19 +52,37 @@ function loadAgents() {
     if (fs.existsSync(agentsDir)) {
       fs.readdirSync(agentsDir).forEach(item => {
         const itemPath = path.join(agentsDir, item);
+        const stat = fs.statSync(itemPath);
 
-        if (fs.statSync(itemPath).isDirectory()) {
+        // Handle .md files directly in agents directory
+        if (stat.isFile() && item.endsWith('.md')) {
+          const content = fs.readFileSync(itemPath, 'utf8');
+          const { metadata } = parseFrontmatter(content);
+
+          const id = item.replace(/\.md$/, '');
+          agents.push({
+            id,
+            name: metadata.name || id,
+            description: metadata.description || 'Aucune description',
+            tools: metadata.tools || '',
+            model: metadata.model || 'sonnet',
+            path: itemPath
+          });
+        }
+        // Also handle subdirectories with AGENT.md (legacy format)
+        else if (stat.isDirectory()) {
           const agentFile = path.join(itemPath, 'AGENT.md');
-
           if (fs.existsSync(agentFile)) {
             const content = fs.readFileSync(agentFile, 'utf8');
+            const { metadata } = parseFrontmatter(content);
             const nameMatch = content.match(/^#\s+(.+)/m);
-            const descMatch = content.match(/description[:\s]+["']?([^"'\n]+)/i);
 
             agents.push({
               id: item,
-              name: nameMatch ? nameMatch[1] : item,
-              description: descMatch ? descMatch[1] : 'Aucune description',
+              name: metadata.name || (nameMatch ? nameMatch[1] : item),
+              description: metadata.description || 'Aucune description',
+              tools: metadata.tools || '',
+              model: metadata.model || 'sonnet',
               path: itemPath
             });
           }
@@ -66,6 +117,15 @@ function getAgent(id) {
 }
 
 /**
+ * Check if agent is a file (new format) or directory (legacy format)
+ * @param {Object} agent
+ * @returns {boolean}
+ */
+function isAgentFile(agent) {
+  return agent.path.endsWith('.md');
+}
+
+/**
  * Read agent content
  * @param {string} id - Agent ID
  * @returns {string|null}
@@ -74,9 +134,15 @@ function readAgentContent(id) {
   const agent = getAgent(id);
   if (!agent) return null;
 
-  const agentFile = path.join(agent.path, 'AGENT.md');
   try {
-    return fs.readFileSync(agentFile, 'utf8');
+    if (isAgentFile(agent)) {
+      // New format: single .md file
+      return fs.readFileSync(agent.path, 'utf8');
+    } else {
+      // Legacy format: directory with AGENT.md
+      const agentFile = path.join(agent.path, 'AGENT.md');
+      return fs.readFileSync(agentFile, 'utf8');
+    }
   } catch (e) {
     console.error('Error reading agent:', e);
     return null;
@@ -94,16 +160,28 @@ function getAgentFiles(id) {
 
   const files = [];
   try {
-    fs.readdirSync(agent.path).forEach(file => {
-      const filePath = path.join(agent.path, file);
-      const stat = fs.statSync(filePath);
+    if (isAgentFile(agent)) {
+      // New format: single file
+      const stat = fs.statSync(agent.path);
       files.push({
-        name: file,
-        path: filePath,
-        isDirectory: stat.isDirectory(),
+        name: path.basename(agent.path),
+        path: agent.path,
+        isDirectory: false,
         size: stat.size
       });
-    });
+    } else {
+      // Legacy format: directory
+      fs.readdirSync(agent.path).forEach(file => {
+        const filePath = path.join(agent.path, file);
+        const stat = fs.statSync(filePath);
+        files.push({
+          name: file,
+          path: filePath,
+          isDirectory: stat.isDirectory(),
+          size: stat.size
+        });
+      });
+    }
   } catch (e) {
     console.error('Error reading agent files:', e);
   }
@@ -121,8 +199,13 @@ function deleteAgent(id) {
   if (!agent) return false;
 
   try {
-    // Remove directory recursively
-    fs.rmSync(agent.path, { recursive: true, force: true });
+    if (isAgentFile(agent)) {
+      // New format: delete single file
+      fs.unlinkSync(agent.path);
+    } else {
+      // Legacy format: remove directory recursively
+      fs.rmSync(agent.path, { recursive: true, force: true });
+    }
     loadAgents(); // Reload
     return true;
   } catch (e) {
@@ -139,7 +222,9 @@ function openAgentInExplorer(id) {
   const { ipcRenderer } = require('electron');
   const agent = getAgent(id);
   if (agent) {
-    ipcRenderer.send('open-in-explorer', agent.path);
+    // For file agents, open the containing directory
+    const targetPath = isAgentFile(agent) ? path.dirname(agent.path) : agent.path;
+    ipcRenderer.send('open-in-explorer', targetPath);
   }
 }
 
