@@ -8,6 +8,7 @@ const ContextMenu = require('./ContextMenu');
 const Tab = require('./Tab');
 const ProjectList = require('./ProjectList');
 const TerminalManager = require('./TerminalManager');
+const CustomizePicker = require('./CustomizePicker');
 
 module.exports = {
   ...Modal,
@@ -15,5 +16,6 @@ module.exports = {
   ...ContextMenu,
   ...Tab,
   ProjectList,
-  TerminalManager
+  TerminalManager,
+  CustomizePicker
 };
