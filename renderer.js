@@ -295,6 +295,7 @@ function refreshDashboardAsync(projectId) {
         },
         onGitPull: (pid) => gitPull(pid),
         onGitPush: (pid) => gitPush(pid),
+        onMergeAbort: (pid) => gitMergeAbort(pid),
         onCopyPath: () => {}
       });
     }
@@ -308,6 +309,31 @@ async function gitPull(projectId) {
   ProjectList.render();
   try {
     const result = await ipcRenderer.invoke('git-pull', { projectPath: project.path });
+
+    // Handle merge conflicts
+    if (result.hasConflicts) {
+      localState.gitOperations.set(projectId, {
+        ...localState.gitOperations.get(projectId),
+        pulling: false,
+        mergeInProgress: true,
+        conflicts: result.conflicts || [],
+        lastResult: result
+      });
+      ProjectList.render();
+
+      showGitToast({
+        success: false,
+        title: 'Conflits de merge',
+        message: `${result.conflicts?.length || 0} fichier(s) en conflit`,
+        details: 'Résolvez les conflits ou annulez le merge depuis le dashboard',
+        duration: 8000
+      });
+
+      // Refresh dashboard to show conflict UI
+      refreshDashboardAsync(projectId);
+      return;
+    }
+
     localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pulling: false, lastResult: result });
     ProjectList.render();
 
@@ -379,6 +405,50 @@ async function gitPush(projectId) {
     showGitToast({
       success: false,
       title: 'Erreur lors du push',
+      message: e.message || 'Une erreur est survenue',
+      duration: 6000
+    });
+  }
+}
+
+async function gitMergeAbort(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+
+  try {
+    const result = await ipcRenderer.invoke('git-merge-abort', { projectPath: project.path });
+
+    if (result.success) {
+      // Clear merge state
+      localState.gitOperations.set(projectId, {
+        ...localState.gitOperations.get(projectId),
+        mergeInProgress: false,
+        conflicts: [],
+        lastResult: result
+      });
+      ProjectList.render();
+
+      showGitToast({
+        success: true,
+        title: 'Merge annulé',
+        message: 'Le merge a été annulé avec succès',
+        duration: 4000
+      });
+
+      // Refresh dashboard
+      refreshDashboardAsync(projectId);
+    } else {
+      showGitToast({
+        success: false,
+        title: 'Erreur lors de l\'annulation',
+        message: result.error || 'Une erreur est survenue',
+        duration: 6000
+      });
+    }
+  } catch (e) {
+    showGitToast({
+      success: false,
+      title: 'Erreur lors de l\'annulation',
       message: e.message || 'Une erreur est survenue',
       duration: 6000
     });
@@ -1580,6 +1650,7 @@ async function renderDashboardContent(projectIndex) {
     },
     onGitPull: (projectId) => gitPull(projectId),
     onGitPush: (projectId) => gitPush(projectId),
+    onMergeAbort: (projectId) => gitMergeAbort(projectId),
     onCopyPath: () => {}
   });
 }
@@ -2260,5 +2331,12 @@ if (usageElements.container) {
     refreshUsageDisplay();
   }, 2000);
 }
+
+// ========== TIME TRACKING SAVE ON QUIT ==========
+// Listen for app quit to save active time tracking sessions
+ipcRenderer.on('app-will-quit', () => {
+  const { saveAllActiveSessions } = require('./src/renderer');
+  saveAllActiveSessions();
+});
 
 console.log('Claude Terminal initialized');

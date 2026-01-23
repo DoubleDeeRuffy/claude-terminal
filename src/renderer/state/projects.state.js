@@ -208,6 +208,16 @@ function loadProjects() {
             project.folderId = null;
             needsSave = true;
           }
+          // Migration: Initialize timeTracking if not present
+          if (!project.timeTracking) {
+            project.timeTracking = {
+              totalTime: 0,
+              todayTime: 0,
+              lastActiveDate: null,
+              sessions: []
+            };
+            needsSave = true;
+          }
           return project;
         });
         folders = data.folders || [];

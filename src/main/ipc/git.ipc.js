@@ -4,7 +4,7 @@
  */
 
 const { ipcMain } = require('electron');
-const { getGitInfo, getGitInfoFull, getGitStatusQuick, gitPull, gitPush, getProjectStats, getBranches, getCurrentBranch, checkoutBranch } = require('../utils/git');
+const { getGitInfo, getGitInfoFull, getGitStatusQuick, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, getProjectStats, getBranches, getCurrentBranch, checkoutBranch } = require('../utils/git');
 
 /**
  * Register git IPC handlers
@@ -53,6 +53,31 @@ function registerGitHandlers() {
   // Checkout branch
   ipcMain.handle('git-checkout', async (event, { projectPath, branch }) => {
     return checkoutBranch(projectPath, branch);
+  });
+
+  // Git merge
+  ipcMain.handle('git-merge', async (event, { projectPath, branch }) => {
+    return gitMerge(projectPath, branch);
+  });
+
+  // Git merge abort
+  ipcMain.handle('git-merge-abort', async (event, { projectPath }) => {
+    return gitMergeAbort(projectPath);
+  });
+
+  // Git merge continue
+  ipcMain.handle('git-merge-continue', async (event, { projectPath }) => {
+    return gitMergeContinue(projectPath);
+  });
+
+  // Get merge conflicts
+  ipcMain.handle('git-merge-conflicts', async (event, { projectPath }) => {
+    return getMergeConflicts(projectPath);
+  });
+
+  // Check if merge in progress
+  ipcMain.handle('git-merge-in-progress', async (event, { projectPath }) => {
+    return isMergeInProgress(projectPath);
   });
 }
 

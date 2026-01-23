@@ -334,13 +334,24 @@ async function getGitStatusQuick(projectPath) {
 /**
  * Execute git pull
  * @param {string} projectPath - Path to the project
- * @returns {Promise<Object>} - Result object with success/error
+ * @returns {Promise<Object>} - Result object with success/error/conflicts
  */
 function gitPull(projectPath) {
   return new Promise((resolve) => {
-    exec('git pull', { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    exec('git pull', { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, async (error, stdout, stderr) => {
       if (error) {
-        resolve({ success: false, error: stderr || error.message });
+        // Check if there are merge conflicts
+        const conflicts = await getMergeConflicts(projectPath);
+        if (conflicts.length > 0) {
+          resolve({
+            success: false,
+            hasConflicts: true,
+            conflicts,
+            error: 'Merge conflicts detected. Resolve conflicts or abort merge.'
+          });
+        } else {
+          resolve({ success: false, error: stderr || error.message });
+        }
       } else {
         resolve({ success: true, output: stdout || 'Already up to date.' });
       }
@@ -368,6 +379,90 @@ function gitPush(projectPath) {
       }
     });
   });
+}
+
+/**
+ * Execute git merge
+ * @param {string} projectPath - Path to the project
+ * @param {string} branch - Branch to merge into current branch
+ * @returns {Promise<Object>} - Result object with success/error/conflicts
+ */
+function gitMerge(projectPath, branch) {
+  return new Promise((resolve) => {
+    exec(`git merge "${branch}"`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, async (error, stdout, stderr) => {
+      if (error) {
+        // Check if there are merge conflicts
+        const conflicts = await getMergeConflicts(projectPath);
+        if (conflicts.length > 0) {
+          resolve({
+            success: false,
+            hasConflicts: true,
+            conflicts,
+            error: 'Merge conflicts detected. Resolve conflicts or abort merge.'
+          });
+        } else {
+          resolve({ success: false, error: stderr || error.message });
+        }
+      } else {
+        resolve({ success: true, output: stdout || 'Merge successful.' });
+      }
+    });
+  });
+}
+
+/**
+ * Abort current merge
+ * @param {string} projectPath - Path to the project
+ * @returns {Promise<Object>} - Result object with success/error
+ */
+function gitMergeAbort(projectPath) {
+  return new Promise((resolve) => {
+    exec('git merge --abort', { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: 'Merge aborted.' });
+      }
+    });
+  });
+}
+
+/**
+ * Continue merge after resolving conflicts
+ * @param {string} projectPath - Path to the project
+ * @returns {Promise<Object>} - Result object with success/error
+ */
+function gitMergeContinue(projectPath) {
+  return new Promise((resolve) => {
+    exec('git merge --continue', { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || 'Merge completed.' });
+      }
+    });
+  });
+}
+
+/**
+ * Get list of files with merge conflicts
+ * @param {string} projectPath - Path to the project
+ * @returns {Promise<Array>} - List of conflicted files
+ */
+async function getMergeConflicts(projectPath) {
+  const output = await execGit(projectPath, 'diff --name-only --diff-filter=U');
+  if (!output) return [];
+  return output.split('\n').filter(f => f.trim());
+}
+
+/**
+ * Check if there's a merge in progress
+ * @param {string} projectPath - Path to the project
+ * @returns {Promise<boolean>} - True if merge in progress
+ */
+async function isMergeInProgress(projectPath) {
+  const mergeHead = path.join(projectPath, '.git', 'MERGE_HEAD');
+  return fs.existsSync(mergeHead);
 }
 
 /**
@@ -465,6 +560,11 @@ module.exports = {
   getGitStatusQuick,
   gitPull,
   gitPush,
+  gitMerge,
+  gitMergeAbort,
+  gitMergeContinue,
+  getMergeConflicts,
+  isMergeInProgress,
   countLinesOfCode,
   getProjectStats,
   getBranches,

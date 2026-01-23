@@ -117,9 +117,14 @@ function bootstrapApp() {
   // Will quit - cleanup
   app.on('will-quit', cleanup);
 
-  // Before quit - mark as quitting and cleanup services
+  // Before quit - notify renderer to save state and cleanup
   app.on('before-quit', () => {
     setQuitting(true);
+    // Notify renderer to save active time tracking sessions
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app-will-quit');
+    }
     cleanupServices();
   });
 

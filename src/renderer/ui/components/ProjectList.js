@@ -21,10 +21,28 @@ const {
   setFolderColor,
   setProjectColor,
   setProjectIcon,
-  setFolderIcon
+  setFolderIcon,
+  getProjectTimes
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
 const CustomizePicker = require('./CustomizePicker');
+
+/**
+ * Format duration in milliseconds to human-readable string
+ * @param {number} ms - Duration in milliseconds
+ * @returns {string}
+ */
+function formatDuration(ms) {
+  if (!ms || ms < 1000) return '0m';
+
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+
+  if (hours > 0) {
+    return `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`;
+  }
+  return `${minutes}m`;
+}
 
 // Local state
 let dragState = { dragging: null, dropTarget: null };
@@ -224,6 +242,10 @@ function renderProjectHtml(project, depth) {
 
   const statusIndicator = isFivem ? `<span class="fivem-status-dot ${fivemStatus}" title="${fivemStatus === 'stopped' ? 'Arrete' : fivemStatus === 'starting' ? 'Demarrage...' : 'En cours'}"></span>` : '';
   const colorIndicator = projectColor ? `<span class="color-indicator" style="background: ${projectColor}"></span>` : '';
+
+  // Get time tracking data
+  const times = getProjectTimes(project.id);
+  const hasTime = times.total > 0 || times.today > 0;
   const iconColorStyle = projectColor ? `style="color: ${projectColor}"` : '';
 
   // Build project icon HTML
@@ -248,6 +270,11 @@ function renderProjectHtml(project, depth) {
           ${!isFivem && terminalCount > 0 ? `<span class="terminal-count">${terminalCount}</span>` : ''}
         </div>
         <div class="project-path">${escapeHtml(project.path)}</div>
+        ${hasTime ? `<div class="project-time">
+          <span class="time-today" title="Aujourd'hui">${formatDuration(times.today)}</span>
+          <span class="time-separator">\u2022</span>
+          <span class="time-total" title="Total">${formatDuration(times.total)}</span>
+        </div>` : ''}
       </div>
       <div class="project-actions">
         ${primaryActionsHtml}

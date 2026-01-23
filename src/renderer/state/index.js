@@ -9,6 +9,7 @@ const terminalsState = require('./terminals.state');
 const mcpState = require('./mcp.state');
 const fivemState = require('./fivem.state');
 const settingsState = require('./settings.state');
+const timeTrackingState = require('./timeTracking.state');
 
 // Quick picker state (simple, doesn't need a module)
 const quickPickerState = new State({
@@ -43,6 +44,11 @@ const skillsAgentsState = new State({
 function initializeState() {
   settingsState.loadSettings();
   projectsState.loadProjects();
+  // Initialize time tracking with project state references
+  timeTrackingState.initTimeTracking(
+    projectsState.projectsState,
+    projectsState.saveProjects
+  );
   // Lazy require to avoid circular dependency
   const { loadSkills } = require('../services/SkillService');
   const { loadAgents } = require('../services/AgentService');
@@ -89,6 +95,9 @@ module.exports = {
 
   // Settings
   ...settingsState,
+
+  // Time Tracking
+  ...timeTrackingState,
 
   // Simple states
   quickPickerState,

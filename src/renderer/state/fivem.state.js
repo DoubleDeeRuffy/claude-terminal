@@ -205,6 +205,9 @@ function getGitOperation(projectId) {
   return fivemState.get().gitOperations.get(projectId) || {
     pulling: false,
     pushing: false,
+    merging: false,
+    mergeInProgress: false,
+    conflicts: [],
     lastResult: null
   };
 }
@@ -234,11 +237,47 @@ function setGitPulling(projectId, pulling, result = null) {
  */
 function setGitPushing(projectId, pushing, result = null) {
   const ops = fivemState.get().gitOperations;
-  const current = ops.get(projectId) || { pulling: false, pushing: false, lastResult: null };
+  const current = ops.get(projectId) || { pulling: false, pushing: false, merging: false, mergeInProgress: false, conflicts: [], lastResult: null };
   ops.set(projectId, {
     ...current,
     pushing,
     lastResult: result !== null ? result : current.lastResult
+  });
+  fivemState.setProp('gitOperations', ops);
+}
+
+/**
+ * Set git merge state
+ * @param {string} projectId
+ * @param {boolean} merging
+ * @param {Object|null} result
+ */
+function setGitMerging(projectId, merging, result = null) {
+  const ops = fivemState.get().gitOperations;
+  const current = ops.get(projectId) || { pulling: false, pushing: false, merging: false, mergeInProgress: false, conflicts: [], lastResult: null };
+  ops.set(projectId, {
+    ...current,
+    merging,
+    mergeInProgress: result?.hasConflicts || false,
+    conflicts: result?.conflicts || [],
+    lastResult: result !== null ? result : current.lastResult
+  });
+  fivemState.setProp('gitOperations', ops);
+}
+
+/**
+ * Set merge in progress state (from pull with conflicts)
+ * @param {string} projectId
+ * @param {boolean} inProgress
+ * @param {Array} conflicts
+ */
+function setMergeInProgress(projectId, inProgress, conflicts = []) {
+  const ops = fivemState.get().gitOperations;
+  const current = ops.get(projectId) || { pulling: false, pushing: false, merging: false, mergeInProgress: false, conflicts: [], lastResult: null };
+  ops.set(projectId, {
+    ...current,
+    mergeInProgress: inProgress,
+    conflicts
   });
   fivemState.setProp('gitOperations', ops);
 }
@@ -299,6 +338,8 @@ module.exports = {
   getGitOperation,
   setGitPulling,
   setGitPushing,
+  setGitMerging,
+  setMergeInProgress,
   getGitRepoStatus,
   setGitRepoStatus,
   checkAllProjectsGitStatus

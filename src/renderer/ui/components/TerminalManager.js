@@ -21,7 +21,12 @@ const {
   dismissLastError,
   getFivemErrors,
   clearFivemErrors,
-  getSetting
+  getSetting,
+  startTracking,
+  stopTracking,
+  recordActivity,
+  switchProject,
+  hasTerminalsForProject
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
 const {
@@ -320,6 +325,11 @@ function startRenameTab(id) {
  * Set active terminal
  */
 function setActiveTerminal(id) {
+  // Get previous terminal's project for time tracking
+  const prevActiveId = getActiveTerminal();
+  const prevTermData = prevActiveId ? getTerminal(prevActiveId) : null;
+  const prevProjectId = prevTermData?.project?.id;
+
   setActiveTerminalState(id);
   document.querySelectorAll('.terminal-tab').forEach(t => t.classList.toggle('active', t.dataset.id == id));
   document.querySelectorAll('.terminal-wrapper').forEach(w => w.classList.toggle('active', w.dataset.id == id));
@@ -327,6 +337,12 @@ function setActiveTerminal(id) {
   if (termData) {
     termData.fitAddon.fit();
     termData.terminal.focus();
+
+    // Handle project switch for time tracking
+    const newProjectId = termData.project?.id;
+    if (prevProjectId !== newProjectId) {
+      switchProject(prevProjectId, newProjectId);
+    }
   }
 }
 
@@ -366,6 +382,7 @@ function closeTerminal(id) {
   const termData = getTerminal(id);
   const closedProjectIndex = termData?.projectIndex;
   const closedProjectPath = termData?.project?.path;
+  const closedProjectId = termData?.project?.id;
 
   // Kill and cleanup
   ipcRenderer.send('terminal-kill', { id });
@@ -376,13 +393,18 @@ function closeTerminal(id) {
 
   // Find another terminal from the same project
   let sameProjectTerminalId = null;
+  const terminals = terminalsState.get().terminals;
   if (closedProjectPath) {
-    const terminals = terminalsState.get().terminals;
     terminals.forEach((td, termId) => {
       if (!sameProjectTerminalId && td.project?.path === closedProjectPath) {
         sameProjectTerminalId = termId;
       }
     });
+  }
+
+  // Stop time tracking if no more terminals for this project
+  if (!sameProjectTerminalId && closedProjectId) {
+    stopTracking(closedProjectId);
   }
 
   if (sameProjectTerminalId) {
@@ -455,6 +477,9 @@ async function createTerminal(project, options = {}) {
 
   addTerminal(id, termData);
 
+  // Start time tracking for this project
+  startTracking(project.id);
+
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
@@ -494,7 +519,11 @@ async function createTerminal(project, options = {}) {
 
   // IPC data handling
   const dataHandler = (event, data) => {
-    if (data.id === id) terminal.write(data.data);
+    if (data.id === id) {
+      terminal.write(data.data);
+      // Record activity when terminal receives output (Claude is working)
+      recordActivity();
+    }
   };
   const exitHandler = (event, data) => {
     if (data.id === id) closeTerminal(id);
@@ -511,6 +540,8 @@ async function createTerminal(project, options = {}) {
   // Input handling
   terminal.onData(data => {
     ipcRenderer.send('terminal-input', { id, data });
+    // Record activity for time tracking (resets idle timer)
+    recordActivity();
     const td = getTerminal(id);
     if (data === '\r' || data === '\n') {
       updateTerminalStatus(id, 'working');
@@ -596,6 +627,9 @@ function createFivemConsole(project, projectIndex, options = {}) {
 
   addTerminal(id, termData);
   fivemConsoleIds.set(projectIndex, id);
+
+  // Start time tracking for this project
+  startTracking(project.id);
 
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
@@ -1192,6 +1226,9 @@ async function resumeSession(project, sessionId, options = {}) {
 
   addTerminal(id, termData);
 
+  // Start time tracking for this project
+  startTracking(project.id);
+
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
@@ -1231,7 +1268,11 @@ async function resumeSession(project, sessionId, options = {}) {
 
   // IPC handlers
   const dataHandler = (event, data) => {
-    if (data.id === id) terminal.write(data.data);
+    if (data.id === id) {
+      terminal.write(data.data);
+      // Record activity when terminal receives output (Claude is working)
+      recordActivity();
+    }
   };
   const exitHandler = (event, data) => {
     if (data.id === id) closeTerminal(id);
@@ -1248,6 +1289,8 @@ async function resumeSession(project, sessionId, options = {}) {
   // Input handling
   terminal.onData(data => {
     ipcRenderer.send('terminal-input', { id, data });
+    // Record activity for time tracking (resets idle timer)
+    recordActivity();
     const td = getTerminal(id);
     if (data === '\r' || data === '\n') {
       updateTerminalStatus(id, 'working');

@@ -4,7 +4,7 @@
  */
 
 const { ipcRenderer } = require('electron');
-const { projectsState, setGitPulling, setGitPushing, getGitOperation } = require('../state');
+const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation } = require('../state');
 const { escapeHtml } = require('../utils');
 
 // ========== CACHE SYSTEM ==========
@@ -157,6 +157,10 @@ async function gitPull(projectId, onComplete) {
   try {
     const result = await ipcRenderer.invoke('git-pull', { projectPath: project.path });
     setGitPulling(projectId, false, result);
+    // If there are merge conflicts, set the merge in progress state
+    if (result.hasConflicts) {
+      setMergeInProgress(projectId, true, result.conflicts);
+    }
     if (onComplete) onComplete(result);
     return result;
   } catch (e) {
@@ -202,6 +206,56 @@ async function getGitStatusQuick(projectPath) {
     return await ipcRenderer.invoke('git-status-quick', { projectPath });
   } catch (e) {
     return { isGitRepo: false };
+  }
+}
+
+/**
+ * Abort merge for a project
+ * @param {string} projectId
+ * @param {Function} onComplete - Callback when complete
+ * @returns {Promise<Object>}
+ */
+async function gitMergeAbort(projectId, onComplete) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return { success: false, error: 'Project not found' };
+
+  try {
+    const result = await ipcRenderer.invoke('git-merge-abort', { projectPath: project.path });
+    if (result.success) {
+      setMergeInProgress(projectId, false, []);
+    }
+    if (onComplete) onComplete(result);
+    return result;
+  } catch (e) {
+    const result = { success: false, error: e.message };
+    if (onComplete) onComplete(result);
+    return result;
+  }
+}
+
+/**
+ * Check if merge is in progress
+ * @param {string} projectPath
+ * @returns {Promise<boolean>}
+ */
+async function isMergeInProgress(projectPath) {
+  try {
+    return await ipcRenderer.invoke('git-merge-in-progress', { projectPath });
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Get merge conflicts
+ * @param {string} projectPath
+ * @returns {Promise<Array>}
+ */
+async function getMergeConflicts(projectPath) {
+  try {
+    return await ipcRenderer.invoke('git-merge-conflicts', { projectPath });
+  } catch (e) {
+    return [];
   }
 }
 
@@ -473,15 +527,31 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     onOpenClaude,
     onGitPull,
     onGitPush,
+    onMergeAbort,
     onCopyPath
   } = options;
 
   const { gitInfo, stats } = data;
   const isFivem = project.type === 'fivem';
+  const gitOps = getGitOperation(project.id);
+  const hasMergeConflict = gitOps.mergeInProgress && gitOps.conflicts.length > 0;
 
   // Build HTML
   container.innerHTML = `
     ${isRefreshing ? '<div class="dashboard-refresh-indicator"><span class="refresh-spinner"></span> Actualisation...</div>' : ''}
+    ${hasMergeConflict ? `
+    <div class="dashboard-merge-alert">
+      <div class="merge-alert-header">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        <strong>Merge en conflit</strong> - ${gitOps.conflicts.length} fichier${gitOps.conflicts.length > 1 ? 's' : ''} en conflit
+      </div>
+      <div class="merge-alert-files">
+        ${gitOps.conflicts.slice(0, 5).map(f => `<code>${escapeHtml(f)}</code>`).join('')}
+        ${gitOps.conflicts.length > 5 ? `<span class="more-files">+${gitOps.conflicts.length - 5} autres</span>` : ''}
+      </div>
+      <div class="merge-alert-hint">Résolvez les conflits manuellement puis commitez, ou cliquez sur "Abort Merge" pour annuler.</div>
+    </div>
+    ` : ''}
     <div class="dashboard-project-header">
       <div class="dashboard-project-title">
         <h2>${escapeHtml(project.name)}</h2>
@@ -501,6 +571,12 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 4v2h14V4H5zm0 10h4v6h6v-6h4l-7-7-7 7z"/></svg>
           Push
         </button>
+        ${hasMergeConflict ? `
+        <button class="btn-danger" id="dash-btn-merge-abort">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          Abort Merge
+        </button>
+        ` : ''}
         ` : ''}
         <button class="btn-primary" id="dash-btn-claude">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.89 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10z"/></svg>
@@ -572,6 +648,17 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-spinner"></span> Push...';
     if (onGitPush) await onGitPush(project.id);
+    // Invalidate cache and re-render
+    invalidateCache(project.id);
+    renderDashboard(container, project, options);
+  });
+
+  container.querySelector('#dash-btn-merge-abort')?.addEventListener('click', async () => {
+    const btn = container.querySelector('#dash-btn-merge-abort');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Annulation...';
+    if (onMergeAbort) await onMergeAbort(project.id);
     // Invalidate cache and re-render
     invalidateCache(project.id);
     renderDashboard(container, project, options);
@@ -701,6 +788,9 @@ module.exports = {
   loadDashboardData,
   gitPull,
   gitPush,
+  gitMergeAbort,
+  isMergeInProgress,
+  getMergeConflicts,
   getGitStatusQuick,
   getDashboardProjects,
   renderDashboard,
