@@ -21,7 +21,6 @@ const legacyMcpsFile = path.join(dataDir, 'mcps.json');
 const claudeSettingsFile = path.join(claudeDir, 'settings.json');
 const claudeConfigFile = path.join(homeDir, '.claude.json'); // Main Claude Code config with MCP servers
 const skillsDir = path.join(claudeDir, 'skills');
-const commandsDir = path.join(claudeDir, 'commands'); // User commands (another skills location)
 const agentsDir = path.join(claudeDir, 'agents');
 
 /**
@@ -33,24 +32,6 @@ function ensureDirectories() {
       fs.mkdirSync(dir, { recursive: true });
     }
   });
-}
-
-/**
- * Get the path for a project-specific Claude settings file
- * @param {string} projectPath - Project root path
- * @returns {string} - Path to .claude/settings.local.json
- */
-function getProjectClaudeSettings(projectPath) {
-  return path.join(projectPath, '.claude', 'settings.local.json');
-}
-
-/**
- * Check if a path exists
- * @param {string} filePath - Path to check
- * @returns {boolean}
- */
-function pathExists(filePath) {
-  return fs.existsSync(filePath);
 }
 
 /**
@@ -77,10 +58,7 @@ module.exports = {
   claudeSettingsFile,
   claudeConfigFile,
   skillsDir,
-  commandsDir,
   agentsDir,
   ensureDirectories,
-  getProjectClaudeSettings,
-  pathExists,
   getAssetsDir
 };
