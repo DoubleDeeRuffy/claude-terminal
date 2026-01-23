@@ -24,6 +24,7 @@ const {
   setFolderIcon
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
+const CustomizePicker = require('./CustomizePicker');
 
 // Local state
 let dragState = { dragging: null, dropTarget: null };
@@ -69,56 +70,6 @@ function closeAllMoreActionsMenus() {
   document.querySelectorAll('.more-actions-menu.active').forEach(menu => menu.classList.remove('active'));
 }
 
-// Available colors for folder/project customization
-const ITEM_COLORS = [
-  { name: 'Default', value: null },
-  { name: 'Rouge', value: '#ef4444' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Ambre', value: '#f59e0b' },
-  { name: 'Jaune', value: '#eab308' },
-  { name: 'Lime', value: '#84cc16' },
-  { name: 'Vert', value: '#22c55e' },
-  { name: 'Emeraude', value: '#10b981' },
-  { name: 'Cyan', value: '#06b6d4' },
-  { name: 'Bleu', value: '#3b82f6' },
-  { name: 'Indigo', value: '#6366f1' },
-  { name: 'Violet', value: '#8b5cf6' },
-  { name: 'Fuchsia', value: '#d946ef' },
-  { name: 'Rose', value: '#ec4899' }
-];
-
-// Available icons for project customization
-const PROJECT_ICONS = [
-  { name: 'Default', value: null },
-  { name: 'Code', value: '💻' },
-  { name: 'Web', value: '🌐' },
-  { name: 'API', value: '🔌' },
-  { name: 'Database', value: '🗄️' },
-  { name: 'Mobile', value: '📱' },
-  { name: 'Game', value: '🎮' },
-  { name: 'AI', value: '🤖' },
-  { name: 'Cloud', value: '☁️' },
-  { name: 'Security', value: '🔒' },
-  { name: 'Test', value: '🧪' },
-  { name: 'Bug', value: '🐛' },
-  { name: 'Rocket', value: '🚀' },
-  { name: 'Tool', value: '🔧' },
-  { name: 'Book', value: '📚' },
-  { name: 'Music', value: '🎵' },
-  { name: 'Video', value: '🎬' },
-  { name: 'Photo', value: '📷' },
-  { name: 'Chart', value: '📊' },
-  { name: 'Mail', value: '📧' },
-  { name: 'Shop', value: '🛒' },
-  { name: 'Money', value: '💰' },
-  { name: 'Heart', value: '❤️' },
-  { name: 'Star', value: '⭐' },
-  { name: 'Fire', value: '🔥' },
-  { name: 'Lightning', value: '⚡' },
-  { name: 'Diamond', value: '💎' },
-  { name: 'Crown', value: '👑' }
-];
-
 /**
  * Render folder HTML
  */
@@ -159,6 +110,12 @@ function renderFolderHtml(folder, depth) {
 
   const colorStyle = folderColor ? `style="color: ${folderColor}"` : '';
   const colorIndicator = folderColor ? `<span class="color-indicator" style="background: ${folderColor}"></span>` : '';
+  const folderIcon = folder.icon || null;
+
+  // Build folder icon HTML - show custom emoji or default folder icon
+  const folderIconHtml = folderIcon
+    ? `<span class="folder-emoji-icon">${folderIcon}</span>`
+    : `<svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor" ${colorStyle}><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`;
 
   return `
     <div class="folder-item" data-folder-id="${folder.id}" data-depth="${depth}" draggable="true">
@@ -167,10 +124,10 @@ function renderFolderHtml(folder, depth) {
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
         </span>
         ${colorIndicator}
-        <svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor" ${colorStyle}><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        ${folderIconHtml}
         <span class="folder-name">${escapeHtml(folder.name)}</span>
         <span class="folder-count">${projectCount}</span>
-        <button class="btn-folder-color" data-folder-id="${folder.id}" title="Changer la couleur">
+        <button class="btn-folder-color" data-folder-id="${folder.id}" title="Personnaliser">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
         </button>
       </div>
@@ -216,26 +173,10 @@ function renderProjectHtml(project, depth) {
       </button>`;
   }
 
-  // Color picker for menu
-  const colorPickerHtml = `
-    <div class="more-actions-item color-picker-row" data-project-id="${project.id}">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
-      <span>Couleur</span>
-      <div class="color-picker-swatches">
-        ${ITEM_COLORS.map(c => `<button class="color-swatch-mini ${c.value === projectColor ? 'selected' : ''} ${!c.value ? 'default' : ''}" data-color="${c.value || ''}" title="${c.name}" ${c.value ? `style="background: ${c.value}"` : ''}></button>`).join('')}
-      </div>
-    </div>`;
-
-  // Icon picker for menu
+  // Customize button for menu (opens the CustomizePicker)
   const projectIcon = project.icon || null;
-  const iconPickerHtml = `
-    <div class="more-actions-item icon-picker-row" data-project-id="${project.id}">
-      <span class="icon-picker-label-icon">${projectIcon || '📁'}</span>
-      <span>Icone</span>
-      <div class="icon-picker-swatches">
-        ${PROJECT_ICONS.map(i => `<button class="icon-swatch-mini ${i.value === projectIcon ? 'selected' : ''} ${!i.value ? 'default' : ''}" data-icon="${i.value || ''}" title="${i.name}">${i.value || '📁'}</button>`).join('')}
-      </div>
-    </div>`;
+  const customizePreview = projectIcon || '📁';
+  const customizeColorDot = projectColor ? `<span class="customize-preview-dot" style="background: ${projectColor}"></span>` : '';
 
   let menuItemsHtml = '';
   if (isFivem) {
@@ -266,9 +207,11 @@ function renderProjectHtml(project, depth) {
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7l2 2h5v12zm0-12h-5l-2-2H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2z"/></svg>
       Ouvrir le dossier
     </button>
-    ${colorPickerHtml}
-    ${iconPickerHtml}
     <div class="more-actions-divider"></div>
+    <button class="more-actions-item btn-customize-project" data-project-id="${project.id}">
+      <span class="customize-btn-preview">${customizePreview}${customizeColorDot}</span>
+      Personnaliser
+    </button>
     <button class="more-actions-item btn-rename-project" data-project-id="${project.id}">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
       Renommer
@@ -645,113 +588,55 @@ function attachListeners(list) {
     item.addEventListener('click', () => closeAllMoreActionsMenus());
   });
 
-  // Folder color button
+  // Folder color button (opens CustomizePicker)
   list.querySelectorAll('.btn-folder-color').forEach(btn => {
     btn.onclick = (e) => {
       e.stopPropagation();
       const folderId = btn.dataset.folderId;
-      showColorPicker(btn, 'folder', folderId);
+      const folder = getFolder(folderId);
+
+      if (folder) {
+        CustomizePicker.show(btn, 'folder', folderId, folder, {
+          onColorChange: (id, color) => {
+            setFolderColor(id, color);
+            if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+          },
+          onIconChange: (id, icon) => {
+            setFolderIcon(id, icon);
+            if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+          },
+          onClose: () => {}
+        });
+      }
     };
   });
 
-  // Project color swatches in menu
-  list.querySelectorAll('.color-picker-row .color-swatch-mini').forEach(swatch => {
-    swatch.onclick = (e) => {
+  // Customize project button (opens CustomizePicker)
+  list.querySelectorAll('.btn-customize-project').forEach(btn => {
+    btn.onclick = (e) => {
       e.stopPropagation();
-      const projectId = swatch.closest('.color-picker-row').dataset.projectId;
-      const color = swatch.dataset.color || null;
-      setProjectColor(projectId, color);
+      const projectId = btn.dataset.projectId;
+      const project = getProject(projectId);
       closeAllMoreActionsMenus();
-      if (callbacks.onRenderProjects) callbacks.onRenderProjects();
-    };
-  });
 
-  // Project icon swatches in menu
-  list.querySelectorAll('.icon-picker-row .icon-swatch-mini').forEach(swatch => {
-    swatch.onclick = (e) => {
-      e.stopPropagation();
-      const projectId = swatch.closest('.icon-picker-row').dataset.projectId;
-      const icon = swatch.dataset.icon || null;
-      setProjectIcon(projectId, icon);
-      closeAllMoreActionsMenus();
-      if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+      if (project) {
+        CustomizePicker.show(btn, 'project', projectId, project, {
+          onColorChange: (id, color) => {
+            setProjectColor(id, color);
+            if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+          },
+          onIconChange: (id, icon) => {
+            setProjectIcon(id, icon);
+            if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+          },
+          onClose: () => {}
+        });
+      }
     };
   });
 
   // Drag & Drop
   setupDragAndDrop(list);
-}
-
-// Color picker popup state
-let activeColorPicker = null;
-
-/**
- * Show color picker popup for folders
- */
-function showColorPicker(button, itemType, itemId) {
-  // Close existing picker
-  hideColorPicker();
-
-  const rect = button.getBoundingClientRect();
-  const item = itemType === 'folder' ? getFolder(itemId) : getProject(itemId);
-  const currentColor = item?.color || null;
-
-  const picker = document.createElement('div');
-  picker.className = 'color-picker-popup';
-  picker.innerHTML = `
-    <div class="color-picker-popup-title">Couleur</div>
-    <div class="color-picker-popup-grid">
-      ${ITEM_COLORS.map(c => `
-        <button class="color-swatch-popup ${c.value === currentColor ? 'selected' : ''} ${!c.value ? 'default' : ''}"
-                data-color="${c.value || ''}" title="${c.name}"
-                ${c.value ? `style="background: ${c.value}"` : ''}>
-        </button>
-      `).join('')}
-    </div>
-  `;
-
-  // Position popup
-  picker.style.position = 'fixed';
-  picker.style.top = `${rect.bottom + 4}px`;
-  picker.style.left = `${rect.left}px`;
-  picker.style.zIndex = '1002';
-
-  document.body.appendChild(picker);
-  activeColorPicker = picker;
-
-  // Handle clicks on swatches
-  picker.querySelectorAll('.color-swatch-popup').forEach(swatch => {
-    swatch.onclick = (e) => {
-      e.stopPropagation();
-      const color = swatch.dataset.color || null;
-      if (itemType === 'folder') {
-        setFolderColor(itemId, color);
-      } else {
-        setProjectColor(itemId, color);
-      }
-      hideColorPicker();
-      if (callbacks.onRenderProjects) callbacks.onRenderProjects();
-    };
-  });
-
-  // Close on outside click
-  setTimeout(() => {
-    document.addEventListener('click', handleOutsideClick);
-  }, 0);
-}
-
-function handleOutsideClick(e) {
-  if (activeColorPicker && !activeColorPicker.contains(e.target)) {
-    hideColorPicker();
-  }
-}
-
-function hideColorPicker() {
-  if (activeColorPicker) {
-    activeColorPicker.remove();
-    activeColorPicker = null;
-    document.removeEventListener('click', handleOutsideClick);
-  }
 }
 
 /**
