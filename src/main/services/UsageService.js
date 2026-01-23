@@ -18,73 +18,71 @@ const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHE
 
 /**
  * Parse usage output from Claude CLI
+ * Extracts: Current session, Current week (all models), Current week (Sonnet only)
  * @param {string} output - Raw terminal output
  * @returns {Object|null} - Parsed usage data
  */
 function parseUsageOutput(output) {
   try {
+    // Clean ANSI codes from output
+    const cleanOutput = output.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+
     const data = {
-      raw: output,
-      timestamp: new Date().toISOString()
+      raw: cleanOutput,
+      timestamp: new Date().toISOString(),
+      session: null,
+      weekly: null,
+      sonnet: null
     };
 
-    // Try to extract percentage (e.g., "45% of limit")
-    const percentMatch = output.match(/(\d+(?:\.\d+)?)\s*%/);
-    if (percentMatch) {
-      data.percent = parseFloat(percentMatch[1]);
-    }
+    // Split into lines and look for usage patterns
+    const lines = cleanOutput.split('\n');
 
-    // Try to extract tokens (e.g., "1.2M tokens" or "500K tokens")
-    const tokenMatches = output.match(/(\d+(?:\.\d+)?)\s*([KMB])?\s*tokens?/gi);
-    if (tokenMatches) {
-      data.tokens = tokenMatches.map(match => {
-        const m = match.match(/(\d+(?:\.\d+)?)\s*([KMB])?/i);
-        if (m) {
-          let value = parseFloat(m[1]);
-          const unit = (m[2] || '').toUpperCase();
-          if (unit === 'K') value *= 1000;
-          else if (unit === 'M') value *= 1000000;
-          else if (unit === 'B') value *= 1000000000;
-          return Math.round(value);
+    let currentSection = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // Detect sections
+      if (line.includes('Current session')) {
+        currentSection = 'session';
+      } else if (line.includes('Current week') && line.includes('all models')) {
+        currentSection = 'weekly';
+      } else if (line.includes('Current week') && line.includes('Sonnet')) {
+        currentSection = 'sonnet';
+      }
+
+      // Extract percentage from lines containing "% used"
+      const percentMatch = line.match(/(\d+(?:\.\d+)?)\s*%\s*used/i);
+      if (percentMatch && currentSection) {
+        data[currentSection] = parseFloat(percentMatch[1]);
+        currentSection = null; // Reset after capturing
+      }
+
+      // Also check for standalone percentage on next line after section header
+      if (currentSection && !percentMatch) {
+        const standalonePercent = line.match(/(\d+(?:\.\d+)?)\s*%/);
+        if (standalonePercent) {
+          data[currentSection] = parseFloat(standalonePercent[1]);
+          currentSection = null;
         }
-        return 0;
-      });
+      }
     }
 
-    // Try to extract cost (e.g., "$12.50" or "12.50 USD")
-    const costMatch = output.match(/\$?\s*(\d+(?:\.\d+)?)\s*(?:USD|dollars?)?/i);
-    if (costMatch) {
-      data.cost = parseFloat(costMatch[1]);
-    }
-
-    // Try to extract limit info
-    const limitMatch = output.match(/limit|quota|remaining|used/gi);
-    if (limitMatch) {
-      data.hasLimitInfo = true;
-    }
-
-    // Extract any "X of Y" patterns (e.g., "500K of 1M")
-    const ofMatch = output.match(/(\d+(?:\.\d+)?)\s*([KMB])?\s*(?:of|\/)\s*(\d+(?:\.\d+)?)\s*([KMB])?/i);
-    if (ofMatch) {
-      let used = parseFloat(ofMatch[1]);
-      const usedUnit = (ofMatch[2] || '').toUpperCase();
-      if (usedUnit === 'K') used *= 1000;
-      else if (usedUnit === 'M') used *= 1000000;
-
-      let total = parseFloat(ofMatch[3]);
-      const totalUnit = (ofMatch[4] || '').toUpperCase();
-      if (totalUnit === 'K') total *= 1000;
-      else if (totalUnit === 'M') total *= 1000000;
-
-      data.used = Math.round(used);
-      data.total = Math.round(total);
-      data.percent = (used / total) * 100;
+    // Fallback: try to find all percentages in order (session, weekly, sonnet)
+    if (data.session === null && data.weekly === null && data.sonnet === null) {
+      const allPercents = cleanOutput.match(/(\d+(?:\.\d+)?)\s*%\s*used/gi);
+      if (allPercents && allPercents.length >= 3) {
+        data.session = parseFloat(allPercents[0].match(/(\d+(?:\.\d+)?)/)[1]);
+        data.weekly = parseFloat(allPercents[1].match(/(\d+(?:\.\d+)?)/)[1]);
+        data.sonnet = parseFloat(allPercents[2].match(/(\d+(?:\.\d+)?)/)[1]);
+      }
     }
 
     return data;
   } catch (error) {
     console.error('Error parsing usage output:', error);
-    return { raw: output, error: error.message };
+    return { raw: output, error: error.message, session: null, weekly: null, sonnet: null };
   }
 }
 
@@ -104,6 +102,8 @@ function fetchUsage() {
     let resolved = false;
     let claudeStarted = false;
     let usageSent = false;
+    let usageComplete = false;
+    let exitTimeout = null;
 
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
@@ -118,15 +118,23 @@ function fetchUsage() {
         resolved = true;
         isFetching = false;
         ptyProcess.kill();
-        reject(new Error('Timeout fetching usage'));
+        // Return partial data if we have any
+        if (output.includes('%')) {
+          const parsed = parseUsageOutput(output);
+          usageData = parsed;
+          lastFetch = new Date();
+          resolve(parsed);
+        } else {
+          reject(new Error('Timeout fetching usage'));
+        }
       }
-    }, 30000); // 30 second timeout
+    }, 20000); // 20 second timeout
 
     ptyProcess.onData((data) => {
       output += data;
 
-      // Detect when claude is ready (prompt appears)
-      if (!claudeStarted && (output.includes('>') || output.includes('claude'))) {
+      // Detect when claude is ready (look for the prompt character or welcome message)
+      if (!claudeStarted && (output.includes('╭') || output.includes('>') || output.includes('Claude'))) {
         claudeStarted = true;
         // Small delay before sending /usage
         setTimeout(() => {
@@ -134,23 +142,35 @@ function fetchUsage() {
             usageSent = true;
             ptyProcess.write('/usage\r');
           }
-        }, 500);
+        }, 800);
       }
 
-      // Detect when usage output is complete and send exit
-      if (usageSent && !resolved) {
-        // Look for signs that usage has been displayed
-        // Wait a bit for the full output
-        setTimeout(() => {
-          if (!resolved) {
-            ptyProcess.write('/exit\r');
+      // Detect when usage output is complete
+      // Look for "esc to cancel" or "Sonnet only" which appear at the end of /usage
+      if (usageSent && !usageComplete) {
+        if (output.includes('esc to cancel') || output.includes('Sonnet only')) {
+          usageComplete = true;
+          // Give a moment to capture full output then exit
+          if (!exitTimeout) {
+            exitTimeout = setTimeout(() => {
+              if (!resolved) {
+                ptyProcess.write('\x1b'); // Send ESC to close /usage menu
+                setTimeout(() => {
+                  if (!resolved) {
+                    ptyProcess.write('/exit\r');
+                  }
+                }, 300);
+              }
+            }, 500);
           }
-        }, 2000);
+        }
       }
     });
 
     ptyProcess.onExit(() => {
       clearTimeout(timeout);
+      if (exitTimeout) clearTimeout(exitTimeout);
+
       if (!resolved) {
         resolved = true;
         isFetching = false;
