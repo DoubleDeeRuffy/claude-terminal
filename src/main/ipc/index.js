@@ -5,6 +5,7 @@
 
 const { registerTerminalHandlers } = require('./terminal.ipc');
 const { registerGitHandlers } = require('./git.ipc');
+const { registerGitHubHandlers } = require('./github.ipc');
 const { registerMcpHandlers } = require('./mcp.ipc');
 const { registerFivemHandlers } = require('./fivem.ipc');
 const { registerDialogHandlers, setMainWindow: setDialogMainWindow } = require('./dialog.ipc');
@@ -23,6 +24,7 @@ function registerAllHandlers(mainWindow) {
   // Register all handlers
   registerTerminalHandlers();
   registerGitHandlers();
+  registerGitHubHandlers();
   registerMcpHandlers();
   registerFivemHandlers();
   registerDialogHandlers();
