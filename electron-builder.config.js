@@ -30,14 +30,16 @@ module.exports = {
     icon: "assets/icon.ico"
   },
   nsis: {
-    oneClick: false,
-    allowToChangeInstallationDirectory: true,
+    oneClick: true,
+    perMachine: false,
+    allowElevation: true,
     createDesktopShortcut: true,
-    createStartMenuShortcut: true
+    createStartMenuShortcut: true,
+    differentialPackage: true
   },
   publish: {
     provider: "generic",
-    url: process.env.UPDATE_SERVER_URL || "https://example.com/updates/",
+    url: process.env.UPDATE_SERVER_URL,
     useMultipleRangeRequest: false
   }
 };
