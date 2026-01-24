@@ -1173,6 +1173,37 @@ body {
   font-size: 12px;
 }
 
+.branch-dropdown-section-title {
+  padding: 8px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.branch-dropdown-section-title.remote {
+  margin-top: 4px;
+  color: var(--accent);
+}
+
+.branch-dropdown-item.remote {
+  color: var(--text-secondary);
+}
+
+.branch-dropdown-item.remote:hover {
+  color: var(--text-primary);
+}
+
+.branch-remote-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .loading-spinner {
   display: inline-block;
   width: 12px;

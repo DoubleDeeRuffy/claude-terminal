@@ -114,14 +114,27 @@ async function getAheadBehind(projectPath, branch, skipFetch = false) {
 }
 
 /**
- * Get list of local branches
+ * Get list of all branches (local and remote)
  * @param {string} projectPath - Path to the project
- * @returns {Promise<Array>} - List of branch names
+ * @returns {Promise<Object>} - Object with local and remote branch arrays
  */
 async function getBranches(projectPath) {
-  const output = await execGit(projectPath, 'branch --format="%(refname:short)"');
-  if (!output) return [];
-  return output.split('\n').filter(b => b.trim());
+  // Get local branches
+  const localOutput = await execGit(projectPath, 'branch --format="%(refname:short)"');
+  const local = localOutput ? localOutput.split('\n').filter(b => b.trim()) : [];
+
+  // Get remote branches (fetch first to ensure we have latest refs)
+  await execGit(projectPath, 'fetch --all --prune', 5000).catch(() => {});
+  const remoteOutput = await execGit(projectPath, 'branch -r --format="%(refname:short)"');
+  const remote = remoteOutput
+    ? remoteOutput.split('\n')
+        .filter(b => b.trim())
+        .filter(b => !b.includes('HEAD')) // Exclude HEAD pointer
+        .map(b => b.replace(/^origin\//, '')) // Remove origin/ prefix for display
+        .filter(b => !local.includes(b)) // Exclude branches already in local
+    : [];
+
+  return { local, remote };
 }
 
 /**
