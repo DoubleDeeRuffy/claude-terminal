@@ -439,7 +439,7 @@ function buildGitStatusHtml(gitInfo) {
       <div class="git-branch">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2a3 3 0 0 0-3 3c0 1.28.81 2.38 1.94 2.81A4 4 0 0 0 9 12H6a3 3 0 0 0 0 6 3 3 0 0 0 2.94-2.41A4 4 0 0 0 13 12v-1.17A3 3 0 0 0 15 8a3 3 0 0 0-3-3 3 3 0 0 0-2.24 1.01A4 4 0 0 0 6 2z"/></svg>
         <span class="branch-name">${branch}</span>
-        <span class="branch-count">${branches?.length || 1} branche${(branches?.length || 1) > 1 ? 's' : ''}</span>
+        <span class="branch-count">${(branches?.local?.length || 0) + (branches?.remote?.length || 0) || 1} branche${((branches?.local?.length || 0) + (branches?.remote?.length || 0) || 1) > 1 ? 's' : ''}</span>
       </div>
       <div class="git-sync-status">${buildSyncBadges(aheadBehind)}</div>
     </div>
