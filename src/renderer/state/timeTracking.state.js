@@ -1,6 +1,7 @@
 /**
  * Time Tracking State Module
  * Tracks time spent on each project based on terminal activity
+ * Supports multiple projects being tracked simultaneously
  */
 
 const { State } = require('./State');
@@ -9,15 +10,18 @@ const { State } = require('./State');
 const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // Runtime state (not persisted)
+// activeSessions: Map<projectId, { sessionStartTime, lastActivityTime, isIdle }>
 const trackingState = new State({
-  activeProjectId: null,
-  sessionStartTime: null,
-  lastActivityTime: null,
-  isIdle: false
+  activeSessions: new Map(),
+  // Global tracking (real time worked, not sum of projects)
+  globalSessionStartTime: null,
+  globalLastActivityTime: null,
+  globalIsIdle: false
 });
 
 // Internal state
-let idleTimer = null;
+const idleTimers = new Map(); // projectId -> timerId
+let globalIdleTimer = null;
 let projectsStateRef = null;
 let saveProjectsRef = null;
 
@@ -90,8 +94,203 @@ function generateSessionId() {
 }
 
 /**
+ * Get count of non-idle active sessions
+ * @returns {number}
+ */
+function getActiveNonIdleCount() {
+  const state = trackingState.get();
+  let count = 0;
+  for (const session of state.activeSessions.values()) {
+    if (session.sessionStartTime && !session.isIdle) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Start global timer if not already running
+ */
+function startGlobalTimer() {
+  const state = trackingState.get();
+
+  // Already running
+  if (state.globalSessionStartTime && !state.globalIsIdle) {
+    return;
+  }
+
+  const now = Date.now();
+
+  trackingState.set({
+    ...state,
+    globalSessionStartTime: now,
+    globalLastActivityTime: now,
+    globalIsIdle: false
+  });
+
+  // Start global idle timer
+  clearTimeout(globalIdleTimer);
+  globalIdleTimer = setTimeout(pauseGlobalTimer, IDLE_TIMEOUT);
+
+  console.log('[TimeTracking] Global timer started');
+}
+
+/**
+ * Pause global timer (idle)
+ */
+function pauseGlobalTimer() {
+  const state = trackingState.get();
+
+  if (!state.globalSessionStartTime || state.globalIsIdle) {
+    return;
+  }
+
+  // Save global session
+  const now = Date.now();
+  const duration = now - state.globalSessionStartTime;
+
+  if (duration > 1000) {
+    saveGlobalSession(state.globalSessionStartTime, now, duration);
+  }
+
+  trackingState.set({
+    ...state,
+    globalSessionStartTime: null,
+    globalIsIdle: true
+  });
+
+  console.log('[TimeTracking] Global timer paused (idle)');
+}
+
+/**
+ * Resume global timer after activity
+ */
+function resumeGlobalTimer() {
+  const state = trackingState.get();
+
+  if (!state.globalIsIdle) {
+    return;
+  }
+
+  const now = Date.now();
+
+  trackingState.set({
+    ...state,
+    globalSessionStartTime: now,
+    globalLastActivityTime: now,
+    globalIsIdle: false
+  });
+
+  // Restart global idle timer
+  clearTimeout(globalIdleTimer);
+  globalIdleTimer = setTimeout(pauseGlobalTimer, IDLE_TIMEOUT);
+
+  console.log('[TimeTracking] Global timer resumed');
+}
+
+/**
+ * Stop global timer completely
+ */
+function stopGlobalTimer() {
+  const state = trackingState.get();
+
+  if (state.globalSessionStartTime && !state.globalIsIdle) {
+    const now = Date.now();
+    const duration = now - state.globalSessionStartTime;
+
+    if (duration > 1000) {
+      saveGlobalSession(state.globalSessionStartTime, now, duration);
+    }
+  }
+
+  clearTimeout(globalIdleTimer);
+
+  trackingState.set({
+    ...state,
+    globalSessionStartTime: null,
+    globalLastActivityTime: null,
+    globalIsIdle: false
+  });
+
+  console.log('[TimeTracking] Global timer stopped');
+}
+
+/**
+ * Reset global idle timer on activity
+ */
+function resetGlobalIdleTimer() {
+  const state = trackingState.get();
+
+  if (state.globalIsIdle) {
+    resumeGlobalTimer();
+    return;
+  }
+
+  if (state.globalSessionStartTime) {
+    clearTimeout(globalIdleTimer);
+    globalIdleTimer = setTimeout(pauseGlobalTimer, IDLE_TIMEOUT);
+
+    trackingState.set({
+      ...state,
+      globalLastActivityTime: Date.now()
+    });
+  }
+}
+
+/**
+ * Save a global session
+ * @param {number} startTime
+ * @param {number} endTime
+ * @param {number} duration
+ */
+function saveGlobalSession(startTime, endTime, duration) {
+  console.log('[TimeTracking] saveGlobalSession:', { duration: Math.round(duration / 1000) + 's' });
+
+  if (!projectsStateRef || !saveProjectsRef) {
+    return;
+  }
+
+  // Get or create global tracking data in settings
+  const currentState = projectsStateRef.get();
+  const globalTracking = currentState.globalTimeTracking || {
+    totalTime: 0,
+    todayTime: 0,
+    lastActiveDate: null,
+    sessions: []
+  };
+
+  const today = getTodayString();
+
+  // Reset today if date changed
+  if (globalTracking.lastActiveDate !== today) {
+    globalTracking.todayTime = 0;
+    globalTracking.lastActiveDate = today;
+  }
+
+  // Update times
+  globalTracking.totalTime += duration;
+  globalTracking.todayTime += duration;
+
+  // Add session (keep last 100)
+  globalTracking.sessions.push({
+    id: generateSessionId(),
+    startTime: new Date(startTime).toISOString(),
+    endTime: new Date(endTime).toISOString(),
+    duration
+  });
+
+  if (globalTracking.sessions.length > 100) {
+    globalTracking.sessions = globalTracking.sessions.slice(-100);
+  }
+
+  // Save
+  projectsStateRef.set({ ...currentState, globalTimeTracking: globalTracking });
+  saveProjectsRef();
+}
+
+/**
  * Start tracking time for a project
- * Idempotent - won't restart if already tracking this project
+ * Supports multiple projects being tracked simultaneously
  * @param {string} projectId
  */
 function startTracking(projectId) {
@@ -103,63 +302,84 @@ function startTracking(projectId) {
   }
 
   const state = trackingState.get();
+  const activeSessions = new Map(state.activeSessions);
+  const existingSession = activeSessions.get(projectId);
 
-  // Already tracking this project
-  if (state.activeProjectId === projectId && state.sessionStartTime) {
-    console.log('[TimeTracking] Already tracking this project');
+  // Already tracking this project and not idle
+  if (existingSession && existingSession.sessionStartTime && !existingSession.isIdle) {
+    console.log('[TimeTracking] Already tracking project:', projectId);
     return;
   }
 
-  // If tracking a different project, stop it first
-  if (state.activeProjectId && state.activeProjectId !== projectId) {
-    console.log('[TimeTracking] Switching from project:', state.activeProjectId);
-    stopTracking(state.activeProjectId);
+  // If was idle, resume instead
+  if (existingSession && existingSession.isIdle) {
+    resumeTracking(projectId);
+    return;
   }
+
+  // Check if this is the first active project (for global timer)
+  const wasEmpty = getActiveNonIdleCount() === 0;
 
   const now = Date.now();
 
-  trackingState.set({
-    activeProjectId: projectId,
+  // Add new session for this project
+  activeSessions.set(projectId, {
     sessionStartTime: now,
     lastActivityTime: now,
     isIdle: false
   });
 
-  console.log('[TimeTracking] Started tracking, sessionStartTime:', now);
+  trackingState.set({ ...trackingState.get(), activeSessions });
 
-  // Start idle timer
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(pauseTracking, IDLE_TIMEOUT);
+  console.log('[TimeTracking] Started tracking project:', projectId, 'Total active:', activeSessions.size);
+
+  // Start global timer if this is the first active project
+  if (wasEmpty) {
+    startGlobalTimer();
+  }
+
+  // Start idle timer for this project
+  clearTimeout(idleTimers.get(projectId));
+  idleTimers.set(projectId, setTimeout(() => pauseTracking(projectId), IDLE_TIMEOUT));
 }
 
 /**
- * Stop tracking and save the session
+ * Stop tracking and save the session for a specific project
  * @param {string} projectId
  */
 function stopTracking(projectId) {
   const state = trackingState.get();
+  const activeSessions = new Map(state.activeSessions);
+  const session = activeSessions.get(projectId);
 
   // Not tracking this project
-  if (state.activeProjectId !== projectId || !state.sessionStartTime) {
+  if (!session || !session.sessionStartTime) {
+    activeSessions.delete(projectId);
+    trackingState.set({ ...trackingState.get(), activeSessions });
     return;
   }
 
   const now = Date.now();
-  const duration = now - state.sessionStartTime;
+  const duration = now - session.sessionStartTime;
 
   // Only save if we have a meaningful duration (> 1 second)
   if (duration > 1000) {
-    saveSession(projectId, state.sessionStartTime, now, duration);
+    saveSession(projectId, session.sessionStartTime, now, duration);
   }
 
-  // Clear state
-  clearTimeout(idleTimer);
-  trackingState.set({
-    activeProjectId: null,
-    sessionStartTime: null,
-    lastActivityTime: null,
-    isIdle: false
-  });
+  // Clear timer and remove session
+  clearTimeout(idleTimers.get(projectId));
+  idleTimers.delete(projectId);
+  activeSessions.delete(projectId);
+
+  trackingState.set({ ...trackingState.get(), activeSessions });
+
+  console.log('[TimeTracking] Stopped tracking project:', projectId, 'Remaining active:', activeSessions.size);
+
+  // Stop global timer if no more active projects
+  if (getActiveNonIdleCount() === 0) {
+    stopGlobalTimer();
+  }
 }
 
 /**
@@ -210,93 +430,129 @@ function saveSession(projectId, startTime, endTime, duration) {
 }
 
 /**
- * Record activity - resets idle timer
+ * Record activity for a specific project - resets idle timer
+ * @param {string} projectId
  */
-function recordActivity() {
+function recordActivity(projectId) {
+  if (!projectId) return;
+
   const state = trackingState.get();
+  const activeSessions = new Map(state.activeSessions);
+  const session = activeSessions.get(projectId);
 
-  // Not tracking anything
-  if (!state.activeProjectId) return;
-
-  // Resume if was idle
-  if (state.isIdle) {
-    resumeTracking();
-    // Don't update state further - resumeTracking already set the correct state
+  // Not tracking this project - start tracking
+  if (!session) {
+    startTracking(projectId);
     return;
   }
 
-  // Reset idle timer
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(pauseTracking, IDLE_TIMEOUT);
+  // Resume if was idle
+  if (session.isIdle) {
+    resumeTracking(projectId);
+    return;
+  }
 
-  trackingState.set({
-    ...state,
+  // Reset idle timer for project
+  clearTimeout(idleTimers.get(projectId));
+  idleTimers.set(projectId, setTimeout(() => pauseTracking(projectId), IDLE_TIMEOUT));
+
+  // Reset global idle timer too
+  resetGlobalIdleTimer();
+
+  // Update last activity time
+  activeSessions.set(projectId, {
+    ...session,
     lastActivityTime: Date.now()
   });
+
+  trackingState.set({ ...trackingState.get(), activeSessions });
 }
 
 /**
- * Pause tracking due to idle
+ * Pause tracking for a specific project due to idle
+ * @param {string} projectId
  */
-function pauseTracking() {
+function pauseTracking(projectId) {
   const state = trackingState.get();
+  const activeSessions = new Map(state.activeSessions);
+  const session = activeSessions.get(projectId);
 
-  if (!state.activeProjectId || !state.sessionStartTime || state.isIdle) {
+  if (!session || !session.sessionStartTime || session.isIdle) {
     return;
   }
 
   const now = Date.now();
-  const duration = now - state.sessionStartTime;
+  const duration = now - session.sessionStartTime;
 
   // Save the session up to now
   if (duration > 1000) {
-    saveSession(state.activeProjectId, state.sessionStartTime, now, duration);
+    saveSession(projectId, session.sessionStartTime, now, duration);
   }
 
-  // Mark as idle but keep project reference
-  trackingState.set({
-    ...state,
+  // Mark as idle but keep in activeSessions
+  activeSessions.set(projectId, {
+    ...session,
     sessionStartTime: null,
     isIdle: true
   });
+
+  trackingState.set({ ...trackingState.get(), activeSessions });
+
+  console.log('[TimeTracking] Paused tracking (idle) for project:', projectId);
+
+  // Pause global timer if no more active (non-idle) projects
+  if (getActiveNonIdleCount() === 0) {
+    pauseGlobalTimer();
+  }
 }
 
 /**
- * Resume tracking after activity
+ * Resume tracking for a specific project after activity
+ * @param {string} projectId
  */
-function resumeTracking() {
+function resumeTracking(projectId) {
   const state = trackingState.get();
+  const activeSessions = new Map(state.activeSessions);
+  const session = activeSessions.get(projectId);
 
-  if (!state.activeProjectId || !state.isIdle) {
+  if (!session || !session.isIdle) {
     return;
   }
 
+  // Check if this will be the first active project (for global timer)
+  const wasAllIdle = getActiveNonIdleCount() === 0;
+
   const now = Date.now();
 
-  trackingState.set({
-    ...state,
+  activeSessions.set(projectId, {
     sessionStartTime: now,
     lastActivityTime: now,
     isIdle: false
   });
 
+  trackingState.set({ ...trackingState.get(), activeSessions });
+
+  // Resume global timer if this is the first to resume
+  if (wasAllIdle) {
+    resumeGlobalTimer();
+  }
+
   // Restart idle timer
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(pauseTracking, IDLE_TIMEOUT);
+  clearTimeout(idleTimers.get(projectId));
+  idleTimers.set(projectId, setTimeout(() => pauseTracking(projectId), IDLE_TIMEOUT));
+
+  console.log('[TimeTracking] Resumed tracking for project:', projectId);
 }
 
 /**
- * Switch tracking from one project to another
+ * Switch tracking focus (for backward compatibility)
+ * Now just ensures both projects are tracked appropriately
  * @param {string} oldProjectId
  * @param {string} newProjectId
  */
 function switchProject(oldProjectId, newProjectId) {
-  if (oldProjectId === newProjectId) return;
-
-  if (oldProjectId) {
-    stopTracking(oldProjectId);
-  }
-
+  // With multi-project support, we don't stop the old project
+  // Just ensure the new project is being tracked
   if (newProjectId) {
     startTracking(newProjectId);
   }
@@ -324,10 +580,11 @@ function getProjectTimes(projectId) {
 
   // Add current session time if actively tracking this project
   const state = trackingState.get();
+  const session = state.activeSessions.get(projectId);
   let currentSessionTime = 0;
 
-  if (state.activeProjectId === projectId && state.sessionStartTime && !state.isIdle) {
-    currentSessionTime = Date.now() - state.sessionStartTime;
+  if (session && session.sessionStartTime && !session.isIdle) {
+    currentSessionTime = Date.now() - session.sessionStartTime;
   }
 
   return {
@@ -341,23 +598,39 @@ function getProjectTimes(projectId) {
  */
 function saveAllActiveSessions() {
   const state = trackingState.get();
+  const now = Date.now();
 
-  if (state.activeProjectId && state.sessionStartTime && !state.isIdle) {
-    const now = Date.now();
-    const duration = now - state.sessionStartTime;
+  // Save all project sessions
+  for (const [projectId, session] of state.activeSessions) {
+    if (session.sessionStartTime && !session.isIdle) {
+      const duration = now - session.sessionStartTime;
 
-    if (duration > 1000) {
-      saveSession(state.activeProjectId, state.sessionStartTime, now, duration);
+      if (duration > 1000) {
+        saveSession(projectId, session.sessionStartTime, now, duration);
+      }
     }
   }
 
-  // Clear state
-  clearTimeout(idleTimer);
+  // Save global session
+  if (state.globalSessionStartTime && !state.globalIsIdle) {
+    const duration = now - state.globalSessionStartTime;
+    if (duration > 1000) {
+      saveGlobalSession(state.globalSessionStartTime, now, duration);
+    }
+  }
+
+  // Clear all timers and state
+  for (const timerId of idleTimers.values()) {
+    clearTimeout(timerId);
+  }
+  idleTimers.clear();
+  clearTimeout(globalIdleTimer);
+
   trackingState.set({
-    activeProjectId: null,
-    sessionStartTime: null,
-    lastActivityTime: null,
-    isIdle: false
+    activeSessions: new Map(),
+    globalSessionStartTime: null,
+    globalLastActivityTime: null,
+    globalIsIdle: false
   });
 }
 
@@ -414,7 +687,7 @@ function isInCurrentMonth(date) {
 }
 
 /**
- * Get global time tracking stats across all projects
+ * Get global time tracking stats (real time, not sum of projects)
  * @returns {{ today: number, week: number, month: number }}
  */
 function getGlobalTimes() {
@@ -423,28 +696,24 @@ function getGlobalTimes() {
     return { today: 0, week: 0, month: 0 };
   }
 
-  const projects = projectsStateRef.get().projects;
+  const currentState = projectsStateRef.get();
+  const globalTracking = currentState.globalTimeTracking;
   const today = getTodayString();
-  const now = new Date();
   const state = trackingState.get();
 
   let todayTotal = 0;
   let weekTotal = 0;
   let monthTotal = 0;
 
-  for (const project of projects) {
-    if (!project.timeTracking) continue;
-
-    const tracking = project.timeTracking;
-
+  if (globalTracking) {
     // Today's time (from saved todayTime if date matches)
-    if (tracking.lastActiveDate === today) {
-      todayTotal += tracking.todayTime || 0;
+    if (globalTracking.lastActiveDate === today) {
+      todayTotal = globalTracking.todayTime || 0;
     }
 
-    // Calculate week and month from sessions
-    if (tracking.sessions && tracking.sessions.length > 0) {
-      for (const session of tracking.sessions) {
+    // Calculate week and month from global sessions
+    if (globalTracking.sessions && globalTracking.sessions.length > 0) {
+      for (const session of globalTracking.sessions) {
         const sessionDate = new Date(session.startTime);
         const duration = session.duration || 0;
 
@@ -458,25 +727,49 @@ function getGlobalTimes() {
     }
   }
 
-  // Add current active session time
-  if (state.activeProjectId && state.sessionStartTime && !state.isIdle) {
-    const currentSessionTime = Date.now() - state.sessionStartTime;
+  // Add current global session time if active
+  if (state.globalSessionStartTime && !state.globalIsIdle) {
+    const currentSessionTime = Date.now() - state.globalSessionStartTime;
     todayTotal += currentSessionTime;
     weekTotal += currentSessionTime;
     monthTotal += currentSessionTime;
   }
 
-  // Debug log only when there's active tracking
-  if (state.activeProjectId) {
+  // Debug log only when global timer is active
+  if (state.globalSessionStartTime) {
     console.log('[TimeTracking] getGlobalTimes:', {
-      activeProject: state.activeProjectId,
-      sessionStartTime: state.sessionStartTime,
-      isIdle: state.isIdle,
+      activeProjects: state.activeSessions.size,
       today: Math.round(todayTotal / 1000) + 's'
     });
   }
 
   return { today: todayTotal, week: weekTotal, month: monthTotal };
+}
+
+/**
+ * Check if a project is currently being tracked
+ * @param {string} projectId
+ * @returns {boolean}
+ */
+function isTracking(projectId) {
+  const state = trackingState.get();
+  const session = state.activeSessions.get(projectId);
+  return session && session.sessionStartTime && !session.isIdle;
+}
+
+/**
+ * Get count of actively tracked projects
+ * @returns {number}
+ */
+function getActiveProjectCount() {
+  const state = trackingState.get();
+  let count = 0;
+  for (const session of state.activeSessions.values()) {
+    if (session.sessionStartTime && !session.isIdle) {
+      count++;
+    }
+  }
+  return count;
 }
 
 module.exports = {
@@ -493,5 +786,7 @@ module.exports = {
   saveAllActiveSessions,
   hasTerminalsForProject,
   getTrackingState,
-  ensureTimeTracking
+  ensureTimeTracking,
+  isTracking,
+  getActiveProjectCount
 };

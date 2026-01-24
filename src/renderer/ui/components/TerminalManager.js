@@ -524,7 +524,8 @@ async function createTerminal(project, options = {}) {
     if (data.id === id) {
       terminal.write(data.data);
       // Record activity when terminal receives output (Claude is working)
-      recordActivity();
+      const td = getTerminal(id);
+      if (td?.project?.id) recordActivity(td.project.id);
     }
   };
   const exitHandler = (event, data) => {
@@ -543,8 +544,8 @@ async function createTerminal(project, options = {}) {
   terminal.onData(data => {
     ipcRenderer.send('terminal-input', { id, data });
     // Record activity for time tracking (resets idle timer)
-    recordActivity();
     const td = getTerminal(id);
+    if (td?.project?.id) recordActivity(td.project.id);
     if (data === '\r' || data === '\n') {
       updateTerminalStatus(id, 'working');
       if (td && td.inputBuffer.trim().length > 0) {
@@ -1275,7 +1276,8 @@ async function resumeSession(project, sessionId, options = {}) {
     if (data.id === id) {
       terminal.write(data.data);
       // Record activity when terminal receives output (Claude is working)
-      recordActivity();
+      const td = getTerminal(id);
+      if (td?.project?.id) recordActivity(td.project.id);
     }
   };
   const exitHandler = (event, data) => {
@@ -1294,8 +1296,8 @@ async function resumeSession(project, sessionId, options = {}) {
   terminal.onData(data => {
     ipcRenderer.send('terminal-input', { id, data });
     // Record activity for time tracking (resets idle timer)
-    recordActivity();
     const td = getTerminal(id);
+    if (td?.project?.id) recordActivity(td.project.id);
     if (data === '\r' || data === '\n') {
       updateTerminalStatus(id, 'working');
       if (td && td.inputBuffer.trim().length > 0) {
@@ -1609,9 +1611,9 @@ async function createTerminalWithPrompt(project, prompt) {
  */
 function updateAllTerminalsTheme(themeId) {
   const theme = getTerminalTheme(themeId);
-  const terminals = terminalsState.get();
+  const terminals = terminalsState.get().terminals;
 
-  terminals.forEach(termData => {
+  terminals.forEach((termData, id) => {
     if (termData.terminal && termData.terminal.options) {
       termData.terminal.options.theme = theme;
     }
