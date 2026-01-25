@@ -57,7 +57,8 @@ let callbacks = {
   onDeleteProject: null,
   onRenameProject: null,
   onRenderProjects: null,
-  countTerminalsForProject: () => 0
+  countTerminalsForProject: () => 0,
+  getTerminalStatsForProject: () => ({ total: 0, working: 0 })
 };
 
 // External state references
@@ -158,7 +159,7 @@ function renderFolderHtml(folder, depth) {
  */
 function renderProjectHtml(project, depth) {
   const projectIndex = getProjectIndex(project.id);
-  const terminalCount = callbacks.countTerminalsForProject(projectIndex);
+  const terminalStats = callbacks.getTerminalStatsForProject(projectIndex);
   const isSelected = projectsState.get().selectedProjectFilter === projectIndex;
   const isFivem = project.type === 'fivem';
   const fivemStatus = fivemServers.get(projectIndex)?.status || 'stopped';
@@ -267,7 +268,7 @@ function renderProjectHtml(project, depth) {
           ${colorIndicator}
           ${projectIconHtml}
           <span>${escapeHtml(project.name)}</span>
-          ${!isFivem && terminalCount > 0 ? `<span class="terminal-count">${terminalCount}</span>` : ''}
+          ${!isFivem && terminalStats.total > 0 ? `<span class="terminal-count"><span class="working-count">${terminalStats.working}</span><span class="count-separator">/</span><span class="total-count">${terminalStats.total}</span></span>` : ''}
         </div>
         <div class="project-path">${escapeHtml(project.path)}</div>
         ${hasTime ? `<div class="project-time">
@@ -600,11 +601,27 @@ function attachListeners(list) {
         menu.style.visibility = 'hidden';
         menu.classList.add('active');
         const menuWidth = menu.offsetWidth;
+        const menuHeight = menu.offsetHeight;
         menu.classList.remove('active');
         menu.style.visibility = '';
+
+        // Horizontal position
         let left = btnRect.right - menuWidth;
         if (left < 0) left = btnRect.left;
-        menu.style.top = `${btnRect.bottom + 4}px`;
+
+        // Vertical position - check if menu would overflow bottom
+        const viewportHeight = window.innerHeight;
+        let top;
+        if (btnRect.bottom + menuHeight + 4 > viewportHeight) {
+          // Show above the button
+          top = btnRect.top - menuHeight - 4;
+          if (top < 0) top = 4; // Fallback if not enough space above
+        } else {
+          // Show below the button
+          top = btnRect.bottom + 4;
+        }
+
+        menu.style.top = `${top}px`;
         menu.style.left = `${left}px`;
         menu.classList.add('active');
       }

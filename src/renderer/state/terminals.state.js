@@ -120,6 +120,24 @@ function countTerminalsForProject(projectIndex) {
 }
 
 /**
+ * Get terminal stats for a specific project (total and working count)
+ * @param {number} projectIndex
+ * @returns {{ total: number, working: number }}
+ */
+function getTerminalStatsForProject(projectIndex) {
+  let total = 0;
+  let working = 0;
+  const terminals = terminalsState.get().terminals;
+  terminals.forEach(term => {
+    if (term.projectIndex === projectIndex) {
+      total++;
+      if (term.status === 'working') working++;
+    }
+  });
+  return { total, working };
+}
+
+/**
  * Get terminals for a specific project
  * @param {number} projectIndex
  * @returns {Array}
@@ -177,6 +195,7 @@ module.exports = {
   setDetailTerminal,
   getDetailTerminal,
   countTerminalsForProject,
+  getTerminalStatsForProject,
   getTerminalsForProject,
   killTerminalsForProject,
   clearAllTerminals

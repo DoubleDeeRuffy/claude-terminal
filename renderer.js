@@ -1023,7 +1023,8 @@ ProjectList.setCallbacks({
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),
   onFilterTerminals: (idx) => TerminalManager.filterByProject(idx),
-  countTerminalsForProject: TerminalManager.countTerminalsForProject
+  countTerminalsForProject: TerminalManager.countTerminalsForProject,
+  getTerminalStatsForProject: TerminalManager.getTerminalStatsForProject
 });
 
 // Setup TerminalManager
@@ -1427,6 +1428,10 @@ async function showSettingsModal(initialTab = 'general') {
             ${['#d97706', '#dc2626', '#db2777', '#9333ea', '#4f46e5', '#2563eb', '#0891b2', '#0d9488', '#16a34a', '#65a30d'].map(c =>
               `<button class="color-swatch ${settings.accentColor === c ? 'selected' : ''}" style="background:${c}" data-color="${c}"></button>`
             ).join('')}
+            <div class="color-swatch-custom ${!['#d97706', '#dc2626', '#db2777', '#9333ea', '#4f46e5', '#2563eb', '#0891b2', '#0d9488', '#16a34a', '#65a30d'].includes(settings.accentColor) ? 'selected' : ''}" style="background:${!['#d97706', '#dc2626', '#db2777', '#9333ea', '#4f46e5', '#2563eb', '#0891b2', '#0d9488', '#16a34a', '#65a30d'].includes(settings.accentColor) ? settings.accentColor : 'var(--bg-tertiary)'}">
+              <input type="color" id="custom-color-input" value="${settings.accentColor}" title="Choisir une couleur personnalisee">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            </div>
           </div>
           <div class="settings-row" style="margin-top: 16px;">
             <div class="settings-label">
@@ -1581,9 +1586,26 @@ async function showSettingsModal(initialTab = 'general') {
   document.querySelectorAll('.color-swatch').forEach(swatch => {
     swatch.onclick = () => {
       document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+      document.querySelector('.color-swatch-custom')?.classList.remove('selected');
       swatch.classList.add('selected');
     };
   });
+
+  // Custom color picker
+  const customColorInput = document.getElementById('custom-color-input');
+  const customSwatch = document.querySelector('.color-swatch-custom');
+  if (customColorInput && customSwatch) {
+    customColorInput.oninput = (e) => {
+      const color = e.target.value;
+      customSwatch.style.background = color;
+      document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+      customSwatch.classList.add('selected');
+    };
+    customSwatch.onclick = (e) => {
+      if (e.target === customColorInput) return;
+      customColorInput.click();
+    };
+  }
 
   // GitHub connect button
   async function setupGitHubAuth() {
@@ -1655,10 +1677,20 @@ async function showSettingsModal(initialTab = 'general') {
     const terminalThemeSelect = document.getElementById('terminal-theme-select');
     const newTerminalTheme = terminalThemeSelect?.value || 'claude';
 
+    // Get accent color from preset swatch or custom picker
+    let accentColor = settings.accentColor;
+    const selectedSwatch = document.querySelector('.color-swatch.selected');
+    const customSwatchSelected = document.querySelector('.color-swatch-custom.selected');
+    if (selectedSwatch) {
+      accentColor = selectedSwatch.dataset.color;
+    } else if (customSwatchSelected) {
+      accentColor = document.getElementById('custom-color-input')?.value || settings.accentColor;
+    }
+
     const newSettings = {
       editor: settings.editor || 'code',
       skipPermissions: selectedMode?.dataset.mode === 'dangerous',
-      accentColor: document.querySelector('.color-swatch.selected')?.dataset.color || settings.accentColor,
+      accentColor,
       closeAction: closeActionSelect?.value || 'ask',
       terminalTheme: newTerminalTheme
     };

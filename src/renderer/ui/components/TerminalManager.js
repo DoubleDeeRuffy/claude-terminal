@@ -309,6 +309,10 @@ function updateTerminalStatus(id, status) {
         callbacks.onNotification(`✅ ${termData.name}`, 'Claude attend votre reponse', id);
       }
     }
+    // Re-render project list to update terminal stats
+    if (callbacks.onRenderProjects) {
+      callbacks.onRenderProjects();
+    }
   }
 }
 
@@ -1101,6 +1105,26 @@ function countTerminalsForProject(projectIndex) {
 }
 
 /**
+ * Get terminal stats for a project (total and working count)
+ */
+function getTerminalStatsForProject(projectIndex) {
+  if (projectIndex === null || projectIndex === undefined) return { total: 0, working: 0 };
+  const projects = projectsState.get().projects;
+  const project = projects[projectIndex];
+  if (!project) return { total: 0, working: 0 };
+  let total = 0;
+  let working = 0;
+  const terminals = terminalsState.get().terminals;
+  terminals.forEach(termData => {
+    if (termData.project && termData.project.path === project.path) {
+      total++;
+      if (termData.status === 'working') working++;
+    }
+  });
+  return { total, working };
+}
+
+/**
  * Show all terminals (remove filter)
  */
 function showAll() {
@@ -1724,6 +1748,7 @@ module.exports = {
   setActiveTerminal,
   filterByProject,
   countTerminalsForProject,
+  getTerminalStatsForProject,
   showAll,
   setCallbacks,
   updateTerminalStatus,
