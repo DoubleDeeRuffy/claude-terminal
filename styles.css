@@ -7228,6 +7228,353 @@ body {
   border: 1px solid var(--border-color);
 }
 
+/* FiveM Resources View */
+.fivem-resource-badge {
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+.fivem-resources-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.fivem-resources-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.fivem-resources-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.fivem-resources-search svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.fivem-resources-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  outline: none;
+}
+
+.fivem-resources-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.fivem-refresh-resources {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fivem-refresh-resources:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.fivem-refresh-resources.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.fivem-resources-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fivem-resources-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.fivem-resources-empty svg {
+  width: 48px;
+  height: 48px;
+  opacity: 0.5;
+}
+
+.fivem-resources-empty span {
+  font-size: var(--font-sm);
+}
+
+.fivem-resources-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.fivem-resources-loading .spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Resource Category */
+.fivem-resource-category {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.fivem-resource-category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.fivem-resource-category-header .category-name {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+.fivem-resource-category-header .category-count {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.fivem-resource-items {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Resource Item */
+.fivem-resource-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.15s ease;
+}
+
+.fivem-resource-item:last-child {
+  border-bottom: none;
+}
+
+.fivem-resource-item:hover {
+  background: var(--bg-hover);
+}
+
+.fivem-resource-item.ensured {
+  border-left: 3px solid var(--success);
+}
+
+.fivem-resource-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fivem-resource-name {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fivem-resource-status {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.fivem-resource-status.active {
+  color: var(--success);
+}
+
+.fivem-resource-status.inactive {
+  color: var(--text-muted);
+}
+
+.fivem-resource-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fivem-resource-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fivem-resource-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.fivem-resource-btn.ensure:hover {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.fivem-resource-btn.restart:hover {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.fivem-resource-btn.stop:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.fivem-resource-btn.folder:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fivem-resource-btn.executing {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.fivem-resource-btn.executing svg {
+  animation: pulse 0.5s ease-in-out;
+}
+
+.fivem-resource-btn.success {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.fivem-resource-btn.error {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+/* Resource Shortcuts */
+.fivem-resource-btn.shortcut {
+  min-width: 28px;
+}
+
+.fivem-resource-btn.shortcut.has-shortcut {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  padding: 3px 6px;
+}
+
+.fivem-resource-btn.shortcut.has-shortcut:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.fivem-resource-btn.shortcut .shortcut-key {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.fivem-resource-btn.shortcut.capturing {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: white;
+  min-width: 100px;
+  animation: pulse 1s infinite;
+}
+
+.fivem-resource-btn.shortcut .shortcut-capturing {
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.fivem-resource-item.shortcut-triggered {
+  background: rgba(var(--accent-rgb), 0.2);
+  animation: shortcut-flash 0.3s ease-out;
+}
+
+@keyframes shortcut-flash {
+  0% { background: rgba(var(--accent-rgb), 0.4); }
+  100% { background: transparent; }
+}
+
 /* ==========================================
    Settings Tabs
    ========================================== */
@@ -8770,4 +9117,409 @@ body {
 @keyframes toast-progress {
   from { width: 100%; }
   to { width: 0%; }
+}
+
+/* ============================================
+   QUICK ACTIONS BAR
+   ============================================ */
+
+.quick-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.quick-actions-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.quick-actions-list::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.quick-action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.quick-action-btn:active {
+  transform: scale(0.97);
+}
+
+.quick-action-btn.running {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  pointer-events: none;
+}
+
+.quick-action-btn.running .quick-action-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.quick-action-icon {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quick-action-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-actions-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.quick-actions-config {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.quick-actions-config:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.quick-actions-config svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Quick Actions Config Modal */
+.quick-actions-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 450px;
+}
+
+.quick-actions-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+}
+
+.quick-actions-presets-label {
+  width: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.preset-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.preset-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-actions-list-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.quick-action-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.quick-action-item-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+}
+
+.quick-action-item-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.quick-action-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-action-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.quick-action-item-command {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'Cascadia Code', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-action-item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.quick-action-item-actions button {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-action-item-actions button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.quick-action-item-actions button.btn-delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.quick-action-item-actions button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.quick-actions-empty-config {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.quick-action-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: transparent;
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-action-add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.quick-action-add-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Quick Action Edit Form */
+.quick-action-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.quick-action-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.quick-action-form-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quick-action-form-field label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.quick-action-form-field input {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.quick-action-form-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.quick-action-form-field input::placeholder {
+  color: var(--text-muted);
+}
+
+.quick-action-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.quick-action-form-actions button {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-action-form-actions .btn-cancel {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.quick-action-form-actions .btn-cancel:hover {
+  background: var(--bg-tertiary);
+}
+
+.quick-action-form-actions .btn-save {
+  background: var(--accent);
+  border: none;
+  color: white;
+}
+
+.quick-action-form-actions .btn-save:hover {
+  background: var(--accent-hover);
+}
+
+/* Icon selector for quick actions */
+.quick-action-icon-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  max-width: 200px;
+}
+
+.quick-action-icon-option {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-action-icon-option:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.quick-action-icon-option.selected {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.quick-action-icon-option svg {
+  width: 16px;
+  height: 16px;
 }
