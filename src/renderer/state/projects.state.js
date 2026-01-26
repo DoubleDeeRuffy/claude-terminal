@@ -758,6 +758,83 @@ function setOpenedProjectId(projectId) {
   projectsState.setProp('openedProjectId', projectId);
 }
 
+/**
+ * Get quick actions for a project
+ * @param {string} projectId
+ * @returns {Array}
+ */
+function getQuickActions(projectId) {
+  const project = getProject(projectId);
+  return project?.quickActions || [];
+}
+
+/**
+ * Set quick actions for a project
+ * @param {string} projectId
+ * @param {Array} actions - Array of { id, name, command, icon }
+ */
+function setQuickActions(projectId, actions) {
+  const state = projectsState.get();
+  const projects = state.projects.map(p =>
+    p.id === projectId ? { ...p, quickActions: actions } : p
+  );
+  projectsState.set({ projects });
+  saveProjects();
+}
+
+/**
+ * Add a quick action to a project
+ * @param {string} projectId
+ * @param {Object} action - { name, command, icon }
+ * @returns {Object} The created action with id
+ */
+function addQuickAction(projectId, action) {
+  const actions = getQuickActions(projectId);
+  const newAction = {
+    id: `qa-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    ...action
+  };
+  setQuickActions(projectId, [...actions, newAction]);
+  return newAction;
+}
+
+/**
+ * Update a quick action
+ * @param {string} projectId
+ * @param {string} actionId
+ * @param {Object} updates
+ */
+function updateQuickAction(projectId, actionId, updates) {
+  const actions = getQuickActions(projectId);
+  const updatedActions = actions.map(a =>
+    a.id === actionId ? { ...a, ...updates } : a
+  );
+  setQuickActions(projectId, updatedActions);
+}
+
+/**
+ * Delete a quick action
+ * @param {string} projectId
+ * @param {string} actionId
+ */
+function deleteQuickAction(projectId, actionId) {
+  const actions = getQuickActions(projectId);
+  setQuickActions(projectId, actions.filter(a => a.id !== actionId));
+}
+
+/**
+ * Reorder quick actions
+ * @param {string} projectId
+ * @param {number} fromIndex
+ * @param {number} toIndex
+ */
+function reorderQuickActions(projectId, fromIndex, toIndex) {
+  const actions = [...getQuickActions(projectId)];
+  const [removed] = actions.splice(fromIndex, 1);
+  actions.splice(toIndex, 0, removed);
+  setQuickActions(projectId, actions);
+}
+
 module.exports = {
   projectsState,
   generateFolderId,
@@ -787,5 +864,12 @@ module.exports = {
   moveItemToFolder,
   reorderItem,
   setSelectedProjectFilter,
-  setOpenedProjectId
+  setOpenedProjectId,
+  // Quick Actions
+  getQuickActions,
+  setQuickActions,
+  addQuickAction,
+  updateQuickAction,
+  deleteQuickAction,
+  reorderQuickActions
 };

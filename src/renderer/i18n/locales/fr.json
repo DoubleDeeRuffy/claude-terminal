@@ -69,7 +69,34 @@
     "restart": "Restart",
     "searchResources": "Rechercher une resource...",
     "refreshResources": "Actualiser",
-    "openFolder": "Ouvrir le dossier"
+    "openFolder": "Ouvrir le dossier",
+    "setShortcut": "Definir raccourci",
+    "removeShortcut": "Supprimer raccourci",
+    "pressKey": "Appuyez sur une touche...",
+    "quickEnsure": "Quick Ensure",
+    "noShortcut": "Aucun raccourci"
+  },
+  "quickActions": {
+    "title": "Quick Actions",
+    "configure": "Configurer les Quick Actions",
+    "noActions": "Aucune action configuree",
+    "addAction": "Ajouter une action",
+    "editAction": "Modifier l'action",
+    "deleteAction": "Supprimer",
+    "name": "Nom",
+    "command": "Commande",
+    "icon": "Icone",
+    "namePlaceholder": "Ex: Build",
+    "commandPlaceholder": "Ex: npm run build",
+    "running": "Execution...",
+    "presets": "Presets",
+    "preset": {
+      "build": "Build",
+      "test": "Tests",
+      "lint": "Lint",
+      "dev": "Dev Server",
+      "install": "Install"
+    }
   },
   "git": {
     "noRemote": "Pas de remote",

@@ -50,6 +50,8 @@ function initializeState() {
     projectsState.saveProjects,
     projectsState.saveProjectsImmediate
   );
+  // Load FiveM resource shortcuts
+  fivemState.loadResourceShortcuts();
   // Lazy require to avoid circular dependency
   const { loadSkills } = require('../services/SkillService');
   const { loadAgents } = require('../services/AgentService');

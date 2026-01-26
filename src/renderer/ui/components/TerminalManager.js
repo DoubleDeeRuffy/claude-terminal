@@ -22,6 +22,13 @@ const {
   dismissLastError,
   getFivemErrors,
   clearFivemErrors,
+  getFivemResources,
+  setFivemResourcesLoading,
+  setFivemResources,
+  getResourceShortcut,
+  setResourceShortcut,
+  findResourceByShortcut,
+  loadResourceShortcuts,
   getSetting,
   startTracking,
   stopTracking,
@@ -37,6 +44,15 @@ const {
   TERMINAL_FONTS,
   getTerminalTheme
 } = require('../themes/terminal-themes');
+
+// Lazy require to avoid circular dependency
+let QuickActions = null;
+function getQuickActions() {
+  if (!QuickActions) {
+    QuickActions = require('./QuickActions');
+  }
+  return QuickActions;
+}
 
 // Store FiveM console IDs by project index
 const fivemConsoleIds = new Map();
@@ -705,6 +721,11 @@ function createFivemConsole(project, projectIndex, options = {}) {
         ${t('fivem.errors')}
         <span class="fivem-error-badge" style="display: none;">0</span>
       </button>
+      <button class="fivem-view-tab" data-view="resources">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+        ${t('fivem.resources')}
+        <span class="fivem-resource-badge" style="display: none;">0</span>
+      </button>
     </div>
     <div class="fivem-view-content">
       <div class="fivem-console-view"></div>
@@ -719,6 +740,26 @@ function createFivemConsole(project, projectIndex, options = {}) {
         <div class="fivem-errors-empty">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
           <span>${t('fivem.noErrors')}</span>
+        </div>
+      </div>
+      <div class="fivem-resources-view" style="display: none;">
+        <div class="fivem-resources-header">
+          <div class="fivem-resources-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" class="fivem-resources-search-input" placeholder="${t('fivem.searchResources')}">
+          </div>
+          <button class="fivem-refresh-resources" title="${t('fivem.refreshResources')}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+        </div>
+        <div class="fivem-resources-list"></div>
+        <div class="fivem-resources-empty">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+          <span>${t('fivem.noResources')}</span>
+        </div>
+        <div class="fivem-resources-loading" style="display: none;">
+          <div class="spinner"></div>
+          <span>Scanning...</span>
         </div>
       </div>
     </div>
@@ -748,6 +789,9 @@ function createFivemConsole(project, projectIndex, options = {}) {
 
   // Update error badge with existing errors
   updateFivemErrorBadge(wrapper, projectIndex);
+
+  // Setup resource shortcut listener
+  setupResourceShortcutListener(projectIndex, wrapper);
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, projectIndex, 'fivem-input'));
@@ -798,13 +842,16 @@ function createFivemConsole(project, projectIndex, options = {}) {
 }
 
 /**
- * Setup FiveM view switcher (Console / Errors)
+ * Setup FiveM view switcher (Console / Errors / Resources)
  */
 function setupFivemViewSwitcher(wrapper, terminalId, projectIndex, project) {
   const viewTabs = wrapper.querySelectorAll('.fivem-view-tab');
   const consoleView = wrapper.querySelector('.fivem-console-view');
   const errorsView = wrapper.querySelector('.fivem-errors-view');
+  const resourcesView = wrapper.querySelector('.fivem-resources-view');
   const clearBtn = wrapper.querySelector('.fivem-clear-errors');
+  const refreshBtn = wrapper.querySelector('.fivem-refresh-resources');
+  const searchInput = wrapper.querySelector('.fivem-resources-search-input');
 
   viewTabs.forEach(tab => {
     tab.onclick = () => {
@@ -812,18 +859,30 @@ function setupFivemViewSwitcher(wrapper, terminalId, projectIndex, project) {
       viewTabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
 
+      // Hide all views
+      consoleView.style.display = 'none';
+      errorsView.style.display = 'none';
+      resourcesView.style.display = 'none';
+
       if (view === 'console') {
         consoleView.style.display = '';
-        errorsView.style.display = 'none';
         // Refit terminal
         const termData = getTerminal(terminalId);
         if (termData) {
           setTimeout(() => termData.fitAddon.fit(), 50);
         }
-      } else {
-        consoleView.style.display = 'none';
+      } else if (view === 'errors') {
         errorsView.style.display = '';
         renderFivemErrorsList(wrapper, projectIndex, project);
+      } else if (view === 'resources') {
+        resourcesView.style.display = '';
+        // Load resources if not already loaded
+        const { resources, lastScan } = getFivemResources(projectIndex);
+        if (!lastScan || resources.length === 0) {
+          scanAndRenderResources(wrapper, projectIndex, project);
+        } else {
+          renderFivemResourcesList(wrapper, projectIndex, project);
+        }
       }
 
       // Update state
@@ -839,6 +898,16 @@ function setupFivemViewSwitcher(wrapper, terminalId, projectIndex, project) {
     clearFivemErrors(projectIndex);
     updateFivemErrorBadge(wrapper, projectIndex);
     renderFivemErrorsList(wrapper, projectIndex, project);
+  };
+
+  // Refresh resources button
+  refreshBtn.onclick = () => {
+    scanAndRenderResources(wrapper, projectIndex, project);
+  };
+
+  // Search resources
+  searchInput.oninput = () => {
+    renderFivemResourcesList(wrapper, projectIndex, project, searchInput.value);
   };
 }
 
@@ -955,6 +1024,313 @@ function addFivemErrorToConsole(projectIndex, error) {
 }
 
 /**
+ * Scan and render FiveM resources
+ */
+async function scanAndRenderResources(wrapper, projectIndex, project) {
+  const list = wrapper.querySelector('.fivem-resources-list');
+  const empty = wrapper.querySelector('.fivem-resources-empty');
+  const loading = wrapper.querySelector('.fivem-resources-loading');
+  const refreshBtn = wrapper.querySelector('.fivem-refresh-resources');
+
+  // Show loading state
+  list.style.display = 'none';
+  empty.style.display = 'none';
+  loading.style.display = 'flex';
+  refreshBtn.classList.add('spinning');
+
+  setFivemResourcesLoading(projectIndex, true);
+
+  try {
+    const result = await api.fivem.scanResources({ projectPath: project.path });
+
+    if (result.success) {
+      setFivemResources(projectIndex, result.resources);
+      updateFivemResourceBadge(wrapper, result.resources.length);
+      renderFivemResourcesList(wrapper, projectIndex, project);
+    } else {
+      empty.style.display = 'flex';
+    }
+  } catch (e) {
+    console.error('Error scanning resources:', e);
+    empty.style.display = 'flex';
+  } finally {
+    loading.style.display = 'none';
+    refreshBtn.classList.remove('spinning');
+    setFivemResourcesLoading(projectIndex, false);
+  }
+}
+
+/**
+ * Update FiveM resource badge count
+ */
+function updateFivemResourceBadge(wrapper, count) {
+  const badge = wrapper.querySelector('.fivem-resource-badge');
+  if (!badge) return;
+
+  if (count > 0) {
+    badge.textContent = count > 99 ? '99+' : count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/**
+ * Render FiveM resources list
+ */
+function renderFivemResourcesList(wrapper, projectIndex, project, searchFilter = '') {
+  const list = wrapper.querySelector('.fivem-resources-list');
+  const empty = wrapper.querySelector('.fivem-resources-empty');
+  const loading = wrapper.querySelector('.fivem-resources-loading');
+  const { resources } = getFivemResources(projectIndex);
+
+  loading.style.display = 'none';
+
+  // Filter resources by search
+  const filteredResources = searchFilter
+    ? resources.filter(r => r.name.toLowerCase().includes(searchFilter.toLowerCase()))
+    : resources;
+
+  if (filteredResources.length === 0) {
+    list.style.display = 'none';
+    empty.style.display = 'flex';
+    return;
+  }
+
+  list.style.display = '';
+  empty.style.display = 'none';
+
+  // Group by category
+  const grouped = {};
+  for (const resource of filteredResources) {
+    const cat = resource.category || 'root';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(resource);
+  }
+
+  // Sort categories
+  const sortedCategories = Object.keys(grouped).sort((a, b) => {
+    if (a === 'root') return -1;
+    if (b === 'root') return 1;
+    return a.localeCompare(b);
+  });
+
+  list.innerHTML = sortedCategories.map(category => {
+    const categoryResources = grouped[category];
+    return `
+      <div class="fivem-resource-category">
+        <div class="fivem-resource-category-header">
+          <span class="category-name">${escapeHtml(category === 'root' ? 'resources/' : category)}</span>
+          <span class="category-count">${categoryResources.length}</span>
+        </div>
+        <div class="fivem-resource-items">
+          ${categoryResources.map(resource => {
+            const shortcut = getResourceShortcut(projectIndex, resource.name);
+            return `
+            <div class="fivem-resource-item ${resource.ensured ? 'ensured' : ''}" data-name="${escapeHtml(resource.name)}" data-path="${escapeHtml(resource.path)}">
+              <div class="fivem-resource-info">
+                <span class="fivem-resource-name">${escapeHtml(resource.name)}</span>
+                <span class="fivem-resource-status ${resource.ensured ? 'active' : 'inactive'}">
+                  ${resource.ensured ? t('fivem.ensuredInCfg') : t('fivem.notEnsured')}
+                </span>
+              </div>
+              <div class="fivem-resource-actions">
+                <button class="fivem-resource-btn shortcut ${shortcut ? 'has-shortcut' : ''}" title="${shortcut ? shortcut + ' - ' + t('fivem.removeShortcut') : t('fivem.setShortcut')}" data-action="shortcut" data-resource="${escapeHtml(resource.name)}">
+                  ${shortcut ? `<span class="shortcut-key">${escapeHtml(shortcut)}</span>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01"/></svg>`}
+                </button>
+                <button class="fivem-resource-btn ensure" title="${t('fivem.ensure')}" data-action="ensure" data-resource="${escapeHtml(resource.name)}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </button>
+                <button class="fivem-resource-btn restart" title="${t('fivem.restart')}" data-action="restart" data-resource="${escapeHtml(resource.name)}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                </button>
+                <button class="fivem-resource-btn stop" title="${t('fivem.stop')}" data-action="stop" data-resource="${escapeHtml(resource.name)}">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="6" y="6" width="12" height="12"/></svg>
+                </button>
+                <button class="fivem-resource-btn folder" title="${t('fivem.openFolder')}" data-action="folder" data-path="${escapeHtml(resource.path)}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+              </div>
+            </div>
+          `;}).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Add click handlers for resource actions
+  list.querySelectorAll('.fivem-resource-btn').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const resourceName = btn.dataset.resource;
+      const resourcePath = btn.dataset.path;
+
+      if (action === 'folder') {
+        api.dialog.openInExplorer(resourcePath);
+        return;
+      }
+
+      if (action === 'shortcut') {
+        const currentShortcut = getResourceShortcut(projectIndex, resourceName);
+        if (currentShortcut) {
+          // Remove shortcut
+          setResourceShortcut(projectIndex, resourceName, null);
+          renderFivemResourcesList(wrapper, projectIndex, project, wrapper.querySelector('.fivem-resources-search-input')?.value || '');
+        } else {
+          // Capture new shortcut
+          captureResourceShortcut(btn, projectIndex, resourceName, wrapper, project);
+        }
+        return;
+      }
+
+      let command = '';
+      if (action === 'ensure') {
+        command = `ensure ${resourceName}`;
+      } else if (action === 'restart') {
+        command = `restart ${resourceName}`;
+      } else if (action === 'stop') {
+        command = `stop ${resourceName}`;
+      }
+
+      if (command) {
+        btn.classList.add('executing');
+        try {
+          // Let main process check if server is running
+          const result = await api.fivem.resourceCommand({ projectIndex, command });
+          if (result.success) {
+            btn.classList.add('success');
+            setTimeout(() => {
+              btn.classList.remove('executing');
+              btn.classList.remove('success');
+            }, 500);
+          } else {
+            // Server not running or command failed
+            btn.classList.remove('executing');
+            btn.classList.add('error');
+            setTimeout(() => btn.classList.remove('error'), 500);
+          }
+        } catch (e) {
+          console.error('Resource command error:', e);
+          btn.classList.remove('executing');
+          btn.classList.add('error');
+          setTimeout(() => btn.classList.remove('error'), 500);
+        }
+      }
+    };
+  });
+}
+
+/**
+ * Capture a keyboard shortcut for a resource
+ */
+function captureResourceShortcut(btn, projectIndex, resourceName, wrapper, project) {
+  // Change button to capture mode
+  btn.innerHTML = `<span class="shortcut-capturing">${t('fivem.pressKey')}</span>`;
+  btn.classList.add('capturing');
+
+  const handleKeyDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Ignore modifier-only keys
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+      return;
+    }
+
+    // Build shortcut string
+    let shortcut = '';
+    if (e.ctrlKey) shortcut += 'Ctrl+';
+    if (e.altKey) shortcut += 'Alt+';
+    if (e.shiftKey) shortcut += 'Shift+';
+
+    // Handle special keys
+    if (e.key === 'Escape') {
+      // Cancel capture
+      cleanup();
+      renderFivemResourcesList(wrapper, projectIndex, project, wrapper.querySelector('.fivem-resources-search-input')?.value || '');
+      return;
+    }
+
+    // Get key name
+    let keyName = e.key;
+    if (keyName === ' ') keyName = 'Space';
+    else if (keyName.length === 1) keyName = keyName.toUpperCase();
+
+    shortcut += keyName;
+
+    // Save shortcut
+    setResourceShortcut(projectIndex, resourceName, shortcut);
+    cleanup();
+    renderFivemResourcesList(wrapper, projectIndex, project, wrapper.querySelector('.fivem-resources-search-input')?.value || '');
+  };
+
+  const cleanup = () => {
+    document.removeEventListener('keydown', handleKeyDown, true);
+    btn.classList.remove('capturing');
+  };
+
+  document.addEventListener('keydown', handleKeyDown, true);
+}
+
+// Store active FiveM console info for shortcut handling
+let activeResourceShortcutHandler = null;
+
+/**
+ * Setup resource shortcut listener for a FiveM console
+ */
+function setupResourceShortcutListener(projectIndex, wrapper) {
+  // Remove previous handler if exists
+  if (activeResourceShortcutHandler) {
+    document.removeEventListener('keydown', activeResourceShortcutHandler);
+  }
+
+  activeResourceShortcutHandler = async (e) => {
+    // Only handle if FiveM console is focused/visible
+    const activeTermData = getActiveTerminal();
+    if (!activeTermData || activeTermData.type !== 'fivem' || activeTermData.projectIndex !== projectIndex) {
+      return;
+    }
+
+    // Build shortcut string
+    let shortcut = '';
+    if (e.ctrlKey) shortcut += 'Ctrl+';
+    if (e.altKey) shortcut += 'Alt+';
+    if (e.shiftKey) shortcut += 'Shift+';
+
+    // Get key name
+    let keyName = e.key;
+    if (keyName === ' ') keyName = 'Space';
+    else if (keyName.length === 1) keyName = keyName.toUpperCase();
+    else if (['Control', 'Shift', 'Alt', 'Meta'].includes(keyName)) return;
+
+    shortcut += keyName;
+
+    // Find resource with this shortcut
+    const resourceName = findResourceByShortcut(projectIndex, shortcut);
+    if (resourceName) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Execute ensure command
+      try {
+        await api.fivem.resourceCommand({ projectIndex, command: `ensure ${resourceName}` });
+        // Flash visual feedback
+        const resourceItem = wrapper?.querySelector(`.fivem-resource-item[data-name="${resourceName}"]`);
+        if (resourceItem) {
+          resourceItem.classList.add('shortcut-triggered');
+          setTimeout(() => resourceItem.classList.remove('shortcut-triggered'), 300);
+        }
+      } catch (err) {
+        console.error('Shortcut ensure failed:', err);
+      }
+    }
+  };
+
+  document.addEventListener('keydown', activeResourceShortcutHandler);
+}
+
+/**
  * Close FiveM console
  */
 function closeFivemConsole(id, projectIndex) {
@@ -1032,8 +1408,21 @@ function filterByProject(projectIndex) {
   if (projectIndex !== null && projects[projectIndex]) {
     filterIndicator.style.display = 'flex';
     filterProjectName.textContent = projects[projectIndex].name;
+
+    // Render Quick Actions bar for this project
+    const qa = getQuickActions();
+    if (qa) {
+      qa.setTerminalCallback(createTerminal);
+      qa.renderQuickActionsBar(projects[projectIndex]);
+    }
   } else {
     filterIndicator.style.display = 'none';
+
+    // Hide Quick Actions bar when no project is filtered
+    const qa = getQuickActions();
+    if (qa) {
+      qa.hideQuickActionsBar();
+    }
   }
 
   // Pre-index DOM elements once - O(n) instead of O(n²)

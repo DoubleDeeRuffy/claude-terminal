@@ -69,7 +69,12 @@
     "restart": "Restart",
     "searchResources": "Search resources...",
     "refreshResources": "Refresh",
-    "openFolder": "Open folder"
+    "openFolder": "Open folder",
+    "setShortcut": "Set shortcut",
+    "removeShortcut": "Remove shortcut",
+    "pressKey": "Press a key...",
+    "quickEnsure": "Quick Ensure",
+    "noShortcut": "No shortcut"
   },
   "git": {
     "noRemote": "No remote",
@@ -228,6 +233,28 @@
     "theme": "Terminal theme",
     "notifications": "Notifications",
     "closeAction": "Close action"
+  },
+  "quickActions": {
+    "title": "Quick Actions",
+    "configure": "Configure Quick Actions",
+    "noActions": "No actions configured",
+    "addAction": "Add an action",
+    "editAction": "Edit action",
+    "deleteAction": "Delete",
+    "name": "Name",
+    "command": "Command",
+    "icon": "Icon",
+    "namePlaceholder": "Ex: Build",
+    "commandPlaceholder": "Ex: npm run build",
+    "running": "Running...",
+    "presets": "Presets",
+    "preset": {
+      "build": "Build",
+      "test": "Tests",
+      "lint": "Lint",
+      "dev": "Dev Server",
+      "install": "Install"
+    }
   },
   "errors": {
     "corruptedFile": "Projects file corrupted",

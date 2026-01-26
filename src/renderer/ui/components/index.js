@@ -9,6 +9,7 @@ const Tab = require('./Tab');
 const ProjectList = require('./ProjectList');
 const TerminalManager = require('./TerminalManager');
 const CustomizePicker = require('./CustomizePicker');
+const QuickActions = require('./QuickActions');
 
 module.exports = {
   ...Modal,
@@ -17,5 +18,6 @@ module.exports = {
   ...Tab,
   ProjectList,
   TerminalManager,
-  CustomizePicker
+  CustomizePicker,
+  QuickActions
 };
