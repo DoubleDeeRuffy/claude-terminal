@@ -7,17 +7,17 @@ module.exports = {
   appId: "com.yanis.claude-terminal",
   productName: "Claude Terminal",
   directories: {
-    output: "dist"
+    output: "build"
   },
   files: [
     "main.js",
-    "renderer.js",
     "index.html",
     "quick-picker.html",
     "styles.css",
-    "src/**/*",
+    "dist/renderer.bundle.js",
+    "dist/renderer.bundle.js.map",
+    "src/main/**/*",
     "assets/**/*",
-    "node_modules/**/*",
     "package.json"
   ],
   win: {
