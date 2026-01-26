@@ -3,8 +3,9 @@
  * Handles MCP server management in the renderer
  */
 
-const { ipcRenderer } = require('electron');
-const fs = require('fs');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
+const { fs } = window.electron_nodeModules;
 const {
   getMcps,
   getMcp,
@@ -166,7 +167,7 @@ async function startMcp(id) {
     }
 
     // stdio servers need to be spawned
-    const result = await ipcRenderer.invoke('mcp-start', {
+    const result = await api.mcp.start({
       id,
       command: mcp.command,
       args: mcp.args,
@@ -206,7 +207,7 @@ async function stopMcp(id) {
       return { success: true };
     }
 
-    const result = await ipcRenderer.invoke('mcp-stop', { id });
+    const result = await api.mcp.stop({ id });
     setMcpProcessStatus(id, 'stopped');
     addMcpLog(id, 'info', 'Stopped');
     return result;
@@ -222,14 +223,14 @@ async function stopMcp(id) {
  * @param {Function} onExitCallback - Callback for MCP exit
  */
 function registerMcpListeners(onOutputCallback, onExitCallback) {
-  ipcRenderer.on('mcp-output', (event, { id, type, data }) => {
+  api.mcp.onOutput(({ id, type, data }) => {
     addMcpLog(id, type, data);
     if (onOutputCallback) {
       onOutputCallback(id, type, data);
     }
   });
 
-  ipcRenderer.on('mcp-exit', (event, { id, code }) => {
+  api.mcp.onExit(({ id, code }) => {
     setMcpProcessStatus(id, 'stopped');
     addMcpLog(id, 'info', `Exited with code ${code}`);
     if (onExitCallback) {

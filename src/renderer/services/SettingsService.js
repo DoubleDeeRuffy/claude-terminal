@@ -3,7 +3,8 @@
  * Handles settings operations and UI interactions
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const {
   getSettings,
   getSetting,
@@ -108,7 +109,7 @@ function showNotification(title, body, terminalId) {
   const { getActiveTerminal } = require('../state');
   if (document.hasFocus() && getActiveTerminal() === terminalId) return;
 
-  ipcRenderer.send('show-notification', { title, body, terminalId });
+  api.notification.show({ title, body, terminalId });
 }
 
 /**
@@ -124,7 +125,7 @@ function getEditorOptions() {
  * @returns {Promise<boolean>}
  */
 async function getLaunchAtStartup() {
-  return await ipcRenderer.invoke('get-launch-at-startup');
+  return await api.app.getLaunchAtStartup();
 }
 
 /**
@@ -133,7 +134,7 @@ async function getLaunchAtStartup() {
  * @returns {Promise<boolean>}
  */
 async function setLaunchAtStartup(enabled) {
-  return await ipcRenderer.invoke('set-launch-at-startup', enabled);
+  return await api.app.setLaunchAtStartup(enabled);
 }
 
 /**
@@ -162,7 +163,7 @@ function updateWindowTitle(taskTitle, projectName) {
   document.title = fullTitle;
 
   // Send to main process
-  ipcRenderer.send('set-window-title', fullTitle);
+  api.window.setTitle(fullTitle);
 }
 
 /**

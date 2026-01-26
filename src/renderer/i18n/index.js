@@ -3,8 +3,6 @@
  * Handles language detection, loading, and translation
  */
 
-const fs = require('fs');
-const path = require('path');
 const { State } = require('../state/State');
 
 // Supported languages

@@ -3,9 +3,8 @@
  * Centralized path definitions for the application
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
+// Use preload API for Node.js modules
+const { path, fs, os, process: nodeProcess, __dirname: appDir } = window.electron_nodeModules;
 
 // Base directories
 const homeDir = os.homedir();
@@ -39,13 +38,13 @@ function ensureDirectories() {
  * @returns {string}
  */
 function getAssetsDir() {
-  // In development: __dirname/../../../assets
+  // In development: appDir/assets (appDir is the project root)
   // In production: resources/assets
-  const devPath = path.join(__dirname, '..', '..', '..', 'assets');
+  const devPath = path.join(appDir, 'assets');
   if (fs.existsSync(devPath)) {
     return devPath;
   }
-  return path.join(process.resourcesPath, 'assets');
+  return path.join(nodeProcess.resourcesPath, 'assets');
 }
 
 module.exports = {

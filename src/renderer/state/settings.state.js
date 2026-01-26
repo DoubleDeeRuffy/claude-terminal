@@ -3,7 +3,8 @@
  * Manages application settings
  */
 
-const fs = require('fs');
+// Use preload API for Node.js modules
+const { fs } = window.electron_nodeModules;
 const { State } = require('./State');
 const { settingsFile } = require('../utils/paths');
 

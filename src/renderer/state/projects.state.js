@@ -3,8 +3,8 @@
  * Manages projects and folders state
  */
 
-const fs = require('fs');
-const path = require('path');
+// Use preload API for Node.js modules
+const { fs, path } = window.electron_nodeModules;
 const { State } = require('./State');
 const { projectsFile, dataDir } = require('../utils/paths');
 
@@ -160,17 +160,16 @@ function loadProjects() {
         console.error('Projects file is corrupted:', parseError);
         const backupPath = createCorruptedBackup(projectsFile);
 
-        // Show notification to user via IPC (if available)
+        // Show notification to user via preload API (if available)
         try {
-          const { ipcRenderer } = require('electron');
-          ipcRenderer.send('show-notification', {
+          window.electron_api.notification.show({
             title: 'Fichier projets corrompu',
             body: backupPath
               ? `Un backup a été créé: ${path.basename(backupPath)}`
               : 'Impossible de créer un backup. Vos projets ont été réinitialisés.'
           });
-        } catch (ipcError) {
-          // IPC not available, just log
+        } catch (apiError) {
+          // API not available, just log
           console.error('Could not notify user of corruption');
         }
 
@@ -325,13 +324,12 @@ function saveProjectsImmediate() {
 
     // Try to notify user
     try {
-      const { ipcRenderer } = require('electron');
-      ipcRenderer.send('show-notification', {
+      window.electron_api.notification.show({
         title: 'Erreur de sauvegarde',
         body: `Impossible de sauvegarder les projets: ${error.message}`
       });
-    } catch (ipcError) {
-      // IPC not available
+    } catch (apiError) {
+      // API not available
     }
   }
 }

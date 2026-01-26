@@ -4,9 +4,12 @@
   "description": "Terminal custom pour Claude Code avec gestion des projets, skills et agents",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "build": "dotenv -e .env -- electron-builder --win --config electron-builder.config.js",
-    "publish": "dotenv -e .env -- electron-builder --win --publish always --config electron-builder.config.js"
+    "start": "node scripts/build-renderer.js && electron .",
+    "start:dev": "node scripts/build-renderer.js && electron . --dev",
+    "watch": "node scripts/build-renderer.js --watch",
+    "build:renderer": "node scripts/build-renderer.js",
+    "build": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --config electron-builder.config.js",
+    "publish": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --publish always --config electron-builder.config.js"
   },
   "keywords": [
     "claude",
@@ -22,7 +25,8 @@
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "esbuild": "^0.27.2"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

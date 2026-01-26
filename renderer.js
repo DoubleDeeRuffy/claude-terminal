@@ -3,9 +3,10 @@
  * Main entry point - orchestrates all modules
  */
 
-const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
+// With contextIsolation: true, we use the preload API
+// The API is exposed via contextBridge in preload.js
+const api = window.electron_api;
+const { path, fs, process: nodeProcess, __dirname } = window.electron_nodeModules;
 
 // Import all modules from src/renderer
 const {
@@ -451,10 +452,10 @@ applyAccentColor(settingsState.get().accentColor || '#d97706');
 function showNotification(title, body, terminalId) {
   if (!localState.notificationsEnabled) return;
   if (document.hasFocus() && terminalsState.get().activeTerminal === terminalId) return;
-  ipcRenderer.send('show-notification', { title, body, terminalId });
+  api.notification.show({ title, body, terminalId });
 }
 
-ipcRenderer.on('notification-clicked', (event, { terminalId }) => {
+api.notification.onClicked(({ terminalId }) => {
   if (terminalId) {
     TerminalManager.setActiveTerminal(terminalId);
     document.querySelector('[data-tab="claude"]')?.click();
@@ -466,7 +467,7 @@ async function checkAllProjectsGitStatus() {
   const projects = projectsState.get().projects;
   for (const project of projects) {
     try {
-      const result = await ipcRenderer.invoke('git-status-quick', { projectPath: project.path });
+      const result = await api.git.statusQuick({ projectPath: project.path });
       localState.gitRepoStatus.set(project.id, { isGitRepo: result.isGitRepo });
     } catch (e) {
       localState.gitRepoStatus.set(project.id, { isGitRepo: false });
@@ -486,7 +487,7 @@ async function checkAllProjectsGitStatus() {
         filterGitActions.style.display = 'flex';
         // Update branch name
         try {
-          const branch = await ipcRenderer.invoke('git-current-branch', { projectPath: project.path });
+          const branch = await api.git.currentBranch({ projectPath: project.path });
           const branchNameEl = document.getElementById('filter-branch-name');
           if (branchNameEl) branchNameEl.textContent = branch || 'main';
         } catch (e) { /* ignore */ }
@@ -650,7 +651,7 @@ function refreshDashboardAsync(projectId) {
       DashboardService.renderDashboard(content, project, {
         terminalCount,
         fivemStatus,
-        onOpenFolder: (p) => ipcRenderer.send('open-in-explorer', p),
+        onOpenFolder: (p) => api.dialog.openInExplorer(p),
         onOpenClaude: (proj) => {
           createTerminalForProject(proj);
           document.querySelector('[data-tab="claude"]')?.click();
@@ -670,7 +671,7 @@ async function gitPull(projectId) {
   localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pulling: true });
   ProjectList.render();
   try {
-    const result = await ipcRenderer.invoke('git-pull', { projectPath: project.path });
+    const result = await api.git.pull({ projectPath: project.path });
 
     // Handle merge conflicts
     if (result.hasConflicts) {
@@ -737,7 +738,7 @@ async function gitPush(projectId) {
   localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pushing: true });
   ProjectList.render();
   try {
-    const result = await ipcRenderer.invoke('git-push', { projectPath: project.path });
+    const result = await api.git.push({ projectPath: project.path });
     localState.gitOperations.set(projectId, { ...localState.gitOperations.get(projectId), pushing: false, lastResult: result });
     ProjectList.render();
 
@@ -778,7 +779,7 @@ async function gitMergeAbort(projectId) {
   if (!project) return;
 
   try {
-    const result = await ipcRenderer.invoke('git-merge-abort', { projectPath: project.path });
+    const result = await api.git.mergeAbort({ projectPath: project.path });
 
     if (result.success) {
       // Clear merge state
@@ -825,7 +826,7 @@ async function startFivemServer(projectIndex) {
   localState.fivemServers.set(projectIndex, { status: 'starting', logs: [] });
   ProjectList.render();
   try {
-    await ipcRenderer.invoke('fivem-start', {
+    await api.fivem.start({
       projectIndex,
       projectPath: project.path,
       runCommand: project.fivemConfig?.runCommand || project.runCommand
@@ -838,7 +839,7 @@ async function startFivemServer(projectIndex) {
 }
 
 async function stopFivemServer(projectIndex) {
-  await ipcRenderer.invoke('fivem-stop', { projectIndex });
+  await api.fivem.stop({ projectIndex });
   localState.fivemServers.set(projectIndex, { status: 'stopped', logs: localState.fivemServers.get(projectIndex)?.logs || [] });
   ProjectList.render();
 }
@@ -853,7 +854,7 @@ function openFivemConsole(projectIndex) {
 }
 
 // Register FiveM listeners - write to TerminalManager's FiveM console
-ipcRenderer.on('fivem-data', (event, { projectIndex, data }) => {
+api.fivem.onData(({ projectIndex, data }) => {
   // Update local state logs
   const server = localState.fivemServers.get(projectIndex) || { status: 'running', logs: [] };
   server.logs.push(data);
@@ -864,7 +865,7 @@ ipcRenderer.on('fivem-data', (event, { projectIndex, data }) => {
   TerminalManager.writeFivemConsole(projectIndex, data);
 });
 
-ipcRenderer.on('fivem-exit', (event, { projectIndex, code }) => {
+api.fivem.onExit(({ projectIndex, code }) => {
   localState.fivemServers.set(projectIndex, { status: 'stopped', logs: localState.fivemServers.get(projectIndex)?.logs || [] });
 
   // Write exit message to console
@@ -938,7 +939,7 @@ async function showSessionsModal(project) {
   if (!project) return;
 
   try {
-    const sessions = await ipcRenderer.invoke('claude-sessions', project.path);
+    const sessions = await api.claude.sessions(project.path);
 
     if (!sessions || sessions.length === 0) {
       showModal(`Sessions - ${project.name}`, `
@@ -1133,8 +1134,8 @@ TerminalManager.setCallbacks({
 });
 
 // ========== WINDOW CONTROLS ==========
-document.getElementById('btn-minimize').onclick = () => ipcRenderer.send('window-minimize');
-document.getElementById('btn-maximize').onclick = () => ipcRenderer.send('window-maximize');
+document.getElementById('btn-minimize').onclick = () => api.window.minimize();
+document.getElementById('btn-maximize').onclick = () => api.window.maximize();
 document.getElementById('btn-close').onclick = () => handleWindowClose();
 
 /**
@@ -1144,12 +1145,12 @@ function handleWindowClose() {
   const closeAction = settingsState.get().closeAction || 'ask';
 
   if (closeAction === 'minimize') {
-    ipcRenderer.send('window-close'); // This will minimize to tray
+    api.window.close(); // This will minimize to tray
     return;
   }
 
   if (closeAction === 'quit') {
-    ipcRenderer.send('app-quit'); // Force quit
+    api.app.quit(); // Force quit
     return;
   }
 
@@ -1198,7 +1199,7 @@ function showCloseDialog() {
       saveSettings();
     }
     closeModal();
-    ipcRenderer.send('window-close');
+    api.window.close();
   };
 
   document.getElementById('close-quit').onclick = () => {
@@ -1208,7 +1209,7 @@ function showCloseDialog() {
       saveSettings();
     }
     closeModal();
-    ipcRenderer.send('app-quit');
+    api.app.quit();
   };
 }
 
@@ -1408,7 +1409,7 @@ async function showSettingsModal(initialTab = 'general') {
   // Get launch at startup setting
   let launchAtStartup = false;
   try {
-    launchAtStartup = await ipcRenderer.invoke('get-launch-at-startup');
+    launchAtStartup = await api.app.getLaunchAtStartup();
   } catch (e) {
     console.error('Error getting launch at startup:', e);
   }
@@ -1416,7 +1417,7 @@ async function showSettingsModal(initialTab = 'general') {
   // Get GitHub auth status
   let githubStatus = { authenticated: false };
   try {
-    githubStatus = await ipcRenderer.invoke('github-auth-status');
+    githubStatus = await api.github.authStatus();
   } catch (e) {
     console.error('Error getting GitHub status:', e);
   }
@@ -1669,7 +1670,7 @@ async function showSettingsModal(initialTab = 'general') {
         connectBtn.innerHTML = '<span class="btn-spinner"></span>';
 
         try {
-          const result = await ipcRenderer.invoke('github-set-token', token);
+          const result = await api.github.setToken(token);
           if (result.success && result.authenticated) {
             showSettingsModal('github');
           } else {
@@ -1698,13 +1699,13 @@ async function showSettingsModal(initialTab = 'general') {
     if (helpLink) {
       helpLink.onclick = (e) => {
         e.preventDefault();
-        ipcRenderer.invoke('github-open-auth-url', 'https://github.com/settings/tokens/new?scopes=repo&description=Claude%20Terminal');
+        api.github.openAuthUrl('https://github.com/settings/tokens/new?scopes=repo&description=Claude%20Terminal');
       };
     }
 
     if (disconnectBtn) {
       disconnectBtn.onclick = async () => {
-        await ipcRenderer.invoke('github-logout');
+        await api.github.logout();
         showSettingsModal('github');
       };
     }
@@ -1758,7 +1759,7 @@ async function showSettingsModal(initialTab = 'general') {
     const launchAtStartupToggle = document.getElementById('launch-at-startup-toggle');
     if (launchAtStartupToggle) {
       try {
-        await ipcRenderer.invoke('set-launch-at-startup', launchAtStartupToggle.checked);
+        await api.app.setLaunchAtStartup(launchAtStartupToggle.checked);
       } catch (e) {
         console.error('Error setting launch at startup:', e);
       }
@@ -2027,7 +2028,7 @@ function renderSkills() {
   list.innerHTML = html;
 
   list.querySelectorAll('.list-card').forEach(card => {
-    card.querySelector('.btn-open').onclick = () => ipcRenderer.send('open-in-explorer', card.dataset.path);
+    card.querySelector('.btn-open').onclick = () => api.dialog.openInExplorer(card.dataset.path);
     const delBtn = card.querySelector('.btn-del');
     if (delBtn) {
       delBtn.onclick = () => { if (confirm('Supprimer ce skill ?')) { fs.rmSync(card.dataset.path, { recursive: true, force: true }); loadSkills(); } };
@@ -2062,7 +2063,7 @@ function renderAgents() {
   list.innerHTML = html;
 
   list.querySelectorAll('.list-card').forEach(card => {
-    card.querySelector('.btn-open').onclick = () => ipcRenderer.send('open-in-explorer', card.dataset.path);
+    card.querySelector('.btn-open').onclick = () => api.dialog.openInExplorer(card.dataset.path);
     card.querySelector('.btn-del').onclick = () => { if (confirm('Supprimer cet agent ?')) { fs.rmSync(card.dataset.path, { recursive: true, force: true }); loadAgents(); } };
   });
 }
@@ -2251,7 +2252,7 @@ async function renderDashboardContent(projectIndex) {
   await DashboardService.renderDashboard(content, project, {
     terminalCount,
     fivemStatus,
-    onOpenFolder: (p) => ipcRenderer.send('open-in-explorer', p),
+    onOpenFolder: (p) => api.dialog.openInExplorer(p),
     onOpenClaude: (proj) => {
       createTerminalForProject(proj);
       document.querySelector('[data-tab="claude"]')?.click();
@@ -2404,7 +2405,7 @@ Documentez les fonctions exportees ici.
 };
 
 function getClaudeDir() {
-  return path.join(process.env.USERPROFILE || process.env.HOME, '.claude');
+  return path.join(nodeProcess.env.USERPROFILE || nodeProcess.env.HOME, '.claude');
 }
 
 function getGlobalClaudeMd() {
@@ -2545,7 +2546,7 @@ function loadMemoryContent(source, projectIndex = null) {
   memoryState.fileExists = fileExists;
 
   titleEl.textContent = title;
-  pathEl.textContent = filePath.replace(process.env.USERPROFILE || process.env.HOME, '~');
+  pathEl.textContent = filePath.replace(nodeProcess.env.USERPROFILE || nodeProcess.env.HOME, '~');
 
   // Show/hide buttons based on context
   const isMarkdownSource = source === 'global' || source === 'project';
@@ -2784,7 +2785,7 @@ function setupMemoryEventListeners() {
       if (!fs.existsSync(filePath)) {
         filePath = path.dirname(filePath);
       }
-      ipcRenderer.send('open-in-explorer', filePath);
+      api.dialog.openInExplorer(filePath);
     }
   };
 
@@ -2805,7 +2806,7 @@ function setupMemoryEventListeners() {
       // For settings, just open in explorer
       const filePath = getClaudeSettingsJson();
       if (fs.existsSync(filePath)) {
-        ipcRenderer.send('open-in-explorer', filePath);
+        api.dialog.openInExplorer(filePath);
       }
       return;
     }
@@ -2986,7 +2987,7 @@ document.getElementById('btn-new-project').onclick = () => {
     if (!hintEl) return;
 
     try {
-      const result = await ipcRenderer.invoke('github-auth-status');
+      const result = await api.github.authStatus();
       githubConnected = result.authenticated;
       if (result.authenticated) {
         hintEl.innerHTML = `<span class="hint-success"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> GitHub connecte (${result.login})</span>`;
@@ -3037,7 +3038,7 @@ document.getElementById('btn-new-project').onclick = () => {
   });
 
   document.getElementById('btn-browse').onclick = async () => {
-    const folder = await ipcRenderer.invoke('select-folder');
+    const folder = await api.dialog.selectFolder();
     if (folder) {
       document.getElementById('inp-path').value = folder;
       if (!document.getElementById('inp-name').value && selectedSource === 'folder') {
@@ -3047,7 +3048,7 @@ document.getElementById('btn-new-project').onclick = () => {
   };
 
   document.getElementById('btn-browse-fivem').onclick = async () => {
-    const file = await ipcRenderer.invoke('select-file', { filters: [{ name: 'Scripts', extensions: ['bat', 'cmd', 'sh', 'exe'] }] });
+    const file = await api.dialog.selectFile({ filters: [{ name: 'Scripts', extensions: ['bat', 'cmd', 'sh', 'exe'] }] });
     if (file) document.getElementById('inp-fivem-cmd').value = file;
   };
 
@@ -3071,7 +3072,7 @@ document.getElementById('btn-new-project').onclick = () => {
       cloneStatus.style.display = 'block';
 
       try {
-        const result = await ipcRenderer.invoke('git-clone', { repoUrl, targetPath: projPath });
+        const result = await api.git.clone({ repoUrl, targetPath: projPath });
 
         if (!result.success) {
           cloneStatus.innerHTML = `<div class="clone-error">${result.error}</div>`;
@@ -3144,7 +3145,7 @@ async function showFilterGitActions(projectId) {
 
   // Get current branch
   try {
-    const branch = await ipcRenderer.invoke('git-current-branch', { projectPath: project.path });
+    const branch = await api.git.currentBranch({ projectPath: project.path });
     filterBranchName.textContent = branch || 'main';
   } catch (e) {
     filterBranchName.textContent = '...';
@@ -3189,8 +3190,8 @@ filterBtnBranch.onclick = async (e) => {
 
     try {
       const [branchesData, currentBranch] = await Promise.all([
-        ipcRenderer.invoke('git-branches', { projectPath: project.path }),
-        ipcRenderer.invoke('git-current-branch', { projectPath: project.path })
+        api.git.branches({ projectPath: project.path }),
+        api.git.currentBranch({ projectPath: project.path })
       ]);
 
       const { local = [], remote = [] } = branchesData;
@@ -3238,7 +3239,7 @@ filterBtnBranch.onclick = async (e) => {
           // Show loading
           item.innerHTML = `<span class="loading-spinner"></span> ${branch}`;
 
-          const result = await ipcRenderer.invoke('git-checkout', {
+          const result = await api.git.checkout({
             projectPath: project.path,
             branch
           });
@@ -3361,7 +3362,7 @@ async function loadGitChanges() {
   gitChangesList.innerHTML = '<div class="git-changes-loading">Chargement des changements...</div>';
 
   try {
-    const status = await ipcRenderer.invoke('git-status-detailed', { projectPath: project.path });
+    const status = await api.git.statusDetailed({ projectPath: project.path });
 
     if (!status.success) {
       gitChangesList.innerHTML = `<div class="git-changes-empty"><p>Erreur: ${status.error}</p></div>`;
@@ -3585,7 +3586,7 @@ btnGenerateCommit.onclick = async () => {
 
   // Send command to terminal via IPC (the correct way)
   setTimeout(() => {
-    ipcRenderer.send('terminal-input', { id: targetTerminal.id, data: command + '\r' });
+    api.terminal.input({ id: targetTerminal.id, data: command + '\r' });
   }, 300);
 
   showToast({ type: 'info', title: 'Commande envoyee', message: `Skill /${skillId} avec ${selectedPaths.length} fichier(s)`, duration: 3000 });
@@ -3600,7 +3601,7 @@ btnStageSelected.onclick = async () => {
     .filter(Boolean);
 
   try {
-    const result = await ipcRenderer.invoke('git-stage-files', {
+    const result = await api.git.stageFiles({
       projectPath: gitChangesState.projectPath,
       files: selectedPaths
     });
@@ -3653,7 +3654,7 @@ btnCommitSelected.onclick = async () => {
 
   try {
     // First stage the files
-    const stageResult = await ipcRenderer.invoke('git-stage-files', {
+    const stageResult = await api.git.stageFiles({
       projectPath: gitChangesState.projectPath,
       files: selectedPaths
     });
@@ -3663,7 +3664,7 @@ btnCommitSelected.onclick = async () => {
     }
 
     // Then commit
-    const commitResult = await ipcRenderer.invoke('git-commit', {
+    const commitResult = await api.git.commit({
       projectPath: gitChangesState.projectPath,
       message: message
     });
@@ -3799,7 +3800,7 @@ async function submitCreateModal() {
       ? `/create-skill ${description}`
       : `/create-agents ${description}`;
 
-    ipcRenderer.send('terminal-input', { id: terminalId, data: command + '\r' });
+    api.terminal.input({ id: terminalId, data: command + '\r' });
   }, 1500);
 }
 
@@ -3822,7 +3823,7 @@ document.getElementById('create-modal-description')?.addEventListener('keydown',
 });
 
 // ========== IPC LISTENERS ==========
-ipcRenderer.on('open-project', (event, project) => {
+api.quickPicker.onOpenProject((project) => {
   const projects = projectsState.get().projects;
   const existingProject = projects.find(p => p.path === project.path);
   if (existingProject) {
@@ -3833,7 +3834,7 @@ ipcRenderer.on('open-project', (event, project) => {
   }
 });
 
-ipcRenderer.on('open-terminal-current-project', () => {
+api.tray.onOpenTerminal(() => {
   const selectedFilter = projectsState.get().selectedProjectFilter;
   const projects = projectsState.get().projects;
   if (selectedFilter !== null && projects[selectedFilter]) {
@@ -3844,7 +3845,7 @@ ipcRenderer.on('open-terminal-current-project', () => {
   }
 });
 
-ipcRenderer.on('show-sessions-panel', () => {
+api.tray.onShowSessions(() => {
   const selectedFilter = projectsState.get().selectedProjectFilter;
   const projects = projectsState.get().projects;
 
@@ -3907,7 +3908,7 @@ function updateProgress(percent) {
 }
 
 // Handle update status from main process
-ipcRenderer.on('update-status', (event, data) => {
+api.updates.onStatus((data) => {
   switch (data.status) {
     case 'available':
       // If a new version is detected (different from what we knew about)
@@ -3972,7 +3973,7 @@ updateBtn.addEventListener('click', () => {
   // Disable button and show installing state
   updateBtn.disabled = true;
   updateBtn.textContent = 'Installation...';
-  ipcRenderer.send('update-install');
+  api.app.installUpdate();
 });
 
 // Dismiss button
@@ -3983,7 +3984,7 @@ updateDismiss.addEventListener('click', () => {
 });
 
 // Display current version
-ipcRenderer.invoke('get-app-version').then(version => {
+api.app.getVersion().then(version => {
   const versionEl = document.getElementById('app-version');
   if (versionEl) {
     versionEl.textContent = `v${version}`;
@@ -4065,7 +4066,7 @@ async function refreshUsageDisplay() {
   usageElements.container.classList.add('loading');
 
   try {
-    const result = await ipcRenderer.invoke('refresh-usage');
+    const result = await api.usage.refresh();
     if (result.success) {
       updateUsageDisplay({ data: result.data, lastFetch: new Date().toISOString() });
     } else {
@@ -4091,14 +4092,14 @@ if (usageElements.container) {
   });
 
   // Start periodic monitoring (every 60 seconds)
-  ipcRenderer.invoke('start-usage-monitor', 60000).then(() => {
+  api.usage.startMonitor(60000).then(() => {
     console.log('Usage monitor started');
   }).catch(console.error);
 
   // Poll for updates every 5 seconds (check cached data)
   setInterval(async () => {
     try {
-      const data = await ipcRenderer.invoke('get-usage-data');
+      const data = await api.usage.getData();
       if (data && data.data) {
         updateUsageDisplay(data);
       }
@@ -4173,7 +4174,7 @@ if (timeElements.container) {
 
 // ========== TIME TRACKING SAVE ON QUIT ==========
 // Listen for app quit to save active time tracking sessions
-ipcRenderer.on('app-will-quit', () => {
+api.lifecycle.onWillQuit(() => {
   const { saveAllActiveSessions } = require('./src/renderer');
   saveAllActiveSessions();
 });

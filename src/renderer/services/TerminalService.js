@@ -3,7 +3,8 @@
  * Handles terminal creation and management in the renderer
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const {
@@ -57,7 +58,7 @@ async function createTerminal(project, { runClaude = true } = {}) {
   const projectIndex = require('../state').getProjectIndex(project.id);
 
   // Create terminal on main process
-  const id = await ipcRenderer.invoke('terminal-create', {
+  const id = await api.terminal.create({
     cwd: project.path,
     runClaude,
     skipPermissions
@@ -105,12 +106,12 @@ function mountTerminal(id, container) {
 
   // Handle terminal input
   termData.terminal.onData(data => {
-    ipcRenderer.send('terminal-input', { id, data });
+    api.terminal.input({ id, data });
     termData.lastInput = data;
   });
 
   // Send initial size
-  ipcRenderer.send('terminal-resize', {
+  api.terminal.resize({
     id,
     cols: termData.terminal.cols,
     rows: termData.terminal.rows
@@ -125,7 +126,7 @@ function fitTerminal(id) {
   const termData = getTerminal(id);
   if (termData) {
     termData.fitAddon.fit();
-    ipcRenderer.send('terminal-resize', {
+    api.terminal.resize({
       id,
       cols: termData.terminal.cols,
       rows: termData.terminal.rows
@@ -141,7 +142,7 @@ function killTerminal(id) {
   const termData = getTerminal(id);
   if (termData) {
     termData.terminal.dispose();
-    ipcRenderer.send('terminal-kill', { id });
+    api.terminal.kill({ id });
     removeTerminal(id);
   }
 }
@@ -186,14 +187,14 @@ function handleTerminalExit(id) {
  * @param {Function} onExitCallback - Callback for terminal exit
  */
 function registerTerminalListeners(onDataCallback, onExitCallback) {
-  ipcRenderer.on('terminal-data', (event, { id, data }) => {
+  api.terminal.onData(({ id, data }) => {
     writeToTerminal(id, data);
     if (onDataCallback) {
       onDataCallback(id, data);
     }
   });
 
-  ipcRenderer.on('terminal-exit', (event, { id }) => {
+  api.terminal.onExit(({ id }) => {
     handleTerminalExit(id);
     if (onExitCallback) {
       onExitCallback(id);

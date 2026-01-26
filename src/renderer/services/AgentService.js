@@ -3,8 +3,8 @@
  * Handles agent loading and management
  */
 
-const fs = require('fs');
-const path = require('path');
+// Use preload API for Node.js modules
+const { fs, path } = window.electron_nodeModules;
 const { agentsDir } = require('../utils/paths');
 const { skillsAgentsState } = require('../state');
 
@@ -219,12 +219,11 @@ function deleteAgent(id) {
  * @param {string} id - Agent ID
  */
 function openAgentInExplorer(id) {
-  const { ipcRenderer } = require('electron');
   const agent = getAgent(id);
   if (agent) {
     // For file agents, open the containing directory
     const targetPath = isAgentFile(agent) ? path.dirname(agent.path) : agent.path;
-    ipcRenderer.send('open-in-explorer', targetPath);
+    window.electron_api.dialog.openInExplorer(targetPath);
   }
 }
 

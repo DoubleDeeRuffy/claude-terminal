@@ -3,7 +3,8 @@
  * Handles terminal creation, rendering and management
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const {
@@ -73,7 +74,11 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
     lastPasteTime = now;
     navigator.clipboard.readText().then(text => {
       if (text) {
-        ipcRenderer.send(inputChannel, { id: terminalId, data: text });
+        if (inputChannel === 'fivem-input') {
+          api.fivem.input({ projectIndex: terminalId, data: text });
+        } else {
+          api.terminal.input({ id: terminalId, data: text });
+        }
       }
     });
   }, true);
@@ -154,7 +159,11 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
       lastPasteTime = now;
       navigator.clipboard.readText().then(text => {
         if (text) {
-          ipcRenderer.send(inputChannel, { id: terminalId, data: text });
+          if (inputChannel === 'fivem-input') {
+            api.fivem.input({ projectIndex: terminalId, data: text });
+          } else {
+            api.terminal.input({ id: terminalId, data: text });
+          }
         }
       });
       return false;
@@ -383,13 +392,13 @@ function setActiveTerminal(id) {
 function cleanupTerminalResources(termData) {
   if (!termData) return;
 
-  // Remove IPC listeners
+  // Remove IPC listeners (call unsubscribe functions)
   if (termData.handlers) {
-    if (termData.handlers.dataHandler) {
-      ipcRenderer.removeListener('terminal-data', termData.handlers.dataHandler);
+    if (termData.handlers.unsubscribeData) {
+      termData.handlers.unsubscribeData();
     }
-    if (termData.handlers.exitHandler) {
-      ipcRenderer.removeListener('terminal-exit', termData.handlers.exitHandler);
+    if (termData.handlers.unsubscribeExit) {
+      termData.handlers.unsubscribeExit();
     }
   }
 
@@ -415,7 +424,7 @@ function closeTerminal(id) {
   const closedProjectId = termData?.project?.id;
 
   // Kill and cleanup
-  ipcRenderer.send('terminal-kill', { id });
+  api.terminal.kill({ id });
   cleanupTerminalResources(termData);
   removeTerminal(id);
   document.querySelector(`.terminal-tab[data-id="${id}"]`)?.remove();
@@ -461,7 +470,7 @@ function closeTerminal(id) {
 async function createTerminal(project, options = {}) {
   const { skipPermissions = false, runClaude = true } = options;
 
-  const result = await ipcRenderer.invoke('terminal-create', {
+  const result = await api.terminal.create({
     cwd: project.path,
     runClaude,
     skipPermissions
@@ -552,7 +561,7 @@ async function createTerminal(project, options = {}) {
   });
 
   // IPC data handling
-  const dataHandler = (event, data) => {
+  const dataHandler = (data) => {
     if (data.id === id) {
       terminal.write(data.data);
       // Record activity when terminal receives output (Claude is working)
@@ -560,21 +569,21 @@ async function createTerminal(project, options = {}) {
       if (td?.project?.id) recordActivity(td.project.id);
     }
   };
-  const exitHandler = (event, data) => {
+  const exitHandler = (data) => {
     if (data.id === id) closeTerminal(id);
   };
-  ipcRenderer.on('terminal-data', dataHandler);
-  ipcRenderer.on('terminal-exit', exitHandler);
+  const unsubscribeData = api.terminal.onData(dataHandler);
+  const unsubscribeExit = api.terminal.onExit(exitHandler);
 
-  // Store handlers for cleanup
+  // Store unsubscribe functions for cleanup
   const storedTermData = getTerminal(id);
   if (storedTermData) {
-    storedTermData.handlers = { dataHandler, exitHandler };
+    storedTermData.handlers = { unsubscribeData, unsubscribeExit };
   }
 
   // Input handling
   terminal.onData(data => {
-    ipcRenderer.send('terminal-input', { id, data });
+    api.terminal.input({ id, data });
     // Record activity for time tracking (resets idle timer)
     const td = getTerminal(id);
     if (td?.project?.id) recordActivity(td.project.id);
@@ -598,7 +607,7 @@ async function createTerminal(project, options = {}) {
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
     fitAddon.fit();
-    ipcRenderer.send('terminal-resize', { id, cols: terminal.cols, rows: terminal.rows });
+    api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
   resizeObserver.observe(wrapper);
 
@@ -745,13 +754,13 @@ function createFivemConsole(project, projectIndex, options = {}) {
 
   // Handle input to FiveM console
   terminal.onData(data => {
-    ipcRenderer.send('fivem-input', { projectIndex, data });
+    api.fivem.input({ projectIndex, data });
   });
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
     fitAddon.fit();
-    ipcRenderer.send('fivem-resize', {
+    api.fivem.resize({
       projectIndex,
       cols: terminal.cols,
       rows: terminal.rows
@@ -766,7 +775,7 @@ function createFivemConsole(project, projectIndex, options = {}) {
   }
 
   // Send initial size
-  ipcRenderer.send('fivem-resize', {
+  api.fivem.resize({
     projectIndex,
     cols: terminal.cols,
     rows: terminal.rows
@@ -1164,7 +1173,7 @@ function truncateText(text, maxLength) {
  */
 async function renderSessionsPanel(project, emptyState) {
   try {
-    const sessions = await ipcRenderer.invoke('claude-sessions', project.path);
+    const sessions = await api.claude.sessions(project.path);
 
     if (!sessions || sessions.length === 0) {
       emptyState.innerHTML = `
@@ -1239,7 +1248,7 @@ async function renderSessionsPanel(project, emptyState) {
  */
 async function resumeSession(project, sessionId, options = {}) {
   const { skipPermissions = false } = options;
-  const result = await ipcRenderer.invoke('terminal-create', {
+  const result = await api.terminal.create({
     cwd: project.path,
     runClaude: true,
     resumeSessionId: sessionId,
@@ -1330,7 +1339,7 @@ async function resumeSession(project, sessionId, options = {}) {
   });
 
   // IPC handlers
-  const dataHandler = (event, data) => {
+  const dataHandler = (data) => {
     if (data.id === id) {
       terminal.write(data.data);
       // Record activity when terminal receives output (Claude is working)
@@ -1338,21 +1347,21 @@ async function resumeSession(project, sessionId, options = {}) {
       if (td?.project?.id) recordActivity(td.project.id);
     }
   };
-  const exitHandler = (event, data) => {
+  const exitHandler = (data) => {
     if (data.id === id) closeTerminal(id);
   };
-  ipcRenderer.on('terminal-data', dataHandler);
-  ipcRenderer.on('terminal-exit', exitHandler);
+  const unsubscribeData = api.terminal.onData(dataHandler);
+  const unsubscribeExit = api.terminal.onExit(exitHandler);
 
   // Store handlers for cleanup
   const storedResumeTermData = getTerminal(id);
   if (storedResumeTermData) {
-    storedResumeTermData.handlers = { dataHandler, exitHandler };
+    storedResumeTermData.handlers = { unsubscribeData, unsubscribeExit };
   }
 
   // Input handling
   terminal.onData(data => {
-    ipcRenderer.send('terminal-input', { id, data });
+    api.terminal.input({ id, data });
     // Record activity for time tracking (resets idle timer)
     const td = getTerminal(id);
     if (td?.project?.id) recordActivity(td.project.id);
@@ -1373,7 +1382,7 @@ async function resumeSession(project, sessionId, options = {}) {
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
     fitAddon.fit();
-    ipcRenderer.send('terminal-resize', { id, cols: terminal.cols, rows: terminal.rows });
+    api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
   resizeObserver.observe(wrapper);
 
@@ -1509,7 +1518,7 @@ function hideErrorOverlay(projectIndex) {
  * @returns {Promise<string>} Terminal ID
  */
 async function createTerminalWithPrompt(project, prompt) {
-  const result = await ipcRenderer.invoke('terminal-create', {
+  const result = await api.terminal.create({
     cwd: project.path,
     runClaude: true,
     skipPermissions: false
@@ -1595,7 +1604,7 @@ async function createTerminalWithPrompt(project, prompt) {
       if (td && td.pendingPrompt && !promptSent) {
         promptSent = true;
         setTimeout(() => {
-          ipcRenderer.send('terminal-input', { id, data: td.pendingPrompt + '\r' });
+          api.terminal.input({ id, data: td.pendingPrompt + '\r' });
           updateTerminal(id, { pendingPrompt: null });
           updateTerminalStatus(id, 'working');
         }, 500);
@@ -1606,24 +1615,24 @@ async function createTerminalWithPrompt(project, prompt) {
   });
 
   // IPC handlers
-  const dataHandler = (event, data) => {
+  const dataHandler = (data) => {
     if (data.id === id) terminal.write(data.data);
   };
-  const exitHandler = (event, data) => {
+  const exitHandler = (data) => {
     if (data.id === id) closeTerminal(id);
   };
-  ipcRenderer.on('terminal-data', dataHandler);
-  ipcRenderer.on('terminal-exit', exitHandler);
+  const unsubscribeData = api.terminal.onData(dataHandler);
+  const unsubscribeExit = api.terminal.onExit(exitHandler);
 
   // Store handlers for cleanup
   const storedTermData = getTerminal(id);
   if (storedTermData) {
-    storedTermData.handlers = { dataHandler, exitHandler };
+    storedTermData.handlers = { unsubscribeData, unsubscribeExit };
   }
 
   // Input handling
   terminal.onData(data => {
-    ipcRenderer.send('terminal-input', { id, data });
+    api.terminal.input({ id, data });
     const td = getTerminal(id);
     if (data === '\r' || data === '\n') {
       updateTerminalStatus(id, 'working');
@@ -1642,7 +1651,7 @@ async function createTerminalWithPrompt(project, prompt) {
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
     fitAddon.fit();
-    ipcRenderer.send('terminal-resize', { id, cols: terminal.cols, rows: terminal.rows });
+    api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
   resizeObserver.observe(wrapper);
 

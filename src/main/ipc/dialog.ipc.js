@@ -72,6 +72,12 @@ function registerDialogHandlers() {
     shell.openPath(folderPath);
   });
 
+  // Open in external editor
+  ipcMain.on('open-in-editor', (event, { editor, path: projectPath }) => {
+    const { exec } = require('child_process');
+    exec(`${editor} "${projectPath}"`);
+  });
+
   // Show notification
   ipcMain.on('show-notification', (event, { title, body, terminalId }) => {
     if (!Notification.isSupported()) return;

@@ -3,7 +3,8 @@
  * Helper functions for color manipulation and theme management
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 
 /**
  * Convert hex color to RGB object
@@ -86,7 +87,7 @@ function applyAccentColor(color) {
   }
 
   // Notify main process to update tray icon
-  ipcRenderer.send('update-accent-color', color);
+  api.tray.updateAccentColor(color);
 }
 
 /**

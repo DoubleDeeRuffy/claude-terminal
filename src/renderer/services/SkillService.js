@@ -3,9 +3,8 @@
  * Handles skill loading and management
  */
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+// Use preload API for Node.js modules
+const { fs, path, os } = window.electron_nodeModules;
 const { skillsDir } = require('../utils/paths');
 const { skillsAgentsState } = require('../state');
 
@@ -243,10 +242,9 @@ function deleteSkill(id) {
  * @param {string} id - Skill ID
  */
 function openSkillInExplorer(id) {
-  const { ipcRenderer } = require('electron');
   const skill = getSkill(id);
   if (skill) {
-    ipcRenderer.send('open-in-explorer', skill.path);
+    window.electron_api.dialog.openInExplorer(skill.path);
   }
 }
 

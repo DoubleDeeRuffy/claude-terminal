@@ -3,7 +3,8 @@
  * Handles project-related operations in the renderer
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const {
   projectsState,
   getProject,
@@ -23,7 +24,7 @@ const {
  * @returns {Promise<Object|null>}
  */
 async function addProjectFromDialog(type = 'standalone') {
-  const folderPath = await ipcRenderer.invoke('select-folder');
+  const folderPath = await api.dialog.selectFolder();
   if (!folderPath) return null;
 
   // Extract project name from path
@@ -43,13 +44,13 @@ async function addProjectFromDialog(type = 'standalone') {
  * @returns {Promise<Object|null>}
  */
 async function addFivemProject() {
-  const folderPath = await ipcRenderer.invoke('select-folder');
+  const folderPath = await api.dialog.selectFolder();
   if (!folderPath) return null;
 
   const name = folderPath.split(/[/\\]/).pop();
 
   // Ask for run command
-  const runCommand = await ipcRenderer.invoke('select-file', {
+  const runCommand = await api.dialog.selectFile({
     filters: [
       { name: 'Batch files', extensions: ['bat', 'cmd'] },
       { name: 'Executables', extensions: ['exe'] },
@@ -98,8 +99,7 @@ function openInEditor(projectId, editor = 'code') {
   const project = getProject(projectId);
   if (!project) return;
 
-  const { exec } = require('child_process');
-  exec(`${editor} "${project.path}"`);
+  api.dialog.openInEditor({ editor, path: project.path });
 }
 
 /**
@@ -109,7 +109,7 @@ function openInEditor(projectId, editor = 'code') {
 function openInExplorer(projectId) {
   const project = getProject(projectId);
   if (project) {
-    ipcRenderer.send('open-in-explorer', project.path);
+    api.dialog.openInExplorer(project.path);
   }
 }
 
@@ -171,7 +171,7 @@ async function checkAllProjectsGitStatus(renderCallback) {
 
   for (const project of projects) {
     try {
-      const result = await ipcRenderer.invoke('git-status-quick', { projectPath: project.path });
+      const result = await api.git.statusQuick({ projectPath: project.path });
       setGitRepoStatus(project.id, result.isGitRepo);
     } catch (e) {
       setGitRepoStatus(project.id, false);

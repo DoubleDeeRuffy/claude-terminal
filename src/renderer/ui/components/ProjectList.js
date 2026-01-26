@@ -3,7 +3,8 @@
  * Renders the project tree with folders and projects
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const {
   projectsState,
   getFolder,
@@ -568,7 +569,7 @@ function attachListeners(list) {
     btn.onclick = (e) => {
       e.stopPropagation();
       const project = getProject(btn.dataset.projectId);
-      if (project) ipcRenderer.send('open-in-explorer', project.path);
+      if (project) api.dialog.openInExplorer(project.path);
     };
   });
 

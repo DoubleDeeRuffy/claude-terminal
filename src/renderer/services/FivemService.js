@@ -3,7 +3,8 @@
  * Handles FiveM server management in the renderer
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const {
@@ -68,7 +69,7 @@ async function startFivemServer(projectIndex) {
   setFivemServerStatus(projectIndex, 'starting');
 
   try {
-    const result = await ipcRenderer.invoke('fivem-start', {
+    const result = await api.fivem.start({
       projectIndex,
       projectPath: project.path,
       runCommand: project.runCommand
@@ -94,7 +95,7 @@ async function startFivemServer(projectIndex) {
  */
 async function stopFivemServer(projectIndex) {
   try {
-    const result = await ipcRenderer.invoke('fivem-stop', { projectIndex });
+    const result = await api.fivem.stop({ projectIndex });
     setFivemServerStatus(projectIndex, 'stopped');
     return result;
   } catch (e) {
@@ -122,7 +123,7 @@ function createFivemTerminal(projectIndex) {
 
   // Handle input to FiveM console
   terminal.onData(data => {
-    ipcRenderer.send('fivem-input', { projectIndex, data });
+    api.fivem.input({ projectIndex, data });
   });
 
   fivemTerminals.set(projectIndex, { terminal, fitAddon });
@@ -160,7 +161,7 @@ function mountFivemTerminal(projectIndex, container) {
   }
 
   // Send size
-  ipcRenderer.send('fivem-resize', {
+  api.fivem.resize({
     projectIndex,
     cols: terminal.cols,
     rows: terminal.rows
@@ -175,7 +176,7 @@ function fitFivemTerminal(projectIndex) {
   const termData = fivemTerminals.get(projectIndex);
   if (termData) {
     termData.fitAddon.fit();
-    ipcRenderer.send('fivem-resize', {
+    api.fivem.resize({
       projectIndex,
       cols: termData.terminal.cols,
       rows: termData.terminal.rows
@@ -385,7 +386,7 @@ let globalErrorCallback = null;
 function registerFivemListeners(onDataCallback, onExitCallback, onErrorCallback) {
   globalErrorCallback = onErrorCallback;
 
-  ipcRenderer.on('fivem-data', (event, { projectIndex, data }) => {
+  api.fivem.onData(({ projectIndex, data }) => {
     addFivemLog(projectIndex, data);
 
     // Write to terminal if exists
@@ -410,7 +411,7 @@ function registerFivemListeners(onDataCallback, onExitCallback, onErrorCallback)
     }
   });
 
-  ipcRenderer.on('fivem-exit', (event, { projectIndex, code }) => {
+  api.fivem.onExit(({ projectIndex, code }) => {
     setFivemServerStatus(projectIndex, 'stopped');
 
     // Finalize any pending error

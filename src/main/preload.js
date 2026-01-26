@@ -1,0 +1,198 @@
+/**
+ * Preload Script
+ * Exposes IPC API to renderer with context isolation
+ */
+
+const { contextBridge, ipcRenderer } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+// Expose Node.js modules that are needed in renderer
+// Note: For better security, these operations should eventually be moved to main process
+contextBridge.exposeInMainWorld('electron_nodeModules', {
+  path: {
+    join: (...args) => path.join(...args),
+    dirname: (p) => path.dirname(p),
+    basename: (p, ext) => path.basename(p, ext),
+    resolve: (...args) => path.resolve(...args),
+    sep: path.sep
+  },
+  fs: {
+    existsSync: (p) => fs.existsSync(p),
+    readFileSync: (p, options) => fs.readFileSync(p, options),
+    writeFileSync: (p, data, options) => fs.writeFileSync(p, data, options),
+    readdirSync: (p, options) => fs.readdirSync(p, options),
+    statSync: (p) => {
+      const stat = fs.statSync(p);
+      return {
+        isDirectory: () => stat.isDirectory(),
+        isFile: () => stat.isFile(),
+        size: stat.size,
+        mtime: stat.mtime
+      };
+    },
+    mkdirSync: (p, options) => fs.mkdirSync(p, options),
+    rmSync: (p, options) => fs.rmSync(p, options),
+    copyFileSync: (src, dest) => fs.copyFileSync(src, dest),
+    unlinkSync: (p) => fs.unlinkSync(p),
+    renameSync: (oldPath, newPath) => fs.renameSync(oldPath, newPath)
+  },
+  os: {
+    homedir: () => require('os').homedir()
+  },
+  process: {
+    env: {
+      USERPROFILE: process.env.USERPROFILE,
+      HOME: process.env.HOME,
+      APPDATA: process.env.APPDATA
+    },
+    resourcesPath: process.resourcesPath || ''
+  },
+  // __dirname from preload (src/main) - calculate app root by going up two levels
+  __dirname: path.join(__dirname, '..', '..')
+});
+
+// Helper to create safe IPC listener that returns unsubscribe function
+function createListener(channel) {
+  return (callback) => {
+    const subscription = (event, ...args) => callback(...args);
+    ipcRenderer.on(channel, subscription);
+    return () => ipcRenderer.removeListener(channel, subscription);
+  };
+}
+
+// Expose protected API to renderer
+contextBridge.exposeInMainWorld('electron_api', {
+  // ==================== TERMINAL ====================
+  terminal: {
+    create: (params) => ipcRenderer.invoke('terminal-create', params),
+    input: (params) => ipcRenderer.send('terminal-input', params),
+    resize: (params) => ipcRenderer.send('terminal-resize', params),
+    kill: (params) => ipcRenderer.send('terminal-kill', params),
+    onData: createListener('terminal-data'),
+    onExit: createListener('terminal-exit')
+  },
+
+  // ==================== GIT ====================
+  git: {
+    info: (projectPath) => ipcRenderer.invoke('git-info', projectPath),
+    infoFull: (projectPath) => ipcRenderer.invoke('git-info-full', projectPath),
+    statusQuick: (params) => ipcRenderer.invoke('git-status-quick', params),
+    statusDetailed: (params) => ipcRenderer.invoke('git-status-detailed', params),
+    branches: (params) => ipcRenderer.invoke('git-branches', params),
+    currentBranch: (params) => ipcRenderer.invoke('git-current-branch', params),
+    mergeInProgress: (params) => ipcRenderer.invoke('git-merge-in-progress', params),
+    mergeConflicts: (params) => ipcRenderer.invoke('git-merge-conflicts', params),
+    pull: (params) => ipcRenderer.invoke('git-pull', params),
+    push: (params) => ipcRenderer.invoke('git-push', params),
+    checkout: (params) => ipcRenderer.invoke('git-checkout', params),
+    merge: (params) => ipcRenderer.invoke('git-merge', params),
+    mergeAbort: (params) => ipcRenderer.invoke('git-merge-abort', params),
+    mergeContinue: (params) => ipcRenderer.invoke('git-merge-continue', params),
+    clone: (params) => ipcRenderer.invoke('git-clone', params),
+    stageFiles: (params) => ipcRenderer.invoke('git-stage-files', params),
+    commit: (params) => ipcRenderer.invoke('git-commit', params)
+  },
+
+  // ==================== FIVEM ====================
+  fivem: {
+    start: (params) => ipcRenderer.invoke('fivem-start', params),
+    stop: (params) => ipcRenderer.invoke('fivem-stop', params),
+    input: (params) => ipcRenderer.send('fivem-input', params),
+    resize: (params) => ipcRenderer.send('fivem-resize', params),
+    onData: createListener('fivem-data'),
+    onExit: createListener('fivem-exit')
+  },
+
+  // ==================== MCP ====================
+  mcp: {
+    start: (params) => ipcRenderer.invoke('mcp-start', params),
+    stop: (params) => ipcRenderer.invoke('mcp-stop', params),
+    onOutput: createListener('mcp-output'),
+    onExit: createListener('mcp-exit')
+  },
+
+  // ==================== DIALOG & SYSTEM ====================
+  dialog: {
+    selectFolder: () => ipcRenderer.invoke('select-folder'),
+    selectFile: (params) => ipcRenderer.invoke('select-file', params),
+    openInExplorer: (path) => ipcRenderer.send('open-in-explorer', path),
+    openInEditor: (params) => ipcRenderer.send('open-in-editor', params)
+  },
+
+  window: {
+    minimize: () => ipcRenderer.send('window-minimize'),
+    maximize: () => ipcRenderer.send('window-maximize'),
+    close: () => ipcRenderer.send('window-close'),
+    setTitle: (title) => ipcRenderer.send('set-window-title', title)
+  },
+
+  app: {
+    quit: () => ipcRenderer.send('app-quit'),
+    getVersion: () => ipcRenderer.invoke('get-app-version'),
+    getLaunchAtStartup: () => ipcRenderer.invoke('get-launch-at-startup'),
+    setLaunchAtStartup: (enabled) => ipcRenderer.invoke('set-launch-at-startup', enabled),
+    installUpdate: () => ipcRenderer.send('update-install')
+  },
+
+  // ==================== NOTIFICATIONS ====================
+  notification: {
+    show: (params) => ipcRenderer.send('show-notification', params),
+    onClicked: createListener('notification-clicked')
+  },
+
+  // ==================== GITHUB ====================
+  github: {
+    startAuth: () => ipcRenderer.invoke('github-start-auth'),
+    openAuthUrl: (url) => ipcRenderer.invoke('github-open-auth-url', url),
+    pollToken: (params) => ipcRenderer.invoke('github-poll-token', params),
+    authStatus: () => ipcRenderer.invoke('github-auth-status'),
+    logout: () => ipcRenderer.invoke('github-logout'),
+    setToken: (token) => ipcRenderer.invoke('github-set-token', token),
+    getToken: () => ipcRenderer.invoke('github-get-token')
+  },
+
+  // ==================== PROJECT ====================
+  project: {
+    scanTodos: (projectPath) => ipcRenderer.invoke('scan-todos', projectPath),
+    stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath)
+  },
+
+  // ==================== CLAUDE ====================
+  claude: {
+    sessions: (projectPath) => ipcRenderer.invoke('claude-sessions', projectPath)
+  },
+
+  // ==================== USAGE ====================
+  usage: {
+    getData: () => ipcRenderer.invoke('get-usage-data'),
+    refresh: () => ipcRenderer.invoke('refresh-usage'),
+    startMonitor: (intervalMs) => ipcRenderer.invoke('start-usage-monitor', intervalMs),
+    stopMonitor: () => ipcRenderer.invoke('stop-usage-monitor')
+  },
+
+  // ==================== QUICK PICKER ====================
+  quickPicker: {
+    select: (project) => ipcRenderer.send('quick-pick-select', project),
+    close: () => ipcRenderer.send('quick-pick-close'),
+    onReloadProjects: createListener('reload-projects'),
+    onOpenProject: createListener('open-project')
+  },
+
+  // ==================== TRAY ====================
+  tray: {
+    updateAccentColor: (color) => ipcRenderer.send('update-accent-color', color),
+    onOpenTerminal: createListener('open-terminal-current-project'),
+    onShowSessions: createListener('show-sessions-panel')
+  },
+
+  // ==================== UPDATES ====================
+  updates: {
+    onStatus: createListener('update-status')
+  },
+
+  // ==================== APP LIFECYCLE ====================
+  lifecycle: {
+    onWillQuit: createListener('app-will-quit')
+  }
+});

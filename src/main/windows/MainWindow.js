@@ -24,8 +24,10 @@ function createMainWindow({ isDev = false } = {}) {
     frame: false,
     backgroundColor: '#0d0d0d',
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false, // Allow preload to use require() for Node.js modules
+      preload: path.join(__dirname, '..', 'preload.js')
     }
   });
 

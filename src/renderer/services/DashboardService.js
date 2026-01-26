@@ -3,7 +3,8 @@
  * Handles dashboard data loading, rendering and operations
  */
 
-const { ipcRenderer } = require('electron');
+// Use preload API instead of direct ipcRenderer
+const api = window.electron_api;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes } = require('../state');
 const { escapeHtml } = require('../utils');
 const { t } = require('../i18n');
@@ -111,7 +112,7 @@ function clearAllCache() {
  */
 async function getGitInfoFull(projectPath) {
   try {
-    return await ipcRenderer.invoke('git-info-full', projectPath);
+    return await api.git.infoFull(projectPath);
   } catch (e) {
     console.error('Error getting full git info:', e);
     return { isGitRepo: false };
@@ -125,7 +126,7 @@ async function getGitInfoFull(projectPath) {
  */
 async function getGitInfo(projectPath) {
   try {
-    return await ipcRenderer.invoke('git-info', projectPath);
+    return await api.git.info(projectPath);
   } catch (e) {
     console.error('Error getting git info:', e);
     return { isGitRepo: false };
@@ -139,7 +140,7 @@ async function getGitInfo(projectPath) {
  */
 async function getProjectStats(projectPath) {
   try {
-    return await ipcRenderer.invoke('project-stats', projectPath);
+    return await api.project.stats(projectPath);
   } catch (e) {
     console.error('Error getting project stats:', e);
     return { files: 0, lines: 0, byExtension: {} };
@@ -173,7 +174,7 @@ async function gitPull(projectId, onComplete) {
   setGitPulling(projectId, true);
 
   try {
-    const result = await ipcRenderer.invoke('git-pull', { projectPath: project.path });
+    const result = await api.git.pull({ projectPath: project.path });
     setGitPulling(projectId, false, result);
     // If there are merge conflicts, set the merge in progress state
     if (result.hasConflicts) {
@@ -202,7 +203,7 @@ async function gitPush(projectId, onComplete) {
   setGitPushing(projectId, true);
 
   try {
-    const result = await ipcRenderer.invoke('git-push', { projectPath: project.path });
+    const result = await api.git.push({ projectPath: project.path });
     setGitPushing(projectId, false, result);
     if (onComplete) onComplete(result);
     return result;
@@ -221,7 +222,7 @@ async function gitPush(projectId, onComplete) {
  */
 async function getGitStatusQuick(projectPath) {
   try {
-    return await ipcRenderer.invoke('git-status-quick', { projectPath });
+    return await api.git.statusQuick({ projectPath });
   } catch (e) {
     return { isGitRepo: false };
   }
@@ -238,7 +239,7 @@ async function gitMergeAbort(projectId, onComplete) {
   if (!project) return { success: false, error: 'Project not found' };
 
   try {
-    const result = await ipcRenderer.invoke('git-merge-abort', { projectPath: project.path });
+    const result = await api.git.mergeAbort({ projectPath: project.path });
     if (result.success) {
       setMergeInProgress(projectId, false, []);
     }
@@ -258,7 +259,7 @@ async function gitMergeAbort(projectId, onComplete) {
  */
 async function isMergeInProgress(projectPath) {
   try {
-    return await ipcRenderer.invoke('git-merge-in-progress', { projectPath });
+    return await api.git.mergeInProgress({ projectPath });
   } catch (e) {
     return false;
   }
@@ -271,7 +272,7 @@ async function isMergeInProgress(projectPath) {
  */
 async function getMergeConflicts(projectPath) {
   try {
-    return await ipcRenderer.invoke('git-merge-conflicts', { projectPath });
+    return await api.git.mergeConflicts({ projectPath });
   } catch (e) {
     return [];
   }
