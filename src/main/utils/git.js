@@ -763,6 +763,46 @@ function gitCommit(projectPath, message) {
   });
 }
 
+/**
+ * Create a new branch and switch to it
+ * @param {string} projectPath - Path to the project
+ * @param {string} branchName - Name of the new branch
+ * @returns {Promise<Object>} - Result object with success/error
+ */
+function createBranch(projectPath, branchName) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    exec(`git ${safeDir} checkout -b "${branchName}"`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stderr || stdout || `Switched to a new branch '${branchName}'` });
+      }
+    });
+  });
+}
+
+/**
+ * Delete a local branch
+ * @param {string} projectPath - Path to the project
+ * @param {string} branch - Branch name to delete
+ * @param {boolean} force - Use -D instead of -d (force delete unmerged branch)
+ * @returns {Promise<Object>} - Result object with success/error
+ */
+function deleteBranch(projectPath, branch, force = false) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    const flag = force ? '-D' : '-d';
+    exec(`git ${safeDir} branch ${flag} "${branch}"`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || `Deleted branch ${branch}` });
+      }
+    });
+  });
+}
+
 module.exports = {
   execGit,
   getGitInfo,
@@ -783,5 +823,7 @@ module.exports = {
   getProjectStats,
   getBranches,
   getCurrentBranch,
-  checkoutBranch
+  checkoutBranch,
+  createBranch,
+  deleteBranch
 };

@@ -91,7 +91,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     mergeContinue: (params) => ipcRenderer.invoke('git-merge-continue', params),
     clone: (params) => ipcRenderer.invoke('git-clone', params),
     stageFiles: (params) => ipcRenderer.invoke('git-stage-files', params),
-    commit: (params) => ipcRenderer.invoke('git-commit', params)
+    commit: (params) => ipcRenderer.invoke('git-commit', params),
+    createBranch: (params) => ipcRenderer.invoke('git-create-branch', params),
+    deleteBranch: (params) => ipcRenderer.invoke('git-delete-branch', params)
   },
 
   // ==================== FIVEM ====================

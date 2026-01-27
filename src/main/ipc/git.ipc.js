@@ -4,7 +4,7 @@
  */
 
 const { ipcMain } = require('electron');
-const { getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch } = require('../utils/git');
+const { getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch } = require('../utils/git');
 const GitHubAuthService = require('../services/GitHubAuthService');
 
 /**
@@ -101,6 +101,16 @@ function registerGitHandlers() {
   // Create commit
   ipcMain.handle('git-commit', async (event, { projectPath, message }) => {
     return gitCommit(projectPath, message);
+  });
+
+  // Create a new branch
+  ipcMain.handle('git-create-branch', async (event, { projectPath, branch }) => {
+    return createBranch(projectPath, branch);
+  });
+
+  // Delete a branch
+  ipcMain.handle('git-delete-branch', async (event, { projectPath, branch, force }) => {
+    return deleteBranch(projectPath, branch, force);
   });
 }
 
