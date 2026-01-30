@@ -22,6 +22,8 @@ const trackingState = new State({
 // Internal state
 const idleTimers = new Map(); // projectId -> timerId
 let globalIdleTimer = null;
+let midnightCheckTimer = null;
+let lastKnownDate = null;
 let projectsStateRef = null;
 let saveProjectsRef = null;
 let saveProjectsImmediateRef = null;
@@ -40,6 +42,10 @@ function initTimeTracking(projectsState, saveProjects, saveProjectsImmediate) {
 
   // Migrate existing data to new counter format
   migrateGlobalTimeTracking();
+
+  // Start midnight check interval
+  lastKnownDate = getTodayString();
+  startMidnightCheck();
 }
 
 /**
@@ -109,6 +115,74 @@ function migrateGlobalTimeTracking() {
       saveProjectsRef();
     }
   }
+}
+
+/**
+ * Start periodic midnight check to split sessions at day boundaries
+ */
+function startMidnightCheck() {
+  clearInterval(midnightCheckTimer);
+  midnightCheckTimer = setInterval(checkMidnightReset, 30 * 1000); // Check every 30 seconds
+}
+
+/**
+ * Check if the date has changed (midnight crossed) and split active sessions
+ */
+function checkMidnightReset() {
+  const today = getTodayString();
+
+  if (lastKnownDate && lastKnownDate !== today) {
+    console.log('[TimeTracking] Midnight detected! Date changed from', lastKnownDate, 'to', today);
+    lastKnownDate = today;
+    splitSessionsAtMidnight();
+  }
+}
+
+/**
+ * Split all active sessions at midnight boundary
+ * Saves the pre-midnight portion, then restarts sessions from midnight
+ */
+function splitSessionsAtMidnight() {
+  const state = trackingState.get();
+  const now = Date.now();
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const midnightTs = todayMidnight.getTime();
+
+  // Split global session
+  if (state.globalSessionStartTime && !state.globalIsIdle) {
+    const duration = midnightTs - state.globalSessionStartTime;
+    if (duration > 1000) {
+      saveGlobalSession(state.globalSessionStartTime, midnightTs, duration);
+    }
+    // Restart from midnight
+    trackingState.set({
+      ...trackingState.get(),
+      globalSessionStartTime: midnightTs,
+      globalLastActivityTime: now
+    });
+    console.log('[TimeTracking] Global session split at midnight');
+  }
+
+  // Split project sessions
+  const activeSessions = new Map(trackingState.get().activeSessions);
+  for (const [projectId, session] of activeSessions) {
+    if (session.sessionStartTime && !session.isIdle) {
+      const duration = midnightTs - session.sessionStartTime;
+      if (duration > 1000) {
+        saveSession(projectId, session.sessionStartTime, midnightTs, duration);
+      }
+      // Restart from midnight
+      activeSessions.set(projectId, {
+        ...session,
+        sessionStartTime: midnightTs,
+        lastActivityTime: now
+      });
+      console.log('[TimeTracking] Project session split at midnight:', projectId);
+    }
+  }
+
+  trackingState.set({ ...trackingState.get(), activeSessions });
 }
 
 /**
@@ -702,13 +776,21 @@ function getProjectTimes(projectId) {
   const state = trackingState.get();
   const session = state.activeSessions.get(projectId);
   let currentSessionTime = 0;
+  let currentSessionTimeToday = 0;
 
   if (session && session.sessionStartTime && !session.isIdle) {
-    currentSessionTime = Date.now() - session.sessionStartTime;
+    const now = Date.now();
+    currentSessionTime = now - session.sessionStartTime;
+
+    // Clip to today boundary for todayTime
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const effectiveStart = Math.max(session.sessionStartTime, todayStart.getTime());
+    currentSessionTimeToday = Math.max(0, now - effectiveStart);
   }
 
   return {
-    today: (tracking.todayTime || 0) + currentSessionTime,
+    today: (tracking.todayTime || 0) + currentSessionTimeToday,
     total: (tracking.totalTime || 0) + currentSessionTime
   };
 }
@@ -745,6 +827,7 @@ function saveAllActiveSessions() {
   }
   idleTimers.clear();
   clearTimeout(globalIdleTimer);
+  clearInterval(midnightCheckTimer);
 
   trackingState.set({
     activeSessions: new Map(),
@@ -849,12 +932,28 @@ function getGlobalTimes() {
     }
   }
 
-  // Add current global session time if active
+  // Add current global session time if active, clipped to period boundaries
   if (state.globalSessionStartTime && !state.globalIsIdle) {
-    const currentSessionTime = Date.now() - state.globalSessionStartTime;
-    todayTotal += currentSessionTime;
-    weekTotal += currentSessionTime;
-    monthTotal += currentSessionTime;
+    const now = Date.now();
+    const sessionStart = state.globalSessionStartTime;
+
+    // Clip to today boundary
+    const todayEffectiveStart = Math.max(sessionStart, todayStart.getTime());
+    if (now > todayEffectiveStart) {
+      todayTotal += now - todayEffectiveStart;
+    }
+
+    // Clip to week boundary
+    const weekEffectiveStart = Math.max(sessionStart, weekStartDate.getTime());
+    if (now > weekEffectiveStart) {
+      weekTotal += now - weekEffectiveStart;
+    }
+
+    // Clip to month boundary
+    const monthEffectiveStart = Math.max(sessionStart, monthStartDate.getTime());
+    if (now > monthEffectiveStart) {
+      monthTotal += now - monthEffectiveStart;
+    }
   }
 
   return { today: todayTotal, week: weekTotal, month: monthTotal };
