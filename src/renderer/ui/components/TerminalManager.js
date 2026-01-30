@@ -548,7 +548,7 @@ function closeTerminal(id) {
  * Create a new terminal for a project
  */
 async function createTerminal(project, options = {}) {
-  const { skipPermissions = false, runClaude = true } = options;
+  const { skipPermissions = false, runClaude = true, name: customName = null } = options;
 
   const result = await api.terminal.create({
     cwd: project.path,
@@ -584,12 +584,13 @@ async function createTerminal(project, options = {}) {
 
   const projectIndex = getProjectIndex(project.id);
   const isBasicTerminal = !runClaude;
+  const tabName = customName || project.name;
   const termData = {
     terminal,
     fitAddon,
     project,
     projectIndex,
-    name: project.name,
+    name: tabName,
     status: 'ready',
     inputBuffer: '',
     isBasic: isBasicTerminal
@@ -607,7 +608,7 @@ async function createTerminal(project, options = {}) {
   tab.dataset.id = id;
   tab.innerHTML = `
     <span class="status-dot"></span>
-    <span class="tab-name">${escapeHtml(project.name)}</span>
+    <span class="tab-name">${escapeHtml(tabName)}</span>
     <button class="tab-close"><svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></button>`;
   tabsContainer.appendChild(tab);
 
@@ -1179,8 +1180,9 @@ function renderFivemResourcesList(wrapper, projectIndex, project, searchFilter =
   list.innerHTML = sortedCategories.map(category => {
     const categoryResources = grouped[category];
     return `
-      <div class="fivem-resource-category">
+      <div class="fivem-resource-category collapsed">
         <div class="fivem-resource-category-header">
+          <svg class="category-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12"><path d="M4.5 2.5l3.5 3.5-3.5 3.5"/></svg>
           <span class="category-name">${escapeHtml(category === 'root' ? 'resources/' : category)}</span>
           <span class="category-count">${categoryResources.length}</span>
         </div>
@@ -1278,6 +1280,13 @@ function renderFivemResourcesList(wrapper, projectIndex, project, searchFilter =
           setTimeout(() => btn.classList.remove('error'), 500);
         }
       }
+    };
+  });
+
+  // Category collapse/expand
+  list.querySelectorAll('.fivem-resource-category-header').forEach(header => {
+    header.onclick = () => {
+      header.parentElement.classList.toggle('collapsed');
     };
   });
 }

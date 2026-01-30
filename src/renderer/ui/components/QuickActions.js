@@ -131,7 +131,8 @@ async function executeQuickAction(project, actionId) {
     if (createTerminalCallback) {
       const terminalId = await createTerminalCallback(project, {
         runClaude: false,
-        skipPermissions: true
+        skipPermissions: true,
+        name: action.name
       });
 
       // Send the command after a short delay for terminal to initialize

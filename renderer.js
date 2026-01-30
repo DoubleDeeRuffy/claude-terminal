@@ -1290,6 +1290,17 @@ document.getElementById('btn-notifications').onclick = () => {
 
 document.getElementById('btn-settings').onclick = () => showSettingsModal();
 
+// Sidebar collapse toggle
+const sidebarEl = document.querySelector('.sidebar');
+const btnCollapseSidebar = document.getElementById('btn-collapse-sidebar');
+if (localStorage.getItem('sidebar-collapsed') === 'true') {
+  sidebarEl.classList.add('collapsed');
+}
+btnCollapseSidebar.onclick = () => {
+  sidebarEl.classList.toggle('collapsed');
+  localStorage.setItem('sidebar-collapsed', sidebarEl.classList.contains('collapsed'));
+};
+
 // ========== TAB NAVIGATION ==========
 document.querySelectorAll('.nav-tab').forEach(tab => {
   tab.onclick = () => {
