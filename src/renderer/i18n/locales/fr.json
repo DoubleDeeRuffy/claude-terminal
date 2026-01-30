@@ -325,6 +325,7 @@
     "commitMessage": "Message de commit",
     "selectSkill": "-- Skill --",
     "generate": "Générer",
+    "generateCommitMessage": "Générer le message de commit",
     "stage": "Stage",
     "commit": "Commit",
     "logs": "Logs",

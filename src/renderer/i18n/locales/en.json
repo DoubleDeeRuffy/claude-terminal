@@ -273,6 +273,7 @@
     "commitMessage": "Commit message",
     "selectSkill": "-- Skill --",
     "generate": "Generate",
+    "generateCommitMessage": "Generate commit message",
     "stage": "Stage",
     "commit": "Commit",
     "logs": "Logs",
