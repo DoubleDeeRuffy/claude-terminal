@@ -177,6 +177,30 @@
             <div class="projects-list" id="projects-list"></div>
           </div>
 
+          <!-- File Explorer Panel -->
+          <div class="file-explorer-panel" id="file-explorer-panel" style="display: none;">
+            <div class="panel-header">
+              <h2 data-i18n="fileExplorer.title">Explorer</h2>
+              <div class="panel-actions">
+                <button class="btn-icon" id="btn-collapse-explorer" title="Collapse all">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 18.59L8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zM16.59 5.41L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z"/></svg>
+                </button>
+                <button class="btn-icon" id="btn-refresh-explorer" title="Refresh">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                </button>
+                <button class="btn-icon" id="btn-close-explorer" title="Close">
+                  <svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="file-explorer-tree" id="file-explorer-tree"></div>
+            <div class="file-explorer-preview" id="file-explorer-preview" style="display: none;">
+              <div class="preview-header" id="preview-header"></div>
+              <pre class="preview-content" id="preview-content"></pre>
+            </div>
+            <div class="panel-resizer" id="file-explorer-resizer"></div>
+          </div>
+
           <!-- Terminals Panel -->
           <div class="terminals-panel">
             <div class="terminals-header">

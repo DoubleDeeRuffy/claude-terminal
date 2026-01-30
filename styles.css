@@ -10857,3 +10857,285 @@ body {
     font-size: 2rem;
   }
 }
+
+/* ========== FILE EXPLORER PANEL ========== */
+.file-explorer-panel {
+  width: 280px;
+  min-width: 200px;
+  max-width: 500px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.file-explorer-panel .panel-header {
+  padding: 12px 12px 12px 16px;
+}
+
+.file-explorer-panel .panel-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.7;
+}
+
+.file-explorer-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.file-explorer-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-explorer-tree::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 3px;
+}
+
+/* Tree Node */
+.fe-node {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  min-height: 26px;
+}
+
+.fe-node:hover {
+  background: var(--bg-tertiary);
+}
+
+.fe-node.selected {
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+}
+
+.fe-node.selected:hover {
+  background: color-mix(in srgb, var(--accent-color) 22%, transparent);
+}
+
+/* Chevron */
+.fe-node-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.fe-node-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.fe-node-chevron .fe-chevron {
+  width: 12px;
+  height: 12px;
+  opacity: 0.5;
+}
+
+.fe-node-chevron-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+/* Icon */
+.fe-node-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fe-node-icon .fe-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.fe-node-icon .fe-icon-folder {
+  color: var(--accent-color);
+}
+
+.fe-node-icon .fe-icon-folder-open {
+  color: var(--accent-color);
+  opacity: 0.8;
+}
+
+/* File Name */
+.fe-node-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.fe-dir .fe-node-name {
+  font-weight: 500;
+}
+
+/* Empty state */
+.fe-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* Preview Panel */
+.file-explorer-preview {
+  max-height: 40%;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#preview-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-tertiary);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.preview-content {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex: 1;
+}
+
+.preview-content::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.preview-content::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 3px;
+}
+
+.preview-content code {
+  font-family: inherit;
+}
+
+/* Preview messages */
+.fe-preview-message {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.fe-preview-image {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  margin: 8px auto;
+  display: block;
+}
+
+/* Syntax Highlighting */
+.syn-kw {
+  color: #c678dd;
+}
+
+.syn-str {
+  color: #98c379;
+}
+
+.syn-cmt {
+  color: #5c6370;
+  font-style: italic;
+}
+
+.syn-num {
+  color: #d19a66;
+}
+
+.syn-fn {
+  color: #61afef;
+}
+
+/* Panel Resizer */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+}
+
+.panel-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -4px;
+  right: -4px;
+  bottom: 0;
+}
+
+.panel-resizer:hover {
+  background: var(--accent-color);
+  opacity: 0.5;
+}
+
+/* Truncated items indicator */
+.fe-truncated {
+  pointer-events: none;
+}
+
+.fe-truncated .fe-node-name {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* File Explorer responsive */
+@media (max-width: 1366px) {
+  .file-explorer-panel {
+    width: 240px;
+    min-width: 180px;
+  }
+}
+
+@media (max-width: 900px) {
+  .file-explorer-panel {
+    width: 200px;
+    min-width: 160px;
+  }
+  .file-explorer-preview {
+    max-height: 30%;
+  }
+}

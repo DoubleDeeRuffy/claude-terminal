@@ -48,6 +48,7 @@ const {
   // UI Components
   ProjectList,
   TerminalManager,
+  FileExplorer,
   showContextMenu,
   hideContextMenu,
 
@@ -1158,6 +1159,33 @@ TerminalManager.setCallbacks({
     setSelectedProjectFilter(targetProject.index);
     ProjectList.render();
     TerminalManager.filterByProject(targetProject.index);
+  }
+});
+
+// Setup FileExplorer
+FileExplorer.setCallbacks({
+  onOpenInTerminal: (folderPath) => {
+    const selectedFilter = projectsState.get().selectedProjectFilter;
+    const projects = projectsState.get().projects;
+    if (selectedFilter !== null && projects[selectedFilter]) {
+      // Create a project-like object with the folder path as cwd
+      const project = { ...projects[selectedFilter], path: folderPath };
+      TerminalManager.createTerminal(project, { runClaude: false });
+    }
+  }
+});
+FileExplorer.init();
+
+// Subscribe to project selection changes for FileExplorer
+projectsState.subscribe(() => {
+  const state = projectsState.get();
+  const selectedFilter = state.selectedProjectFilter;
+  const projects = state.projects;
+
+  if (selectedFilter !== null && projects[selectedFilter]) {
+    FileExplorer.setRootPath(projects[selectedFilter].path);
+  } else {
+    FileExplorer.hide();
   }
 });
 

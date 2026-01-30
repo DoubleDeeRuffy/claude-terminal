@@ -310,6 +310,26 @@
     "disconnected": "Disconnected",
     "stopped": "Stopped"
   },
+  "fileExplorer": {
+    "title": "Explorer",
+    "emptyFolder": "Empty folder",
+    "binaryFile": "Binary file - cannot preview",
+    "fileTooLarge": "File too large to preview",
+    "cannotRead": "Cannot read file",
+    "newFile": "New file",
+    "newFolder": "New folder",
+    "openInTerminal": "Open in terminal",
+    "openInEditor": "Open in editor",
+    "refreshFolder": "Refresh",
+    "copyPath": "Copy absolute path",
+    "copyRelativePath": "Copy relative path",
+    "rename": "Rename",
+    "newFilePrompt": "File name:",
+    "newFolderPrompt": "Folder name:",
+    "renamePrompt": "New name:",
+    "deleteFileConfirm": "Delete file?",
+    "deleteFolderConfirm": "Delete folder and all contents?"
+  },
   "quickActions": {
     "title": "Quick Actions",
     "configure": "Configure Quick Actions",

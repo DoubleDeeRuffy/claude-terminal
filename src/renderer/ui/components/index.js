@@ -10,6 +10,7 @@ const ProjectList = require('./ProjectList');
 const TerminalManager = require('./TerminalManager');
 const CustomizePicker = require('./CustomizePicker');
 const QuickActions = require('./QuickActions');
+const FileExplorer = require('./FileExplorer');
 
 module.exports = {
   ...Modal,
@@ -19,5 +20,6 @@ module.exports = {
   ProjectList,
   TerminalManager,
   CustomizePicker,
-  QuickActions
+  QuickActions,
+  FileExplorer
 };
