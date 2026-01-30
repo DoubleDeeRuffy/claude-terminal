@@ -3603,7 +3603,6 @@ const gitChangesStats = document.getElementById('git-changes-stats');
 const gitChangesProject = document.getElementById('git-changes-project');
 const gitSelectAll = document.getElementById('git-select-all');
 const gitCommitMessage = document.getElementById('git-commit-message');
-const gitCommitSkill = document.getElementById('git-commit-skill');
 const btnCommitSelected = document.getElementById('btn-commit-selected');
 const btnStageSelected = document.getElementById('btn-stage-selected');
 const btnGenerateCommit = document.getElementById('btn-generate-commit');
@@ -3677,7 +3676,6 @@ async function loadGitChanges() {
 
     renderGitChanges();
     updateChangesCount();
-    loadCommitSkills();
   } catch (e) {
     gitChangesList.innerHTML = `<div class="git-changes-empty"><p>Erreur: ${e.message}</p></div>`;
   }
@@ -3819,80 +3817,60 @@ gitCommitMessage.oninput = () => {
   updateCommitButton();
 };
 
-// Load available skills for commit generation
-function loadCommitSkills() {
-  gitCommitSkill.innerHTML = '<option value="">-- Skill --</option>';
-
-  // Add local skills that might be relevant for commit
-  localState.skills.forEach(skill => {
-    const name = skill.name.toLowerCase();
-    // Filter skills that seem related to commits
-    if (name.includes('commit') || name.includes('changelog') || name.includes('smart')) {
-      gitCommitSkill.innerHTML += `<option value="${escapeHtml(skill.id)}">${escapeHtml(skill.name)}</option>`;
-    }
-  });
-
-  // Always add a default option for all skills
-  gitCommitSkill.innerHTML += '<optgroup label="Tous les skills">';
-  localState.skills.forEach(skill => {
-    gitCommitSkill.innerHTML += `<option value="${escapeHtml(skill.id)}">${escapeHtml(skill.name)}</option>`;
-  });
-  gitCommitSkill.innerHTML += '</optgroup>';
-}
-
-// Generate commit message with skill
+// Generate commit message natively
 btnGenerateCommit.onclick = async () => {
-  const skillId = gitCommitSkill.value;
-  if (!skillId) {
-    showToast({ type: 'warning', title: 'Skill requis', message: 'Selectionnez un skill pour generer le message', duration: 3000 });
-    return;
-  }
-
   if (gitChangesState.selectedFiles.size === 0) {
     showToast({ type: 'warning', title: 'Fichiers requis', message: 'Selectionnez au moins un fichier', duration: 3000 });
     return;
   }
 
-  // Get selected file paths
-  const selectedPaths = Array.from(gitChangesState.selectedFiles)
-    .map(i => gitChangesState.files[i]?.path)
+  // Get selected files with their data
+  const selectedFiles = Array.from(gitChangesState.selectedFiles)
+    .map(i => gitChangesState.files[i])
     .filter(Boolean);
 
-  // Find active terminal for this project (compare project.id, not projectId)
-  const terminals = terminalsState.get().terminals;
-  let targetTerminal = null;
+  // Show loading state
+  btnGenerateCommit.disabled = true;
+  const btnSpan = btnGenerateCommit.querySelector('span');
+  const originalText = btnSpan.textContent;
+  btnSpan.textContent = '...';
 
-  for (const [id, term] of terminals) {
-    // Check if terminal belongs to this project by comparing project.id or project.path
-    if (term.project?.id === gitChangesState.projectId ||
-        term.project?.path === gitChangesState.projectPath) {
-      targetTerminal = { id, term };
-      break;
+  try {
+    const result = await api.git.generateCommitMessage({
+      projectPath: gitChangesState.projectPath,
+      files: selectedFiles
+    });
+
+    if (result.success && result.message) {
+      gitCommitMessage.value = result.message;
+
+      const sourceLabel = result.source === 'claude' ? 'Claude' : 'Heuristique';
+      showToast({
+        type: 'success',
+        title: `Message généré (${sourceLabel})`,
+        message: result.message,
+        duration: 3000
+      });
+
+      // If multiple groups, suggest splitting
+      if (result.groups && result.groups.length > 1) {
+        const groupNames = result.groups.map(g => g.name).join(', ');
+        setTimeout(() => showToast({
+          type: 'info',
+          title: 'Commits multiples suggérés',
+          message: `Les fichiers touchent ${result.groups.length} zones (${groupNames}). Envisagez de séparer en plusieurs commits.`,
+          duration: 6000
+        }), 500);
+      }
+    } else {
+      showToast({ type: 'error', title: 'Erreur', message: result.error || 'Impossible de générer le message', duration: 3000 });
     }
+  } catch (e) {
+    showToast({ type: 'error', title: 'Erreur', message: e.message, duration: 3000 });
+  } finally {
+    btnGenerateCommit.disabled = false;
+    btnSpan.textContent = originalText;
   }
-
-  if (!targetTerminal) {
-    showToast({ type: 'error', title: 'Terminal requis', message: 'Ouvrez un terminal Claude pour ce projet', duration: 4000 });
-    return;
-  }
-
-  // Build the command to send to terminal
-  const filesStr = selectedPaths.join(', ');
-  const command = `/${skillId} ${filesStr}`;
-
-  // Switch to claude tab and focus terminal
-  document.querySelector('[data-tab="claude"]')?.click();
-  TerminalManager.setActiveTerminal(targetTerminal.id);
-
-  // Close the panel first
-  gitChangesPanel.classList.remove('active');
-
-  // Send command to terminal via IPC (the correct way)
-  setTimeout(() => {
-    api.terminal.input({ id: targetTerminal.id, data: command + '\r' });
-  }, 300);
-
-  showToast({ type: 'info', title: 'Commande envoyee', message: `Skill /${skillId} avec ${selectedPaths.length} fichier(s)`, duration: 3000 });
 };
 
 // Stage selected files

@@ -9224,21 +9224,6 @@ body {
   color: var(--text-secondary);
 }
 
-.git-skill-selector {
-  display: flex;
-  gap: 6px;
-}
-
-.git-skill-selector select {
-  padding: 4px 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
 .btn-generate {
   display: flex;
   align-items: center;

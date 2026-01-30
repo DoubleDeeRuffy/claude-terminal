@@ -4,7 +4,8 @@
  */
 
 const { ipcMain } = require('electron');
-const { getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch } = require('../utils/git');
+const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch } = require('../utils/git');
+const { generateCommitMessage } = require('../utils/commitMessageGenerator');
 const GitHubAuthService = require('../services/GitHubAuthService');
 
 /**
@@ -111,6 +112,20 @@ function registerGitHandlers() {
   // Delete a branch
   ipcMain.handle('git-delete-branch', async (event, { projectPath, branch, force }) => {
     return deleteBranch(projectPath, branch, force);
+  });
+
+  // Generate commit message from file statuses and diff
+  ipcMain.handle('git-generate-commit-message', async (event, { projectPath, files }) => {
+    try {
+      // Get diff content for the selected files
+      const filePaths = files.map(f => `"${f.path}"`).join(' ');
+      const diffContent = await execGit(projectPath, `diff HEAD -- ${filePaths}`, 15000) || '';
+
+      const result = generateCommitMessage(files, diffContent);
+      return { success: true, ...result };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   });
 }
 

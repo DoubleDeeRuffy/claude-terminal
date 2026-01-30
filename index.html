@@ -287,15 +287,10 @@
                 <div class="git-commit-section">
                   <div class="git-commit-header">
                     <span data-i18n="ui.commitMessage">Message de commit</span>
-                    <div class="git-skill-selector">
-                      <select id="git-commit-skill" data-i18n-title="ui.skillForMessage">
-                        <option value="" data-i18n="ui.selectSkill">-- Skill --</option>
-                      </select>
-                      <button class="btn-generate" id="btn-generate-commit" data-i18n-title="ui.generateWithSkill">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l-7 7-7-7"/></svg>
-                        <span data-i18n="ui.generate">Générer</span>
-                      </button>
-                    </div>
+                    <button class="btn-generate" id="btn-generate-commit" data-i18n-title="ui.generateCommitMessage">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
+                      <span data-i18n="ui.generate">Générer</span>
+                    </button>
                   </div>
                   <textarea id="git-commit-message" placeholder="feat: description des changements..." rows="3"></textarea>
                   <div class="git-commit-actions">

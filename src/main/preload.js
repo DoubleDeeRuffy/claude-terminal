@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     clone: (params) => ipcRenderer.invoke('git-clone', params),
     stageFiles: (params) => ipcRenderer.invoke('git-stage-files', params),
     commit: (params) => ipcRenderer.invoke('git-commit', params),
+    generateCommitMessage: (params) => ipcRenderer.invoke('git-generate-commit-message', params),
     createBranch: (params) => ipcRenderer.invoke('git-create-branch', params),
     deleteBranch: (params) => ipcRenderer.invoke('git-delete-branch', params)
   },
