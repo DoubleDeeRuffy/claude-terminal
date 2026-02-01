@@ -15,6 +15,7 @@ class UpdaterService {
     this.checkInterval = null;
     this.lastKnownVersion = null;
     this.isDownloading = false;
+    this.installAfterDownload = false;
   }
 
   /**
@@ -57,8 +58,16 @@ class UpdaterService {
     autoUpdater.on('update-downloaded', (info) => {
       this.lastKnownVersion = info.version;
       this.isDownloading = false;
-      this.safeSend('update-status', { status: 'downloaded', version: info.version });
-      // No native dialog - the renderer banner handles the UI
+
+      // If install was requested while downloading, proceed now
+      if (this.installAfterDownload) {
+        this.installAfterDownload = false;
+        this.quitAndInstall();
+        return;
+      }
+
+      // Re-check if an even newer version exists before showing banner
+      this.verifyLatestBeforeNotify(info.version);
     });
 
     // Handle update not available
@@ -138,42 +147,52 @@ class UpdaterService {
   }
 
   /**
-   * Check for newer version before installing
-   * This ensures we always install the latest available version
-   * @returns {Promise<boolean>} - true if should proceed with install, false if re-downloading
+   * After a download completes, verify no newer version exists on the server.
+   * Only shows the banner if the downloaded version is truly the latest.
+   * @param {string} downloadedVersion
    */
-  async checkBeforeInstall() {
+  async verifyLatestBeforeNotify(downloadedVersion) {
     try {
       const result = await autoUpdater.checkForUpdates();
       if (result && result.updateInfo) {
         const serverVersion = result.updateInfo.version;
-
-        // If server has a newer version than what we downloaded, re-download
-        if (this.lastKnownVersion && serverVersion !== this.lastKnownVersion) {
-          console.log(`Newer version available: ${serverVersion} (was: ${this.lastKnownVersion})`);
-          // autoDownload will handle re-downloading
-          return false;
+        if (serverVersion !== downloadedVersion) {
+          console.log(`Downloaded ${downloadedVersion} but ${serverVersion} is available, re-downloading...`);
+          // autoDownload will handle downloading the newer version
+          // Don't show the banner yet - wait for the new download
+          this.safeSend('update-status', { status: 'downloading', progress: 0 });
+          return;
         }
       }
-      return true;
     } catch (err) {
-      console.error('Check before install failed:', err);
-      // Proceed with install anyway
-      return true;
+      console.error('Verify latest failed:', err);
     }
+
+    // Downloaded version is the latest, show banner
+    this.safeSend('update-status', { status: 'downloaded', version: downloadedVersion });
   }
 
   /**
    * Quit and install update
    */
   async quitAndInstall() {
-    // First check if there's a newer version available
-    const shouldInstall = await this.checkBeforeInstall();
+    try {
+      // Check if there's a newer version available
+      const result = await autoUpdater.checkForUpdates();
+      if (result && result.updateInfo) {
+        const serverVersion = result.updateInfo.version;
 
-    if (!shouldInstall) {
-      // A newer version is being downloaded, wait for it
-      console.log('Downloading newer version, install delayed...');
-      return;
+        if (this.lastKnownVersion && serverVersion !== this.lastKnownVersion) {
+          console.log(`Newer version available: ${serverVersion} (was: ${this.lastKnownVersion}), re-downloading...`);
+          // Flag to auto-install once the new download completes
+          this.installAfterDownload = true;
+          this.safeSend('update-status', { status: 'downloading', progress: 0 });
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Check before install failed:', err);
+      // Proceed with install anyway
     }
 
     // Force quit (bypass minimize to tray)
