@@ -1168,6 +1168,10 @@ body {
   animation: spin 1s linear infinite;
 }
 
+.branch-btn-wrapper {
+  position: relative;
+}
+
 .filter-branch-btn {
   display: flex;
   align-items: center;
@@ -1181,7 +1185,6 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s;
-  position: relative;
 }
 
 .filter-branch-btn svg:first-child {
@@ -1210,7 +1213,7 @@ body {
 .branch-dropdown {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   min-width: 260px;
   max-height: 340px;
   background: var(--bg-secondary);
