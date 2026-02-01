@@ -7,6 +7,7 @@ class State {
   constructor(initialState = {}) {
     this._state = initialState;
     this._listeners = new Set();
+    this._notifyScheduled = false;
   }
 
   /**
@@ -60,10 +61,28 @@ class State {
   }
 
   /**
-   * Notify all listeners of state change
+   * Schedule notification for next animation frame (batches multiple updates)
    * @private
    */
   _notify() {
+    if (this._notifyScheduled) return;
+    this._notifyScheduled = true;
+    requestAnimationFrame(() => {
+      this._notifyScheduled = false;
+      this._listeners.forEach(listener => {
+        try {
+          listener(this._state);
+        } catch (e) {
+          console.error('State listener error:', e);
+        }
+      });
+    });
+  }
+
+  /**
+   * Notify all listeners synchronously (use sparingly, e.g. before app quit)
+   */
+  _notifySync() {
     this._listeners.forEach(listener => {
       try {
         listener(this._state);
@@ -83,32 +102,4 @@ class State {
   }
 }
 
-/**
- * Create a simple store with actions
- * @param {Object} initialState - Initial state
- * @param {Object} actions - Action creators
- * @returns {Object} - Store with state and actions
- */
-function createStore(initialState, actions = {}) {
-  const state = new State(initialState);
-
-  const boundActions = {};
-  Object.entries(actions).forEach(([name, action]) => {
-    boundActions[name] = (...args) => {
-      const result = action(state.get(), ...args);
-      if (result !== undefined) {
-        state.set(result);
-      }
-    };
-  });
-
-  return {
-    state,
-    actions: boundActions,
-    get: () => state.get(),
-    set: (updates) => state.set(updates),
-    subscribe: (listener) => state.subscribe(listener)
-  };
-}
-
-module.exports = { State, createStore };
+module.exports = { State };

@@ -3,7 +3,7 @@
  * Combines all state modules into a unified interface
  */
 
-const { State, createStore } = require('./State');
+const { State } = require('./State');
 const projectsState = require('./projects.state');
 const terminalsState = require('./terminals.state');
 const mcpState = require('./mcp.state');
@@ -82,7 +82,6 @@ function getAppState() {
 module.exports = {
   // Core
   State,
-  createStore,
   initializeState,
   getAppState,
 

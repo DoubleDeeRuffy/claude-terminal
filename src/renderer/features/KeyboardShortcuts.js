@@ -24,15 +24,6 @@ function registerShortcut(key, handler, options = {}) {
 }
 
 /**
- * Unregister a keyboard shortcut
- * @param {string} key
- */
-function unregisterShortcut(key) {
-  const normalizedKey = normalizeKey(key);
-  shortcuts.delete(normalizedKey);
-}
-
-/**
  * Normalize key combination string
  * @param {string} key
  * @returns {string}
@@ -153,7 +144,6 @@ function getRegisteredShortcuts() {
 
 module.exports = {
   registerShortcut,
-  unregisterShortcut,
   initKeyboardShortcuts,
   registerCommonShortcuts,
   clearAllShortcuts,

@@ -91,20 +91,6 @@ function applyAccentColor(color) {
 }
 
 /**
- * Get contrasting text color (black or white) for a background
- * @param {string} hex - Background hex color
- * @returns {string} - '#000000' or '#ffffff'
- */
-function getContrastColor(hex) {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return '#ffffff';
-
-  // Calculate relative luminance
-  const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
-  return luminance > 0.5 ? '#000000' : '#ffffff';
-}
-
-/**
  * Predefined accent color palette
  */
 const ACCENT_COLORS = [
@@ -126,6 +112,5 @@ module.exports = {
   lightenColor,
   darkenColor,
   applyAccentColor,
-  getContrastColor,
   ACCENT_COLORS
 };

@@ -80,16 +80,6 @@ function $(selector, parent = document) {
 }
 
 /**
- * Query selector all with array return
- * @param {string} selector - CSS selector
- * @param {Element} parent - Parent element (defaults to document)
- * @returns {Element[]}
- */
-function $$(selector, parent = document) {
-  return Array.from(parent.querySelectorAll(selector));
-}
-
-/**
  * Debounce function calls
  * @param {Function} func - Function to debounce
  * @param {number} wait - Delay in ms
@@ -107,29 +97,10 @@ function debounce(func, wait) {
   };
 }
 
-/**
- * Throttle function calls
- * @param {Function} func - Function to throttle
- * @param {number} limit - Minimum time between calls in ms
- * @returns {Function}
- */
-function throttle(func, limit) {
-  let inThrottle;
-  return function(...args) {
-    if (!inThrottle) {
-      func.apply(this, args);
-      inThrottle = true;
-      setTimeout(() => inThrottle = false, limit);
-    }
-  };
-}
-
 module.exports = {
   escapeHtml,
   formatNumber,
   createElement,
   $,
-  $$,
-  debounce,
-  throttle
+  debounce
 };
