@@ -55,7 +55,6 @@ const {
   // Features
   initKeyboardShortcuts,
   registerShortcut,
-  unregisterShortcut,
   clearAllShortcuts,
   getKeyFromEvent,
   normalizeKey,
@@ -1326,6 +1325,10 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     if (tabId === 'mcp') loadMcps();
     if (tabId === 'dashboard') populateDashboardProjects();
     if (tabId === 'memory') loadMemory();
+    // Cleanup TimeTrackingDashboard interval when leaving the tab
+    if (tabId !== 'timetracking') {
+      TimeTrackingDashboard.cleanup();
+    }
     if (tabId === 'timetracking') {
       const container = document.getElementById('timetracking-container');
       if (container) TimeTrackingDashboard.init(container);
@@ -4031,6 +4034,7 @@ function openCreateModal(type) {
   // Populate projects dropdown
   const projects = projectsState.get().projects;
   projectSelect.innerHTML = '<option value="">Selectionnez un projet...</option>' +
+    '<option value="global">Global (~/.claude)</option>' +
     projects.map((p, i) => `<option value="${i}">${escapeHtml(p.name)}</option>`).join('');
 
   // Pre-select current project if any
@@ -4061,8 +4065,14 @@ async function submitCreateModal() {
     return;
   }
 
-  const projects = projectsState.get().projects;
-  const project = projects[parseInt(projectIndex)];
+  let project;
+  if (projectIndex === 'global') {
+    const { os } = window.electron_nodeModules;
+    project = { name: 'Global', path: os.homedir(), id: 'global' };
+  } else {
+    const projects = projectsState.get().projects;
+    project = projects[parseInt(projectIndex)];
+  }
 
   if (!project) {
     alert('Projet invalide');
@@ -4440,6 +4450,12 @@ if (timeElements.container) {
 // ========== TIME TRACKING SAVE ON QUIT ==========
 // Listen for app quit to save active time tracking sessions
 api.lifecycle.onWillQuit(() => {
+  const { saveAllActiveSessions } = require('./src/renderer');
+  saveAllActiveSessions();
+});
+
+// Backup cleanup on window unload (in case onWillQuit doesn't fire)
+window.addEventListener('beforeunload', () => {
   const { saveAllActiveSessions } = require('./src/renderer');
   saveAllActiveSessions();
 });
