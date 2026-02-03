@@ -696,8 +696,133 @@ body {
   background: var(--bg-tertiary);
 }
 
+/* Compact mode: collapsed non-active projects */
+body.compact-projects .project-item:not(.active) {
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-color: transparent;
+}
+
+body.compact-projects .project-item:not(.active) .project-path,
+body.compact-projects .project-item:not(.active) .project-time,
+body.compact-projects .project-item:not(.active) .project-actions {
+  display: none;
+}
+
+body.compact-projects .project-item:not(.active) .project-info {
+  margin-bottom: 0;
+}
+
+body.compact-projects .project-item:not(.active) .project-name {
+  margin-bottom: 0;
+}
+
+/* Project tooltip (compact mode, shown via JS on hover) */
+.project-tooltip {
+  display: none;
+}
+
+.project-tooltip-floating {
+  position: fixed;
+  z-index: 10000;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  min-width: 200px;
+  max-width: 340px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: tooltip-fade-in 0.12s ease-out;
+}
+
+@keyframes tooltip-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.project-tooltip-floating::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-right-color: var(--border-color);
+}
+
+.project-tooltip-floating::after {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 4px solid transparent;
+  border-right-color: var(--bg-primary);
+}
+
+/* Arrow on right side when tooltip is positioned to the left */
+.project-tooltip-floating.tooltip-left::before {
+  right: auto;
+  left: 100%;
+  border-right-color: transparent;
+  border-left-color: var(--border-color);
+}
+
+.project-tooltip-floating.tooltip-left::after {
+  right: auto;
+  left: 100%;
+  border-right-color: transparent;
+  border-left-color: var(--bg-primary);
+}
+
+.project-tooltip-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.project-tooltip-branch {
+  font-size: 11px;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.project-tooltip-branch svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  fill: var(--accent);
+}
+
+.project-tooltip-time {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.project-tooltip-terminals {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.project-tooltip-floating > div:last-child {
+  margin-bottom: 0;
+}
+
 .project-item:hover {
   border-color: var(--text-muted);
+}
+
+body.compact-projects .project-item:not(.active):hover {
+  border-color: var(--border-color);
+  background: var(--bg-hover, var(--bg-secondary));
 }
 
 .project-item.active {

@@ -243,6 +243,7 @@ function renderProjectHtml(project, depth) {
   const times = getProjectTimes(project.id);
   const hasTime = times.total > 0 || times.today > 0;
   const iconColorStyle = projectColor ? `style="color: ${projectColor}"` : '';
+  const gitBranch = gitRepoStatus.get(project.id)?.branch || null;
 
   // Build project icon HTML
   let projectIconHtml;
@@ -254,10 +255,25 @@ function renderProjectHtml(project, depth) {
     projectIconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" ${iconColorStyle}><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`;
   }
 
+  // Build tooltip lines for compact hover
+  let tooltipLines = [];
+  tooltipLines.push(`<div class="project-tooltip-path">${escapeHtml(project.path)}</div>`);
+  if (gitBranch) {
+    tooltipLines.push(`<div class="project-tooltip-branch"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M6 2a4 4 0 0 0-1 7.874V14a1 1 0 0 0 1 1h3a2 2 0 0 1 2 2v.126A4.002 4.002 0 0 0 10 24a4 4 0 0 0 1-7.874V17a4 4 0 0 0-4-4H6V9.874A4.002 4.002 0 0 0 6 2zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm5 16a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg> ${escapeHtml(gitBranch)}</div>`);
+  }
+  if (hasTime) {
+    tooltipLines.push(`<div class="project-tooltip-time">${formatDuration(times.today)} ${t('common.today')} \u2022 ${formatDuration(times.total)} ${t('common.total')}</div>`);
+  }
+  if (terminalStats.total > 0) {
+    tooltipLines.push(`<div class="project-tooltip-terminals">${terminalStats.working}/${terminalStats.total} terminaux</div>`);
+  }
+  const tooltipHtml = `<div class="project-tooltip">${tooltipLines.join('')}</div>`;
+
   return `
     <div class="project-item ${isSelected ? 'active' : ''} ${isFivem ? 'fivem-project' : ''}"
          data-project-id="${project.id}" data-depth="${depth}" draggable="true"
          style="margin-left: ${depth * 16}px;">
+      ${tooltipHtml}
       <div class="project-info">
         <div class="project-name">
           ${colorIndicator}
@@ -470,6 +486,67 @@ function setupDragAndDrop(list) {
       if (callbacks.onRenderProjects) callbacks.onRenderProjects();
     });
   }
+}
+
+/**
+ * Setup compact mode tooltips (floating, position: fixed)
+ */
+let _activeTooltip = null;
+let _tooltipTimeout = null;
+
+function removeActiveTooltip() {
+  if (_activeTooltip) {
+    _activeTooltip.remove();
+    _activeTooltip = null;
+  }
+  clearTimeout(_tooltipTimeout);
+}
+
+function setupCompactTooltips(list) {
+  list.querySelectorAll('.project-item:not(.active)').forEach(item => {
+    const tooltipSource = item.querySelector('.project-tooltip');
+    if (!tooltipSource || !tooltipSource.innerHTML.trim()) return;
+
+    item.addEventListener('mouseenter', () => {
+      if (!document.body.classList.contains('compact-projects')) return;
+      if (item.classList.contains('active')) return;
+
+      clearTimeout(_tooltipTimeout);
+      _tooltipTimeout = setTimeout(() => {
+        removeActiveTooltip();
+
+        const rect = item.getBoundingClientRect();
+        const tooltip = document.createElement('div');
+        tooltip.className = 'project-tooltip-floating';
+        tooltip.innerHTML = tooltipSource.innerHTML;
+        document.body.appendChild(tooltip);
+
+        // Position: to the right of the item, vertically centered
+        const tooltipRect = tooltip.getBoundingClientRect();
+        let left = rect.right + 8;
+        let top = rect.top + (rect.height / 2) - (tooltipRect.height / 2);
+
+        // If overflows right, show to the left
+        if (left + tooltipRect.width > window.innerWidth) {
+          left = rect.left - tooltipRect.width - 8;
+          tooltip.classList.add('tooltip-left');
+        }
+        // Clamp vertical
+        if (top < 4) top = 4;
+        if (top + tooltipRect.height > window.innerHeight - 4) {
+          top = window.innerHeight - tooltipRect.height - 4;
+        }
+
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+        _activeTooltip = tooltip;
+      }, 300);
+    });
+
+    item.addEventListener('mouseleave', () => {
+      removeActiveTooltip();
+    });
+  });
 }
 
 /**
@@ -758,6 +835,9 @@ function attachListeners(list) {
     };
   });
 
+  // Compact tooltip (hover on non-active projects)
+  setupCompactTooltips(list);
+
   // Drag & Drop
   setupDragAndDrop(list);
 }
@@ -775,6 +855,7 @@ function render() {
 
 function _renderNow() {
   _renderScheduled = false;
+  removeActiveTooltip();
   const list = document.getElementById('projects-list');
   if (!list) return;
   const state = projectsState.get();

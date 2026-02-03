@@ -475,6 +475,9 @@ initializeState(); // This loads settings, projects AND initializes time trackin
 initI18n(settingsState.get().language); // Initialize i18n with saved language preference
 updateStaticTranslations(); // Apply translations to static HTML elements
 applyAccentColor(settingsState.get().accentColor || '#d97706');
+if (settingsState.get().compactProjects !== false) {
+  document.body.classList.add('compact-projects');
+}
 
 // ========== NOTIFICATIONS ==========
 function showNotification(title, body, terminalId) {
@@ -507,7 +510,13 @@ async function checkAllProjectsGitStatus() {
     await Promise.all(batch.map(async (project) => {
       try {
         const result = await api.git.statusQuick({ projectPath: project.path });
-        localState.gitRepoStatus.set(project.id, { isGitRepo: result.isGitRepo });
+        const status = { isGitRepo: result.isGitRepo };
+        if (result.isGitRepo) {
+          try {
+            status.branch = await api.git.currentBranch({ projectPath: project.path });
+          } catch (_) {}
+        }
+        localState.gitRepoStatus.set(project.id, status);
       } catch (e) {
         localState.gitRepoStatus.set(project.id, { isGitRepo: false });
       }
@@ -1602,6 +1611,16 @@ async function showSettingsModal(initialTab = 'general') {
               <span class="settings-toggle-slider"></span>
             </label>
           </div>
+          <div class="settings-toggle-row">
+            <div class="settings-toggle-label">
+              <div>Vue compacte des projets</div>
+              <div class="settings-toggle-desc">Afficher uniquement le nom des projets non selectionnes</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="compact-projects-toggle" ${settings.compactProjects !== false ? 'checked' : ''}>
+              <span class="settings-toggle-slider"></span>
+            </label>
+          </div>
           <div class="settings-row">
             <div class="settings-label">
               <div>Fermeture de la fenetre</div>
@@ -1827,16 +1846,23 @@ async function showSettingsModal(initialTab = 'general') {
       accentColor = document.getElementById('custom-color-input')?.value || settings.accentColor;
     }
 
+    const compactProjectsToggle = document.getElementById('compact-projects-toggle');
+    const newCompactProjects = compactProjectsToggle ? compactProjectsToggle.checked : true;
+
     const newSettings = {
       editor: settings.editor || 'code',
       skipPermissions: selectedMode?.dataset.mode === 'dangerous',
       accentColor,
       closeAction: closeActionSelect?.value || 'ask',
       terminalTheme: newTerminalTheme,
-      language: newLanguage
+      language: newLanguage,
+      compactProjects: newCompactProjects
     };
     settingsState.set(newSettings);
     saveSettings();
+
+    // Apply compact mode
+    document.body.classList.toggle('compact-projects', newCompactProjects);
 
     // Update language if changed
     if (newLanguage !== getCurrentLanguage()) {
@@ -3182,11 +3208,22 @@ document.getElementById('btn-new-project').onclick = () => {
 
     if (!name || !projPath) return;
 
+    // If using existing folder, ensure the directory exists
+    if (selectedSource === 'folder') {
+      if (!fs.existsSync(projPath)) {
+        try {
+          fs.mkdirSync(projPath, { recursive: true });
+        } catch (err) {
+          showToast('Impossible de creer le dossier: ' + err.message, 'error');
+          return;
+        }
+      }
+    }
+
     // If creating new, create the directory
     if (selectedSource === 'create') {
       projPath = path.join(projPath, name);
       try {
-        const fs = require('fs');
         if (fs.existsSync(projPath)) {
           showToast('Ce dossier existe deja', 'error');
           return;
@@ -3195,7 +3232,7 @@ document.getElementById('btn-new-project').onclick = () => {
 
         // Init git repo if checked
         if (document.getElementById('chk-init-git')?.checked) {
-          const { execSync } = require('child_process');
+          const { execSync } = window.electron_nodeModules.child_process;
           try {
             execSync('git init', { cwd: projPath, stdio: 'ignore' });
             fs.writeFileSync(path.join(projPath, '.gitignore'), [

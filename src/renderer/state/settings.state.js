@@ -17,7 +17,8 @@ const defaultSettings = {
   notificationsEnabled: true,
   closeAction: 'ask', // 'ask', 'minimize', 'quit'
   shortcuts: {}, // Custom keyboard shortcuts overrides
-  language: null // null = auto-detect, 'fr' = French, 'en' = English
+  language: null, // null = auto-detect, 'fr' = French, 'en' = English
+  compactProjects: true // Compact project list (only show name when not active)
 };
 
 const settingsState = new State({ ...defaultSettings });
