@@ -36,8 +36,10 @@ function parseUsageOutput(output) {
       data.session = parseFloat(sessionMatch[1]);
     }
 
-    // Pattern: "Current week" + "all models" followed by percentage
-    const weeklyMatch = clean.match(/Current week[\s\S]{0,50}?all models[\s\S]{0,100}?(\d+(?:\.\d+)?)\s*%/i);
+    // Pattern: "Current week" followed by percentage (with or without "all models")
+    const weeklyMatch = clean.match(/Current week[\s\S]{0,50}?all models[\s\S]{0,100}?(\d+(?:\.\d+)?)\s*%/i) ||
+                        clean.match(/Current week[\s\S]{0,100}?(\d+(?:\.\d+)?)\s*%/i) ||
+                        clean.match(/week(?:ly)?[\s\S]{0,50}?(\d+(?:\.\d+)?)\s*%/i);
     if (weeklyMatch) {
       data.weekly = parseFloat(weeklyMatch[1]);
     }
@@ -48,14 +50,12 @@ function parseUsageOutput(output) {
       data.sonnet = parseFloat(sonnetMatch[1]);
     }
 
-    // Fallback: find all percentages in order
-    if (data.session === null) {
-      const allPercents = clean.match(/(\d+(?:\.\d+)?)\s*%/g);
-      if (allPercents && allPercents.length >= 1) {
-        data.session = parseFloat(allPercents[0]);
-        if (allPercents.length >= 2) data.weekly = parseFloat(allPercents[1]);
-        if (allPercents.length >= 3) data.sonnet = parseFloat(allPercents[2]);
-      }
+    // Fallback: find all percentages in order for any missing values
+    const allPercents = clean.match(/(\d+(?:\.\d+)?)\s*%/g);
+    if (allPercents && allPercents.length >= 1) {
+      if (data.session === null) data.session = parseFloat(allPercents[0]);
+      if (data.weekly === null && allPercents.length >= 2) data.weekly = parseFloat(allPercents[1]);
+      if (data.sonnet === null && allPercents.length >= 3) data.sonnet = parseFloat(allPercents[2]);
     }
 
     console.log('[Usage] Parsed:', data);
