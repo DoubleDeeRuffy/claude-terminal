@@ -6,7 +6,7 @@
 // Use preload API instead of direct ipcRenderer
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
-const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes } = require('../state');
+const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getFolder, getProject, countProjectsRecursive } = require('../state');
 const { escapeHtml } = require('../utils');
 const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
@@ -1331,8 +1331,17 @@ async function preloadAllProjects() {
 
   console.log(`[Dashboard] Preloading ${projects.length} projects...`);
 
+  const PROJECT_TIMEOUT = 20000; // 20s max per project
+
+  function withTimeout(promise, ms, name) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${ms}ms for ${name}`)), ms))
+    ]);
+  }
+
   // Load projects in parallel batches
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 4;
   for (let i = 0; i < projects.length; i += BATCH_SIZE) {
     const batch = projects.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (project) => {
@@ -1341,11 +1350,20 @@ async function preloadAllProjects() {
 
       try {
         setCacheLoading(project.id, true);
-        const data = await loadDashboardData(project.path);
+        const data = await withTimeout(
+          loadDashboardData(project.path),
+          PROJECT_TIMEOUT,
+          project.name
+        );
         setCacheData(project.id, data);
         console.log(`[Dashboard] Preloaded: ${project.name}`);
       } catch (e) {
         console.error(`[Dashboard] Failed to preload ${project.name}:`, e.message);
+        // Store minimal data (project type) so it's not stuck as "no data"
+        const projectType = detectProjectType(project.path);
+        if (projectType) {
+          setCacheData(project.id, { projectType, gitInfo: {}, stats: {}, workflowRuns: { runs: [] }, pullRequests: { pullRequests: [] } });
+        }
         setCacheLoading(project.id, false);
       }
     }));
@@ -1363,6 +1381,127 @@ async function preloadAllProjects() {
  * @param {Object} options - { dataMap, timesMap }
  * @returns {string}
  */
+function buildOverviewCardHtml(project, dataMap, timesMap) {
+  const data = dataMap[project.id];
+  const times = timesMap[project.id] || { today: 0 };
+  const hasData = !!data;
+
+  const gitInfo = data?.gitInfo || {};
+  const branch = gitInfo.branch || '';
+  const aheadBehind = gitInfo.aheadBehind || {};
+  const files = gitInfo.files || {};
+  const workflowRuns = data?.workflowRuns || {};
+  const pullRequests = data?.pullRequests || {};
+  const projectType = data?.projectType || null;
+
+  const stagedCount = files?.staged?.length || 0;
+  const unstagedCount = files?.unstaged?.length || 0;
+  const untrackedCount = files?.untracked?.length || 0;
+  const totalChanges = stagedCount + unstagedCount + untrackedCount;
+
+  const latestRun = workflowRuns?.runs?.[0];
+  let ciHtml = '';
+  if (latestRun) {
+    let ciClass = 'skipped';
+    let ciSymbol = '?';
+    if (latestRun.status === 'in_progress' || latestRun.status === 'queued') {
+      ciClass = 'running';
+      ciSymbol = '⟳';
+    } else if (latestRun.conclusion === 'success') {
+      ciClass = 'success';
+      ciSymbol = '✓';
+    } else if (latestRun.conclusion === 'failure') {
+      ciClass = 'failure';
+      ciSymbol = '✗';
+    }
+    ciHtml = `<span class="overview-ci ${ciClass}" title="CI: ${latestRun.conclusion || latestRun.status}">${ciSymbol}</span>`;
+  }
+
+  let typeBadgeHtml = '';
+  if (projectType) {
+    typeBadgeHtml = `<span class="overview-type-badge" style="--type-color: ${projectType.color}">${escapeHtml(projectType.label)}</span>`;
+  }
+
+  const openPrs = (pullRequests?.pullRequests || []).filter(pr => pr.state === 'open').length;
+  const lastCommit = gitInfo.recentCommits?.[0] || null;
+
+  let syncHtml = '';
+  if (aheadBehind.hasRemote && !aheadBehind.notTracking) {
+    const parts = [];
+    if (aheadBehind.behind > 0) parts.push(`↓${aheadBehind.behind}`);
+    if (aheadBehind.ahead > 0) parts.push(`↑${aheadBehind.ahead}`);
+    if (parts.length > 0) {
+      syncHtml = `<span class="overview-sync">${parts.join(' ')}</span>`;
+    }
+  }
+
+  let statsHtml = '';
+  if (!hasData && !projectType) {
+    statsHtml = `<div class="overview-stat overview-no-data"><span>${t('dashboard.noData')}</span></div>`;
+  } else {
+    if (branch) {
+      statsHtml += `<div class="overview-stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2a3 3 0 0 0-3 3c0 1.28.81 2.38 1.94 2.81A4 4 0 0 0 9 12H6a3 3 0 0 0 0 6 3 3 0 0 0 2.94-2.41A4 4 0 0 0 13 12v-1.17A3 3 0 0 0 15 8a3 3 0 0 0-3-3 3 3 0 0 0-2.24 1.01A4 4 0 0 0 6 2z"/></svg>
+        <span>${escapeHtml(branch)}</span>
+        ${syncHtml}
+      </div>`;
+    }
+
+    if (lastCommit) {
+      const commitMsg = (lastCommit.message || '').length > 40
+        ? lastCommit.message.substring(0, 40) + '...'
+        : (lastCommit.message || '');
+      statsHtml += `<div class="overview-stat overview-commit">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+        <span class="overview-commit-hash">${lastCommit.hash || ''}</span>
+        <span class="overview-commit-msg">${escapeHtml(commitMsg)}</span>
+        ${lastCommit.date ? `<span class="overview-commit-date">${lastCommit.date}</span>` : ''}
+      </div>`;
+    }
+
+    if (openPrs > 0) {
+      statsHtml += `<div class="overview-stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 4v6.76a3 3 0 1 0 2 0V11H6zm1 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2zM18 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 4v6.76a3 3 0 1 0 2 0V11h-2zm1 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+        <span>${t('dashboard.openPrs', { count: openPrs })}</span>
+      </div>`;
+    }
+
+    if (totalChanges > 0) {
+      statsHtml += `<div class="overview-stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
+        <span>${t('dashboard.filesChanged', { count: totalChanges })}</span>
+      </div>`;
+    }
+
+    if (times.today > 0) {
+      statsHtml += `<div class="overview-stat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        <span>${formatDuration(times.today)} ${t('dashboard.todayTime')}</span>
+      </div>`;
+    }
+
+    if (!statsHtml && projectType) {
+      statsHtml = `<div class="overview-stat overview-no-data"><span>${t('dashboard.noData')}</span></div>`;
+    }
+  }
+
+  const projectIndex = projectsState.get().projects.findIndex(p => p.id === project.id);
+  return `
+    <div class="overview-card ${!hasData && !projectType ? 'loading' : ''}" data-project-index="${projectIndex}">
+      <div class="overview-card-header">
+        <span class="overview-project-name">${escapeHtml(project.name)}</span>
+        <div class="overview-header-badges">
+          ${typeBadgeHtml}
+          ${ciHtml}
+        </div>
+      </div>
+      <div class="overview-card-stats">
+        ${statsHtml}
+      </div>
+    </div>
+  `;
+}
+
 function buildOverviewHtml(projects, options = {}) {
   const { dataMap = {}, timesMap = {} } = options;
 
@@ -1373,144 +1512,84 @@ function buildOverviewHtml(projects, options = {}) {
     </div>`;
   }
 
-  const cardsHtml = projects.map((project, i) => {
-    const data = dataMap[project.id];
-    const times = timesMap[project.id] || { today: 0 };
-    const hasData = !!data;
+  const state = projectsState.get();
+  const { folders, rootOrder } = state;
 
-    // Extract info from cache
-    const gitInfo = data?.gitInfo || {};
-    const branch = gitInfo.branch || '';
-    const aheadBehind = gitInfo.aheadBehind || {};
-    const files = gitInfo.files || {};
-    const workflowRuns = data?.workflowRuns || {};
-    const pullRequests = data?.pullRequests || {};
+  // If no rootOrder (legacy), fall back to flat grid
+  if (!rootOrder || rootOrder.length === 0) {
+    const cardsHtml = projects.map(p => buildOverviewCardHtml(p, dataMap, timesMap)).join('');
+    return `<div class="overview-grid">${cardsHtml}</div>`;
+  }
 
-    // Project type
-    const projectType = data?.projectType || null;
+  function renderFolderSection(folder) {
+    const projectCount = countProjectsRecursive(folder.id);
+    if (projectCount === 0) return '';
 
-    // Count changed files
-    const stagedCount = files?.staged?.length || 0;
-    const unstagedCount = files?.unstaged?.length || 0;
-    const untrackedCount = files?.untracked?.length || 0;
-    const totalChanges = stagedCount + unstagedCount + untrackedCount;
+    const colorStyle = folder.color ? `style="color: ${folder.color}"` : '';
+    const folderIcon = folder.icon
+      ? `<span class="overview-section-emoji">${folder.icon}</span>`
+      : `<svg viewBox="0 0 24 24" fill="currentColor" ${colorStyle}><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`;
 
-    // CI status from latest workflow run
-    const latestRun = workflowRuns?.runs?.[0];
-    let ciHtml = '';
-    if (latestRun) {
-      let ciClass = 'skipped';
-      let ciSymbol = '?';
-      if (latestRun.status === 'in_progress' || latestRun.status === 'queued') {
-        ciClass = 'running';
-        ciSymbol = '⟳';
-      } else if (latestRun.conclusion === 'success') {
-        ciClass = 'success';
-        ciSymbol = '✓';
-      } else if (latestRun.conclusion === 'failure') {
-        ciClass = 'failure';
-        ciSymbol = '✗';
-      }
-      ciHtml = `<span class="overview-ci ${ciClass}" title="CI: ${latestRun.conclusion || latestRun.status}">${ciSymbol}</span>`;
-    }
-
-    // Project type badge
-    let typeBadgeHtml = '';
-    if (projectType) {
-      typeBadgeHtml = `<span class="overview-type-badge" style="--type-color: ${projectType.color}">${escapeHtml(projectType.label)}</span>`;
-    }
-
-    // Open PRs count
-    const openPrs = (pullRequests?.pullRequests || []).filter(pr => pr.state === 'open').length;
-
-    // Last commit
-    const lastCommit = gitInfo.recentCommits?.[0] || null;
-
-    // Sync badges
-    let syncHtml = '';
-    if (aheadBehind.hasRemote && !aheadBehind.notTracking) {
-      const parts = [];
-      if (aheadBehind.behind > 0) parts.push(`↓${aheadBehind.behind}`);
-      if (aheadBehind.ahead > 0) parts.push(`↑${aheadBehind.ahead}`);
-      if (parts.length > 0) {
-        syncHtml = `<span class="overview-sync">${parts.join(' ')}</span>`;
+    let contentHtml = '';
+    let pendingCards = '';
+    const children = folder.children || [];
+    for (const childId of children) {
+      const childFolder = folders.find(f => f.id === childId);
+      if (childFolder) {
+        if (pendingCards) {
+          contentHtml += `<div class="overview-grid">${pendingCards}</div>`;
+          pendingCards = '';
+        }
+        contentHtml += renderFolderSection(childFolder);
+      } else {
+        const childProject = projects.find(p => p.id === childId);
+        if (childProject && childProject.folderId === folder.id) {
+          pendingCards += buildOverviewCardHtml(childProject, dataMap, timesMap);
+        }
       }
     }
-
-    // Build stats rows
-    let statsHtml = '';
-    if (!hasData && !projectType) {
-      statsHtml = `<div class="overview-stat overview-no-data"><span>${t('dashboard.noData')}</span></div>`;
-    } else {
-      // Branch
-      if (branch) {
-        statsHtml += `<div class="overview-stat">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2a3 3 0 0 0-3 3c0 1.28.81 2.38 1.94 2.81A4 4 0 0 0 9 12H6a3 3 0 0 0 0 6 3 3 0 0 0 2.94-2.41A4 4 0 0 0 13 12v-1.17A3 3 0 0 0 15 8a3 3 0 0 0-3-3 3 3 0 0 0-2.24 1.01A4 4 0 0 0 6 2z"/></svg>
-          <span>${escapeHtml(branch)}</span>
-          ${syncHtml}
-        </div>`;
-      }
-
-      // Last commit
-      if (lastCommit) {
-        const commitMsg = (lastCommit.message || '').length > 40
-          ? lastCommit.message.substring(0, 40) + '...'
-          : (lastCommit.message || '');
-        statsHtml += `<div class="overview-stat overview-commit">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
-          <span class="overview-commit-hash">${lastCommit.hash || ''}</span>
-          <span class="overview-commit-msg">${escapeHtml(commitMsg)}</span>
-          ${lastCommit.date ? `<span class="overview-commit-date">${lastCommit.date}</span>` : ''}
-        </div>`;
-      }
-
-      // Open PRs
-      if (openPrs > 0) {
-        statsHtml += `<div class="overview-stat">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 4v6.76a3 3 0 1 0 2 0V11H6zm1 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2zM18 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 4v6.76a3 3 0 1 0 2 0V11h-2zm1 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-          <span>${t('dashboard.openPrs', { count: openPrs })}</span>
-        </div>`;
-      }
-
-      // Changed files
-      if (totalChanges > 0) {
-        statsHtml += `<div class="overview-stat">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
-          <span>${t('dashboard.filesChanged', { count: totalChanges })}</span>
-        </div>`;
-      }
-
-      // Time today
-      if (times.today > 0) {
-        statsHtml += `<div class="overview-stat">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-          <span>${formatDuration(times.today)} ${t('dashboard.todayTime')}</span>
-        </div>`;
-      }
-
-      // No stats but has type only
-      if (!statsHtml && projectType) {
-        statsHtml = `<div class="overview-stat overview-no-data"><span>${t('dashboard.noData')}</span></div>`;
-      }
+    if (pendingCards) {
+      contentHtml += `<div class="overview-grid">${pendingCards}</div>`;
     }
 
     return `
-      <div class="overview-card ${!hasData && !projectType ? 'loading' : ''}" data-project-index="${i}">
-        <div class="overview-card-header">
-          <span class="overview-project-name">${escapeHtml(project.name)}</span>
-          <div class="overview-header-badges">
-            ${typeBadgeHtml}
-            ${ciHtml}
-          </div>
+      <div class="overview-section">
+        <div class="overview-section-header">
+          <span class="overview-section-icon">${folderIcon}</span>
+          <span class="overview-section-name" ${colorStyle}>${escapeHtml(folder.name)}</span>
+          <span class="overview-section-count">${projectCount}</span>
         </div>
-        <div class="overview-card-stats">
-          ${statsHtml}
-        </div>
+        ${contentHtml}
       </div>
     `;
-  }).join('');
+  }
 
-  return `<div class="overview-grid">${cardsHtml}</div>`;
+  let html = '';
+  let rootCardsHtml = '';
+
+  for (const itemId of rootOrder) {
+    const folder = folders.find(f => f.id === itemId);
+    if (folder) {
+      // Flush any pending root cards before the folder section
+      if (rootCardsHtml) {
+        html += `<div class="overview-grid">${rootCardsHtml}</div>`;
+        rootCardsHtml = '';
+      }
+      html += renderFolderSection(folder);
+    } else {
+      const project = projects.find(p => p.id === itemId);
+      if (project) {
+        rootCardsHtml += buildOverviewCardHtml(project, dataMap, timesMap);
+      }
+    }
+  }
+
+  // Flush remaining root cards
+  if (rootCardsHtml) {
+    html += `<div class="overview-grid">${rootCardsHtml}</div>`;
+  }
+
+  return `<div class="overview-container">${html}</div>`;
 }
 
 /**

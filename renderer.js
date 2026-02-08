@@ -31,6 +31,8 @@ const {
   getProject,
   getProjectIndex,
   getVisualProjectOrder,
+  countProjectsRecursive,
+  toggleFolderCollapse,
   loadProjects,
   saveProjects,
   loadSettings,
@@ -483,6 +485,10 @@ function registerAllShortcuts() {
 ensureDirectories();
 initializeState(); // This loads settings, projects AND initializes time tracking
 initI18n(settingsState.get().language); // Initialize i18n with saved language preference
+
+// Preload dashboard data in background at startup
+DashboardService.loadAllDiskCaches();
+setTimeout(() => DashboardService.preloadAllProjects(), 1000);
 updateStaticTranslations(); // Apply translations to static HTML elements
 applyAccentColor(settingsState.get().accentColor || '#d97706');
 if (settingsState.get().compactProjects !== false) {
@@ -2526,14 +2532,15 @@ function renderMcpCard(mcp) {
 function populateDashboardProjects() {
   const list = document.getElementById('dashboard-projects-list');
   if (!list) return;
-  const projects = projectsState.get().projects;
+  const state = projectsState.get();
+  const { projects, folders, rootOrder } = state;
 
   if (projects.length === 0) {
     list.innerHTML = `<div class="dashboard-projects-empty">Aucun projet</div>`;
     return;
   }
 
-  // Overview item + project items
+  // Overview item
   const overviewHtml = `
     <div class="dashboard-project-item overview-item ${localState.selectedDashboardProject === -1 ? 'active' : ''}" data-index="-1">
       <div class="dashboard-project-icon">
@@ -2545,22 +2552,93 @@ function populateDashboardProjects() {
     </div>
   `;
 
-  const projectsHtml = projects.map((p, i) => `
-    <div class="dashboard-project-item ${localState.selectedDashboardProject === i ? 'active' : ''}" data-index="${i}">
-      <div class="dashboard-project-icon">
-        ${p.type === 'fivem'
-          ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16V4H3v12h18m0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h2v2H8v-2h2v-2H3a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2h18"/></svg>'
-          : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>'}
-      </div>
-      <div class="dashboard-project-info">
-        <div class="dashboard-project-name">${escapeHtml(p.name)}</div>
-        <div class="dashboard-project-path">${escapeHtml(p.path)}</div>
-      </div>
-    </div>
-  `).join('');
+  function renderFolderItem(folder, depth) {
+    const projectCount = countProjectsRecursive(folder.id);
+    const isCollapsed = folder.collapsed;
+    const indent = depth * 16;
 
-  list.innerHTML = overviewHtml + projectsHtml;
+    const colorIndicator = folder.color
+      ? `<span class="dash-folder-color" style="background: ${folder.color}"></span>`
+      : '';
 
+    const folderIcon = folder.icon
+      ? `<span class="dash-folder-emoji">${folder.icon}</span>`
+      : `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`;
+
+    let childrenHtml = '';
+    const children = folder.children || [];
+    for (const childId of children) {
+      const childFolder = folders.find(f => f.id === childId);
+      if (childFolder) {
+        childrenHtml += renderFolderItem(childFolder, depth + 1);
+      } else {
+        const childProject = projects.find(p => p.id === childId);
+        if (childProject && childProject.folderId === folder.id) {
+          childrenHtml += renderProjectItem(childProject, depth + 1);
+        }
+      }
+    }
+
+    return `
+      <div class="dash-folder-item" data-folder-id="${folder.id}">
+        <div class="dash-folder-header" style="padding-left: ${indent + 8}px">
+          <span class="dash-folder-chevron ${isCollapsed ? 'collapsed' : ''}">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+          </span>
+          ${colorIndicator}
+          <span class="dash-folder-icon">${folderIcon}</span>
+          <span class="dash-folder-name">${escapeHtml(folder.name)}</span>
+          <span class="dash-folder-count">${projectCount}</span>
+        </div>
+        <div class="dash-folder-children ${isCollapsed ? 'collapsed' : ''}">
+          ${childrenHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProjectItem(project, depth) {
+    const index = getProjectIndex(project.id);
+    const isActive = localState.selectedDashboardProject === index;
+    const indent = depth * 16;
+
+    const colorIndicator = project.color
+      ? `<span class="dash-folder-color" style="background: ${project.color}"></span>`
+      : '';
+
+    const iconHtml = project.icon
+      ? `<span class="dashboard-project-emoji">${project.icon}</span>`
+      : (project.type === 'fivem'
+        ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16V4H3v12h18m0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h2v2H8v-2h2v-2H3a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2h18"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>');
+
+    return `
+      <div class="dashboard-project-item ${isActive ? 'active' : ''}" data-index="${index}" style="padding-left: ${indent}px">
+        <div class="dashboard-project-icon">${colorIndicator}${iconHtml}</div>
+        <div class="dashboard-project-info">
+          <div class="dashboard-project-name">${escapeHtml(project.name)}</div>
+          <div class="dashboard-project-path">${escapeHtml(project.path)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  let itemsHtml = '';
+  for (const itemId of (rootOrder || [])) {
+    const folder = folders.find(f => f.id === itemId);
+    if (folder) {
+      itemsHtml += renderFolderItem(folder, 0);
+    } else {
+      const project = projects.find(p => p.id === itemId);
+      if (project) {
+        itemsHtml += renderProjectItem(project, 0);
+      }
+    }
+  }
+
+  list.innerHTML = overviewHtml + itemsHtml;
+
+  // Click handlers for projects
   list.querySelectorAll('.dashboard-project-item').forEach(item => {
     item.onclick = () => {
       const index = parseInt(item.dataset.index);
@@ -2573,6 +2651,17 @@ function populateDashboardProjects() {
       }
     };
   });
+
+  // Click handlers for folder headers (toggle collapse)
+  list.querySelectorAll('.dash-folder-header').forEach(header => {
+    header.onclick = (e) => {
+      e.stopPropagation();
+      const folderItem = header.closest('.dash-folder-item');
+      const folderId = folderItem.dataset.folderId;
+      toggleFolderCollapse(folderId);
+      populateDashboardProjects();
+    };
+  });
 }
 
 function renderOverviewDashboard() {
@@ -2582,10 +2671,12 @@ function renderOverviewDashboard() {
   const projects = projectsState.get().projects;
   const dataMap = {};
   const timesMap = {};
+  let hasMissing = false;
 
   for (const project of projects) {
     const cached = DashboardService.getCachedData(project.id);
     if (cached) dataMap[project.id] = cached;
+    else hasMissing = true;
     timesMap[project.id] = getProjectTimes(project.id);
   }
 
@@ -2598,6 +2689,14 @@ function renderOverviewDashboard() {
       renderDashboardContent(index);
     }
   });
+
+  // Trigger preload for missing data (debounced)
+  if (hasMissing && !renderOverviewDashboard._preloading) {
+    renderOverviewDashboard._preloading = true;
+    DashboardService.preloadAllProjects().finally(() => {
+      renderOverviewDashboard._preloading = false;
+    });
+  }
 }
 
 // Refresh overview when preload data becomes available

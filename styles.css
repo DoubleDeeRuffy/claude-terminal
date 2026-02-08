@@ -7024,6 +7024,103 @@ body.compact-projects .project-item:not(.active):hover {
   margin-left: auto;
 }
 
+/* ===== Dashboard Sidebar Folders ===== */
+
+.dash-folder-item {
+  margin-bottom: 2px;
+}
+
+.dash-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.dash-folder-header:hover {
+  background: var(--bg-hover);
+}
+
+.dash-folder-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.dash-folder-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dash-folder-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.dash-folder-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dash-folder-icon {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.dash-folder-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dash-folder-emoji {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.dash-folder-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-folder-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.dash-folder-children {
+  margin-left: 8px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 4px;
+}
+
+.dash-folder-children.collapsed {
+  display: none;
+}
+
+.dashboard-project-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
 /* ===== Overview Dashboard ===== */
 
 /* Overview item separator in sidebar */
@@ -7031,6 +7128,66 @@ body.compact-projects .project-item:not(.active):hover {
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 8px;
   padding-bottom: 12px;
+}
+
+/* Overview container with folder sections */
+.overview-container {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overview-container > .overview-grid {
+  padding: 0;
+}
+
+/* Overview folder sections */
+.overview-section {
+  margin-bottom: 8px;
+}
+
+.overview-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.overview-section-icon {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+}
+
+.overview-section-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.overview-section-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.overview-section-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.overview-section-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.overview-section > .overview-grid {
+  padding: 0;
 }
 
 /* Overview grid */
