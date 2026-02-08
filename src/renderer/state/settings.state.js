@@ -18,7 +18,8 @@ const defaultSettings = {
   closeAction: 'ask', // 'ask', 'minimize', 'quit'
   shortcuts: {}, // Custom keyboard shortcuts overrides
   language: null, // null = auto-detect, 'fr' = French, 'en' = English
-  compactProjects: true // Compact project list (only show name when not active)
+  compactProjects: true, // Compact project list (only show name when not active)
+  customPresets: [] // Custom quick action presets [{name, command, icon}]
 };
 
 const settingsState = new State({ ...defaultSettings });

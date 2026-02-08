@@ -72,7 +72,10 @@ const {
   getProjectTimes,
 
   // Themes
-  TERMINAL_THEMES
+  TERMINAL_THEMES,
+
+  // Quick Actions
+  QuickActions
 } = require('./src/renderer');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
@@ -1685,6 +1688,38 @@ async function renderSettingsTab(initialTab = 'general') {
               </select>
             </div>
           </div>
+          <!-- Quick Action Presets Section -->
+          <div class="settings-section">
+            <div class="settings-title">${t('settings.quickActionPresets') || 'Quick Action Presets'}</div>
+            <div class="settings-desc" style="margin-bottom: 10px;">${t('settings.quickActionPresetsDesc') || 'Presets personnalises affiches dans la configuration des actions rapides'}</div>
+            <div class="custom-presets-list" id="custom-presets-list">
+              ${(settings.customPresets || []).map((p, i) => `
+                <div class="custom-preset-item" data-index="${i}">
+                  <span class="custom-preset-icon">${QuickActions.QUICK_ACTION_ICONS[p.icon] || QuickActions.QUICK_ACTION_ICONS.play}</span>
+                  <span class="custom-preset-name">${escapeHtml(p.name)}</span>
+                  <code class="custom-preset-cmd">${escapeHtml(p.command)}</code>
+                  <button class="custom-preset-delete" data-index="${i}" title="${t('common.delete') || 'Supprimer'}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              `).join('') || `<div class="custom-presets-empty">${t('settings.noCustomPresets') || 'Aucun preset personnalise'}</div>`}
+            </div>
+            <div class="custom-preset-add" id="custom-preset-add-area">
+              <div class="custom-preset-add-row" id="custom-preset-form" style="display:none;">
+                <input type="text" id="new-preset-name" placeholder="${t('quickActions.namePlaceholder') || 'Nom'}" class="settings-input-sm">
+                <input type="text" id="new-preset-command" placeholder="${t('quickActions.commandPlaceholder') || 'Commande'}" class="settings-input-sm" style="flex:2;">
+                <select id="new-preset-icon" class="settings-select-sm">
+                  ${Object.keys(QuickActions.QUICK_ACTION_ICONS).map(icon => `<option value="${icon}">${icon}</option>`).join('')}
+                </select>
+                <button class="btn-accent-sm" id="btn-save-preset">${t('common.save') || 'OK'}</button>
+                <button class="btn-ghost-sm" id="btn-cancel-preset">${t('common.cancel') || 'Annuler'}</button>
+              </div>
+              <button class="quick-action-add-btn" id="btn-add-preset" style="width:100%;">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                <span>${t('settings.addPreset') || 'Ajouter un preset'}</span>
+              </button>
+            </div>
+          </div>
         </div>
         <!-- Claude Tab -->
         <div class="settings-panel ${initialTab === 'claude' ? 'active' : ''}" data-panel="claude">
@@ -1806,6 +1841,54 @@ async function renderSettingsTab(initialTab = 'general') {
 
   // Setup shortcuts panel handlers
   setupShortcutsPanelHandlers();
+
+  // Custom presets management
+  const addPresetBtn = document.getElementById('btn-add-preset');
+  const presetForm = document.getElementById('custom-preset-form');
+  const cancelPresetBtn = document.getElementById('btn-cancel-preset');
+  const savePresetBtn = document.getElementById('btn-save-preset');
+
+  if (addPresetBtn) {
+    addPresetBtn.onclick = () => {
+      presetForm.style.display = 'flex';
+      addPresetBtn.style.display = 'none';
+      document.getElementById('new-preset-name').focus();
+    };
+  }
+
+  if (cancelPresetBtn) {
+    cancelPresetBtn.onclick = () => {
+      presetForm.style.display = 'none';
+      addPresetBtn.style.display = '';
+    };
+  }
+
+  if (savePresetBtn) {
+    savePresetBtn.onclick = () => {
+      const name = document.getElementById('new-preset-name').value.trim();
+      const command = document.getElementById('new-preset-command').value.trim();
+      const icon = document.getElementById('new-preset-icon').value;
+      if (!name || !command) return;
+
+      const currentPresets = settingsState.get().customPresets || [];
+      const updated = [...currentPresets, { name, command, icon }];
+      settingsState.set({ ...settingsState.get(), customPresets: updated });
+      saveSettings();
+      renderSettingsTab('general');
+    };
+  }
+
+  // Delete custom preset buttons
+  container.querySelectorAll('.custom-preset-delete').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.index);
+      const currentPresets = [...(settingsState.get().customPresets || [])];
+      currentPresets.splice(idx, 1);
+      settingsState.set({ ...settingsState.get(), customPresets: currentPresets });
+      saveSettings();
+      renderSettingsTab('general');
+    };
+  });
 
   // Execution mode cards
   container.querySelectorAll('.execution-mode-card').forEach(card => {
@@ -3852,6 +3935,17 @@ filterBtnChanges.onclick = (e) => {
   if (isOpen) {
     gitChangesPanel.classList.remove('active');
   } else {
+    // Position panel aligned to Changes button
+    const btnRect = filterBtnChanges.getBoundingClientRect();
+    const headerRect = gitChangesPanel.parentElement.getBoundingClientRect();
+    const panelWidth = 450;
+    let left = btnRect.left - headerRect.left;
+    // Ensure panel doesn't overflow right edge
+    if (left + panelWidth > headerRect.width) {
+      left = Math.max(0, headerRect.width - panelWidth);
+    }
+    gitChangesPanel.style.left = left + 'px';
+
     gitChangesPanel.classList.add('active');
     loadGitChanges();
   }

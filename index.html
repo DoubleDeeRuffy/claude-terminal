@@ -210,26 +210,22 @@
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
               </button>
               <div class="terminals-filter" id="terminals-filter" style="display: none;">
-                <span class="filter-label" data-i18n="ui.terminalsOf">Terminaux de</span>
                 <span class="filter-project" id="filter-project-name"></span>
 
                 <div class="filter-git-actions" id="filter-git-actions" style="display: none;">
-                  <div class="filter-divider"></div>
-                  <button class="filter-git-btn" id="filter-btn-pull" data-i18n-title="projects.gitPull">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M17 11l-5 5-5-5"/><path d="M5 21h14"/></svg>
-                    Pull
-                  </button>
-                  <button class="filter-git-btn" id="filter-btn-push" data-i18n-title="projects.gitPush">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/></svg>
-                    Push
-                  </button>
-                  <div class="filter-divider"></div>
+                  <div class="filter-git-group">
+                    <button class="filter-git-btn" id="filter-btn-pull" data-i18n-title="projects.gitPull" title="Pull">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M17 11l-5 5-5-5"/><path d="M5 21h14"/></svg>
+                    </button>
+                    <button class="filter-git-btn" id="filter-btn-push" data-i18n-title="projects.gitPush" title="Push">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/></svg>
+                    </button>
+                  </div>
                   <button class="filter-git-btn filter-btn-changes" id="filter-btn-changes" data-i18n-title="ui.viewChanges">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                     <span>Changes</span>
                     <span class="changes-count" id="changes-count" style="display: none;">0</span>
                   </button>
-                  <div class="filter-divider"></div>
                   <div class="branch-btn-wrapper">
                     <button class="filter-branch-btn" id="filter-btn-branch" data-i18n-title="ui.switchBranch">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
@@ -246,16 +242,17 @@
                   </div>
                 </div>
 
+                <div class="actions-dropdown-wrapper" id="actions-dropdown-wrapper" style="display: none;">
+                  <button class="filter-actions-btn" id="filter-btn-actions">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <span>Actions</span>
+                    <svg class="actions-arrow" viewBox="0 0 12 12"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+                  </button>
+                  <div class="actions-dropdown" id="actions-dropdown"></div>
+                </div>
+
                 <button class="filter-clear" id="btn-show-all" data-i18n-title="ui.showAllTerminals">
                   <svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
-                </button>
-              </div>
-
-              <!-- Quick Actions Bar -->
-              <div class="quick-actions-bar" id="quick-actions-bar" style="display: none;">
-                <div class="quick-actions-list" id="quick-actions-list"></div>
-                <button class="quick-actions-config" id="btn-config-quick-actions" data-i18n-title="quickActions.configure">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 </button>
               </div>
 

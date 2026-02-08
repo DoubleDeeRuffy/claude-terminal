@@ -136,6 +136,8 @@
     "running": "Execution...",
     "addScript": "Ajouter un script (.bat)",
     "presets": "Presets",
+    "presetsHint": "Cliquer pour ajouter",
+    "actions": "Actions",
     "preset": {
       "build": "Build",
       "test": "Tests",
@@ -311,7 +313,11 @@
     "theme": "Thème du terminal",
     "notifications": "Notifications",
     "closeAction": "Action à la fermeture",
-    "button": "Paramètres"
+    "button": "Paramètres",
+    "quickActionPresets": "Presets Quick Actions",
+    "quickActionPresetsDesc": "Presets personnalises affiches dans la configuration des actions rapides",
+    "addPreset": "Ajouter un preset",
+    "noCustomPresets": "Aucun preset personnalise"
   },
   "ui": {
     "notifications": "Notifications",

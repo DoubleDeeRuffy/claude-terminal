@@ -6,6 +6,7 @@
 const api = window.electron_api;
 const {
   projectsState,
+  settingsState,
   getQuickActions,
   addQuickAction,
   updateQuickAction,
@@ -43,8 +44,24 @@ const QUICK_ACTION_PRESETS = [
   { name: 'Install', command: 'npm install', icon: 'download' }
 ];
 
-// Track running actions
-const runningActions = new Map();
+// Track running actions: actionId -> { terminalId, projectId }
+const actionTerminals = new Map();
+
+/**
+ * Get all presets (built-in + custom from settings)
+ * @returns {Array}
+ */
+function getAllPresets() {
+  const builtIn = QUICK_ACTION_PRESETS.map(p => ({
+    ...p,
+    label: t(`quickActions.preset.${p.name.toLowerCase()}`) || p.name
+  }));
+  const custom = (settingsState.get().customPresets || []).map(p => ({
+    ...p,
+    label: p.name
+  }));
+  return [...builtIn, ...custom];
+}
 
 // Callback for creating terminals
 let createTerminalCallback = null;
@@ -58,76 +75,119 @@ function setTerminalCallback(callback) {
 }
 
 /**
- * Render quick actions bar for a project
+ * Render quick actions dropdown for a project
  * @param {Object} project
  */
 function renderQuickActionsBar(project) {
-  const bar = document.getElementById('quick-actions-bar');
-  const list = document.getElementById('quick-actions-list');
-  const configBtn = document.getElementById('btn-config-quick-actions');
+  const wrapper = document.getElementById('actions-dropdown-wrapper');
+  const dropdown = document.getElementById('actions-dropdown');
+  const actionsBtn = document.getElementById('filter-btn-actions');
 
-  if (!bar || !list) return;
+  if (!wrapper || !dropdown) return;
 
   if (!project) {
-    bar.style.display = 'none';
+    wrapper.style.display = 'none';
     return;
   }
 
   const actions = getQuickActions(project.id);
 
-  // Always show bar when a project is filtered
-  bar.style.display = 'flex';
+  wrapper.style.display = 'flex';
 
-  if (actions.length === 0) {
-    list.innerHTML = `<span class="quick-actions-empty">${t('quickActions.noActions')}</span>`;
-  } else {
-    list.innerHTML = actions.map(action => {
-      const isRunning = runningActions.has(action.id);
-      const iconSvg = QUICK_ACTION_ICONS[action.icon] || QUICK_ACTION_ICONS.play;
-      return `
-        <button class="quick-action-btn${isRunning ? ' running' : ''}" data-action-id="${action.id}" title="${escapeHtml(action.command)}">
-          <span class="quick-action-icon">${isRunning ? QUICK_ACTION_ICONS.refresh : iconSvg}</span>
-          <span>${escapeHtml(action.name)}</span>
-        </button>
-      `;
-    }).join('');
+  // Build dropdown items
+  const actionsHtml = actions.map(action => {
+    const isRunning = actionTerminals.has(action.id);
+    const iconSvg = QUICK_ACTION_ICONS[action.icon] || QUICK_ACTION_ICONS.play;
+    return `
+      <button class="actions-dropdown-item${isRunning ? ' running' : ''}" data-action-id="${action.id}" title="${escapeHtml(action.command)}">
+        <span class="actions-item-icon">${isRunning ? QUICK_ACTION_ICONS.refresh : iconSvg}</span>
+        <span>${escapeHtml(action.name)}</span>
+      </button>
+    `;
+  }).join('');
 
-    // Add click handlers
-    list.querySelectorAll('.quick-action-btn').forEach(btn => {
-      btn.onclick = () => executeQuickAction(project, btn.dataset.actionId);
-    });
+  const emptyHtml = actions.length === 0
+    ? `<div class="actions-dropdown-empty">${t('quickActions.noActions')}</div>`
+    : '';
+
+  dropdown.innerHTML = actionsHtml + emptyHtml + `
+    <div class="actions-dropdown-footer" id="actions-dropdown-config">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>${t('quickActions.configure')}</span>
+    </div>
+  `;
+
+  // Add click handlers for action items
+  dropdown.querySelectorAll('.actions-dropdown-item').forEach(btn => {
+    btn.onclick = () => {
+      // Close dropdown
+      dropdown.classList.remove('active');
+      actionsBtn.classList.remove('open');
+      executeQuickAction(project, btn.dataset.actionId);
+    };
+  });
+
+  // Config footer handler
+  const configFooter = dropdown.querySelector('#actions-dropdown-config');
+  if (configFooter) {
+    configFooter.onclick = () => {
+      dropdown.classList.remove('active');
+      actionsBtn.classList.remove('open');
+      openConfigModal(project);
+    };
   }
 
-  // Config button handler
-  configBtn.onclick = () => openConfigModal(project);
+  // Toggle dropdown on button click
+  actionsBtn.onclick = (e) => {
+    e.stopPropagation();
+    const isOpen = dropdown.classList.contains('active');
+    dropdown.classList.toggle('active', !isOpen);
+    actionsBtn.classList.toggle('open', !isOpen);
+  };
+
+  // Close on outside click
+  const closeHandler = (e) => {
+    if (!wrapper.contains(e.target)) {
+      dropdown.classList.remove('active');
+      actionsBtn.classList.remove('open');
+    }
+  };
+  document.removeEventListener('click', wrapper._closeHandler);
+  wrapper._closeHandler = closeHandler;
+  document.addEventListener('click', closeHandler);
 }
 
 /**
- * Hide quick actions bar
+ * Hide quick actions dropdown
  */
 function hideQuickActionsBar() {
-  const bar = document.getElementById('quick-actions-bar');
-  if (bar) bar.style.display = 'none';
+  const wrapper = document.getElementById('actions-dropdown-wrapper');
+  if (wrapper) wrapper.style.display = 'none';
 }
 
 /**
- * Execute a quick action
+ * Execute a quick action, reusing existing terminal if available
  * @param {Object} project
  * @param {string} actionId
  */
 async function executeQuickAction(project, actionId) {
-  if (runningActions.has(actionId)) return;
-
   const actions = getQuickActions(project.id);
   const action = actions.find(a => a.id === actionId);
   if (!action) return;
 
-  // Mark as running
-  runningActions.set(actionId, true);
-  renderQuickActionsBar(project);
+  const existing = actionTerminals.get(actionId);
 
+  if (existing && existing.projectId === project.id) {
+    // Reuse existing terminal: send Ctrl+C to interrupt, then rerun
+    api.terminal.input({ id: existing.terminalId, data: '\x03' });
+    setTimeout(() => {
+      api.terminal.input({ id: existing.terminalId, data: action.command + '\r' });
+    }, 200);
+    return;
+  }
+
+  // Create a new terminal for this action
   try {
-    // Create a basic terminal and execute the command
     if (createTerminalCallback) {
       const terminalId = await createTerminalCallback(project, {
         runClaude: false,
@@ -135,24 +195,29 @@ async function executeQuickAction(project, actionId) {
         name: action.name
       });
 
+      // Track this terminal for reuse
+      actionTerminals.set(actionId, { terminalId, projectId: project.id });
+
       // Send the command after a short delay for terminal to initialize
       setTimeout(() => {
         api.terminal.input({ id: terminalId, data: action.command + '\r' });
       }, 300);
+
+      // Listen for terminal exit to clean up mapping
+      const unsubscribe = api.terminal.onExit((data) => {
+        if (data && data.id === terminalId) {
+          actionTerminals.delete(actionId);
+          const currentFilter = projectsState.get().selectedProjectFilter;
+          const projects = projectsState.get().projects;
+          if (projects[currentFilter]?.id === project.id) {
+            renderQuickActionsBar(project);
+          }
+          unsubscribe();
+        }
+      });
     }
   } catch (error) {
     console.error('Error executing quick action:', error);
-  } finally {
-    // Remove running state after a delay
-    setTimeout(() => {
-      runningActions.delete(actionId);
-      // Re-render if same project is still selected
-      const currentFilter = projectsState.get().selectedProjectFilter;
-      const projects = projectsState.get().projects;
-      if (projects[currentFilter]?.id === project.id) {
-        renderQuickActionsBar(project);
-      }
-    }, 1000);
   }
 }
 
@@ -168,28 +233,40 @@ function openConfigModal(project) {
 
   const content = `
     <div class="quick-actions-modal-body">
-      <div class="quick-actions-presets">
-        <span class="quick-actions-presets-label">${t('quickActions.presets')}</span>
-        ${QUICK_ACTION_PRESETS.map(preset => `
-          <button class="preset-btn" data-preset="${JSON.stringify(preset).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">
-            ${QUICK_ACTION_ICONS[preset.icon]}
-            <span>${t(`quickActions.preset.${preset.name.toLowerCase()}`) || preset.name}</span>
-          </button>
-        `).join('')}
+      <div class="qa-section">
+        <div class="qa-section-header">
+          <span class="qa-section-title">${t('quickActions.presets')}</span>
+          <span class="qa-section-hint">${t('quickActions.presetsHint') || 'Cliquer pour ajouter'}</span>
+        </div>
+        <div class="quick-actions-presets">
+          ${getAllPresets().map(preset => `
+            <button class="preset-btn" data-preset="${JSON.stringify({name: preset.name, command: preset.command, icon: preset.icon}).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">
+              <span class="preset-btn-icon">${QUICK_ACTION_ICONS[preset.icon] || QUICK_ACTION_ICONS.play}</span>
+              <span class="preset-btn-label">${preset.label || preset.name}</span>
+              <span class="preset-btn-cmd">${escapeHtml(preset.command)}</span>
+            </button>
+          `).join('')}
+        </div>
       </div>
 
-      <div class="quick-actions-list-config" id="quick-actions-config-list">
-        ${renderActionsList(actions)}
+      <div class="qa-section">
+        <div class="qa-section-header">
+          <span class="qa-section-title">${t('quickActions.actions') || 'Actions'}</span>
+          <span class="qa-section-count">${actions.length}</span>
+        </div>
+        <div class="quick-actions-list-config" id="quick-actions-config-list">
+          ${renderActionsList(actions)}
+        </div>
       </div>
 
       <div class="quick-action-add-buttons">
         <button class="quick-action-add-btn" id="btn-add-quick-action">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          ${t('quickActions.addAction')}
+          <span>${t('quickActions.addAction')}</span>
         </button>
         <button class="quick-action-add-btn" id="btn-add-script">
           ${QUICK_ACTION_ICONS.terminal}
-          ${t('quickActions.addScript')}
+          <span>${t('quickActions.addScript')}</span>
         </button>
       </div>
     </div>
@@ -209,7 +286,7 @@ function openConfigModal(project) {
         }
       }
     ],
-    size: 'medium',
+    size: 'large',
     onClose: () => {
       renderQuickActionsBar(project);
     }

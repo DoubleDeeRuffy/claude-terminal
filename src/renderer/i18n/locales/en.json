@@ -258,7 +258,11 @@
     "theme": "Terminal theme",
     "notifications": "Notifications",
     "closeAction": "Close action",
-    "button": "Settings"
+    "button": "Settings",
+    "quickActionPresets": "Quick Action Presets",
+    "quickActionPresetsDesc": "Custom presets shown in the quick actions configuration",
+    "addPreset": "Add a preset",
+    "noCustomPresets": "No custom presets"
   },
   "ui": {
     "notifications": "Notifications",
@@ -353,6 +357,8 @@
     "running": "Running...",
     "addScript": "Add a script (.bat)",
     "presets": "Presets",
+    "presetsHint": "Click to add",
+    "actions": "Actions",
     "preset": {
       "build": "Build",
       "test": "Tests",
