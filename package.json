@@ -1,6 +1,6 @@
 {
   "name": "claude-terminal",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "Terminal custom pour Claude Code avec gestion des projets, skills et agents",
   "main": "main.js",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:renderer": "node scripts/build-renderer.js",
     "build": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --config electron-builder.config.js",
     "publish": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --publish always --config electron-builder.config.js",
+    "generate-assets": "node build-assets/generate-installer-images.js",
     "test": "jest",
     "test:watch": "jest --watch"
   },
@@ -37,7 +38,8 @@
     "electron-builder": "^24.9.1",
     "esbuild": "^0.27.2",
     "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0"
+    "jest-environment-jsdom": "^29.7.0",
+    "sharp": "^0.33.5"
   },
   "jest": {
     "testEnvironment": "jsdom",

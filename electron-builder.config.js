@@ -13,6 +13,7 @@ module.exports = {
     "main.js",
     "index.html",
     "quick-picker.html",
+    "setup-wizard.html",
     "styles.css",
     "dist/renderer.bundle.js",
     "dist/renderer.bundle.js.map",
@@ -30,12 +31,18 @@ module.exports = {
     icon: "assets/icon.ico"
   },
   nsis: {
-    oneClick: true,
+    oneClick: false,
     perMachine: false,
     allowElevation: true,
+    allowToChangeInstallationDirectory: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
-    differentialPackage: true
+    differentialPackage: true,
+    license: "LICENSE",
+    installerSidebar: "build-assets/installer-sidebar.bmp",
+    uninstallerSidebar: "build-assets/uninstaller-sidebar.bmp",
+    installerHeader: "build-assets/installer-header.bmp",
+    include: "build-assets/installer-custom.nsh"
   },
   publish: {
     provider: "generic",
