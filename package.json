@@ -9,7 +9,9 @@
     "watch": "node scripts/build-renderer.js --watch",
     "build:renderer": "node scripts/build-renderer.js",
     "build": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --config electron-builder.config.js",
-    "publish": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --publish always --config electron-builder.config.js"
+    "publish": "node scripts/build-renderer.js && dotenv -e .env -- electron-builder --win --publish always --config electron-builder.config.js",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "claude",
@@ -33,7 +35,18 @@
     "dotenv-cli": "^11.0.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1",
-    "esbuild": "^0.27.2"
+    "esbuild": "^0.27.2",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "setupFiles": [
+      "./tests/setup.js"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ]
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
