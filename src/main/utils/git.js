@@ -356,7 +356,7 @@ async function getGitStatusQuick(projectPath) {
 function gitPull(projectPath) {
   return new Promise((resolve) => {
     const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
-    exec(`git ${safeDir} pull`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, async (error, stdout, stderr) => {
+    exec(`git ${safeDir} pull --rebase`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, async (error, stdout, stderr) => {
       if (error) {
         // Check if there are merge conflicts
         const conflicts = await getMergeConflicts(projectPath);
