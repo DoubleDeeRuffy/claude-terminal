@@ -861,6 +861,171 @@ function deleteBranch(projectPath, branch, force = false) {
   });
 }
 
+/**
+ * Get paginated commit history
+ * @param {string} projectPath - Path to the project
+ * @param {Object} options - Options
+ * @param {number} options.skip - Number of commits to skip
+ * @param {number} options.limit - Number of commits to return
+ * @param {string} options.branch - Branch to get history for (optional)
+ * @returns {Promise<Array>} - List of commits
+ */
+async function getCommitHistory(projectPath, { skip = 0, limit = 30, branch = '' } = {}) {
+  const branchArg = branch ? ` ${branch}` : '';
+  const output = await execGit(projectPath, `log --skip=${skip} -${limit} --format="%H|%h|%s|%an|%ae|%ar|%aI"${branchArg}`, 15000);
+  if (!output) return [];
+  return output.split('\n').filter(l => l.trim()).map(line => {
+    const [fullHash, hash, message, author, email, date, isoDate] = line.split('|');
+    return { fullHash, hash, message, author, email, date, isoDate };
+  });
+}
+
+/**
+ * Get diff for a specific file
+ * @param {string} projectPath - Path to the project
+ * @param {string} filePath - File path
+ * @param {boolean} staged - Whether to get staged diff
+ * @returns {Promise<string>} - Raw diff output
+ */
+async function getFileDiff(projectPath, filePath, staged = false) {
+  const stagedFlag = staged ? '--cached ' : '';
+  const diff = await execGit(projectPath, `diff ${stagedFlag}-- "${filePath}"`, 10000);
+  return diff || '';
+}
+
+/**
+ * Get commit detail (show --stat)
+ * @param {string} projectPath - Path to the project
+ * @param {string} commitHash - Commit hash
+ * @returns {Promise<string>} - Commit detail output
+ */
+async function getCommitDetail(projectPath, commitHash) {
+  const output = await execGit(projectPath, `show --stat --format="commit %H%nAuthor: %an <%ae>%nDate:   %aI%n%n    %s%n%n    %b" ${commitHash}`, 10000);
+  return output || '';
+}
+
+/**
+ * Cherry-pick a commit
+ * @param {string} projectPath - Path to the project
+ * @param {string} commitHash - Commit hash to cherry-pick
+ * @returns {Promise<Object>} - Result object
+ */
+function cherryPick(projectPath, commitHash) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    exec(`git ${safeDir} cherry-pick ${commitHash}`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || 'Cherry-pick successful.' });
+      }
+    });
+  });
+}
+
+/**
+ * Revert a commit
+ * @param {string} projectPath - Path to the project
+ * @param {string} commitHash - Commit hash to revert
+ * @returns {Promise<Object>} - Result object
+ */
+function revertCommit(projectPath, commitHash) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    exec(`git ${safeDir} revert --no-edit ${commitHash}`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || 'Revert successful.' });
+      }
+    });
+  });
+}
+
+/**
+ * Unstage specific files
+ * @param {string} projectPath - Path to the project
+ * @param {string[]} files - List of file paths to unstage
+ * @returns {Promise<Object>} - Result object
+ */
+function gitUnstageFiles(projectPath, files) {
+  return new Promise((resolve) => {
+    if (!files || files.length === 0) {
+      resolve({ success: false, error: 'No files specified' });
+      return;
+    }
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    const fileArgs = files.map(f => `"${f}"`).join(' ');
+    exec(`git ${safeDir} restore --staged ${fileArgs}`, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: `Unstaged ${files.length} file(s)` });
+      }
+    });
+  });
+}
+
+/**
+ * Apply a stash
+ * @param {string} projectPath - Path to the project
+ * @param {string} stashRef - Stash reference (e.g., stash@{0})
+ * @returns {Promise<Object>} - Result object
+ */
+function stashApply(projectPath, stashRef) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    exec(`git ${safeDir} stash apply "${stashRef}"`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || 'Stash applied.' });
+      }
+    });
+  });
+}
+
+/**
+ * Drop a stash
+ * @param {string} projectPath - Path to the project
+ * @param {string} stashRef - Stash reference (e.g., stash@{0})
+ * @returns {Promise<Object>} - Result object
+ */
+function stashDrop(projectPath, stashRef) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    exec(`git ${safeDir} stash drop "${stashRef}"`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || 'Stash dropped.' });
+      }
+    });
+  });
+}
+
+/**
+ * Save changes to a stash
+ * @param {string} projectPath - Path to the project
+ * @param {string} message - Optional stash message
+ * @returns {Promise<Object>} - Result object
+ */
+function gitStashSave(projectPath, message) {
+  return new Promise((resolve) => {
+    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
+    const cmd = message && message.trim()
+      ? `git ${safeDir} stash push -m "${message.trim().replace(/"/g, '\\"')}"`
+      : `git ${safeDir} stash`;
+    exec(cmd, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, error: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout || 'Stash saved.' });
+      }
+    });
+  });
+}
+
 module.exports = {
   execGit,
   getGitInfo,
@@ -883,5 +1048,14 @@ module.exports = {
   getCurrentBranch,
   checkoutBranch,
   createBranch,
-  deleteBranch
+  deleteBranch,
+  getCommitHistory,
+  getFileDiff,
+  getCommitDetail,
+  cherryPick,
+  revertCommit,
+  gitUnstageFiles,
+  stashApply,
+  stashDrop,
+  gitStashSave
 };

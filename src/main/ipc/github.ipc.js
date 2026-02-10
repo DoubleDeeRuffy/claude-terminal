@@ -103,6 +103,19 @@ function registerGitHubHandlers() {
     }
   });
 
+  // Create a pull request
+  ipcMain.handle('github-create-pr', async (event, { remoteUrl, title, body, head, base }) => {
+    try {
+      const parsed = GitHubAuthService.parseGitHubRemote(remoteUrl);
+      if (!parsed) {
+        return { success: false, error: 'Not a GitHub repository' };
+      }
+      return await GitHubAuthService.createPullRequest(parsed.owner, parsed.repo, title, body, head, base);
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // Get pull requests for a repository
   ipcMain.handle('github-pull-requests', async (event, { remoteUrl }) => {
     console.log('[GitHub IPC] Fetching pull requests for:', remoteUrl);

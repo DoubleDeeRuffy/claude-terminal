@@ -358,6 +358,57 @@ async function getPullRequests(owner, repo, perPage = 5) {
   }
 }
 
+/**
+ * Create a pull request
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {string} title - PR title
+ * @param {string} body - PR body
+ * @param {string} head - Head branch
+ * @param {string} base - Base branch
+ * @returns {Promise<Object>} - Created PR data
+ */
+async function createPullRequest(owner, repo, title, body, head, base) {
+  const token = await getToken();
+  if (!token) {
+    return { success: false, error: 'Not authenticated' };
+  }
+
+  try {
+    const postData = JSON.stringify({ title, body, head, base });
+    const response = await httpsRequest({
+      hostname: 'api.github.com',
+      path: `/repos/${owner}/${repo}/pulls`,
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'Claude-Terminal',
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }, postData);
+
+    if (response.status === 201) {
+      const pr = response.data;
+      return {
+        success: true,
+        pr: {
+          number: pr.number,
+          title: pr.title,
+          url: pr.html_url,
+          state: pr.state
+        }
+      };
+    }
+
+    return { success: false, error: response.data.message || `API error: ${response.status}` };
+  } catch (e) {
+    console.error('Error creating pull request:', e);
+    return { success: false, error: e.message };
+  }
+}
+
 module.exports = {
   startDeviceFlow,
   pollForToken,
@@ -368,5 +419,6 @@ module.exports = {
   getTokenForGit,
   getWorkflowRuns,
   getPullRequests,
+  createPullRequest,
   parseGitHubRemote
 };

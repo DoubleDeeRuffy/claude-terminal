@@ -4,7 +4,7 @@
  */
 
 const { ipcMain } = require('electron');
-const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch } = require('../utils/git');
+const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch, getCommitHistory, getFileDiff, getCommitDetail, cherryPick, revertCommit, gitUnstageFiles, stashApply, stashDrop, gitStashSave } = require('../utils/git');
 const { generateCommitMessage } = require('../utils/commitMessageGenerator');
 const GitHubAuthService = require('../services/GitHubAuthService');
 
@@ -112,6 +112,51 @@ function registerGitHandlers() {
   // Delete a branch
   ipcMain.handle('git-delete-branch', async (event, { projectPath, branch, force }) => {
     return deleteBranch(projectPath, branch, force);
+  });
+
+  // Get paginated commit history
+  ipcMain.handle('git-commit-history', async (event, { projectPath, skip, limit, branch }) => {
+    return getCommitHistory(projectPath, { skip, limit, branch });
+  });
+
+  // Get file diff
+  ipcMain.handle('git-file-diff', async (event, { projectPath, filePath, staged }) => {
+    return getFileDiff(projectPath, filePath, staged);
+  });
+
+  // Get commit detail
+  ipcMain.handle('git-commit-detail', async (event, { projectPath, commitHash }) => {
+    return getCommitDetail(projectPath, commitHash);
+  });
+
+  // Cherry-pick a commit
+  ipcMain.handle('git-cherry-pick', async (event, { projectPath, commitHash }) => {
+    return cherryPick(projectPath, commitHash);
+  });
+
+  // Revert a commit
+  ipcMain.handle('git-revert', async (event, { projectPath, commitHash }) => {
+    return revertCommit(projectPath, commitHash);
+  });
+
+  // Unstage files
+  ipcMain.handle('git-unstage-files', async (event, { projectPath, files }) => {
+    return gitUnstageFiles(projectPath, files);
+  });
+
+  // Apply stash
+  ipcMain.handle('git-stash-apply', async (event, { projectPath, stashRef }) => {
+    return stashApply(projectPath, stashRef);
+  });
+
+  // Drop stash
+  ipcMain.handle('git-stash-drop', async (event, { projectPath, stashRef }) => {
+    return stashDrop(projectPath, stashRef);
+  });
+
+  // Save stash
+  ipcMain.handle('git-stash-save', async (event, { projectPath, message }) => {
+    return gitStashSave(projectPath, message);
   });
 
   // Generate commit message from file statuses and diff
