@@ -1,10 +1,16 @@
-# Claude Terminal
+<p align="center">
+  <img src="banner-readme.png" alt="Claude Terminal" width="100%" />
+</p>
 
-A Windows desktop application for managing [Claude Code](https://github.com/anthropics/claude-code) projects with an integrated terminal environment, git workflows, time tracking, and more.
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue" alt="Windows" />
+  <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
+  <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
+</p>
 
-![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Electron](https://img.shields.io/badge/electron-28-purple)
+<p align="center">
+  A Windows desktop application for managing <a href="https://github.com/anthropics/claude-code">Claude Code</a> projects with an integrated terminal environment, git workflows, time tracking, and more.
+</p>
 
 ## Features
 
