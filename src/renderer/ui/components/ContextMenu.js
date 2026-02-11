@@ -43,7 +43,10 @@ function showContextMenu({ x, y, items, target }) {
 
   menu.innerHTML = itemsHtml;
 
-  // Position menu
+  // Append to DOM - temporarily visible but transparent for measuring
+  menu.style.display = 'block';
+  menu.style.opacity = '0';
+  menu.style.pointerEvents = 'none';
   document.body.appendChild(menu);
 
   // Adjust position if menu would go off screen
@@ -76,7 +79,10 @@ function showContextMenu({ x, y, items, target }) {
     };
   });
 
-  // Show with animation
+  // Reset inline styles and animate in
+  menu.style.display = '';
+  menu.style.opacity = '';
+  menu.style.pointerEvents = '';
   requestAnimationFrame(() => {
     menu.classList.add('show');
   });
@@ -94,12 +100,13 @@ function showContextMenu({ x, y, items, target }) {
  */
 function hideContextMenu() {
   if (currentMenu) {
-    currentMenu.classList.remove('show');
+    const menuToRemove = currentMenu;
+    currentMenu = null;
+    menuToRemove.classList.remove('show');
     setTimeout(() => {
-      if (currentMenu && currentMenu.parentNode) {
-        currentMenu.parentNode.removeChild(currentMenu);
+      if (menuToRemove.parentNode) {
+        menuToRemove.parentNode.removeChild(menuToRemove);
       }
-      currentMenu = null;
     }, 150);
 
     document.removeEventListener('click', handleClickOutside);
