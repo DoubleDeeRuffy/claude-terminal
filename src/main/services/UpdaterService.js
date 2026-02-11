@@ -4,6 +4,9 @@
  */
 
 const { autoUpdater } = require('electron-updater');
+const { app } = require('electron');
+const path = require('path');
+const fs = require('fs');
 
 // Check interval: 30 minutes
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -32,6 +35,37 @@ class UpdaterService {
   safeSend(channel, data) {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data);
+    }
+  }
+
+  /**
+   * Clear stale updater cache if the app version already matches or exceeds the pending update.
+   * Prevents old cached downloads from blocking detection of newer versions.
+   */
+  clearStalePendingCache() {
+    try {
+      const cacheDir = path.join(app.getPath('userData'), '..', 'claude-terminal-updater', 'pending');
+      const infoPath = path.join(cacheDir, 'update-info.json');
+
+      if (!fs.existsSync(infoPath)) return;
+
+      const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
+      const cachedFileName = info.fileName || '';
+      const versionMatch = cachedFileName.match(/(\d+\.\d+\.\d+)/);
+      if (!versionMatch) return;
+
+      const cachedVersion = versionMatch[1];
+      const currentVersion = app.getVersion();
+
+      if (currentVersion >= cachedVersion) {
+        console.log(`Clearing stale updater cache (cached: ${cachedVersion}, current: ${currentVersion})`);
+        const files = fs.readdirSync(cacheDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(cacheDir, file));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to clear stale updater cache:', err);
     }
   }
 
@@ -99,6 +133,7 @@ class UpdaterService {
    */
   checkForUpdates(isPackaged) {
     if (isPackaged) {
+      this.clearStalePendingCache();
       this.initialize();
       autoUpdater.checkForUpdatesAndNotify();
 
