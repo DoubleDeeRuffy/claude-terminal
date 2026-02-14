@@ -8,7 +8,7 @@
 
     body {
       font-family: 'Segoe UI', system-ui, sans-serif;
-      background: transparent;
+      background: #161616;
       overflow: hidden;
       -webkit-app-region: no-drag;
     }
@@ -16,28 +16,11 @@
     .notification {
       position: relative;
       background: #161616;
-      border: 1px solid #262626;
-      border-radius: 8px;
       display: flex;
       gap: 12px;
       padding: 14px;
       overflow: hidden;
-      animation: notif-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    }
-
-    .notification.exit {
-      animation: notif-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards;
-    }
-
-    @keyframes notif-slide-in {
-      from { transform: translateX(110%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-
-    @keyframes notif-slide-out {
-      from { transform: translateX(0); opacity: 1; }
-      to { transform: translateX(110%); opacity: 0; }
+      height: 100vh;
     }
 
     .notif-icon {
@@ -218,35 +201,13 @@
       autoDismissTimer = setTimeout(function() { dismiss(); }, autoDismiss);
     }
 
-    // Click-through: use CSS hover forwarding to detect when mouse is over opaque content.
-    // With setIgnoreMouseEvents(true, {forward:true}), regular DOM mouseenter/mouseleave
-    // don't fire reliably — but mousemove does. We poll elementFromPoint to toggle click-through.
-    var isOverContent = false;
-    document.addEventListener('mousemove', function(e) {
-      var el = document.elementFromPoint(e.clientX, e.clientY);
-      var overNotif = el && (el.closest('.notification') !== null);
-      if (overNotif && !isOverContent) {
-        isOverContent = true;
-        ipcRenderer.send('notification-mouse-enter', { notifId: notifId });
-      } else if (!overNotif && isOverContent) {
-        isOverContent = false;
-        ipcRenderer.send('notification-mouse-leave', { notifId: notifId });
-      }
-    });
-
-    // Single dismiss function — plays exit animation, then tells main to close
+    // Dismiss — close window immediately (no exit animation needed without transparency)
     var dismissed = false;
     function dismiss() {
       if (dismissed) return;
       dismissed = true;
       if (autoDismissTimer) clearTimeout(autoDismissTimer);
-      document.getElementById('notification').classList.add('exit');
-      // Re-enable click-through immediately so dismissed notif doesn't block
-      isOverContent = false;
-      ipcRenderer.send('notification-mouse-leave', { notifId: notifId });
-      setTimeout(function() {
-        ipcRenderer.send('notification-dismiss', { notifId: notifId });
-      }, 300);
+      ipcRenderer.send('notification-dismiss', { notifId: notifId });
     }
   </script>
 </body>

@@ -48,6 +48,9 @@ function bootstrapApp() {
     createTray,
     registerTrayHandlers
   } = require('./src/main/windows/TrayManager');
+  const {
+    registerNotificationHandlers
+  } = require('./src/main/windows/NotificationWindow');
   const { updaterService } = require('./src/main/services');
 
   // Handle second instance attempt - show existing window
@@ -74,6 +77,7 @@ function bootstrapApp() {
     registerAllHandlers(mainWindow);
     registerQuickPickerHandlers();
     registerTrayHandlers();
+    registerNotificationHandlers();
     createTray(accentColor);
     registerGlobalShortcuts();
 

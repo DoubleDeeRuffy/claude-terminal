@@ -45,10 +45,6 @@ function showNotification({ title, body, terminalId, autoDismiss = 8000, labels 
     }
   });
 
-  // Let clicks pass through transparent areas, but forward mouse position
-  // so the renderer can re-enable mouse events on opaque content
-  win.setIgnoreMouseEvents(true, { forward: true });
-
   const data = encodeURIComponent(JSON.stringify({ title, body, terminalId, notifId, autoDismiss, labels }));
   const htmlPath = path.join(__dirname, '..', '..', '..', 'notification.html');
   win.loadFile(htmlPath, { search: `data=${data}` });
@@ -135,22 +131,6 @@ function registerNotificationHandlers() {
   // Dismiss handler — called by notification.html after exit animation completes
   ipcMain.on('notification-dismiss', (event, { notifId }) => {
     dismissNotification(notifId);
-  });
-
-  // Mouse enter/leave — toggle click-through so buttons are clickable
-  // but transparent areas let clicks pass to apps behind
-  ipcMain.on('notification-mouse-enter', (event, { notifId }) => {
-    const notif = activeNotifications.get(notifId);
-    if (notif && !notif.window.isDestroyed()) {
-      notif.window.setIgnoreMouseEvents(false);
-    }
-  });
-
-  ipcMain.on('notification-mouse-leave', (event, { notifId }) => {
-    const notif = activeNotifications.get(notifId);
-    if (notif && !notif.window.isDestroyed()) {
-      notif.window.setIgnoreMouseEvents(true, { forward: true });
-    }
   });
 }
 
