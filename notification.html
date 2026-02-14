@@ -218,6 +218,15 @@
       autoDismissTimer = setTimeout(function() { dismiss(); }, autoDismiss);
     }
 
+    // Click-through: re-enable mouse events on opaque content, ignore on transparent body
+    var notifEl = document.getElementById('notification');
+    notifEl.addEventListener('mouseenter', function() {
+      ipcRenderer.send('notification-mouse-enter', { notifId: notifId });
+    });
+    notifEl.addEventListener('mouseleave', function() {
+      ipcRenderer.send('notification-mouse-leave', { notifId: notifId });
+    });
+
     // Single dismiss function — plays exit animation, then tells main to close
     var dismissed = false;
     function dismiss() {
@@ -225,6 +234,8 @@
       dismissed = true;
       if (autoDismissTimer) clearTimeout(autoDismissTimer);
       document.getElementById('notification').classList.add('exit');
+      // Re-enable click-through immediately so dismissed notif doesn't block
+      ipcRenderer.send('notification-mouse-leave', { notifId: notifId });
       setTimeout(function() {
         ipcRenderer.send('notification-dismiss', { notifId: notifId });
       }, 300);
