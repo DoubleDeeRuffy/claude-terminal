@@ -8,6 +8,13 @@ const api = window.electron_api;
 const { escapeHtml, highlight } = require('../../utils');
 const { t } = require('../../i18n');
 const { recordActivity, recordOutputActivity } = require('../../state');
+const { getSetting, setSetting } = require('../../state/settings.state');
+
+const MODEL_OPTIONS = [
+  { id: 'claude-opus-4-20250514', label: 'Opus', desc: 'Most capable' },
+  { id: 'claude-sonnet-4-5-20250929', label: 'Sonnet', desc: 'Balanced' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku', desc: 'Fast & cheap' },
+];
 
 // ── Markdown Renderer ──
 
@@ -141,6 +148,7 @@ function createChatView(wrapperEl, project, options = {}) {
   let currentThinkingEl = null;
   let currentThinkingText = '';
   let model = '';
+  let selectedModel = getSetting('chatModel') || MODEL_OPTIONS[0].id;
   let totalCost = 0;
   let totalTokens = 0;
   const toolCards = new Map(); // content_block index -> element
@@ -155,6 +163,11 @@ function createChatView(wrapperEl, project, options = {}) {
   let slashCommands = []; // populated from system/init message
   let slashSelectedIndex = -1; // currently highlighted item in slash dropdown
   const unsubscribers = [];
+
+  // ── Lightbox state ──
+  let lightboxEl = null;
+  let lightboxImages = [];
+  let lightboxIndex = 0;
 
   // ── Build DOM ──
 
@@ -192,7 +205,10 @@ function createChatView(wrapperEl, project, options = {}) {
             <span class="chat-status-text">${escapeHtml(t('chat.ready') || 'Ready')}</span>
           </div>
           <div class="chat-footer-right">
-            <span class="chat-status-model"></span>
+            <div class="chat-model-selector">
+              <button class="chat-model-btn"><span class="chat-model-label">Sonnet</span> <span class="chat-model-arrow">&#9662;</span></button>
+              <div class="chat-model-dropdown" style="display:none"></div>
+            </div>
             <span class="chat-status-tokens"></span>
             <span class="chat-status-cost"></span>
           </div>
@@ -208,7 +224,9 @@ function createChatView(wrapperEl, project, options = {}) {
   const stopBtn = chatView.querySelector('.chat-stop-btn');
   const statusDot = chatView.querySelector('.chat-status-dot');
   const statusTextEl = chatView.querySelector('.chat-status-text');
-  const statusModel = chatView.querySelector('.chat-status-model');
+  const modelBtn = chatView.querySelector('.chat-model-btn');
+  const modelLabel = chatView.querySelector('.chat-model-label');
+  const modelDropdown = chatView.querySelector('.chat-model-dropdown');
   const statusTokens = chatView.querySelector('.chat-status-tokens');
   const statusCost = chatView.querySelector('.chat-status-cost');
   const slashDropdown = chatView.querySelector('.chat-slash-dropdown');
@@ -231,6 +249,71 @@ function createChatView(wrapperEl, project, options = {}) {
   const pendingImages = []; // Array of { base64, mediaType, name, dataUrl }
   const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
   const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+
+  // ── Model selector ──
+
+  function initModelSelector() {
+    const saved = getSetting('chatModel');
+    const current = MODEL_OPTIONS.find(m => m.id === saved) || MODEL_OPTIONS[0];
+    modelLabel.textContent = current.label;
+    selectedModel = current.id;
+  }
+
+  function buildModelDropdown() {
+    modelDropdown.innerHTML = MODEL_OPTIONS.map(m => {
+      const isActive = m.id === selectedModel;
+      return `
+      <div class="chat-model-option${isActive ? ' active' : ''}" data-model="${m.id}">
+        <div class="chat-model-option-info">
+          <span class="chat-model-option-label">${m.label}</span>
+          <span class="chat-model-option-desc">${m.desc}</span>
+        </div>
+        ${isActive ? '<svg class="chat-model-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  function toggleModelDropdown() {
+    const visible = modelDropdown.style.display !== 'none';
+    if (visible) {
+      modelDropdown.style.display = 'none';
+    } else {
+      buildModelDropdown();
+      modelDropdown.style.display = '';
+    }
+  }
+
+  function selectModel(modelId) {
+    const option = MODEL_OPTIONS.find(m => m.id === modelId);
+    if (!option) return;
+    selectedModel = modelId;
+    modelLabel.textContent = option.label;
+    modelDropdown.style.display = 'none';
+    setSetting('chatModel', modelId);
+  }
+
+  function lockModelSelector() {
+    modelBtn.classList.add('locked');
+    modelBtn.disabled = true;
+  }
+
+  modelBtn.addEventListener('click', (e) => {
+    if (sessionId) return; // Locked once session starts
+    e.stopPropagation();
+    toggleModelDropdown();
+  });
+
+  modelDropdown.addEventListener('click', (e) => {
+    const opt = e.target.closest('.chat-model-option');
+    if (opt) selectModel(opt.dataset.model);
+  });
+
+  // Close dropdown on outside click
+  document.addEventListener('click', () => {
+    modelDropdown.style.display = 'none';
+  });
+
+  initModelSelector();
 
   attachBtn.addEventListener('click', () => fileInput.click());
 
@@ -493,6 +576,7 @@ function createChatView(wrapperEl, project, options = {}) {
     { type: 'errors', label: '@errors', desc: t('chat.mentionErrors') || 'Attach error lines from terminal', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' },
     { type: 'selection', label: '@selection', desc: t('chat.mentionSelection') || 'Attach selected text', icon: '<svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>' },
     { type: 'todos', label: '@todos', desc: t('chat.mentionTodos') || 'Attach TODO items from project', icon: '<svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>' },
+    { type: 'project', label: '@project', desc: t('chat.mentionProject') || 'Attach current project info', icon: '<svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>' },
   ];
 
   function updateMentionDropdown() {
@@ -810,6 +894,40 @@ function createChatView(wrapperEl, project, options = {}) {
           }
           break;
         }
+
+        case 'project': {
+          try {
+            const parts = [`Project: ${project.name || 'Unknown'}`, `Path: ${project.path}`];
+            // Git info
+            const [branch, status, stats] = await Promise.all([
+              api.git.currentBranch({ projectPath: project.path }).catch(() => null),
+              api.git.statusDetailed({ projectPath: project.path }).catch(() => null),
+              api.project.stats(project.path).catch(() => null),
+            ]);
+            if (branch) parts.push(`Git Branch: ${branch}`);
+            if (status?.success && status.files?.length > 0) {
+              parts.push(`Git Status: ${status.files.length} changed files`);
+              const summary = status.files.slice(0, 15).map(f => `  ${f.status} ${f.path}`).join('\n');
+              parts.push(summary);
+            } else {
+              parts.push('Git Status: clean');
+            }
+            if (stats) {
+              parts.push(`Stats: ${stats.files} files, ${stats.lines.toLocaleString()} lines of code`);
+              if (stats.byExtension) {
+                const top = Object.entries(stats.byExtension)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 8)
+                  .map(([ext, lines]) => `  ${ext}: ${lines.toLocaleString()} lines`);
+                parts.push('Top Languages:\n' + top.join('\n'));
+              }
+            }
+            content = parts.join('\n');
+          } catch (e) {
+            content = `Project: ${project.name || 'Unknown'}\nPath: ${project.path}\n[Error fetching details: ${e.message}]`;
+          }
+          break;
+        }
       }
 
       resolved.push({ label: mention.label, content });
@@ -861,6 +979,84 @@ function createChatView(wrapperEl, project, options = {}) {
       api.chat.interrupt({ sessionId });
     }
   });
+
+  // ── Image Lightbox ──
+
+  function ensureLightbox() {
+    if (lightboxEl) return;
+    lightboxEl = document.createElement('div');
+    lightboxEl.className = 'chat-lightbox';
+    lightboxEl.innerHTML = `
+      <div class="chat-lightbox-backdrop"></div>
+      <button class="chat-lightbox-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+      <button class="chat-lightbox-prev" aria-label="Previous">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+      </button>
+      <button class="chat-lightbox-next" aria-label="Next">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+      </button>
+      <img class="chat-lightbox-img" alt="" />
+      <div class="chat-lightbox-counter"></div>
+    `;
+    document.body.appendChild(lightboxEl);
+
+    lightboxEl.querySelector('.chat-lightbox-backdrop').addEventListener('click', closeLightbox);
+    lightboxEl.querySelector('.chat-lightbox-close').addEventListener('click', closeLightbox);
+    lightboxEl.querySelector('.chat-lightbox-prev').addEventListener('click', () => navigateLightbox(-1));
+    lightboxEl.querySelector('.chat-lightbox-next').addEventListener('click', () => navigateLightbox(1));
+  }
+
+  function openLightbox(images, startIndex) {
+    ensureLightbox();
+    lightboxImages = images;
+    lightboxIndex = startIndex;
+    updateLightboxImage();
+    requestAnimationFrame(() => lightboxEl.classList.add('active'));
+    document.addEventListener('keydown', lightboxKeyHandler);
+  }
+
+  function closeLightbox() {
+    if (!lightboxEl) return;
+    lightboxEl.classList.remove('active');
+    document.removeEventListener('keydown', lightboxKeyHandler);
+  }
+
+  function navigateLightbox(delta) {
+    lightboxIndex = (lightboxIndex + delta + lightboxImages.length) % lightboxImages.length;
+    updateLightboxImage();
+  }
+
+  function updateLightboxImage() {
+    const img = lightboxEl.querySelector('.chat-lightbox-img');
+    const counter = lightboxEl.querySelector('.chat-lightbox-counter');
+    const prevBtn = lightboxEl.querySelector('.chat-lightbox-prev');
+    const nextBtn = lightboxEl.querySelector('.chat-lightbox-next');
+
+    img.src = lightboxImages[lightboxIndex];
+
+    if (lightboxImages.length > 1) {
+      counter.textContent = `${lightboxIndex + 1} / ${lightboxImages.length}`;
+      counter.style.display = '';
+      prevBtn.style.display = '';
+      nextBtn.style.display = '';
+    } else {
+      counter.style.display = 'none';
+      prevBtn.style.display = 'none';
+      nextBtn.style.display = 'none';
+    }
+  }
+
+  function lightboxKeyHandler(e) {
+    if (e.key === 'Escape') {
+      closeLightbox();
+    } else if (e.key === 'ArrowLeft') {
+      navigateLightbox(-1);
+    } else if (e.key === 'ArrowRight') {
+      navigateLightbox(1);
+    }
+  }
 
   // ── Delegated click handlers ──
 
@@ -925,6 +1121,19 @@ function createChatView(wrapperEl, project, options = {}) {
       toggleToolCard(toolCard);
       return;
     }
+
+    // Image lightbox
+    const clickedImage = e.target.closest('.chat-msg-image');
+    if (clickedImage) {
+      const container = clickedImage.closest('.chat-msg-images');
+      if (container) {
+        const allImages = Array.from(container.querySelectorAll('.chat-msg-image'));
+        const srcs = allImages.map(img => img.src);
+        const index = allImages.indexOf(clickedImage);
+        openLightbox(srcs, Math.max(0, index));
+      }
+      return;
+    }
   });
 
   // ── Send message ──
@@ -974,13 +1183,15 @@ function createChatView(wrapperEl, project, options = {}) {
         // Assign sessionId BEFORE await to prevent race condition:
         // _processStream fires events immediately, but await returns later.
         sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        lockModelSelector();
         const startOpts = {
           cwd: project.path,
           prompt: text || '',
           permissionMode: skipPermissions ? 'bypassPermissions' : 'default',
           sessionId,
           images: imagesPayload,
-          mentions: resolvedMentions
+          mentions: resolvedMentions,
+          model: selectedModel
         };
         if (pendingResumeId) {
           startOpts.resumeSessionId = pendingResumeId;
@@ -1105,14 +1316,31 @@ function createChatView(wrapperEl, project, options = {}) {
     // Reset status — SDK will continue processing
     setStatus('thinking', t('chat.thinking'));
 
-    // Collapse after resolution
-    setTimeout(() => {
-      card.style.maxHeight = card.scrollHeight + 'px';
-      requestAnimationFrame(() => {
-        card.classList.add('collapsing');
-        card.style.maxHeight = '0';
-      });
-    }, 600);
+    // Collapse: if ExitPlanMode with plan content, keep the plan visible and only hide buttons
+    const isExitPlan = card.dataset.toolName === 'ExitPlanMode' && card.querySelector('.chat-plan-content');
+    if (isExitPlan) {
+      setTimeout(() => {
+        const actions = card.querySelector('.chat-plan-actions');
+        if (actions) {
+          actions.style.maxHeight = actions.scrollHeight + 'px';
+          actions.style.overflow = 'hidden';
+          actions.style.transition = 'max-height 0.35s ease, opacity 0.3s, padding 0.35s';
+          requestAnimationFrame(() => {
+            actions.style.maxHeight = '0';
+            actions.style.opacity = '0';
+            actions.style.padding = '0 16px';
+          });
+        }
+      }, 600);
+    } else {
+      setTimeout(() => {
+        card.style.maxHeight = card.scrollHeight + 'px';
+        requestAnimationFrame(() => {
+          card.classList.add('collapsing');
+          card.style.maxHeight = '0';
+        });
+      }, 600);
+    }
   }
 
   // ── Tool card expansion ──
@@ -1130,9 +1358,10 @@ function createChatView(wrapperEl, project, options = {}) {
     try {
       const toolInput = JSON.parse(inputStr);
       const toolName = card.querySelector('.chat-tool-name')?.textContent || '';
+      const output = card.dataset.toolOutput || '';
       const contentEl = document.createElement('div');
       contentEl.className = 'chat-tool-content';
-      contentEl.innerHTML = formatToolContent(toolName, toolInput);
+      contentEl.innerHTML = formatToolContent(toolName, toolInput, output);
       card.appendChild(contentEl);
       card.classList.add('expanded');
       scrollToBottom();
@@ -1178,7 +1407,7 @@ function createChatView(wrapperEl, project, options = {}) {
     ).join('');
   }
 
-  function formatToolContent(toolName, input) {
+  function formatToolContent(toolName, input, output) {
     const name = (toolName || '').toLowerCase();
 
     if (name === 'write') {
@@ -1198,10 +1427,24 @@ function createChatView(wrapperEl, project, options = {}) {
     }
 
     if (name === 'bash') {
-      return `<div class="chat-diff-viewer">${renderFileLines(input.command || '', '', 1)}</div>`;
+      if (output) {
+        const lines = output.split('\n');
+        const maxLines = 30;
+        const truncated = lines.length > maxLines;
+        const displayLines = truncated ? lines.slice(0, maxLines) : lines;
+        return `<div class="chat-tool-output"><pre>${escapeHtml(displayLines.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more lines)` : ''}</pre></div>`;
+      }
+      return `<div class="chat-tool-output"><pre class="chat-tool-output-empty">${escapeHtml('(no output)')}</pre></div>`;
     }
 
     if (name === 'read') {
+      if (output) {
+        const lines = output.split('\n');
+        const maxLines = 30;
+        const truncated = lines.length > maxLines;
+        const displayLines = truncated ? lines.slice(0, maxLines) : lines;
+        return `<div class="chat-tool-output"><pre>${escapeHtml(displayLines.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more lines)` : ''}</pre></div>`;
+      }
       const path = input.file_path || '';
       const offset = input.offset || 1;
       const limit = input.limit || '';
@@ -1210,10 +1453,20 @@ function createChatView(wrapperEl, project, options = {}) {
     }
 
     if (name === 'glob' || name === 'grep') {
+      if (output) {
+        const lines = output.split('\n');
+        const maxLines = 30;
+        const truncated = lines.length > maxLines;
+        const displayLines = truncated ? lines.slice(0, maxLines) : lines;
+        return `<div class="chat-tool-output"><pre>${escapeHtml(displayLines.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more lines)` : ''}</pre></div>`;
+      }
       return `<div class="chat-tool-content-path">${escapeHtml(input.file_path || input.pattern || input.path || '')}</div>`;
     }
 
-    // Generic: show JSON
+    // Generic: show output if available, otherwise show input JSON
+    if (output) {
+      return `<div class="chat-tool-output"><pre>${escapeHtml(output)}</pre></div>`;
+    }
     return `<div class="chat-diff-viewer">${renderFileLines(JSON.stringify(input, null, 2), '', 1)}</div>`;
   }
 
@@ -1404,7 +1657,7 @@ function createChatView(wrapperEl, project, options = {}) {
       <div class="chat-tool-icon">${getToolIcon(toolName)}</div>
       <div class="chat-tool-info">
         <span class="chat-tool-name">${escapeHtml(toolName)}</span>
-        ${truncated ? `<span class="chat-tool-detail">${escapeHtml(truncated)}</span>` : ''}
+        <span class="chat-tool-detail">${truncated ? escapeHtml(truncated) : ''}</span>
       </div>
       <div class="chat-tool-status running"><div class="chat-tool-spinner"></div></div>
     `;
@@ -1859,14 +2112,30 @@ function createChatView(wrapperEl, project, options = {}) {
     const icon = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM9 13h6v2H9v-2zm6 4H9v2h6v-2zm-2-8h2v2h-2V9z"/></svg>';
 
     if (isExit) {
+      // Grab the last assistant message content and move it into the plan card
+      let planContent = '';
+      const allMessages = messagesEl.querySelectorAll('.chat-msg-assistant');
+      if (allMessages.length > 0) {
+        const lastMsg = allMessages[allMessages.length - 1];
+        const contentEl = lastMsg.querySelector('.chat-msg-content');
+        if (contentEl) {
+          planContent = contentEl.innerHTML;
+          lastMsg.style.display = 'none';
+        }
+      }
+
+      const planPreview = planContent
+        ? `<div class="chat-plan-content"><div class="chat-plan-content-inner">${planContent}</div></div>`
+        : '';
+
+      if (planContent) el.classList.add('has-plan-content');
+
       el.innerHTML = `
         <div class="chat-plan-header">
           <div class="chat-plan-icon">${icon}</div>
           <span>${escapeHtml(t('chat.planReady') || 'Plan ready for review')}</span>
         </div>
-        <div class="chat-plan-body">
-          <p>${escapeHtml(t('chat.planReviewPrompt') || 'Review the plan above and approve or request changes.')}</p>
-        </div>
+        ${planPreview}
         <div class="chat-plan-actions">
           <button class="chat-plan-btn approve" data-action="allow">${escapeHtml(t('chat.approvePlan') || 'Approve plan')}</button>
           <button class="chat-plan-btn reject" data-action="deny">${escapeHtml(t('chat.rejectPlan') || 'Reject plan')}</button>
@@ -1932,7 +2201,12 @@ function createChatView(wrapperEl, project, options = {}) {
   }
 
   function updateStatusInfo() {
-    if (model) statusModel.textContent = model;
+    // Update model selector label from stream-detected model
+    if (model) {
+      const match = MODEL_OPTIONS.find(m => model.includes(m.label.toLowerCase()) || model.includes(m.id));
+      if (match) modelLabel.textContent = match.label;
+      else modelLabel.textContent = model.split('-').slice(1, 3).join('-');
+    }
     if (totalTokens > 0) statusTokens.textContent = `${totalTokens.toLocaleString()} tokens`;
     if (totalCost > 0) statusCost.textContent = `$${totalCost.toFixed(4)}`;
   }
@@ -2072,6 +2346,7 @@ function createChatView(wrapperEl, project, options = {}) {
             setStatus('working', t('chat.subagentRunning') || 'Agent running...');
           } else if (block.name !== 'AskUserQuestion') {
             const card = appendToolCard(block.name, '');
+            if (block.id) card.dataset.toolUseId = block.id;
             toolCards.set(blockIdx, card);
           }
           toolInputBuffers.set(blockIdx, '');
@@ -2208,12 +2483,22 @@ function createChatView(wrapperEl, project, options = {}) {
           completeToolCard(card);
         }
       }
-      // tool_result for a subagent → mark it complete
+      // tool_result → store output on matching tool card, or mark subagent complete
       if (block.type === 'tool_result') {
+        // Subagent cards
         for (const [idx, info] of taskToolIndices) {
           if (info.toolUseId === block.tool_use_id) {
             completeSubagentCard(info.card);
             taskToolIndices.delete(idx);
+            break;
+          }
+        }
+        // Regular tool cards — store output for expand view
+        for (const [, card] of toolCards) {
+          if (card.dataset.toolUseId === block.tool_use_id) {
+            const output = typeof block.content === 'string' ? block.content
+              : Array.isArray(block.content) ? block.content.map(b => b.text || '').join('\n') : '';
+            if (output) card.dataset.toolOutput = output;
             break;
           }
         }
@@ -2316,6 +2601,9 @@ function createChatView(wrapperEl, project, options = {}) {
       for (const unsub of unsubscribers) {
         if (typeof unsub === 'function') unsub();
       }
+      document.removeEventListener('keydown', lightboxKeyHandler);
+      if (lightboxEl?.parentNode) lightboxEl.parentNode.removeChild(lightboxEl);
+      lightboxEl = null;
       wrapperEl.innerHTML = '';
     },
     getSessionId() {

@@ -23,7 +23,8 @@ const defaultSettings = {
   aiCommitMessages: true, // Use GitHub Models API for AI commit messages
   defaultTerminalMode: 'terminal', // 'terminal' or 'chat' - default mode for new Claude terminals
   hooksEnabled: false, // Hooks installed in ~/.claude/settings.json
-  hooksConsentShown: false // User has seen the hooks consent prompt
+  hooksConsentShown: false, // User has seen the hooks consent prompt
+  chatModel: null // null = CLI default, or model ID string (e.g. 'claude-sonnet-4-5-20250929')
 };
 
 const settingsState = new State({ ...defaultSettings });

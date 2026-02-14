@@ -115,7 +115,7 @@ class ChatService {
    * @param {string} [params.resumeSessionId] - Session ID to resume
    * @returns {Promise<string>} Session ID
    */
-  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [] }) {
+  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null }) {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -154,6 +154,11 @@ class ChatService {
         },
         stderr: (data) => { console.error(`[ChatService][stderr] ${data}`); }
       };
+
+      // Set model if specified
+      if (model) {
+        options.model = model;
+      }
 
       // Resume existing session if requested
       if (resumeSessionId) {
@@ -311,6 +316,8 @@ class ChatService {
       }
     }
   }
+
+
 
   /**
    * Reject all pending permission requests for a session.
