@@ -1,6 +1,6 @@
 {
   "name": "claude-terminal",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Terminal custom pour Claude Code avec gestion des projets, skills et agents",
   "main": "main.js",
   "scripts": {
@@ -39,6 +39,7 @@
     "esbuild": "^0.27.2",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "playwright": "^1.58.2",
     "sharp": "^0.33.5"
   },
   "jest": {
