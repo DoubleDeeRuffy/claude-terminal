@@ -104,10 +104,7 @@ class ChatService {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    console.log(`[ChatService] startSession — cwd: ${cwd}, resume: ${resumeSessionId || 'none'}`);
-
     const messageQueue = createMessageQueue(() => {
-      console.log(`[ChatService] onIdle — sessionId: ${sessionId}`);
       this._send('chat-idle', { sessionId });
     });
 
@@ -139,23 +136,18 @@ class ChatService {
         canUseTool: async (toolName, input, opts) => {
           return this._handlePermission(sessionId, toolName, input, opts);
         },
-        stderr: (data) => {
-          console.log(`[ChatService:stderr] ${data.trim()}`);
-        }
+        stderr: () => {}
       };
 
       // Resume existing session if requested
       if (resumeSessionId) {
         options.resume = resumeSessionId;
-        console.log(`[ChatService] Resuming SDK session: ${resumeSessionId}`);
       }
 
       const queryStream = sdk.query({
         prompt: messageQueue.iterable,
         options,
       });
-
-      console.log(`[ChatService] query() called, stream created — internal sessionId: ${sessionId}`);
 
       this.sessions.set(sessionId, {
         abortController,
@@ -262,16 +254,11 @@ class ChatService {
     try {
       for await (const message of queryStream) {
         msgCount++;
-        const sub = message.subtype || '';
-        const replay = message.isReplay ? ' [REPLAY]' : '';
-        console.log(`[ChatService] msg #${msgCount} type=${message.type}${sub ? '/' + sub : ''}${replay}`);
         this._send('chat-message', { sessionId, message });
       }
-      console.log(`[ChatService] Stream done — ${msgCount} messages total`);
       this._send('chat-done', { sessionId });
     } catch (err) {
       if (err.name === 'AbortError' || err.message === 'Aborted') {
-        console.log(`[ChatService] Stream aborted after ${msgCount} messages`);
         this._send('chat-done', { sessionId, aborted: true });
       } else {
         console.error(`[ChatService] Stream error after ${msgCount} msgs:`, err.message);
