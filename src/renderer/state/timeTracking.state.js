@@ -926,19 +926,34 @@ function resetGlobalIdleTimer() {
 function mergeOrAppendSession(sessions, startTime, endTime, duration) {
   const startIso = new Date(startTime).toISOString();
   const endIso = new Date(endTime).toISOString();
+  const startMs = new Date(startTime).getTime();
+  const endMs = new Date(endTime).getTime();
 
   if (sessions.length > 0) {
     const last = sessions[sessions.length - 1];
+    const lastStart = new Date(last.startTime).getTime();
     const lastEnd = new Date(last.endTime).getTime();
-    const gap = new Date(startTime).getTime() - lastEnd;
+    const gap = startMs - lastEnd;
 
     if (gap < SESSION_MERGE_GAP && gap >= 0) {
-      // Extend the last session
+      // Adjacent/close sessions: extend and sum durations
       const merged = [...sessions];
       merged[merged.length - 1] = {
         ...last,
         endTime: endIso,
         duration: (last.duration || 0) + duration
+      };
+      return merged;
+    }
+
+    if (gap < 0 && startMs >= lastStart) {
+      // Overlapping session: merge without double-counting
+      const merged = [...sessions];
+      const mergedEnd = Math.max(lastEnd, endMs);
+      merged[merged.length - 1] = {
+        ...last,
+        endTime: new Date(mergedEnd).toISOString(),
+        duration: mergedEnd - lastStart
       };
       return merged;
     }
@@ -977,6 +992,36 @@ function compactExistingSessions() {
     const compacted = compactSessionArray(compactedGlobal.sessions);
     totalAfter += compacted.length;
     compactedGlobal = { ...compactedGlobal, sessions: compacted };
+
+    // Recalculate stored counters from compacted sessions to fix drift
+    const now = new Date();
+    const todayStr = getTodayString();
+    const weekStartStr = getWeekStartString();
+    const monthStartStr = getMonthString();
+
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+    const day = now.getDay();
+    const diffToMon = day === 0 ? 6 : day - 1;
+    const weekStartDate = new Date(now); weekStartDate.setDate(weekStartDate.getDate() - diffToMon); weekStartDate.setHours(0, 0, 0, 0);
+    const weekEndDate = new Date(weekStartDate); weekEndDate.setDate(weekEndDate.getDate() + 7);
+    const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    let todayTime = 0, weekTime = 0, monthTime = 0;
+    for (const s of compacted) {
+      const d = new Date(s.startTime);
+      const dur = s.duration || 0;
+      if (d >= todayStart && d < todayEnd) todayTime += dur;
+      if (d >= weekStartDate && d < weekEndDate) weekTime += dur;
+      if (d >= monthStartDate && d < monthEndDate) monthTime += dur;
+    }
+    compactedGlobal.todayTime = todayTime;
+    compactedGlobal.weekTime = weekTime;
+    compactedGlobal.monthTime = monthTime;
+    compactedGlobal.lastActiveDate = todayStr;
+    compactedGlobal.weekStart = weekStartStr;
+    compactedGlobal.monthStart = monthStartStr;
   }
 
   if (totalAfter < totalBefore) {
@@ -1003,13 +1048,22 @@ function compactSessionArray(sessions) {
   for (let i = 1; i < sorted.length; i++) {
     const current = sorted[i];
     const last = result[result.length - 1];
+    const lastStart = new Date(last.startTime).getTime();
     const lastEnd = new Date(last.endTime).getTime();
     const currentStart = new Date(current.startTime).getTime();
+    const currentEnd = new Date(current.endTime).getTime();
     const gap = currentStart - lastEnd;
 
-    if (gap < SESSION_MERGE_GAP && gap >= -1000) {
+    if (gap < SESSION_MERGE_GAP && gap >= 0) {
+      // Adjacent or close sessions: extend and sum durations
       last.endTime = current.endTime;
       last.duration = (last.duration || 0) + (current.duration || 0);
+    } else if (gap < 0) {
+      // Overlapping sessions: merge without double-counting
+      const mergedEnd = Math.max(lastEnd, currentEnd);
+      last.endTime = new Date(mergedEnd).toISOString();
+      // Recalculate duration from merged wall-clock time
+      last.duration = mergedEnd - lastStart;
     } else {
       result.push({ ...current });
     }
@@ -1476,14 +1530,11 @@ function getGlobalTimes() {
       }
     }
 
-    // Use stored counters if they are higher (sessions may be truncated by old 500 cap)
-    const storedToday = (globalTracking?.lastActiveDate === getTodayString()) ? (globalTracking?.todayTime || 0) : 0;
-    const storedWeek = (globalTracking?.weekStart === getWeekStartString()) ? (globalTracking?.weekTime || 0) : 0;
-    const storedMonth = (globalTracking?.monthStart === getMonthString()) ? (globalTracking?.monthTime || 0) : 0;
-
-    todayTotal = Math.max(sessionsToday, storedToday);
-    weekTotal = Math.max(sessionsWeek, storedWeek);
-    monthTotal = Math.max(sessionsMonth, storedMonth);
+    // Use session-based calculation as source of truth
+    // Stored counters (todayTime/weekTime/monthTime) can drift due to duplicate sessions
+    todayTotal = sessionsToday;
+    weekTotal = sessionsWeek;
+    monthTotal = sessionsMonth;
 
     globalTimesCache = {
       sessionsToday: todayTotal,
