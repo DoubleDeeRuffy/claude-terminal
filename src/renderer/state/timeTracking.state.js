@@ -45,6 +45,7 @@ let midnightCheckTimer = null;
 let lastKnownDate = null;
 let projectsStateRef = null; // Still needed for project metadata (name, color)
 let globalTimesCache = null;
+let globalTimesCacheDate = null;
 let ttSaveDebounceTimer = null;
 let ttSaveInProgress = false;
 let ttPendingSave = false;
@@ -172,12 +173,15 @@ function migrateInlineTimeTracking() {
       if (!existing) {
         migratedProjects[project.id] = { ...project.timeTracking };
       } else {
-        // Merge: keep higher counters, deduplicate sessions
+        // Merge: deduplicate sessions, then recalculate counters from sessions
+        const mergedSessions = deduplicateSessions(existing.sessions || [], project.timeTracking.sessions || []);
+        let total = 0;
+        for (const s of mergedSessions) total += s.duration || 0;
         migratedProjects[project.id] = {
-          totalTime: Math.max(existing.totalTime || 0, project.timeTracking.totalTime || 0),
-          todayTime: Math.max(existing.todayTime || 0, project.timeTracking.todayTime || 0),
+          totalTime: total,
+          todayTime: 0, // Will be recalculated by compactExistingSessions
           lastActiveDate: existing.lastActiveDate || project.timeTracking.lastActiveDate,
-          sessions: deduplicateSessions(existing.sessions || [], project.timeTracking.sessions || [])
+          sessions: mergedSessions
         };
       }
     }
@@ -189,16 +193,20 @@ function migrateInlineTimeTracking() {
     if (!migratedGlobal) {
       migratedGlobal = { ...rawData.globalTimeTracking };
     } else {
+      // Merge: deduplicate sessions, counters will be recalculated by compactExistingSessions
+      const mergedSessions = deduplicateSessions(migratedGlobal.sessions || [], rawData.globalTimeTracking.sessions || []);
+      let total = 0;
+      for (const s of mergedSessions) total += s.duration || 0;
       migratedGlobal = {
         ...migratedGlobal,
-        totalTime: Math.max(migratedGlobal.totalTime || 0, rawData.globalTimeTracking.totalTime || 0),
-        todayTime: Math.max(migratedGlobal.todayTime || 0, rawData.globalTimeTracking.todayTime || 0),
-        weekTime: Math.max(migratedGlobal.weekTime || 0, rawData.globalTimeTracking.weekTime || 0),
-        monthTime: Math.max(migratedGlobal.monthTime || 0, rawData.globalTimeTracking.monthTime || 0),
+        totalTime: total,
+        todayTime: 0,
+        weekTime: 0,
+        monthTime: 0,
         lastActiveDate: migratedGlobal.lastActiveDate || rawData.globalTimeTracking.lastActiveDate,
         weekStart: migratedGlobal.weekStart || rawData.globalTimeTracking.weekStart,
         monthStart: migratedGlobal.monthStart || rawData.globalTimeTracking.monthStart,
-        sessions: deduplicateSessions(migratedGlobal.sessions || [], rawData.globalTimeTracking.sessions || [])
+        sessions: mergedSessions
       };
     }
   }
@@ -253,18 +261,25 @@ function migrateInlineTimeTracking() {
 }
 
 /**
- * Deduplicate sessions by ID
+ * Deduplicate sessions by ID, keeping the version with the latest endTime
  */
 function deduplicateSessions(existing, incoming) {
-  const ids = new Set(existing.map(s => s.id));
-  const merged = [...existing];
+  const byId = new Map();
+  for (const s of existing) {
+    byId.set(s.id, s);
+  }
   for (const s of incoming) {
-    if (!ids.has(s.id)) {
-      merged.push(s);
-      ids.add(s.id);
+    const prev = byId.get(s.id);
+    if (!prev) {
+      byId.set(s.id, s);
+    } else {
+      // Keep the version with the latest endTime (most up-to-date)
+      const prevEnd = new Date(prev.endTime).getTime();
+      const sEnd = new Date(s.endTime).getTime();
+      if (sEnd > prevEnd) byId.set(s.id, s);
     }
   }
-  return merged;
+  return Array.from(byId.values());
 }
 
 /**
@@ -475,7 +490,10 @@ function archivePastMonthSessions() {
 
     if (currentMonthSessions.length !== tracking.sessions.length) {
       hasChanges = true;
-      updatedProjects[projectId] = { ...tracking, sessions: currentMonthSessions };
+      // Recalculate totalTime from remaining sessions (archived ones are removed)
+      let newTotal = 0;
+      for (const s of currentMonthSessions) newTotal += s.duration || 0;
+      updatedProjects[projectId] = { ...tracking, sessions: currentMonthSessions, totalTime: newTotal };
     }
   }
 
@@ -557,6 +575,21 @@ function migrateGlobalTimeTracking() {
     const updated = { ...globalTracking };
     const sessions = globalTracking.sessions || [];
 
+    // Always recalculate todayTime and totalTime from sessions
+    const todayStr = getTodayString();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+    let todayFromSessions = 0, totalFromSessions = 0;
+    for (const session of sessions) {
+      const dur = session.duration || 0;
+      totalFromSessions += dur;
+      const d = new Date(session.startTime);
+      if (d >= todayStart && d < todayEnd) todayFromSessions += dur;
+    }
+    updated.todayTime = todayFromSessions;
+    updated.totalTime = totalFromSessions;
+    updated.lastActiveDate = todayStr;
+
     if (needsWeekMigration) {
       const weekStartDate = new Date(weekStart + 'T00:00:00');
       const weekEndDate = new Date(weekStartDate);
@@ -570,13 +603,8 @@ function migrateGlobalTimeTracking() {
         }
       }
 
-      // If week changed, reset to session-based calculation
-      // If same week but weekTime was undefined, keep the higher value (sessions may be truncated)
-      if (globalTracking.weekStart !== weekStart) {
-        updated.weekTime = weekFromSessions;
-      } else {
-        updated.weekTime = Math.max(weekFromSessions, globalTracking.weekTime || 0);
-      }
+      // Always use session-based calculation as source of truth
+      updated.weekTime = weekFromSessions;
       updated.weekStart = weekStart;
       needsSave = true;
     }
@@ -592,13 +620,8 @@ function migrateGlobalTimeTracking() {
         }
       }
 
-      // If month changed, reset to session-based calculation
-      // If same month but monthTime was undefined, keep the higher value
-      if (globalTracking.monthStart !== monthStart) {
-        updated.monthTime = monthFromSessions;
-      } else {
-        updated.monthTime = Math.max(monthFromSessions, globalTracking.monthTime || 0);
-      }
+      // Always use session-based calculation as source of truth
+      updated.monthTime = monthFromSessions;
       updated.monthStart = monthStart;
       needsSave = true;
     }
@@ -739,10 +762,15 @@ function splitSessionsAtMidnight() {
   todayMidnight.setHours(0, 0, 0, 0);
   const midnightTs = todayMidnight.getTime();
 
+  // Save pre-midnight segments using yesterday's date context
+  // by passing endTime = midnightTs - 1ms so saveGlobalSession/saveSession
+  // attribute the time to the correct day/week/month
+  const preMidnight = midnightTs - 1;
+
   if (state.globalSessionStartTime && !state.globalIsIdle) {
-    const duration = midnightTs - state.globalSessionStartTime;
+    const duration = preMidnight - state.globalSessionStartTime;
     if (duration > 1000) {
-      saveGlobalSession(state.globalSessionStartTime, midnightTs, duration);
+      saveGlobalSessionAt(state.globalSessionStartTime, preMidnight, duration, new Date(preMidnight));
     }
     trackingState.set({
       ...trackingState.get(),
@@ -754,9 +782,9 @@ function splitSessionsAtMidnight() {
   const activeSessions = new Map(trackingState.get().activeSessions);
   for (const [projectId, session] of activeSessions) {
     if (session.sessionStartTime && !session.isIdle) {
-      const duration = midnightTs - session.sessionStartTime;
+      const duration = preMidnight - session.sessionStartTime;
       if (duration > 1000) {
-        saveSession(projectId, session.sessionStartTime, midnightTs, duration);
+        saveSessionAt(projectId, session.sessionStartTime, preMidnight, duration, new Date(preMidnight));
       }
       activeSessions.set(projectId, {
         ...session,
@@ -774,23 +802,32 @@ function splitSessionsAtMidnight() {
 // ============================================================
 
 function getTodayString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return getDateString(new Date());
+}
+
+function getDateString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function getWeekStartString() {
-  const now = new Date();
-  const day = now.getDay();
+  return getWeekStartStringForDate(new Date());
+}
+
+function getWeekStartStringForDate(date) {
+  const day = date.getDay();
   const diff = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
+  const monday = new Date(date);
   monday.setDate(monday.getDate() - diff);
   monday.setHours(0, 0, 0, 0);
   return monday.toISOString().split('T')[0];
 }
 
 function getMonthString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return getMonthStringForDate(new Date());
+}
+
+function getMonthStringForDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 /**
@@ -977,13 +1014,33 @@ function compactExistingSessions() {
   let totalBefore = 0;
   let totalAfter = 0;
 
+  const now = new Date();
+  const todayStr = getTodayString();
+  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+
   const compactedProjects = {};
   for (const [projectId, tracking] of Object.entries(ttState.projects)) {
     const sessions = tracking.sessions || [];
     totalBefore += sessions.length;
     const compacted = compactSessionArray(sessions);
     totalAfter += compacted.length;
-    compactedProjects[projectId] = { ...tracking, sessions: compacted };
+
+    // Recalculate project counters from compacted sessions
+    let projTotal = 0, projToday = 0;
+    for (const s of compacted) {
+      const dur = s.duration || 0;
+      projTotal += dur;
+      const d = new Date(s.startTime);
+      if (d >= todayStart && d < todayEnd) projToday += dur;
+    }
+    compactedProjects[projectId] = {
+      ...tracking,
+      sessions: compacted,
+      totalTime: projTotal,
+      todayTime: projToday,
+      lastActiveDate: todayStr
+    };
   }
 
   let compactedGlobal = ttState.global;
@@ -1008,14 +1065,16 @@ function compactExistingSessions() {
     const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-    let todayTime = 0, weekTime = 0, monthTime = 0;
+    let globalTotal = 0, todayTime = 0, weekTime = 0, monthTime = 0;
     for (const s of compacted) {
       const d = new Date(s.startTime);
       const dur = s.duration || 0;
+      globalTotal += dur;
       if (d >= todayStart && d < todayEnd) todayTime += dur;
       if (d >= weekStartDate && d < weekEndDate) weekTime += dur;
       if (d >= monthStartDate && d < monthEndDate) monthTime += dur;
     }
+    compactedGlobal.totalTime = globalTotal;
     compactedGlobal.todayTime = todayTime;
     compactedGlobal.weekTime = weekTime;
     compactedGlobal.monthTime = monthTime;
@@ -1128,24 +1187,37 @@ function rebuildGlobalSessionsIfNeeded() {
       ArchiveService.appendToArchive(year, month, sessions, {});
     }
 
-    // Keep all sessions as-is (no compaction on migrated data to avoid data loss)
-    const updatedGlobal = {
-      ...(ttState.global || {}),
-      ...backupGlobal,
-      sessions: currentMonthSessions
-    };
-
-    // Keep the backup's counters only if they match the current period
-    // Otherwise reset them (the period has changed since backup)
+    // Recalculate all counters from restored sessions (source of truth)
     const currentWeekStart = getWeekStartString();
     const currentMonthStart = getMonthString();
+    const todayStr = getTodayString();
+    const rTodayStart = new Date(); rTodayStart.setHours(0, 0, 0, 0);
+    const rTodayEnd = new Date(rTodayStart); rTodayEnd.setDate(rTodayEnd.getDate() + 1);
+    const rWeekStartDate = new Date(currentWeekStart + 'T00:00:00');
+    const rWeekEndDate = new Date(rWeekStartDate); rWeekEndDate.setDate(rWeekEndDate.getDate() + 7);
+    const [rYear, rMonth] = currentMonthStart.split('-').map(Number);
 
-    updatedGlobal.lastActiveDate = backupGlobal.lastActiveDate;
-    updatedGlobal.weekStart = currentWeekStart;
-    updatedGlobal.weekTime = (backupGlobal.weekStart === currentWeekStart) ? (backupGlobal.weekTime || 0) : 0;
-    updatedGlobal.monthStart = currentMonthStart;
-    updatedGlobal.monthTime = (backupGlobal.monthStart === currentMonthStart) ? (backupGlobal.monthTime || 0) : 0;
-    updatedGlobal.todayTime = (backupGlobal.lastActiveDate === getTodayString()) ? (backupGlobal.todayTime || 0) : 0;
+    let rTotal = 0, rToday = 0, rWeek = 0, rMonthTime = 0;
+    for (const s of currentMonthSessions) {
+      const dur = s.duration || 0;
+      const d = new Date(s.startTime);
+      rTotal += dur;
+      if (d >= rTodayStart && d < rTodayEnd) rToday += dur;
+      if (d >= rWeekStartDate && d < rWeekEndDate) rWeek += dur;
+      if (d.getFullYear() === rYear && d.getMonth() + 1 === rMonth) rMonthTime += dur;
+    }
+
+    const updatedGlobal = {
+      ...(ttState.global || {}),
+      sessions: currentMonthSessions,
+      totalTime: rTotal,
+      todayTime: rToday,
+      weekTime: rWeek,
+      monthTime: rMonthTime,
+      lastActiveDate: todayStr,
+      weekStart: currentWeekStart,
+      monthStart: currentMonthStart
+    };
 
     globalTimesCache = null;
     timeTrackingDataState.set({ ...ttState, global: updatedGlobal });
@@ -1169,11 +1241,19 @@ function rebuildGlobalSessionsIfNeeded() {
  * Save a global session
  */
 function saveGlobalSession(startTime, endTime, duration) {
+  saveGlobalSessionAt(startTime, endTime, duration, new Date());
+}
+
+/**
+ * Save a global session using a specific reference date for counter attribution
+ * This ensures midnight splits attribute time to the correct day/week/month
+ */
+function saveGlobalSessionAt(startTime, endTime, duration, refDate) {
   console.debug('[TimeTracking] saveGlobalSession:', { duration: Math.round(duration / 1000) + 's' });
 
-  const today = getTodayString();
-  const weekStart = getWeekStartString();
-  const monthStart = getMonthString();
+  const today = getDateString(refDate);
+  const weekStart = getWeekStartStringForDate(refDate);
+  const monthStart = getMonthStringForDate(refDate);
 
   const ttState = timeTrackingDataState.get();
   const prev = ttState.global || {
@@ -1186,9 +1266,8 @@ function saveGlobalSession(startTime, endTime, duration) {
   const monthTime = (prev.monthStart !== monthStart ? 0 : (prev.monthTime || 0)) + duration;
 
   const sessionDate = new Date(startTime);
-  const now = new Date();
-  const isCurrentMonthSession = sessionDate.getFullYear() === now.getFullYear()
-    && sessionDate.getMonth() === now.getMonth();
+  const isCurrentMonthSession = sessionDate.getFullYear() === refDate.getFullYear()
+    && sessionDate.getMonth() === refDate.getMonth();
 
   let sessions;
   if (isCurrentMonthSession) {
@@ -1221,14 +1300,20 @@ function saveGlobalSession(startTime, endTime, duration) {
  * Save a session to a project's time tracking data
  */
 function saveSession(projectId, startTime, endTime, duration) {
+  saveSessionAt(projectId, startTime, endTime, duration, new Date());
+}
+
+/**
+ * Save a project session using a specific reference date for counter attribution
+ */
+function saveSessionAt(projectId, startTime, endTime, duration, refDate) {
   console.debug('[TimeTracking] saveSession:', { projectId, duration: Math.round(duration / 1000) + 's' });
 
-  const today = getTodayString();
+  const today = getDateString(refDate);
 
   const sessionDate = new Date(startTime);
-  const now = new Date();
-  const isCurrentMonthSession = sessionDate.getFullYear() === now.getFullYear()
-    && sessionDate.getMonth() === now.getMonth();
+  const isCurrentMonthSession = sessionDate.getFullYear() === refDate.getFullYear()
+    && sessionDate.getMonth() === refDate.getMonth();
 
   const ttState = timeTrackingDataState.get();
   const prev = ttState.projects[projectId] || {
@@ -1434,6 +1519,9 @@ function resumeTracking(projectId) {
 }
 
 function switchProject(oldProjectId, newProjectId) {
+  if (oldProjectId && oldProjectId !== newProjectId) {
+    stopTracking(oldProjectId);
+  }
   if (newProjectId) startTracking(newProjectId);
 }
 
@@ -1455,12 +1543,16 @@ function getProjectTimes(projectId) {
   const todayEnd = new Date(todayStart);
   todayEnd.setDate(todayEnd.getDate() + 1);
 
+  // Calculate from sessions as source of truth (not stored counters)
   let todayFromSessions = 0;
+  let totalFromSessions = 0;
   if (Array.isArray(tracking.sessions)) {
     for (const session of tracking.sessions) {
+      const dur = session.duration || 0;
+      totalFromSessions += dur;
       const sessionDate = new Date(session.startTime);
       if (sessionDate >= todayStart && sessionDate < todayEnd) {
-        todayFromSessions += session.duration || 0;
+        todayFromSessions += dur;
       }
     }
   }
@@ -1479,7 +1571,7 @@ function getProjectTimes(projectId) {
 
   return {
     today: todayFromSessions + currentSessionTimeToday,
-    total: (tracking.totalTime || 0) + currentSessionTime
+    total: totalFromSessions + currentSessionTime
   };
 }
 
@@ -1507,6 +1599,12 @@ function getGlobalTimes() {
   const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
   let todayTotal, weekTotal, monthTotal;
+
+  // Invalidate cache if date changed
+  const todayStr = getTodayString();
+  if (globalTimesCache && globalTimesCacheDate !== todayStr) {
+    globalTimesCache = null;
+  }
 
   if (globalTimesCache) {
     todayTotal = globalTimesCache.sessionsToday;
@@ -1541,6 +1639,7 @@ function getGlobalTimes() {
       sessionsWeek: weekTotal,
       sessionsMonth: monthTotal
     };
+    globalTimesCacheDate = todayStr;
   }
 
   const state = trackingState.get();
