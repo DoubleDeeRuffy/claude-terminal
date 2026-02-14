@@ -287,8 +287,11 @@ class ChatService {
    */
   interrupt(sessionId) {
     const session = this.sessions.get(sessionId);
-    if (session?.queryStream?.interrupt) {
-      session.queryStream.interrupt().catch(() => {});
+    if (session) {
+      session.interrupting = true;
+      if (session.queryStream?.interrupt) {
+        session.queryStream.interrupt().catch(() => {});
+      }
     }
   }
 
@@ -310,6 +313,7 @@ class ChatService {
    */
   async _processStream(sessionId, queryStream) {
     let msgCount = 0;
+    const session = this.sessions.get(sessionId);
     try {
       for await (const message of queryStream) {
         msgCount++;
@@ -317,13 +321,18 @@ class ChatService {
       }
       this._send('chat-done', { sessionId });
     } catch (err) {
-      if (err.name === 'AbortError' || err.message === 'Aborted') {
+      const wasInterrupted = session?.interrupting
+        || err.name === 'AbortError'
+        || err.message === 'Aborted'
+        || err.message?.includes('Request was aborted');
+      if (wasInterrupted) {
         this._send('chat-done', { sessionId, aborted: true });
       } else {
         console.error(`[ChatService] Stream error after ${msgCount} msgs:`, err.message);
         this._send('chat-error', { sessionId, error: err.message });
       }
     } finally {
+      if (session) session.interrupting = false;
       this._rejectPendingPermissions(sessionId, 'Stream ended');
     }
   }
