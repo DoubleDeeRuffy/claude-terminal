@@ -49,6 +49,7 @@ jobs:
         run: npx electron-builder --mac --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_SERVER_URL: ${{ secrets.UPDATE_SERVER_URL }}
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -73,6 +74,7 @@ jobs:
         run: npx electron-builder --linux --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_SERVER_URL: ${{ secrets.UPDATE_SERVER_URL }}
       - uses: softprops/action-gh-release@v2
         with:
           files: |
