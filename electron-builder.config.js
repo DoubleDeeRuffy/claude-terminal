@@ -80,9 +80,9 @@ module.exports = {
       Terminal: "false"
     }
   },
-  publish: {
+  publish: process.env.UPDATE_SERVER_URL ? {
     provider: "generic",
     url: process.env.UPDATE_SERVER_URL,
     useMultipleRangeRequest: false
-  }
+  } : null
 };
