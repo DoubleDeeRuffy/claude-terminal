@@ -21,10 +21,10 @@ jobs:
       - run: npm run build:renderer
       - run: npm test
       - name: Build Windows installer
-        run: npx electron-builder --win --config electron-builder.config.js
+        run: npx electron-builder --win --publish never --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPDATE_SERVER_URL: ${{ secrets.UPDATE_SERVER_URL }}
+          UPDATE_SERVER_URL: https://placeholder.local
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -46,10 +46,10 @@ jobs:
       - run: npm run build:renderer
       - run: npm test
       - name: Build macOS DMG
-        run: npx electron-builder --mac --config electron-builder.config.js
+        run: npx electron-builder --mac --publish never --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPDATE_SERVER_URL: ${{ secrets.UPDATE_SERVER_URL }}
+          UPDATE_SERVER_URL: https://placeholder.local
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -71,10 +71,10 @@ jobs:
       - run: npm run build:renderer
       - run: npm test
       - name: Build Linux AppImage
-        run: npx electron-builder --linux --config electron-builder.config.js
+        run: npx electron-builder --linux --publish never --config electron-builder.config.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPDATE_SERVER_URL: ${{ secrets.UPDATE_SERVER_URL }}
+          UPDATE_SERVER_URL: https://placeholder.local
       - uses: softprops/action-gh-release@v2
         with:
           files: |
