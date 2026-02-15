@@ -11131,26 +11131,31 @@ select:focus-visible {
 .shortcuts-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 .shortcut-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
+  padding: 12px 18px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  transition: background 0.12s ease;
+}
+
+.shortcut-row + .shortcut-row {
+  border-top: 1px solid var(--border-color);
 }
 
 .shortcut-row:hover {
-  border-color: var(--border-hover);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .shortcut-label {
   font-size: var(--font-sm);
   color: var(--text-primary);
+  font-weight: 450;
 }
 
 .shortcut-controls {
@@ -11162,11 +11167,11 @@ select:focus-visible {
 .shortcut-key-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
+  gap: 6px;
+  padding: 5px 14px;
+  background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 6px;
   font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--text-secondary);
@@ -11174,17 +11179,33 @@ select:focus-visible {
   transition: all 0.15s ease;
   min-width: 100px;
   justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  letter-spacing: 0.02em;
 }
 
 .shortcut-key-btn:hover {
   background: var(--bg-hover);
   border-color: var(--accent);
   color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--accent-dim);
 }
 
 .shortcut-key-btn.custom {
   border-color: var(--accent);
   color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.shortcut-key-btn.capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+  animation: shortcut-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes shortcut-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--accent-dim); }
+  50% { box-shadow: 0 0 0 4px var(--accent-dim); }
 }
 
 .shortcut-reset-btn {
@@ -11195,22 +11216,21 @@ select:focus-visible {
   height: 28px;
   padding: 0;
   background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .shortcut-reset-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
-  color: var(--text-primary);
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--danger);
 }
 
 .shortcuts-actions {
-  margin-top: 16px;
-  padding-top: 16px;
+  padding: 12px 18px;
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
@@ -11220,19 +11240,19 @@ select:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 7px 16px;
   background: transparent;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   color: var(--text-secondary);
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .btn-reset-shortcuts:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.08);
   border-color: var(--danger);
   color: var(--danger);
 }
