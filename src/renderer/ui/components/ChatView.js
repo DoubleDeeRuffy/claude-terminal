@@ -1540,18 +1540,19 @@ function createChatView(wrapperEl, project, options = {}) {
     }
 
     if (name === 'read') {
-      if (output) {
-        const lines = output.split('\n');
-        const maxLines = 30;
-        const truncated = lines.length > maxLines;
-        const displayLines = truncated ? lines.slice(0, maxLines) : lines;
-        return `<div class="chat-tool-output"><pre>${escapeHtml(displayLines.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more lines)` : ''}</pre></div>`;
-      }
       const path = input.file_path || '';
       const offset = input.offset || 1;
       const limit = input.limit || '';
-      const info = limit ? `lines ${offset}–${offset + parseInt(limit, 10) - 1}` : (offset > 1 ? `from line ${offset}` : '');
-      return `<div class="chat-tool-content-path">${escapeHtml(path)}${info ? ` <span class="chat-tool-content-meta">(${info})</span>` : ''}</div>`;
+      const rangeInfo = limit ? `lines ${offset}–${offset + parseInt(limit, 10) - 1}` : (offset > 1 ? `from line ${offset}` : '');
+      if (output) {
+        const lines = output.split('\n');
+        const maxLines = 50;
+        const truncated = lines.length > maxLines;
+        const displayLines = truncated ? lines.slice(0, maxLines) : lines;
+        return `<div class="chat-tool-content-path">${escapeHtml(path)}${rangeInfo ? ` <span class="chat-tool-content-meta">(${rangeInfo})</span>` : ''} <span class="chat-tool-content-meta">${lines.length} lines</span></div>
+          <div class="chat-tool-output"><pre>${escapeHtml(displayLines.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more lines)` : ''}</pre></div>`;
+      }
+      return `<div class="chat-tool-content-path">${escapeHtml(path)}${rangeInfo ? ` <span class="chat-tool-content-meta">(${rangeInfo})</span>` : ''}</div>`;
     }
 
     if (name === 'glob' || name === 'grep') {
@@ -2659,13 +2660,21 @@ function createChatView(wrapperEl, project, options = {}) {
           }
         }
         // Regular tool cards — store output for expand view
+        // First try in-memory map (fast path), then fallback to DOM query
+        // (toolCards map is cleared on message_start, but tool_result may arrive in a later turn)
+        let matchedCard = null;
         for (const [, card] of toolCards) {
-          if (card.dataset.toolUseId === block.tool_use_id) {
-            const output = typeof block.content === 'string' ? block.content
-              : Array.isArray(block.content) ? block.content.map(b => b.text || '').join('\n') : '';
-            if (output) card.dataset.toolOutput = output;
-            break;
-          }
+          if (card.dataset.toolUseId === block.tool_use_id) { matchedCard = card; break; }
+        }
+        if (!matchedCard && block.tool_use_id) {
+          try {
+            matchedCard = messagesEl.querySelector(`.chat-tool-card[data-tool-use-id="${CSS.escape(block.tool_use_id)}"]`);
+          } catch {}
+        }
+        if (matchedCard) {
+          const output = typeof block.content === 'string' ? block.content
+            : Array.isArray(block.content) ? block.content.map(b => b.text || '').join('\n') : '';
+          if (output) matchedCard.dataset.toolOutput = output;
         }
       }
     }
@@ -2839,6 +2848,7 @@ function createChatView(wrapperEl, project, options = {}) {
         `;
 
         // Store tool input/output for expand
+        if (msg.toolUseId) el.dataset.toolUseId = msg.toolUseId;
         if (msg.toolInput) {
           el.dataset.toolInput = JSON.stringify(msg.toolInput);
           el.classList.add('expandable');
