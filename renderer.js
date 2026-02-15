@@ -2077,6 +2077,21 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             </div>
           </div>
+          <div class="settings-group">
+            <div class="settings-group-title">${t('settings.advanced') || 'Advanced'}</div>
+            <div class="settings-card">
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.enable1MContext') || '1M Token Context'}</div>
+                <div class="settings-toggle-desc">${t('settings.enable1MContextDesc') || 'Enable 1 million token context window for Opus and Sonnet (beta)'}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="enable-1m-context-toggle" ${settings.enable1MContext ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            </div>
+          </div>
         </div>
         <!-- GitHub Tab -->
         <div class="settings-panel ${initialTab === 'github' ? 'active' : ''}" data-panel="github">
@@ -2477,6 +2492,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newAiCommitMessages = aiCommitToggle ? aiCommitToggle.checked : true;
     const hooksToggle = document.getElementById('hooks-enabled-toggle');
     const newHooksEnabled = hooksToggle ? hooksToggle.checked : settings.hooksEnabled;
+    const context1MToggle = document.getElementById('enable-1m-context-toggle');
+    const newEnable1MContext = context1MToggle ? context1MToggle.checked : settings.enable1MContext || false;
 
     const newSettings = {
       editor: settings.editor || 'code',
@@ -2489,7 +2506,8 @@ async function renderSettingsTab(initialTab = 'general') {
       reduceMotion: newReduceMotion,
       aiCommitMessages: newAiCommitMessages,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',
-      hooksEnabled: newHooksEnabled
+      hooksEnabled: newHooksEnabled,
+      enable1MContext: newEnable1MContext
     };
 
     // Collect dynamic settings from project types

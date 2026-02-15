@@ -369,7 +369,10 @@
       "title": "Smart Hooks",
       "enable": "Enable Smart Hooks",
       "description": "Real-time insights from Claude Code (time tracking, notifications, dashboard stats)"
-    }
+    },
+    "advanced": "Advanced",
+    "enable1MContext": "1M Token Context",
+    "enable1MContextDesc": "Enable 1 million token context window for Opus and Sonnet (beta)"
   },
   "ui": {
     "notifications": "Notifications",

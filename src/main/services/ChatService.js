@@ -243,7 +243,7 @@ class ChatService {
    * @param {string} [params.resumeSessionId] - Session ID to resume
    * @returns {Promise<string>} Session ID
    */
-  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null }) {
+  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false }) {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -290,6 +290,11 @@ class ChatService {
       // Set model if specified
       if (model) {
         options.model = model;
+      }
+
+      // Enable 1M token context window (beta)
+      if (enable1MContext) {
+        options.betas = ['context-1m-2025-08-07'];
       }
 
       // Resume existing session if requested

@@ -1293,7 +1293,8 @@ function createChatView(wrapperEl, project, options = {}) {
           sessionId,
           images: imagesPayload,
           mentions: resolvedMentions,
-          model: selectedModel
+          model: selectedModel,
+          enable1MContext: getSetting('enable1MContext') || false
         };
         if (pendingResumeId) {
           startOpts.resumeSessionId = pendingResumeId;
