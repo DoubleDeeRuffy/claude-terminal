@@ -70,4 +70,24 @@ describe('getSetting', () => {
   test('unknown key returns undefined', () => {
     expect(getSetting('nonexistent')).toBeUndefined();
   });
+
+  test('shortcut default is a string containing Shift+P', () => {
+    const shortcut = getSetting('shortcut');
+    expect(typeof shortcut).toBe('string');
+    expect(shortcut).toContain('Shift+P');
+  });
+
+  test('shortcut default uses Ctrl or Cmd prefix', () => {
+    const shortcut = getSetting('shortcut');
+    const hasValidPrefix = shortcut.startsWith('Ctrl+') || shortcut.startsWith('Cmd+');
+    expect(hasValidPrefix).toBe(true);
+  });
+
+  test('defaultTerminalMode defaults to "terminal"', () => {
+    expect(getSetting('defaultTerminalMode')).toBe('terminal');
+  });
+
+  test('chatModel defaults to null', () => {
+    expect(getSetting('chatModel')).toBeNull();
+  });
 });
