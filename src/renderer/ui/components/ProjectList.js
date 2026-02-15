@@ -37,6 +37,7 @@ const { t } = require('../../i18n');
 const CustomizePicker = require('./CustomizePicker');
 const { createModal, showModal, closeModal } = require('./Modal');
 const registry = require('../../../project-types/registry');
+const menuIcons = require('../icons/menuIcons');
 
 // Local state
 let dragState = { dragging: null, dropTarget: null };
@@ -185,29 +186,32 @@ function renderProjectHtml(project, depth) {
   if (typeMenuItems) {
     menuItemsHtml += typeMenuItems;
   }
+  // Git operations section
   if (isGitRepo) {
     menuItemsHtml += `
       <button class="more-actions-item btn-git-pull ${gitOps.pulling ? 'loading' : ''}" data-project-id="${project.id}" ${gitOps.pulling ? 'disabled' : ''}>
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
-        Git Pull
+        ${menuIcons.gitPull}
+        ${t('common.gitPull') || 'Git Pull'}
       </button>
       <button class="more-actions-item btn-git-push ${gitOps.pushing ? 'loading' : ''}" data-project-id="${project.id}" ${gitOps.pushing ? 'disabled' : ''}>
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 4v2h14V4H5zm0 10h4v6h6v-6h4l-7-7-7 7z"/></svg>
-        Git Push
+        ${menuIcons.gitPush}
+        ${t('common.gitPush') || 'Git Push'}
       </button>
       <div class="more-actions-divider"></div>`;
   }
+
+  // Main actions section
   menuItemsHtml += `
     <button class="more-actions-item btn-basic-terminal" data-project-id="${project.id}">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 19V7H4v12h16m0-16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16m-7 14v-2h5v2h-5m-3.42-4L5.57 9H8.4l3.3 3.3c.39.39.39 1.03 0 1.42L8.42 17H5.59l4-4z"/></svg>
+      ${menuIcons.terminal}
       ${t('projects.basicTerminal')}
     </button>
     <button class="more-actions-item btn-open-folder" data-project-id="${project.id}">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7l2 2h5v12zm0-12h-5l-2-2H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2z"/></svg>
+      ${menuIcons.folderOpen}
       ${t('projects.openFolder')}
     </button>
     <button class="more-actions-item btn-open-editor" data-project-id="${project.id}">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+      ${menuIcons.code}
       ${t('projects.openInEditor', { editor: (EDITOR_OPTIONS.find(e => e.value === (getProjectEditor(project.id) || getSetting('editor'))) || EDITOR_OPTIONS[0]).label })}
     </button>
     <div class="more-actions-divider"></div>
@@ -220,16 +224,16 @@ function renderProjectHtml(project, depth) {
     </button>` : '';
     })()}
     <button class="more-actions-item btn-customize-project" data-project-id="${project.id}">
-      <span class="customize-btn-preview">${customizePreview}${customizeColorDot}</span>
+      ${menuIcons.palette}
       ${t('projects.customize')}
     </button>
     <button class="more-actions-item btn-rename-project" data-project-id="${project.id}">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+      ${menuIcons.rename}
       ${t('common.rename')}
     </button>
     <div class="more-actions-divider"></div>
     <button class="more-actions-item danger btn-delete-project" data-project-id="${project.id}">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      ${menuIcons.trash}
       ${t('common.delete')}
     </button>`;
 
