@@ -545,16 +545,16 @@ function gitClone(repoUrl, targetPath, options = {}) {
         if (error) {
           // Check common errors
           if (stderr.includes('already exists')) {
-            resolve({ success: false, error: 'Le dossier existe déjà' });
+            resolve({ success: false, error: 'Folder already exists' });
           } else if (stderr.includes('not found') || stderr.includes('Could not resolve')) {
-            resolve({ success: false, error: 'Repository introuvable' });
+            resolve({ success: false, error: 'Repository not found' });
           } else if (stderr.includes('Authentication failed') || stderr.includes('could not read Username')) {
-            resolve({ success: false, error: 'Authentification échouée. Connectez-vous à GitHub.' });
+            resolve({ success: false, error: 'Authentication failed. Connect to GitHub.' });
           } else {
             resolve({ success: false, error: stderr || error.message });
           }
         } else {
-          resolve({ success: true, output: 'Clone réussi', path: targetPath });
+          resolve({ success: true, output: 'Clone successful', path: targetPath });
         }
       }
     );

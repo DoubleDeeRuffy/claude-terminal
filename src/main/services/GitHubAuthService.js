@@ -100,7 +100,7 @@ async function pollForToken(deviceCode, interval = 5) {
   while (true) {
     // Timeout guard
     if (Date.now() - startTime > MAX_DURATION_MS) {
-      throw new Error('Authentification expirée (10 min). Veuillez réessayer.');
+      throw new Error('Authentication expired (10 min). Please try again.');
     }
 
     await new Promise(resolve => setTimeout(resolve, interval * 1000));
@@ -140,11 +140,11 @@ async function pollForToken(deviceCode, interval = 5) {
     }
 
     if (data.error === 'expired_token') {
-      throw new Error('Le code a expiré. Veuillez réessayer.');
+      throw new Error('Code expired. Please try again.');
     }
 
     if (data.error === 'access_denied') {
-      throw new Error('Accès refusé par l\'utilisateur.');
+      throw new Error('Access denied by user.');
     }
 
     if (data.error) {
