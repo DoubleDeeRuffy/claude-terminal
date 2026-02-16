@@ -147,76 +147,91 @@ onLanguageChange(() => {
 
 // ========== KEYBOARD SHORTCUTS (extracted to ShortcutsManager module) ==========
 // ========== INITIALIZATION ==========
-ensureDirectories();
-initializeState(); // This loads settings, projects AND initializes time tracking (async, resolves quickly for local fs)
-initI18n(settingsState.get().language); // Initialize i18n with saved language preference
-
-// Initialize Claude event bus and provider (hooks or scraping)
 const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn } = require('./src/renderer/events');
-initClaudeEvents();
 
-// Initialize project types registry
-registry.discoverAll();
-registry.loadAllTranslations(mergeTranslations);
-registry.injectAllStyles();
+(async () => {
+  ensureDirectories();
+  await initializeState(); // Loads settings, projects AND initializes time tracking
+  initI18n(settingsState.get().language); // Initialize i18n with saved language preference
 
-// Preload dashboard data in background at startup
-DashboardService.loadAllDiskCaches().then(() => {
-  setTimeout(() => DashboardService.preloadAllProjects(), 1000);
-}).catch(e => {
-  console.error('Error loading disk caches:', e);
-  setTimeout(() => DashboardService.preloadAllProjects(), 1000);
-});
-updateStaticTranslations(); // Apply translations to static HTML elements
-applyAccentColor(settingsState.get().accentColor || '#d97706');
-if (settingsState.get().compactProjects !== false) {
-  document.body.classList.add('compact-projects');
-}
-if (settingsState.get().reduceMotion) {
-  document.body.classList.add('reduce-motion');
-}
+  // Initialize Claude event bus and provider (hooks or scraping)
+  initClaudeEvents();
 
-// ========== PANELS INIT ==========
-MemoryEditor.init({ showModal, closeModal });
+  // Initialize project types registry
+  registry.discoverAll();
+  registry.loadAllTranslations(mergeTranslations);
+  registry.injectAllStyles();
 
-ShortcutsManager.init({
-  settingsState, saveSettings,
-  switchToSettingsTab: (...args) => SettingsPanel.switchToSettingsTab(...args),
-  terminalsState, TerminalManager,
-  projectsState, setSelectedProjectFilter, ProjectList,
-  showSessionsModal,
-  openQuickPicker, getProjectIndex,
-  createTerminalForProject, FileExplorer
-});
+  // Preload dashboard data in background at startup
+  DashboardService.loadAllDiskCaches().then(() => {
+    setTimeout(() => DashboardService.preloadAllProjects(), 1000);
+  }).catch(e => {
+    console.error('Error loading disk caches:', e);
+    setTimeout(() => DashboardService.preloadAllProjects(), 1000);
+  });
+  updateStaticTranslations(); // Apply translations to static HTML elements
+  applyAccentColor(settingsState.get().accentColor || '#d97706');
+  if (settingsState.get().compactProjects !== false) {
+    document.body.classList.add('compact-projects');
+  }
+  if (settingsState.get().reduceMotion) {
+    document.body.classList.add('reduce-motion');
+  }
 
-SettingsPanel.init({
-  api, settingsState, saveSettings, saveSettingsImmediate,
-  showToast, showModal, closeModal,
-  applyAccentColor, TerminalManager, TERMINAL_THEMES,
-  QuickActions, TimeTrackingDashboard, ShortcutsManager
-});
+  // ========== PANELS INIT (must run after state is loaded) ==========
+  MemoryEditor.init({ showModal, closeModal });
 
-SkillsAgentsPanel.init({
-  api, fs, path, skillsDir, agentsDir,
-  loadMarketplaceContent: () => MarketplacePanel.loadMarketplaceContent(),
-  searchMarketplace: (q) => MarketplacePanel.searchMarketplace(q),
-  loadMarketplaceFeatured: () => MarketplacePanel.loadMarketplaceFeatured(),
-  setMarketplaceSearchQuery: (q) => MarketplacePanel.setSearchQuery(q)
-});
+  ShortcutsManager.init({
+    settingsState, saveSettings,
+    switchToSettingsTab: (...args) => SettingsPanel.switchToSettingsTab(...args),
+    terminalsState, TerminalManager,
+    projectsState, setSelectedProjectFilter, ProjectList,
+    showSessionsModal,
+    openQuickPicker, getProjectIndex,
+    createTerminalForProject, FileExplorer
+  });
 
-PluginsPanel.init({
-  api, showModal, closeModal, showToast
-});
+  SettingsPanel.init({
+    api, settingsState, saveSettings, saveSettingsImmediate,
+    showToast, showModal, closeModal,
+    applyAccentColor, TerminalManager, TERMINAL_THEMES,
+    QuickActions, TimeTrackingDashboard, ShortcutsManager
+  });
 
-MarketplacePanel.init({
-  api, showModal, closeModal, skillsDir, path, fs
-});
+  SkillsAgentsPanel.init({
+    api, fs, path, skillsDir, agentsDir,
+    loadMarketplaceContent: () => MarketplacePanel.loadMarketplaceContent(),
+    searchMarketplace: (q) => MarketplacePanel.searchMarketplace(q),
+    loadMarketplaceFeatured: () => MarketplacePanel.loadMarketplaceFeatured(),
+    setMarketplaceSearchQuery: (q) => MarketplacePanel.setSearchQuery(q)
+  });
 
-McpPanel.init({
-  api, showModal, closeModal, showToast,
-  claudeConfigFile, claudeSettingsFile,
-  projectsState, path, fs
-});
+  PluginsPanel.init({
+    api, showModal, closeModal, showToast
+  });
+
+  MarketplacePanel.init({
+    api, showModal, closeModal, skillsDir, path, fs
+  });
+
+  McpPanel.init({
+    api, showModal, closeModal, showToast,
+    claudeConfigFile, claudeSettingsFile,
+    projectsState, path, fs
+  });
+
+  // Share notification fn with event bus consumer so hooks use the same logic
+  setNotificationFn(showNotification);
+
+  // Render project list now that projects are loaded
+  ProjectList.render();
+
+  // Initial git status check for all projects
+  checkAllProjectsGitStatus();
+
+  // Initialize keyboard shortcuts (needs settingsState loaded)
+  ShortcutsManager.registerAllShortcuts();
+})();
 
 // ========== NOTIFICATIONS ==========
 function showNotification(type, title, body, terminalId) {
@@ -225,8 +240,6 @@ function showNotification(type, title, body, terminalId) {
   const labels = { show: t('terminals.notifBtnShow') };
   api.notification.show({ type: type || 'done', title, body, terminalId, autoDismiss: 8000, labels });
 }
-// Share with event bus notification consumer so hooks use the same logic
-setNotificationFn(showNotification);
 
 api.notification.onClicked(({ terminalId }) => {
   if (terminalId) {
@@ -666,7 +679,7 @@ function openFivemConsole(projectIndex) {
   if (!project) return;
 
   // Create FiveM console as a terminal tab (same location as other terminals)
-  TerminalManager.createFivemConsole(project, projectIndex);
+  TerminalManager.createTypeConsole(project, projectIndex);
 }
 
 // Register FiveM listeners - write to TerminalManager's FiveM console
@@ -678,14 +691,14 @@ api.fivem.onData(({ projectIndex, data }) => {
   localState.fivemServers.set(projectIndex, server);
 
   // Write to TerminalManager's FiveM console
-  TerminalManager.writeFivemConsole(projectIndex, data);
+  TerminalManager.writeTypeConsole(projectIndex, 'fivem', data);
 });
 
 api.fivem.onExit(({ projectIndex, code }) => {
   localState.fivemServers.set(projectIndex, { status: 'stopped', logs: localState.fivemServers.get(projectIndex)?.logs || [] });
 
   // Write exit message to console
-  TerminalManager.writeFivemConsole(projectIndex, `\r\n[Server exited with code ${code}]\r\n`);
+  TerminalManager.writeTypeConsole(projectIndex, 'fivem', `\r\n[Server exited with code ${code}]\r\n`);
 
   ProjectList.render();
 });
@@ -706,7 +719,7 @@ FivemService.registerFivemListeners(
   },
   // onError callback - update error UI
   (projectIndex, error) => {
-    TerminalManager.addFivemErrorToConsole(projectIndex, error);
+    TerminalManager.handleTypeConsoleError(projectIndex, error);
   }
 );
 
@@ -732,12 +745,12 @@ function openWebAppConsole(projectIndex) {
   const project = projects[projectIndex];
   if (!project) return;
 
-  TerminalManager.createWebAppConsole(project, projectIndex);
+  TerminalManager.createTypeConsole(project, projectIndex);
 }
 
 function refreshWebAppInfoPanel(projectIndex) {
   // Find webapp console wrapper and re-render info if the Info tab is active
-  const consoleTerminal = TerminalManager.getWebAppConsoleTerminal(projectIndex);
+  const consoleTerminal = TerminalManager.getTypeConsoleTerminal(projectIndex, 'webapp');
   if (!consoleTerminal) return;
   const wrappers = document.querySelectorAll('.terminal-wrapper.webapp-wrapper');
   wrappers.forEach(wrapper => {
@@ -755,11 +768,11 @@ function refreshWebAppInfoPanel(projectIndex) {
 
 // Register WebApp listeners - write to TerminalManager's WebApp console
 api.webapp.onData(({ projectIndex, data }) => {
-  TerminalManager.writeWebAppConsole(projectIndex, data);
+  TerminalManager.writeTypeConsole(projectIndex, 'webapp', data);
 });
 
 api.webapp.onExit(({ projectIndex, code }) => {
-  TerminalManager.writeWebAppConsole(projectIndex, `\r\n[Dev server exited with code ${code}]\r\n`);
+  TerminalManager.writeTypeConsole(projectIndex, 'webapp', `\r\n[Dev server exited with code ${code}]\r\n`);
   ProjectList.render();
 });
 
@@ -791,21 +804,21 @@ function openApiConsole(projectIndex) {
   const project = projects[projectIndex];
   if (!project) return;
 
-  TerminalManager.createApiConsole(project, projectIndex);
+  TerminalManager.createTypeConsole(project, projectIndex);
 }
 
 // Register API listeners - state + TerminalManager console
 api.api.onData(({ projectIndex, data }) => {
   const { addApiLog } = require('./src/project-types/api/renderer/ApiState');
   addApiLog(projectIndex, data);
-  TerminalManager.writeApiConsole(projectIndex, data);
+  TerminalManager.writeTypeConsole(projectIndex, 'api', data);
 });
 
 api.api.onExit(({ projectIndex, code }) => {
   const { setApiServerStatus, setApiPort } = require('./src/project-types/api/renderer/ApiState');
   setApiServerStatus(projectIndex, 'stopped');
   setApiPort(projectIndex, null);
-  TerminalManager.writeApiConsole(projectIndex, `\r\n[API server exited with code ${code}]\r\n`);
+  TerminalManager.writeTypeConsole(projectIndex, 'api', `\r\n[API server exited with code ${code}]\r\n`);
   ProjectList.render();
 });
 
@@ -2683,14 +2696,6 @@ api.tray.onShowSessions(() => {
 
 // ========== INIT ==========
 setupContextMenuHandlers();
-checkAllProjectsGitStatus();
-ProjectList.render();
-
-// Initialize keyboard shortcuts with customizable settings
-// Ctrl+Arrow shortcuts are handled directly in TerminalManager.js
-// They only work when focused on a terminal (which is the only context where they make sense)
-// Ctrl+Shift+T is handled by globalShortcut in main.js which sends 'open-terminal-current-project' IPC event
-ShortcutsManager.registerAllShortcuts();
 
 // ========== UPDATE SYSTEM (GitHub Desktop style) ==========
 const updateBanner = document.getElementById('update-banner');
