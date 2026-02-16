@@ -443,6 +443,10 @@ function createChatView(wrapperEl, project, options = {}) {
           selectMentionFile(item.dataset.path, item.dataset.fullpath);
         } else if (mentionMode === 'projects') {
           selectMentionProject(item.dataset.projectid, item.dataset.projectname, item.dataset.projectpath);
+        } else if (mentionMode === 'context') {
+          selectContextPack(item.dataset.packid, item.dataset.packname);
+        } else if (mentionMode === 'prompt') {
+          selectPromptTemplate(item.dataset.promptid, item.dataset.promptname);
         } else {
           selectMentionType(item.dataset.type);
         }
@@ -583,6 +587,8 @@ function createChatView(wrapperEl, project, options = {}) {
     { type: 'selection', label: '@selection', desc: t('chat.mentionSelection') || 'Attach selected text', icon: '<svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>' },
     { type: 'todos', label: '@todos', desc: t('chat.mentionTodos') || 'Attach TODO items from project', icon: '<svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>' },
     { type: 'project', label: '@project', desc: t('chat.mentionProject') || 'Attach project info', icon: '<svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>' },
+    { type: 'context', label: '@context', desc: t('chat.mentionContext') || 'Inject a context pack', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
+    { type: 'prompt', label: '@prompt', desc: t('chat.mentionPrompt') || 'Insert a prompt template', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' },
   ];
 
   function updateMentionDropdown() {
@@ -607,6 +613,28 @@ function createChatView(wrapperEl, project, options = {}) {
       if (projMatch) {
         renderProjectsDropdown(projMatch[1]);
       } else if (!beforeCursor.match(/@project/i)) {
+        hideMentionDropdown();
+      }
+      return;
+    }
+
+    // Context pack picker mode
+    if (mentionMode === 'context') {
+      const ctxMatch = beforeCursor.match(/@context\s+(.*)$/i);
+      if (ctxMatch) {
+        renderContextDropdown(ctxMatch[1]);
+      } else if (!beforeCursor.match(/@context/i)) {
+        hideMentionDropdown();
+      }
+      return;
+    }
+
+    // Prompt template picker mode
+    if (mentionMode === 'prompt') {
+      const promptMatch = beforeCursor.match(/@prompt\s+(.*)$/i);
+      if (promptMatch) {
+        renderPromptDropdown(promptMatch[1]);
+      } else if (!beforeCursor.match(/@prompt/i)) {
         hideMentionDropdown();
       }
       return;
@@ -703,6 +731,34 @@ function createChatView(wrapperEl, project, options = {}) {
       inputEl.selectionStart = inputEl.selectionEnd = cleaned.length;
       mentionMode = 'projects';
       renderProjectsDropdown('');
+      inputEl.focus();
+      return;
+    }
+
+    if (type === 'context') {
+      const text = inputEl.value;
+      const cursorPos = inputEl.selectionStart;
+      const beforeCursor = text.substring(0, cursorPos);
+      const afterCursor = text.substring(cursorPos);
+      const cleaned = beforeCursor.replace(/@\w*$/, '@context ');
+      inputEl.value = cleaned + afterCursor;
+      inputEl.selectionStart = inputEl.selectionEnd = cleaned.length;
+      mentionMode = 'context';
+      renderContextDropdown('');
+      inputEl.focus();
+      return;
+    }
+
+    if (type === 'prompt') {
+      const text = inputEl.value;
+      const cursorPos = inputEl.selectionStart;
+      const beforeCursor = text.substring(0, cursorPos);
+      const afterCursor = text.substring(cursorPos);
+      const cleaned = beforeCursor.replace(/@\w*$/, '@prompt ');
+      inputEl.value = cleaned + afterCursor;
+      inputEl.selectionStart = inputEl.selectionEnd = cleaned.length;
+      mentionMode = 'prompt';
+      renderPromptDropdown('');
       inputEl.focus();
       return;
     }
@@ -853,6 +909,122 @@ function createChatView(wrapperEl, project, options = {}) {
     inputEl.focus();
   }
 
+  // ── Context pack picker ──
+
+  function renderContextDropdown(query) {
+    const ContextPromptService = require('../../services/ContextPromptService');
+    const packs = ContextPromptService.getContextPacks(project?.id);
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? packs.filter(p => (p.name || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q))
+      : packs;
+    const shown = filtered.slice(0, 20);
+
+    if (shown.length === 0) {
+      mentionDropdown.innerHTML = `<div class="chat-mention-item" style="opacity:0.5;cursor:default"><span class="chat-mention-item-desc">${escapeHtml(t('chat.mentionNoContextPacks') || 'No context packs found. Create one in Settings > Library.')}</span></div>`;
+      mentionDropdown.style.display = '';
+      return;
+    }
+
+    mentionMode = 'context';
+    if (mentionSelectedIndex >= shown.length) mentionSelectedIndex = shown.length - 1;
+
+    mentionDropdown.innerHTML = shown.map((pack, i) => `
+      <div class="chat-mention-item${i === mentionSelectedIndex ? ' active' : ''}" data-packid="${escapeHtml(pack.id)}" data-packname="${escapeHtml(pack.name)}">
+        <span class="chat-mention-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
+        <div class="chat-mention-item-info">
+          <span class="chat-mention-item-name">${escapeHtml(pack.name)}</span>
+          <span class="chat-mention-item-desc">${escapeHtml(pack.description || '')}${pack.scope === 'project' ? ' <span class="chat-mention-badge">project</span>' : ''}</span>
+        </div>
+      </div>
+    `).join('');
+
+    mentionDropdown.style.display = '';
+
+    mentionDropdown.querySelectorAll('.chat-mention-item').forEach((el, idx) => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (el.dataset.packid) selectContextPack(el.dataset.packid, el.dataset.packname);
+      });
+      el.addEventListener('mouseenter', () => {
+        mentionSelectedIndex = idx;
+        highlightMentionItem(mentionDropdown.querySelectorAll('.chat-mention-item'));
+      });
+    });
+  }
+
+  function selectContextPack(packId, packName) {
+    removeAtTrigger();
+    addMentionChip('context', { id: packId, name: packName });
+    hideMentionDropdown();
+    inputEl.focus();
+  }
+
+  // ── Prompt template picker ──
+
+  function renderPromptDropdown(query) {
+    const ContextPromptService = require('../../services/ContextPromptService');
+    const templates = ContextPromptService.getPromptTemplates(project?.id);
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? templates.filter(p => (p.name || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q))
+      : templates;
+    const shown = filtered.slice(0, 20);
+
+    if (shown.length === 0) {
+      mentionDropdown.innerHTML = `<div class="chat-mention-item" style="opacity:0.5;cursor:default"><span class="chat-mention-item-desc">${escapeHtml(t('chat.mentionNoPrompts') || 'No prompt templates found. Create one in Settings > Library.')}</span></div>`;
+      mentionDropdown.style.display = '';
+      return;
+    }
+
+    mentionMode = 'prompt';
+    if (mentionSelectedIndex >= shown.length) mentionSelectedIndex = shown.length - 1;
+
+    mentionDropdown.innerHTML = shown.map((tmpl, i) => `
+      <div class="chat-mention-item${i === mentionSelectedIndex ? ' active' : ''}" data-promptid="${escapeHtml(tmpl.id)}" data-promptname="${escapeHtml(tmpl.name)}">
+        <span class="chat-mention-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+        <div class="chat-mention-item-info">
+          <span class="chat-mention-item-name">${escapeHtml(tmpl.name)}</span>
+          <span class="chat-mention-item-desc">${escapeHtml(tmpl.description || '')}${tmpl.scope === 'project' ? ' <span class="chat-mention-badge">project</span>' : ''}</span>
+        </div>
+      </div>
+    `).join('');
+
+    mentionDropdown.style.display = '';
+
+    mentionDropdown.querySelectorAll('.chat-mention-item').forEach((el, idx) => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (el.dataset.promptid) selectPromptTemplate(el.dataset.promptid, el.dataset.promptname);
+      });
+      el.addEventListener('mouseenter', () => {
+        mentionSelectedIndex = idx;
+        highlightMentionItem(mentionDropdown.querySelectorAll('.chat-mention-item'));
+      });
+    });
+  }
+
+  async function selectPromptTemplate(promptId, promptName) {
+    const ContextPromptService = require('../../services/ContextPromptService');
+    removeAtTrigger();
+    hideMentionDropdown();
+
+    // Resolve variables and insert text into textarea
+    const resolvedText = await ContextPromptService.resolvePromptTemplate(promptId, project);
+
+    const text = inputEl.value;
+    const cursorPos = inputEl.selectionStart;
+    const beforeCursor = text.substring(0, cursorPos);
+    const afterCursor = text.substring(cursorPos);
+    inputEl.value = beforeCursor + resolvedText + afterCursor;
+    inputEl.selectionStart = inputEl.selectionEnd = cursorPos + resolvedText.length;
+
+    // Auto-resize textarea
+    inputEl.style.height = 'auto';
+    inputEl.style.height = inputEl.scrollHeight + 'px';
+    inputEl.focus();
+  }
+
   // ── Mention chips ──
 
   function getMentionIcon(type) {
@@ -864,6 +1036,7 @@ function createChatView(wrapperEl, project, options = {}) {
     let label;
     if (type === 'file') label = `@${data.path}`;
     else if (type === 'project' && data?.name) label = `@project:${data.name}`;
+    else if (type === 'context' && data?.name) label = `@context:${data.name}`;
     else label = `@${type}`;
     pendingMentions.push({ type, label, icon: getMentionIcon(type), data });
     renderMentionChips();
@@ -977,6 +1150,16 @@ function createChatView(wrapperEl, project, options = {}) {
             }
           } catch (e) {
             content = '[Error scanning TODOs]';
+          }
+          break;
+        }
+
+        case 'context': {
+          try {
+            const ContextPromptService = require('../../services/ContextPromptService');
+            content = await ContextPromptService.resolveContextPack(mention.data.id, project?.path);
+          } catch (e) {
+            content = `[Error resolving context pack: ${mention.data.name}]`;
           }
           break;
         }
