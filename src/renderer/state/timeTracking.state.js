@@ -57,11 +57,11 @@ let ttPendingSave = false;
 /**
  * Load time tracking data from timetracking.json
  */
-function loadTimeTrackingData() {
+async function loadTimeTrackingData() {
   try {
     if (!fs.existsSync(timeTrackingFile)) return;
 
-    const content = fs.readFileSync(timeTrackingFile, 'utf8');
+    const content = await fs.promises.readFile(timeTrackingFile, 'utf8');
     if (!content || !content.trim()) return;
 
     const data = JSON.parse(content);
@@ -146,12 +146,12 @@ function saveTimeTrackingImmediate() {
  * Migrate inline timeTracking from projects.json to timetracking.json
  * One-time migration for existing users
  */
-function migrateInlineTimeTracking() {
+async function migrateInlineTimeTracking() {
   // Read projects.json RAW from disk (not from state, which no longer includes timeTracking fields)
   let rawData;
   try {
     if (!fs.existsSync(projectsFile)) return;
-    const content = fs.readFileSync(projectsFile, 'utf8');
+    const content = await fs.promises.readFile(projectsFile, 'utf8');
     if (!content || !content.trim()) return;
     rawData = JSON.parse(content);
   } catch (e) {
@@ -428,7 +428,7 @@ function sanitizeTimeTrackingData() {
 /**
  * Archive past-month sessions to monthly archive files
  */
-function archivePastMonthSessions() {
+async function archivePastMonthSessions() {
   const ttState = timeTrackingDataState.get();
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -460,7 +460,7 @@ function archivePastMonthSessions() {
 
     for (const [key, sessions] of Object.entries(pastByMonth)) {
       const [year, month] = key.split('-').map(Number);
-      ArchiveService.appendToArchive(year, month, sessions, {});
+      await ArchiveService.appendToArchive(year, month, sessions, {});
     }
   }
 
@@ -499,7 +499,7 @@ function archivePastMonthSessions() {
 
   for (const [key, projectsMap] of Object.entries(pastProjectsByMonth)) {
     const [year, month] = key.split('-').map(Number);
-    ArchiveService.appendToArchive(year, month, [], projectsMap);
+    await ArchiveService.appendToArchive(year, month, [], projectsMap);
   }
 
   if (hasChanges) {
@@ -517,18 +517,18 @@ function archivePastMonthSessions() {
 /**
  * Initialize with references to projects state functions
  */
-function initTimeTracking(projectsState) {
+async function initTimeTracking(projectsState) {
   projectsStateRef = projectsState;
   console.debug('[TimeTracking] Initialized');
 
   // 1. Migrate old archives/ to timetracking/YYYY/
-  ArchiveService.migrateOldArchives();
+  await ArchiveService.migrateOldArchives();
 
   // 2. Load timetracking.json
-  loadTimeTrackingData();
+  await loadTimeTrackingData();
 
   // 3. Migrate inline timeTracking from projects.json (reads disk directly)
-  migrateInlineTimeTracking();
+  await migrateInlineTimeTracking();
 
   // 4. Sanitize data
   sanitizeTimeTrackingData();
@@ -537,10 +537,10 @@ function initTimeTracking(projectsState) {
   migrateGlobalTimeTracking();
 
   // 6. Archive past-month sessions
-  archivePastMonthSessions();
+  await archivePastMonthSessions();
 
   // 7. Restore global sessions from backup if missing
-  rebuildGlobalSessionsIfNeeded();
+  await rebuildGlobalSessionsIfNeeded();
 
   // 8. Compact fragmented sessions (merge consecutive, preserves total time)
   compactExistingSessions();
@@ -654,7 +654,7 @@ function startCheckpointTimer() {
   checkpointTimer = setInterval(saveCheckpoints, CHECKPOINT_INTERVAL);
 }
 
-function saveCheckpoints() {
+async function saveCheckpoints() {
   const state = trackingState.get();
   const now = Date.now();
   const activeSessions = new Map(state.activeSessions);
@@ -664,7 +664,7 @@ function saveCheckpoints() {
     if (session.sessionStartTime && !session.isIdle) {
       const duration = now - session.sessionStartTime;
       if (duration > 1000) {
-        saveSession(projectId, session.sessionStartTime, now, duration);
+        await saveSession(projectId, session.sessionStartTime, now, duration);
         activeSessions.set(projectId, { ...session, sessionStartTime: now });
         projectsChanged = true;
       }
@@ -675,7 +675,7 @@ function saveCheckpoints() {
   if (state.globalSessionStartTime && !state.globalIsIdle) {
     const duration = now - state.globalSessionStartTime;
     if (duration > 1000) {
-      saveGlobalSession(state.globalSessionStartTime, now, duration);
+      await saveGlobalSession(state.globalSessionStartTime, now, duration);
       globalChanged = true;
     }
   }
@@ -689,24 +689,24 @@ function saveCheckpoints() {
   }
 }
 
-function checkSleepWake() {
+async function checkSleepWake() {
   const now = Date.now();
   const elapsed = now - lastHeartbeat;
   lastHeartbeat = now;
 
   if (elapsed > SLEEP_GAP_THRESHOLD) {
     console.debug(`[TimeTracking] Sleep/wake detected: gap of ${Math.round(elapsed / 1000)}s`);
-    handleSleepWake(now - elapsed, now);
+    await handleSleepWake(now - elapsed, now);
   }
 }
 
-function handleSleepWake(sleepStart, wakeTime) {
+async function handleSleepWake(sleepStart, wakeTime) {
   const state = trackingState.get();
 
   if (state.globalSessionStartTime && !state.globalIsIdle) {
     const duration = sleepStart - state.globalSessionStartTime;
     if (duration > 1000) {
-      saveGlobalSession(state.globalSessionStartTime, sleepStart, duration);
+      await saveGlobalSession(state.globalSessionStartTime, sleepStart, duration);
     }
     trackingState.set({
       ...trackingState.get(),
@@ -720,7 +720,7 @@ function handleSleepWake(sleepStart, wakeTime) {
     if (session.sessionStartTime && !session.isIdle) {
       const duration = sleepStart - session.sessionStartTime;
       if (duration > 1000) {
-        saveSession(projectId, session.sessionStartTime, sleepStart, duration);
+        await saveSession(projectId, session.sessionStartTime, sleepStart, duration);
       }
       activeSessions.set(projectId, {
         ...session,
@@ -733,7 +733,7 @@ function handleSleepWake(sleepStart, wakeTime) {
   trackingState.set({ ...trackingState.get(), activeSessions });
 }
 
-function checkMidnightReset() {
+async function checkMidnightReset() {
   const today = getTodayString();
 
   if (lastKnownDate && lastKnownDate !== today) {
@@ -746,16 +746,16 @@ function checkMidnightReset() {
 
     lastKnownDate = today;
     globalTimesCache = null;
-    splitSessionsAtMidnight();
+    await splitSessionsAtMidnight();
 
     if (monthChanged) {
       console.debug('[TimeTracking] Month boundary crossed, archiving past sessions');
-      archivePastMonthSessions();
+      await archivePastMonthSessions();
     }
   }
 }
 
-function splitSessionsAtMidnight() {
+async function splitSessionsAtMidnight() {
   const state = trackingState.get();
   const now = Date.now();
   const todayMidnight = new Date();
@@ -770,7 +770,7 @@ function splitSessionsAtMidnight() {
   if (state.globalSessionStartTime && !state.globalIsIdle) {
     const duration = preMidnight - state.globalSessionStartTime;
     if (duration > 1000) {
-      saveGlobalSessionAt(state.globalSessionStartTime, preMidnight, duration, new Date(preMidnight));
+      await saveGlobalSessionAt(state.globalSessionStartTime, preMidnight, duration, new Date(preMidnight));
     }
     trackingState.set({
       ...trackingState.get(),
@@ -784,7 +784,7 @@ function splitSessionsAtMidnight() {
     if (session.sessionStartTime && !session.isIdle) {
       const duration = preMidnight - session.sessionStartTime;
       if (duration > 1000) {
-        saveSessionAt(projectId, session.sessionStartTime, preMidnight, duration, new Date(preMidnight));
+        await saveSessionAt(projectId, session.sessionStartTime, preMidnight, duration, new Date(preMidnight));
       }
       activeSessions.set(projectId, {
         ...session,
@@ -887,14 +887,14 @@ function startGlobalTimer() {
   console.debug('[TimeTracking] Global timer started');
 }
 
-function pauseGlobalTimer() {
+async function pauseGlobalTimer() {
   const state = trackingState.get();
   if (!state.globalSessionStartTime || state.globalIsIdle) return;
 
   const now = Date.now();
   const duration = now - state.globalSessionStartTime;
   if (duration > 1000) {
-    saveGlobalSession(state.globalSessionStartTime, now, duration);
+    await saveGlobalSession(state.globalSessionStartTime, now, duration);
   }
 
   trackingState.set({ ...state, globalSessionStartTime: null, globalIsIdle: true });
@@ -918,13 +918,13 @@ function resumeGlobalTimer() {
   console.debug('[TimeTracking] Global timer resumed');
 }
 
-function stopGlobalTimer() {
+async function stopGlobalTimer() {
   const state = trackingState.get();
   if (state.globalSessionStartTime && !state.globalIsIdle) {
     const now = Date.now();
     const duration = now - state.globalSessionStartTime;
     if (duration > 1000) {
-      saveGlobalSession(state.globalSessionStartTime, now, duration);
+      await saveGlobalSession(state.globalSessionStartTime, now, duration);
     }
   }
 
@@ -1136,7 +1136,7 @@ function compactSessionArray(sessions) {
  * The backup file (projects.json.pre-migration.bak) contains the original globalTimeTracking
  * with correct wall-clock times (no double-counting from overlapping project sessions).
  */
-function rebuildGlobalSessionsIfNeeded() {
+async function rebuildGlobalSessionsIfNeeded() {
   const ttState = timeTrackingDataState.get();
   const globalSessions = ttState.global?.sessions || [];
 
@@ -1151,7 +1151,7 @@ function rebuildGlobalSessionsIfNeeded() {
       return;
     }
 
-    const content = fs.readFileSync(backupFile, 'utf8');
+    const content = await fs.promises.readFile(backupFile, 'utf8');
     if (!content || !content.trim()) return;
 
     const backupData = JSON.parse(content);
@@ -1184,7 +1184,7 @@ function rebuildGlobalSessionsIfNeeded() {
 
     for (const [key, sessions] of Object.entries(pastByMonth)) {
       const [year, month] = key.split('-').map(Number);
-      ArchiveService.appendToArchive(year, month, sessions, {});
+      await ArchiveService.appendToArchive(year, month, sessions, {});
     }
 
     // Recalculate all counters from restored sessions (source of truth)
@@ -1240,15 +1240,15 @@ function rebuildGlobalSessionsIfNeeded() {
 /**
  * Save a global session
  */
-function saveGlobalSession(startTime, endTime, duration) {
-  saveGlobalSessionAt(startTime, endTime, duration, new Date());
+async function saveGlobalSession(startTime, endTime, duration) {
+  await saveGlobalSessionAt(startTime, endTime, duration, new Date());
 }
 
 /**
  * Save a global session using a specific reference date for counter attribution
  * This ensures midnight splits attribute time to the correct day/week/month
  */
-function saveGlobalSessionAt(startTime, endTime, duration, refDate) {
+async function saveGlobalSessionAt(startTime, endTime, duration, refDate) {
   console.debug('[TimeTracking] saveGlobalSession:', { duration: Math.round(duration / 1000) + 's' });
 
   const today = getDateString(refDate);
@@ -1279,7 +1279,7 @@ function saveGlobalSessionAt(startTime, endTime, duration, refDate) {
       endTime: new Date(endTime).toISOString(),
       duration
     };
-    ArchiveService.appendToArchive(sessionDate.getFullYear(), sessionDate.getMonth(), [newSession], {});
+    await ArchiveService.appendToArchive(sessionDate.getFullYear(), sessionDate.getMonth(), [newSession], {});
     sessions = prev.sessions || [];
   }
 
@@ -1299,14 +1299,14 @@ function saveGlobalSessionAt(startTime, endTime, duration, refDate) {
 /**
  * Save a session to a project's time tracking data
  */
-function saveSession(projectId, startTime, endTime, duration) {
-  saveSessionAt(projectId, startTime, endTime, duration, new Date());
+async function saveSession(projectId, startTime, endTime, duration) {
+  await saveSessionAt(projectId, startTime, endTime, duration, new Date());
 }
 
 /**
  * Save a project session using a specific reference date for counter attribution
  */
-function saveSessionAt(projectId, startTime, endTime, duration, refDate) {
+async function saveSessionAt(projectId, startTime, endTime, duration, refDate) {
   console.debug('[TimeTracking] saveSession:', { projectId, duration: Math.round(duration / 1000) + 's' });
 
   const today = getDateString(refDate);
@@ -1340,7 +1340,7 @@ function saveSessionAt(projectId, startTime, endTime, duration, refDate) {
       duration
     };
     const project = getProjectById(projectId);
-    ArchiveService.appendToArchive(
+    await ArchiveService.appendToArchive(
       sessionDate.getFullYear(),
       sessionDate.getMonth(),
       [],
@@ -1390,7 +1390,7 @@ function startTracking(projectId) {
   idleTimers.set(projectId, setTimeout(() => checkAndPauseTracking(projectId), IDLE_TIMEOUT));
 }
 
-function stopTracking(projectId) {
+async function stopTracking(projectId) {
   const state = trackingState.get();
   const activeSessions = new Map(state.activeSessions);
   const session = activeSessions.get(projectId);
@@ -1404,7 +1404,7 @@ function stopTracking(projectId) {
   const now = Date.now();
   const duration = now - session.sessionStartTime;
   if (duration > 1000) {
-    saveSession(projectId, session.sessionStartTime, now, duration);
+    await saveSession(projectId, session.sessionStartTime, now, duration);
   }
 
   clearTimeout(idleTimers.get(projectId));
@@ -1414,7 +1414,7 @@ function stopTracking(projectId) {
 
   trackingState.set({ ...trackingState.get(), activeSessions });
 
-  if (getActiveNonIdleCount() === 0) stopGlobalTimer();
+  if (getActiveNonIdleCount() === 0) await stopGlobalTimer();
 }
 
 function recordActivity(projectId) {
@@ -1442,7 +1442,7 @@ function recordActivity(projectId) {
   trackingState.set({ ...trackingState.get(), activeSessions });
 }
 
-function checkAndPauseTracking(projectId) {
+async function checkAndPauseTracking(projectId) {
   const lastOutput = lastOutputTimes.get(projectId) || 0;
   const timeSinceOutput = Date.now() - lastOutput;
 
@@ -1453,10 +1453,10 @@ function checkAndPauseTracking(projectId) {
     return;
   }
 
-  pauseTracking(projectId);
+  await pauseTracking(projectId);
 }
 
-function checkAndPauseGlobalTimer() {
+async function checkAndPauseGlobalTimer() {
   const timeSinceOutput = Date.now() - globalLastOutputTime;
 
   if (timeSinceOutput < OUTPUT_IDLE_TIMEOUT) {
@@ -1466,7 +1466,7 @@ function checkAndPauseGlobalTimer() {
     return;
   }
 
-  pauseGlobalTimer();
+  await pauseGlobalTimer();
 }
 
 function recordOutputActivity(projectId) {
@@ -1480,7 +1480,7 @@ function recordOutputActivity(projectId) {
   globalLastOutputTime = Date.now();
 }
 
-function pauseTracking(projectId) {
+async function pauseTracking(projectId) {
   const state = trackingState.get();
   const activeSessions = new Map(state.activeSessions);
   const session = activeSessions.get(projectId);
@@ -1490,13 +1490,13 @@ function pauseTracking(projectId) {
   const now = Date.now();
   const duration = now - session.sessionStartTime;
   if (duration > 1000) {
-    saveSession(projectId, session.sessionStartTime, now, duration);
+    await saveSession(projectId, session.sessionStartTime, now, duration);
   }
 
   activeSessions.set(projectId, { ...session, sessionStartTime: null, isIdle: true });
   trackingState.set({ ...trackingState.get(), activeSessions });
 
-  if (getActiveNonIdleCount() === 0) pauseGlobalTimer();
+  if (getActiveNonIdleCount() === 0) await pauseGlobalTimer();
 }
 
 function resumeTracking(projectId) {
@@ -1518,9 +1518,9 @@ function resumeTracking(projectId) {
   idleTimers.set(projectId, setTimeout(() => checkAndPauseTracking(projectId), IDLE_TIMEOUT));
 }
 
-function switchProject(oldProjectId, newProjectId) {
+async function switchProject(oldProjectId, newProjectId) {
   if (oldProjectId && oldProjectId !== newProjectId) {
-    stopTracking(oldProjectId);
+    await stopTracking(oldProjectId);
   }
   if (newProjectId) startTracking(newProjectId);
 }
@@ -1673,7 +1673,7 @@ function getGlobalTrackingData() {
   return timeTrackingDataState.get().global;
 }
 
-function saveAllActiveSessions() {
+async function saveAllActiveSessions() {
   const state = trackingState.get();
   const now = Date.now();
 
@@ -1681,7 +1681,7 @@ function saveAllActiveSessions() {
     if (session.sessionStartTime && !session.isIdle) {
       const duration = now - session.sessionStartTime;
       if (duration > 1000) {
-        saveSession(projectId, session.sessionStartTime, now, duration);
+        await saveSession(projectId, session.sessionStartTime, now, duration);
       }
     }
   }
@@ -1689,7 +1689,7 @@ function saveAllActiveSessions() {
   if (state.globalSessionStartTime && !state.globalIsIdle) {
     const duration = now - state.globalSessionStartTime;
     if (duration > 1000) {
-      saveGlobalSession(state.globalSessionStartTime, now, duration);
+      await saveGlobalSession(state.globalSessionStartTime, now, duration);
     }
   }
 

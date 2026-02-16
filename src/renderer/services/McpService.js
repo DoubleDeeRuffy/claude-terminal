@@ -26,13 +26,13 @@ const { claudeConfigFile, legacyMcpsFile } = require('../utils/paths');
 /**
  * Load MCPs from Claude Code config file (~/.claude.json)
  */
-function loadMcps() {
+async function loadMcps() {
   let mcps = [];
 
   try {
     // Load from Claude Code config (~/.claude.json)
     if (fs.existsSync(claudeConfigFile)) {
-      const config = JSON.parse(fs.readFileSync(claudeConfigFile, 'utf8'));
+      const config = JSON.parse(await fs.promises.readFile(claudeConfigFile, 'utf8'));
 
       // Load global MCP servers
       if (config.mcpServers) {
@@ -91,10 +91,10 @@ function loadMcps() {
 
     // Migrate from legacy file if needed
     if (mcps.length === 0 && fs.existsSync(legacyMcpsFile)) {
-      const legacyMcps = JSON.parse(fs.readFileSync(legacyMcpsFile, 'utf8'));
+      const legacyMcps = JSON.parse(await fs.promises.readFile(legacyMcpsFile, 'utf8'));
       if (Array.isArray(legacyMcps)) {
         mcps = legacyMcps;
-        saveMcps(mcps);
+        await saveMcps(mcps);
         // Remove legacy file after migration
         fs.unlinkSync(legacyMcpsFile);
       }
@@ -116,12 +116,12 @@ function loadMcps() {
  * Only saves global scope MCPs
  * @param {Array} mcps
  */
-function saveMcps(mcps) {
+async function saveMcps(mcps) {
   try {
     let config = {};
 
     if (fs.existsSync(claudeConfigFile)) {
-      config = JSON.parse(fs.readFileSync(claudeConfigFile, 'utf8'));
+      config = JSON.parse(await fs.promises.readFile(claudeConfigFile, 'utf8'));
     }
 
     config.mcpServers = {};
@@ -243,9 +243,9 @@ function registerMcpListeners(onOutputCallback, onExitCallback) {
 /**
  * Create a new MCP configuration
  * @param {Object} config
- * @returns {Object}
+ * @returns {Promise<Object>}
  */
-function createMcp(config) {
+async function createMcp(config) {
   const mcp = {
     id: config.id || `mcp-${Date.now()}`,
     name: config.name || config.id,
@@ -257,7 +257,7 @@ function createMcp(config) {
 
   addMcp(mcp);
   initMcpProcess(mcp.id);
-  saveMcps(getMcps());
+  await saveMcps(getMcps());
 
   return mcp;
 }
@@ -267,9 +267,9 @@ function createMcp(config) {
  * @param {string} id
  * @param {Object} updates
  */
-function updateMcpConfig(id, updates) {
+async function updateMcpConfig(id, updates) {
   updateMcp(id, updates);
-  saveMcps(getMcps());
+  await saveMcps(getMcps());
 }
 
 /**
@@ -284,7 +284,7 @@ async function deleteMcp(id) {
   }
 
   removeMcp(id);
-  saveMcps(getMcps());
+  await saveMcps(getMcps());
 }
 
 module.exports = {

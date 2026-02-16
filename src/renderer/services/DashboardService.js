@@ -19,7 +19,7 @@ const REFRESH_DEBOUNCE = 2000; // 2 seconds minimum between refreshes
 const DISK_CACHE_FILE = '.claude-terminal';
 
 // Periodic cache cleanup to prevent unbounded growth
-setInterval(() => {
+let _cacheCleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of dashboardCache.entries()) {
     if (now - entry.timestamp > CACHE_TTL * 4) {
@@ -40,15 +40,15 @@ function getDiskCachePath(projectPath) {
 }
 
 /**
- * Read disk cache for a project (sync, fast)
+ * Read disk cache for a project
  * @param {string} projectPath
- * @returns {Object|null}
+ * @returns {Promise<Object|null>}
  */
-function readDiskCache(projectPath) {
+async function readDiskCache(projectPath) {
   try {
     const filePath = getDiskCachePath(projectPath);
     if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf-8');
+    const raw = await fs.promises.readFile(filePath, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.dashboard) return null;
     return parsed.dashboard;
@@ -105,15 +105,15 @@ const PROJECT_TYPE_MARKERS = [
 ];
 
 /**
- * Parse package.json dependencies (sync)
+ * Parse package.json dependencies
  * @param {string} projectPath
- * @returns {Set<string>}
+ * @returns {Promise<Set<string>>}
  */
-function getPackageDeps(projectPath) {
+async function getPackageDeps(projectPath) {
   try {
     const pkgPath = path.join(projectPath, 'package.json');
     if (!fs.existsSync(pkgPath)) return new Set();
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const pkg = JSON.parse(await fs.promises.readFile(pkgPath, 'utf-8'));
     return new Set([
       ...Object.keys(pkg.dependencies || {}),
       ...Object.keys(pkg.devDependencies || {})
@@ -144,11 +144,11 @@ function fileMatchExists(dir, pattern) {
 }
 
 /**
- * Detect project type from marker files (sync, fast)
+ * Detect project type from marker files
  * @param {string} projectPath
- * @returns {{ type: string, label: string, color: string }|null}
+ * @returns {Promise<{ type: string, label: string, color: string }|null>}
  */
-function detectProjectType(projectPath) {
+async function detectProjectType(projectPath) {
   try {
     let deps = null; // lazy-loaded
 
@@ -166,7 +166,7 @@ function detectProjectType(projectPath) {
 
       // Check dependency markers
       if (marker.deps) {
-        if (!deps) deps = getPackageDeps(projectPath);
+        if (!deps) deps = await getPackageDeps(projectPath);
         if (deps.size === 0) continue;
         const hasDep = marker.deps.some(d => deps.has(d));
         if (hasDep) return { type: marker.type, label: marker.label, color: marker.color };
@@ -183,7 +183,7 @@ function detectProjectType(projectPath) {
  * Load all disk caches into memory for instant display
  * Call this at app startup before API preload
  */
-function loadAllDiskCaches() {
+async function loadAllDiskCaches() {
   const projects = projectsState.get().projects;
   if (!projects || projects.length === 0) return;
 
@@ -192,11 +192,11 @@ function loadAllDiskCaches() {
     // Skip if already in memory cache
     if (getCachedData(project.id)) continue;
 
-    const diskData = readDiskCache(project.path);
+    const diskData = await readDiskCache(project.path);
     if (diskData) {
-      // Refresh projectType from disk (fast) in case it changed
+      // Refresh projectType from disk in case it changed
       if (!diskData.projectType) {
-        diskData.projectType = detectProjectType(project.path);
+        diskData.projectType = await detectProjectType(project.path);
       }
       // Load into memory with timestamp=0 so it gets refreshed by preload
       dashboardCache.set(project.id, {
@@ -207,7 +207,7 @@ function loadAllDiskCaches() {
       loaded++;
     } else {
       // No disk cache - at least detect project type for minimal display
-      const projectType = detectProjectType(project.path);
+      const projectType = await detectProjectType(project.path);
       if (projectType) {
         dashboardCache.set(project.id, {
           data: { projectType },
@@ -398,8 +398,8 @@ async function loadDashboardData(projectPath) {
     getProjectStats(projectPath)
   ]);
 
-  // Detect project type (sync, fast)
-  const projectType = detectProjectType(projectPath);
+  // Detect project type
+  const projectType = await detectProjectType(projectPath);
 
   // Fetch workflow runs and pull requests if it's a GitHub repo
   let workflowRuns = { runs: [] };
@@ -1426,7 +1426,7 @@ async function preloadAllProjects() {
       } catch (e) {
         console.error(`[Dashboard] Failed to preload ${project.name}:`, e.message);
         // Store minimal data (project type) so it's not stuck as "no data"
-        const projectType = detectProjectType(project.path);
+        const projectType = await detectProjectType(project.path);
         if (projectType) {
           setCacheData(project.id, { projectType, gitInfo: {}, stats: {}, workflowRuns: { runs: [] }, pullRequests: { pullRequests: [] } });
         }

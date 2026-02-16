@@ -42,11 +42,11 @@ const skillsAgentsState = new State({
 /**
  * Initialize all state modules
  */
-function initializeState() {
-  settingsState.loadSettings();
-  projectsState.loadProjects();
+async function initializeState() {
+  await settingsState.loadSettings();
+  await projectsState.loadProjects();
   // Initialize time tracking with project state references
-  timeTrackingState.initTimeTracking(projectsState.projectsState);
+  await timeTrackingState.initTimeTracking(projectsState.projectsState);
   // Load FiveM resource shortcuts
   fivemState.loadResourceShortcuts();
   // Lazy require to avoid circular dependency

@@ -169,9 +169,9 @@ function init(context) {
   closeModal = context.closeModal;
 }
 
-function loadMemory() {
+async function loadMemory() {
   renderMemorySources();
-  loadMemoryContent('global');
+  await loadMemoryContent('global');
   setupMemoryEventListeners();
 }
 
@@ -181,7 +181,7 @@ function renderMemorySources(filter = '') {
   const searchQuery = filter.toLowerCase();
 
   if (projects.length === 0) {
-    projectsList.innerHTML = `<div class="memory-no-projects">Aucun projet</div>`;
+    projectsList.innerHTML = `<div class="memory-no-projects">${t('memory.noProjects')}</div>`;
     return;
   }
 
@@ -189,7 +189,7 @@ function renderMemorySources(filter = '') {
     .filter(p => !searchQuery || p.name.toLowerCase().includes(searchQuery));
 
   if (filteredProjects.length === 0) {
-    projectsList.innerHTML = `<div class="memory-no-projects">Aucun resultat pour "${escapeHtml(filter)}"</div>`;
+    projectsList.innerHTML = `<div class="memory-no-projects">${t('memory.noResults', { query: escapeHtml(filter) })}</div>`;
     return;
   }
 
@@ -226,7 +226,7 @@ function renderMemorySources(filter = '') {
   });
 }
 
-function loadMemoryContent(source, projectIndex = null) {
+async function loadMemoryContent(source, projectIndex = null) {
   memoryState.currentSource = source;
   memoryState.currentProject = projectIndex;
   memoryState.isEditing = false;
@@ -247,29 +247,29 @@ function loadMemoryContent(source, projectIndex = null) {
   try {
     if (source === 'global') {
       filePath = getGlobalClaudeMd();
-      title = 'Memoire Globale';
+      title = t('memory.globalMemory');
       fileExists = fs.existsSync(filePath);
       if (fileExists) {
-        content = fs.readFileSync(filePath, 'utf8');
+        content = await fs.promises.readFile(filePath, 'utf8');
       } else {
         content = '';
       }
     } else if (source === 'settings') {
       filePath = getClaudeSettingsJson();
-      title = 'Settings Claude';
+      title = t('memory.claudeSettings');
       fileExists = fs.existsSync(filePath);
       if (fileExists) {
-        const jsonContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        const jsonContent = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
         content = JSON.stringify(jsonContent, null, 2);
       } else {
         content = '{}';
       }
     } else if (source === 'commands') {
       filePath = getClaudeSettingsJson();
-      title = 'Commandes Autorisees';
+      title = t('memory.allowedCommands');
       fileExists = fs.existsSync(filePath);
       if (fileExists) {
-        const jsonContent = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        const jsonContent = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
         content = JSON.stringify(jsonContent.allowedCommands || jsonContent.permissions || {}, null, 2);
       } else {
         content = '{}';
@@ -281,14 +281,14 @@ function loadMemoryContent(source, projectIndex = null) {
         title = project.name;
         fileExists = fs.existsSync(filePath);
         if (fileExists) {
-          content = fs.readFileSync(filePath, 'utf8');
+          content = await fs.promises.readFile(filePath, 'utf8');
         } else {
           content = '';
         }
       }
     }
   } catch (e) {
-    content = `Erreur lors du chargement: ${e.message}`;
+    content = t('memory.errorLoading', { message: e.message });
   }
 
   memoryState.content = content;
@@ -304,7 +304,7 @@ function loadMemoryContent(source, projectIndex = null) {
   templateBtn.style.display = (isMarkdownSource && memoryState.isEditing) ? 'flex' : 'none';
 
   if (isMarkdownSource) {
-    editBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg> Editer`;
+    editBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg> ${t('memory.edit')}`;
   }
 
   // Render stats
@@ -325,7 +325,7 @@ function calculateMemoryStats(content, source) {
     try {
       const json = JSON.parse(content);
       const keys = Object.keys(json).length;
-      return `<span class="memory-stat"><span class="stat-value">${keys}</span> cles</span>`;
+      return `<span class="memory-stat"><span class="stat-value">${keys}</span> ${t('memory.keys')}</span>`;
     } catch {
       return '';
     }
@@ -337,15 +337,15 @@ function calculateMemoryStats(content, source) {
   const codeBlocks = (content.match(/```/g) || []).length / 2;
 
   let html = `
-    <span class="memory-stat"><span class="stat-value">${lines}</span> lignes</span>
-    <span class="memory-stat"><span class="stat-value">${words}</span> mots</span>
+    <span class="memory-stat"><span class="stat-value">${lines}</span> ${t('memory.lines')}</span>
+    <span class="memory-stat"><span class="stat-value">${words}</span> ${t('memory.words')}</span>
   `;
 
   if (sections > 0) {
-    html += `<span class="memory-stat"><span class="stat-value">${sections}</span> sections</span>`;
+    html += `<span class="memory-stat"><span class="stat-value">${sections}</span> ${t('memory.sections')}</span>`;
   }
   if (codeBlocks > 0) {
-    html += `<span class="memory-stat"><span class="stat-value">${Math.floor(codeBlocks)}</span> blocs code</span>`;
+    html += `<span class="memory-stat"><span class="stat-value">${Math.floor(codeBlocks)}</span> ${t('memory.codeBlocks')}</span>`;
   }
 
   return html;
@@ -365,10 +365,10 @@ function renderMemoryContent(content, source, fileExists = true) {
         <div class="memory-empty-icon">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
         </div>
-        <h3>Aucun fichier CLAUDE.md</h3>
-        <p>Creez un fichier memoire pour ${escapeHtml(projectName)} afin de personnaliser le comportement de Claude.</p>
+        <h3>${t('memory.noClaudeMd')}</h3>
+        <p>${t('memory.createHint', { name: escapeHtml(projectName) })}</p>
         <div class="memory-empty-templates">
-          <p class="template-hint">Choisissez un template pour commencer :</p>
+          <p class="template-hint">${t('memory.chooseTemplate')}</p>
           <div class="template-grid">
             ${Object.entries(MEMORY_TEMPLATES).map(([key, tpl]) => `
               <button class="template-card" data-template="${key}">
@@ -382,7 +382,7 @@ function renderMemoryContent(content, source, fileExists = true) {
     `;
 
     contentEl.querySelectorAll('.template-card').forEach(card => {
-      card.onclick = () => createMemoryFromTemplate(card.dataset.template);
+      card.onclick = async () => await createMemoryFromTemplate(card.dataset.template);
     });
     return;
   }
@@ -431,7 +431,7 @@ function parseMarkdownToHtml(md) {
   return marked.parse(md);
 }
 
-function createMemoryFromTemplate(templateKey) {
+async function createMemoryFromTemplate(templateKey) {
   const template = MEMORY_TEMPLATES[templateKey];
   if (!template) return;
 
@@ -460,9 +460,9 @@ function createMemoryFromTemplate(templateKey) {
   if (filePath) {
     try {
       fs.writeFileSync(filePath, content, 'utf8');
-      loadMemoryContent(memoryState.currentSource, memoryState.currentProject);
+      await loadMemoryContent(memoryState.currentSource, memoryState.currentProject);
     } catch (e) {
-      alert(`Erreur lors de la creation: ${e.message}`);
+      alert(t('memory.errorCreating', { message: e.message }));
     }
   }
 }
@@ -482,17 +482,17 @@ function setupMemoryEventListeners() {
     };
   }
 
-  document.getElementById('memory-sources-list').onclick = (e) => {
+  document.getElementById('memory-sources-list').onclick = async (e) => {
     const item = e.target.closest('.memory-source-item');
     if (!item) return;
 
     const source = item.dataset.source;
     const projectIndex = item.dataset.project !== undefined ? parseInt(item.dataset.project) : null;
-    loadMemoryContent(source, projectIndex);
+    await loadMemoryContent(source, projectIndex);
   };
 
-  document.getElementById('btn-memory-refresh').onclick = () => {
-    loadMemoryContent(memoryState.currentSource, memoryState.currentProject);
+  document.getElementById('btn-memory-refresh').onclick = async () => {
+    await loadMemoryContent(memoryState.currentSource, memoryState.currentProject);
   };
 
   document.getElementById('btn-memory-open').onclick = () => {
@@ -514,8 +514,8 @@ function setupMemoryEventListeners() {
     }
   };
 
-  document.getElementById('btn-memory-create').onclick = () => {
-    createMemoryFromTemplate('minimal');
+  document.getElementById('btn-memory-create').onclick = async () => {
+    await createMemoryFromTemplate('minimal');
   };
 
   document.getElementById('btn-memory-template').onclick = () => {
@@ -550,8 +550,8 @@ function showTemplateModal() {
     </div>
   `).join('');
 
-  showModal('Inserer un Template', `
-    <p style="margin-bottom: 16px; color: var(--text-secondary);">Le template sera insere a la position du curseur.</p>
+  showModal(t('memory.insertTemplate'), `
+    <p style="margin-bottom: 16px; color: var(--text-secondary);">${t('memory.templateInsertHint')}</p>
     <div class="template-list">${templatesHtml}</div>
   `);
 
@@ -584,7 +584,7 @@ function enterMemoryEditMode() {
 
   editBtn.innerHTML = `
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-    Sauvegarder
+    ${t('memory.save')}
   `;
 
   document.getElementById('memory-editor').focus();
@@ -613,7 +613,7 @@ function saveMemoryEdit() {
       fs.writeFileSync(filePath, newContent, 'utf8');
       memoryState.content = newContent;
     } catch (e) {
-      alert(`Erreur lors de la sauvegarde: ${e.message}`);
+      alert(t('memory.errorSaving', { message: e.message }));
       return;
     }
   }
@@ -622,7 +622,7 @@ function saveMemoryEdit() {
   const editBtn = document.getElementById('btn-memory-edit');
   editBtn.innerHTML = `
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-    Editer
+    ${t('memory.edit')}
   `;
 
   renderMemoryContent(newContent, memoryState.currentSource);

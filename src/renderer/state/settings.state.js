@@ -69,10 +69,10 @@ function setSetting(key, value) {
 /**
  * Load settings from file
  */
-function loadSettings() {
+async function loadSettings() {
   try {
     if (fs.existsSync(settingsFile)) {
-      const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+      const saved = JSON.parse(await fs.promises.readFile(settingsFile, 'utf8'));
       settingsState.set({ ...defaultSettings, ...saved });
     }
   } catch (e) {

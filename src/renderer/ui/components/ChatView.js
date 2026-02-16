@@ -908,7 +908,7 @@ function createChatView(wrapperEl, project, options = {}) {
       switch (mention.type) {
         case 'file': {
           try {
-            const raw = fs.readFileSync(mention.data.fullPath, 'utf8');
+            const raw = await fs.promises.readFile(mention.data.fullPath, 'utf8');
             const lines = raw.split('\n');
             if (lines.length > 500) {
               content = `File: ${mention.data.path} (showing first 500 of ${lines.length} lines)\n\n${lines.slice(0, 500).join('\n')}`;
@@ -1015,7 +1015,7 @@ function createChatView(wrapperEl, project, options = {}) {
             const { fs, path: pathModule } = window.electron_nodeModules;
             const claudeMdPath = pathModule.join(targetPath, 'CLAUDE.md');
             try {
-              const claudeMd = fs.readFileSync(claudeMdPath, 'utf8');
+              const claudeMd = await fs.promises.readFile(claudeMdPath, 'utf8');
               if (claudeMd.trim()) {
                 const truncated = claudeMd.length > 3000 ? claudeMd.slice(0, 3000) + '\n\n(Truncated)' : claudeMd;
                 parts.push(`\nCLAUDE.md:\n${truncated}`);
@@ -1464,7 +1464,7 @@ function createChatView(wrapperEl, project, options = {}) {
 
   // ── Tool card expansion ──
 
-  function toggleToolCard(card) {
+  async function toggleToolCard(card) {
     const existing = card.querySelector('.chat-tool-content');
     if (existing) {
       card.classList.toggle('expanded');
@@ -1480,7 +1480,7 @@ function createChatView(wrapperEl, project, options = {}) {
       const output = card.dataset.toolOutput || '';
       const contentEl = document.createElement('div');
       contentEl.className = 'chat-tool-content';
-      contentEl.innerHTML = formatToolContent(toolName, toolInput, output);
+      contentEl.innerHTML = await formatToolContent(toolName, toolInput, output);
       card.appendChild(contentEl);
       card.classList.add('expanded');
       scrollToBottom();
@@ -1490,11 +1490,10 @@ function createChatView(wrapperEl, project, options = {}) {
   /**
    * Find the real line number of a string in a file
    */
-  function getLineOffset(filePath, searchStr) {
+  async function getLineOffset(filePath, searchStr) {
     try {
-      // Use window.require to access Node fs at runtime (Electron nodeIntegration)
-      const fs = window.require('fs');
-      const content = fs.readFileSync(filePath, 'utf8');
+      const { fs } = window.electron_nodeModules;
+      const content = await fs.promises.readFile(filePath, 'utf8');
       const idx = content.indexOf(searchStr);
       if (idx === -1) return 1;
       return content.substring(0, idx).split('\n').length;
@@ -1526,7 +1525,7 @@ function createChatView(wrapperEl, project, options = {}) {
     ).join('');
   }
 
-  function formatToolContent(toolName, input, output) {
+  async function formatToolContent(toolName, input, output) {
     const name = (toolName || '').toLowerCase();
 
     if (name === 'write') {
@@ -1540,7 +1539,7 @@ function createChatView(wrapperEl, project, options = {}) {
       const path = input.file_path || '';
       const oldStr = input.old_string || '';
       const newStr = input.new_string || '';
-      const startLine = path ? getLineOffset(path, oldStr) : 1;
+      const startLine = path ? await getLineOffset(path, oldStr) : 1;
       return `<div class="chat-tool-content-path">${escapeHtml(path)}</div>
         <div class="chat-diff-viewer">${renderDiffLines(oldStr, newStr, startLine)}</div>`;
     }
@@ -2152,7 +2151,7 @@ function createChatView(wrapperEl, project, options = {}) {
     return el;
   }
 
-  function appendPermissionCard(data) {
+  async function appendPermissionCard(data) {
     const { requestId, toolName, input, decisionReason, suggestions } = data;
 
     // Check if it's AskUserQuestion
@@ -2163,7 +2162,7 @@ function createChatView(wrapperEl, project, options = {}) {
 
     // Plan mode handling
     if (toolName === 'ExitPlanMode' || toolName === 'EnterPlanMode') {
-      appendPlanCard(data);
+      await appendPlanCard(data);
       return;
     }
 
@@ -2289,7 +2288,9 @@ function createChatView(wrapperEl, project, options = {}) {
         if (input.file_path && input.file_path.replace(/\\/g, '/').includes('.claude/plans/')) {
           return input.file_path;
         }
-      } catch {}
+      } catch (e) {
+        console.warn('[ChatView] Failed to parse tool card input:', e);
+      }
     }
 
     // Strategy 2: Most recent .md file in ~/.claude/plans/ (< 60s old)
@@ -2306,12 +2307,14 @@ function createChatView(wrapperEl, project, options = {}) {
       if (files.length > 0 && Date.now() - files[0].mtime.getTime() < 60000) {
         return files[0].path;
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[ChatView] Failed to scan plans directory:', e);
+    }
 
     return null;
   }
 
-  function appendPlanCard(data) {
+  async function appendPlanCard(data) {
     const { requestId, toolName, input } = data;
     const isExit = toolName === 'ExitPlanMode';
     const el = document.createElement('div');
@@ -2330,11 +2333,13 @@ function createChatView(wrapperEl, project, options = {}) {
       planFilePath = findPlanFilePath();
       if (planFilePath) {
         try {
-          const raw = window.electron_nodeModules.fs.readFileSync(planFilePath, 'utf-8');
+          const raw = await window.electron_nodeModules.fs.promises.readFile(planFilePath, 'utf-8');
           if (raw && raw.trim()) {
             planContent = renderMarkdown(raw.trim());
           }
-        } catch {}
+        } catch (e) {
+          console.warn('[ChatView] Failed to read plan file:', planFilePath, e);
+        }
       }
 
       // 2. Fallback: last assistant message (only if long enough to be a plan)
@@ -2839,7 +2844,9 @@ function createChatView(wrapperEl, project, options = {}) {
         if (!matchedCard && block.tool_use_id) {
           try {
             matchedCard = messagesEl.querySelector(`.chat-tool-card[data-tool-use-id="${CSS.escape(block.tool_use_id)}"]`);
-          } catch {}
+          } catch (e) {
+            console.warn('[ChatView] CSS.escape selector failed:', e);
+          }
         }
         if (matchedCard) {
           const output = typeof block.content === 'string' ? block.content

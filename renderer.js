@@ -148,7 +148,7 @@ onLanguageChange(() => {
 // ========== KEYBOARD SHORTCUTS (extracted to ShortcutsManager module) ==========
 // ========== INITIALIZATION ==========
 ensureDirectories();
-initializeState(); // This loads settings, projects AND initializes time tracking
+initializeState(); // This loads settings, projects AND initializes time tracking (async, resolves quickly for local fs)
 initI18n(settingsState.get().language); // Initialize i18n with saved language preference
 
 // Initialize Claude event bus and provider (hooks or scraping)
@@ -161,8 +161,12 @@ registry.loadAllTranslations(mergeTranslations);
 registry.injectAllStyles();
 
 // Preload dashboard data in background at startup
-DashboardService.loadAllDiskCaches();
-setTimeout(() => DashboardService.preloadAllProjects(), 1000);
+DashboardService.loadAllDiskCaches().then(() => {
+  setTimeout(() => DashboardService.preloadAllProjects(), 1000);
+}).catch(e => {
+  console.error('Error loading disk caches:', e);
+  setTimeout(() => DashboardService.preloadAllProjects(), 1000);
+});
 updateStaticTranslations(); // Apply translations to static HTML elements
 applyAccentColor(settingsState.get().accentColor || '#d97706');
 if (settingsState.get().compactProjects !== false) {

@@ -21,8 +21,8 @@ const { applyAccentColor, ACCENT_COLORS } = require('../utils/color');
 /**
  * Initialize settings
  */
-function initializeSettings() {
-  loadSettings();
+async function initializeSettings() {
+  await loadSettings();
 
   // Apply accent color
   const accentColor = getSetting('accentColor');

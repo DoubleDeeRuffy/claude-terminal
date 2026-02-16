@@ -139,20 +139,20 @@ function isAgentFile(agent) {
 /**
  * Read agent content
  * @param {string} id - Agent ID
- * @returns {string|null}
+ * @returns {Promise<string|null>}
  */
-function readAgentContent(id) {
+async function readAgentContent(id) {
   const agent = getAgent(id);
   if (!agent) return null;
 
   try {
     if (isAgentFile(agent)) {
       // New format: single .md file
-      return fs.readFileSync(agent.path, 'utf8');
+      return await fs.promises.readFile(agent.path, 'utf8');
     } else {
       // Legacy format: directory with AGENT.md
       const agentFile = path.join(agent.path, 'AGENT.md');
-      return fs.readFileSync(agentFile, 'utf8');
+      return await fs.promises.readFile(agentFile, 'utf8');
     }
   } catch (e) {
     console.error('Error reading agent:', e);

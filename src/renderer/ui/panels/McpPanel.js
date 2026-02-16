@@ -30,22 +30,22 @@ function init(context) {
   ctx = context;
 }
 
-function loadMcps() {
+async function loadMcps() {
   if (!mcpState.registryInitialized) {
     mcpState.registryInitialized = true;
     setupMcpSubTabs();
   }
 
   if (mcpState.activeSubTab === 'local') {
-    loadLocalMcps();
+    await loadLocalMcps();
   } else {
-    loadMcpRegistryContent();
+    await loadMcpRegistryContent();
   }
 }
 
 function setupMcpSubTabs() {
   document.querySelectorAll('.mcp-sub-tab').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       document.querySelectorAll('.mcp-sub-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       mcpState.activeSubTab = btn.dataset.subtab;
@@ -58,7 +58,7 @@ function setupMcpSubTabs() {
         searchContainer.style.display = 'flex';
       }
 
-      loadMcps();
+      await loadMcps();
     };
   });
 
@@ -80,12 +80,12 @@ function setupMcpSubTabs() {
   }
 }
 
-function loadLocalMcps() {
+async function loadLocalMcps() {
   mcpState.mcps = [];
 
   try {
     if (ctx.fs.existsSync(ctx.claudeConfigFile)) {
-      const config = JSON.parse(ctx.fs.readFileSync(ctx.claudeConfigFile, 'utf8'));
+      const config = JSON.parse(await ctx.fs.promises.readFile(ctx.claudeConfigFile, 'utf8'));
       if (config.mcpServers) {
         Object.entries(config.mcpServers).forEach(([name, mcpConfig]) => {
           mcpState.mcps.push({
@@ -104,7 +104,7 @@ function loadLocalMcps() {
 
   try {
     if (ctx.fs.existsSync(ctx.claudeSettingsFile)) {
-      const settings = JSON.parse(ctx.fs.readFileSync(ctx.claudeSettingsFile, 'utf8'));
+      const settings = JSON.parse(await ctx.fs.promises.readFile(ctx.claudeSettingsFile, 'utf8'));
       if (settings.mcpServers) {
         Object.entries(settings.mcpServers).forEach(([name, config]) => {
           if (!mcpState.mcps.find(m => m.name === name)) {
@@ -124,11 +124,11 @@ function loadLocalMcps() {
   } catch (e) { console.error('Error loading MCPs from ~/.claude/settings.json:', e); }
 
   const projects = ctx.projectsState.get().projects;
-  projects.forEach(project => {
+  for (const project of projects) {
     try {
       const projectMcpFile = ctx.path.join(project.path, '.claude', 'settings.local.json');
       if (ctx.fs.existsSync(projectMcpFile)) {
-        const projectSettings = JSON.parse(ctx.fs.readFileSync(projectMcpFile, 'utf8'));
+        const projectSettings = JSON.parse(await ctx.fs.promises.readFile(projectMcpFile, 'utf8'));
         if (projectSettings.mcpServers) {
           Object.entries(projectSettings.mcpServers).forEach(([name, config]) => {
             const existingGlobal = mcpState.mcps.find(m => m.name === name && m.source === 'global');
@@ -148,7 +148,7 @@ function loadLocalMcps() {
         }
       }
     } catch (e) { /* ignore project-specific errors */ }
-  });
+  }
 
   mcpState.mcps.forEach(mcp => {
     if (!mcpState.mcpProcesses[mcp.id]) {
@@ -162,7 +162,7 @@ function loadLocalMcps() {
 function renderMcps() {
   const list = document.getElementById('mcp-list');
   if (mcpState.mcps.length === 0) {
-    list.innerHTML = `<div class="empty-list"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 16l-4-4V8.82C14.16 8.4 15 7.3 15 6c0-1.66-1.34-3-3-3S9 4.34 9 6c0 1.3.84 2.4 2 2.82V12l-4 4H3v5h5v-3.05l4-4.2 4 4.2V21h5v-5h-4z"/></svg><h3>Aucun serveur MCP</h3><p>Configurez des MCPs dans ~/.claude/settings.json</p></div>`;
+    list.innerHTML = `<div class="empty-list"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 16l-4-4V8.82C14.16 8.4 15 7.3 15 6c0-1.66-1.34-3-3-3S9 4.34 9 6c0 1.3.84 2.4 2 2.82V12l-4 4H3v5h5v-3.05l4-4.2 4 4.2V21h5v-5h-4z"/></svg><h3>${t('mcpLocal.noServers')}</h3><p>${t('mcpLocal.configureHint')}</p></div>`;
     return;
   }
 
@@ -172,7 +172,7 @@ function renderMcps() {
   let html = '';
 
   if (globalMcps.length > 0) {
-    html += `<div class="mcp-section"><div class="mcp-section-title">Global</div>`;
+    html += `<div class="mcp-section"><div class="mcp-section-title">${t('mcpLocal.global')}</div>`;
     html += globalMcps.map(mcp => renderMcpCard(mcp)).join('');
     html += `</div>`;
   }
@@ -248,7 +248,7 @@ async function searchMcpRegistry(query) {
   const cachedResults = mcpState.registry.searchCache.get(query);
   if (cachedResults) {
     mcpState.registry.searchResults = cachedResults;
-    renderMcpRegistryCards(cachedResults, t('mcpRegistry.searchResults'));
+    await renderMcpRegistryCards(cachedResults, t('mcpRegistry.searchResults'));
   } else {
     list.innerHTML = `<div class="marketplace-loading"><div class="spinner"></div>${t('common.loading')}</div>`;
   }
@@ -262,7 +262,7 @@ async function searchMcpRegistry(query) {
 
     if (JSON.stringify(newServers) !== JSON.stringify(mcpState.registry.searchResults)) {
       mcpState.registry.searchResults = newServers;
-      renderMcpRegistryCards(newServers, t('mcpRegistry.searchResults'));
+      await renderMcpRegistryCards(newServers, t('mcpRegistry.searchResults'));
     }
   } catch (e) {
     if (!cachedResults) {
@@ -275,7 +275,7 @@ async function loadMcpRegistryBrowse() {
   const list = document.getElementById('mcp-list');
 
   if (mcpState.registry.servers.length > 0) {
-    renderMcpRegistryCards(mcpState.registry.servers, t('mcpRegistry.available'));
+    await renderMcpRegistryCards(mcpState.registry.servers, t('mcpRegistry.available'));
   } else {
     list.innerHTML = `<div class="marketplace-loading"><div class="spinner"></div>${t('common.loading')}</div>`;
   }
@@ -287,7 +287,7 @@ async function loadMcpRegistryBrowse() {
     const newServers = result.servers || [];
     if (JSON.stringify(newServers) !== JSON.stringify(mcpState.registry.servers)) {
       mcpState.registry.servers = newServers;
-      renderMcpRegistryCards(newServers, t('mcpRegistry.available'));
+      await renderMcpRegistryCards(newServers, t('mcpRegistry.available'));
     }
   } catch (e) {
     if (mcpState.registry.servers.length === 0) {
@@ -296,10 +296,10 @@ async function loadMcpRegistryBrowse() {
   }
 }
 
-function renderMcpRegistryCards(servers, sectionTitle) {
+async function renderMcpRegistryCards(servers, sectionTitle) {
   const list = document.getElementById('mcp-list');
 
-  loadLocalMcpsQuiet();
+  await loadLocalMcpsQuiet();
 
   if (!servers || servers.length === 0) {
     list.innerHTML = `<div class="marketplace-empty">
@@ -372,7 +372,7 @@ function bindMcpRegistryCardHandlers() {
         installBtn.textContent = t('mcpRegistry.installing');
         try {
           await installMcpFromRegistry(serverName);
-          loadMcpRegistryContent();
+          await loadMcpRegistryContent();
         } catch (err) {
           installBtn.disabled = false;
           installBtn.textContent = t('mcpRegistry.install');
@@ -443,7 +443,7 @@ async function showMcpRegistryDetail(serverName) {
         try {
           await installMcpFromRegistry(serverName);
           ctx.closeModal();
-          loadMcpRegistryContent();
+          await loadMcpRegistryContent();
         } catch (err) {
           installDetailBtn.disabled = false;
           installDetailBtn.textContent = t('mcpRegistry.install');
@@ -512,8 +512,8 @@ async function installMcpFromRegistry(serverName) {
     }
   }
 
-  saveMcpToConfig(serverName, mcpConfig);
-  loadLocalMcpsQuiet();
+  await saveMcpToConfig(serverName, mcpConfig);
+  await loadLocalMcpsQuiet();
 
   if (ctx.showToast) {
     ctx.showToast({ type: 'success', title: t('mcpRegistry.installSuccess', { name: server.title || serverName }) });
@@ -614,11 +614,11 @@ function showMcpEnvForm(server, envVarsSpec, argsSpec) {
   });
 }
 
-function saveMcpToConfig(serverName, mcpConfig) {
+async function saveMcpToConfig(serverName, mcpConfig) {
   try {
     let config = {};
     if (ctx.fs.existsSync(ctx.claudeConfigFile)) {
-      config = JSON.parse(ctx.fs.readFileSync(ctx.claudeConfigFile, 'utf8'));
+      config = JSON.parse(await ctx.fs.promises.readFile(ctx.claudeConfigFile, 'utf8'));
     }
     if (!config.mcpServers) {
       config.mcpServers = {};
@@ -631,11 +631,11 @@ function saveMcpToConfig(serverName, mcpConfig) {
   }
 }
 
-function loadLocalMcpsQuiet() {
+async function loadLocalMcpsQuiet() {
   mcpState.mcps = [];
   try {
     if (ctx.fs.existsSync(ctx.claudeConfigFile)) {
-      const config = JSON.parse(ctx.fs.readFileSync(ctx.claudeConfigFile, 'utf8'));
+      const config = JSON.parse(await ctx.fs.promises.readFile(ctx.claudeConfigFile, 'utf8'));
       if (config.mcpServers) {
         Object.entries(config.mcpServers).forEach(([name, mcpConfig]) => {
           mcpState.mcps.push({ id: `global-${name}`, name, command: mcpConfig.command || '', args: mcpConfig.args || [], env: mcpConfig.env || {}, source: 'global', sourceLabel: 'Global' });
@@ -645,7 +645,7 @@ function loadLocalMcpsQuiet() {
   } catch { /* ignore */ }
   try {
     if (ctx.fs.existsSync(ctx.claudeSettingsFile)) {
-      const settings = JSON.parse(ctx.fs.readFileSync(ctx.claudeSettingsFile, 'utf8'));
+      const settings = JSON.parse(await ctx.fs.promises.readFile(ctx.claudeSettingsFile, 'utf8'));
       if (settings.mcpServers) {
         Object.entries(settings.mcpServers).forEach(([name, config]) => {
           if (!mcpState.mcps.find(m => m.name === name)) {

@@ -71,10 +71,10 @@ function createEmptyArchive(year, month) {
 /**
  * Read an archive file from disk (bypasses cache)
  */
-function readArchiveFromDisk(filePath) {
+async function readArchiveFromDisk(filePath) {
   try {
     if (!fs.existsSync(filePath)) return null;
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = await fs.promises.readFile(filePath, 'utf8');
     if (!content || !content.trim()) return null;
     return JSON.parse(content);
   } catch (error) {
@@ -86,7 +86,7 @@ function readArchiveFromDisk(filePath) {
 /**
  * Load an archive with LRU caching
  */
-function loadArchive(year, month) {
+async function loadArchive(year, month) {
   const key = getCacheKey(year, month);
 
   if (archiveCache.has(key)) {
@@ -94,7 +94,7 @@ function loadArchive(year, month) {
   }
 
   const filePath = getArchiveFilePath(year, month);
-  const data = readArchiveFromDisk(filePath);
+  const data = await readArchiveFromDisk(filePath);
 
   if (data) {
     if (archiveCache.size >= MAX_CACHE_SIZE) {
@@ -138,10 +138,10 @@ function writeArchive(year, month, archiveData) {
 /**
  * Append sessions to an archive, deduplicating by session ID
  */
-function appendToArchive(year, month, globalSessions, projectSessionsMap) {
+async function appendToArchive(year, month, globalSessions, projectSessionsMap) {
   const filePath = getArchiveFilePath(year, month);
 
-  let archive = readArchiveFromDisk(filePath);
+  let archive = await readArchiveFromDisk(filePath);
   if (!archive) {
     archive = createEmptyArchive(year, month);
   }
@@ -184,24 +184,24 @@ function appendToArchive(year, month, globalSessions, projectSessionsMap) {
 /**
  * Get archived global sessions for a specific month
  */
-function getArchivedGlobalSessions(year, month) {
-  const archive = loadArchive(year, month);
+async function getArchivedGlobalSessions(year, month) {
+  const archive = await loadArchive(year, month);
   return archive?.globalSessions || [];
 }
 
 /**
  * Get archived sessions for a specific project in a month
  */
-function getArchivedProjectSessions(year, month, projectId) {
-  const archive = loadArchive(year, month);
+async function getArchivedProjectSessions(year, month, projectId) {
+  const archive = await loadArchive(year, month);
   return archive?.projectSessions?.[projectId]?.sessions || [];
 }
 
 /**
  * Get all archived project sessions for a month
  */
-function getArchivedAllProjectSessions(year, month) {
-  const archive = loadArchive(year, month);
+async function getArchivedAllProjectSessions(year, month) {
+  const archive = await loadArchive(year, month);
   return archive?.projectSessions || {};
 }
 
@@ -232,7 +232,7 @@ function getMonthsInRange(periodStart, periodEnd) {
  * Migrate old archives from ~/.claude-terminal/archives/ to timetracking/YYYY/month.json
  * One-time migration on first launch after update
  */
-function migrateOldArchives() {
+async function migrateOldArchives() {
   try {
     if (!fs.existsSync(archivesDir)) return;
 
@@ -268,7 +268,7 @@ function migrateOldArchives() {
       }
 
       // Read old, write to new location
-      const data = readArchiveFromDisk(oldPath);
+      const data = await readArchiveFromDisk(oldPath);
       if (data) {
         ensureYearDir(year);
         try {

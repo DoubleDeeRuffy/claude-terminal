@@ -18,6 +18,7 @@ let updateInterval = null;
 let calendarPopup = null;
 let calendarOutsideClickHandler = null;
 let calendarEscHandler = null;
+let calendarListenerTimer = null;
 
 /**
  * Get period label based on current period and offset
@@ -107,7 +108,7 @@ function getPeriodBoundaries() {
  * Get sessions for current period from all projects
  * Merges consecutive sessions from the same project if gap < 30min
  */
-function getSessionsForPeriod() {
+async function getSessionsForPeriod() {
   const projects = projectsState.get().projects;
   const { periodStart, periodEnd } = getPeriodBoundaries();
   const allSessions = [];
@@ -133,7 +134,7 @@ function getSessionsForPeriod() {
       }
     } else {
       // Past months: read from archive
-      const archivedProjects = ArchiveService.getArchivedAllProjectSessions(year, month);
+      const archivedProjects = await ArchiveService.getArchivedAllProjectSessions(year, month);
       for (const [projectId, data] of Object.entries(archivedProjects)) {
         const liveProject = projects.find(p => p.id === projectId);
         for (const session of data.sessions) {
@@ -183,7 +184,7 @@ function getSessionsForPeriod() {
 /**
  * Get global sessions for current period
  */
-function getGlobalSessionsForPeriod() {
+async function getGlobalSessionsForPeriod() {
   const { periodStart, periodEnd } = getPeriodBoundaries();
   const months = ArchiveService.getMonthsInRange(periodStart, periodEnd);
   let allSessions = [];
@@ -195,7 +196,7 @@ function getGlobalSessionsForPeriod() {
         allSessions = allSessions.concat(globalTracking.sessions);
       }
     } else {
-      const archived = ArchiveService.getArchivedGlobalSessions(year, month);
+      const archived = await ArchiveService.getArchivedGlobalSessions(year, month);
       allSessions = allSessions.concat(archived);
     }
   }
@@ -210,7 +211,7 @@ function getGlobalSessionsForPeriod() {
  * Get the total time for current period
  * Uses global counters for current period (more accurate), sessions for past periods
  */
-function getTotalTimeForPeriod() {
+async function getTotalTimeForPeriod() {
   const globalTimes = getGlobalTimes();
 
   // For current period (offset === 0), use global counters as they're more accurate
@@ -221,15 +222,15 @@ function getTotalTimeForPeriod() {
   }
 
   // For past periods, calculate from global sessions
-  const globalSessions = getGlobalSessionsForPeriod();
+  const globalSessions = await getGlobalSessionsForPeriod();
   return globalSessions.reduce((sum, s) => sum + (s.duration || 0), 0);
 }
 
 /**
  * Calculate time by project for current period
  */
-function getTimeByProject() {
-  const { sessions } = getSessionsForPeriod();
+async function getTimeByProject() {
+  const { sessions } = await getSessionsForPeriod();
   const projectTimes = new Map();
 
   for (const session of sessions) {
@@ -251,8 +252,8 @@ function getTimeByProject() {
 /**
  * Calculate daily data for chart using global sessions
  */
-function getDailyData() {
-  const globalSessions = getGlobalSessionsForPeriod();
+async function getDailyData() {
+  const globalSessions = await getGlobalSessionsForPeriod();
   const { periodStart, periodEnd } = getPeriodBoundaries();
   const days = [];
   const locale = t('language.code') === 'fr' ? 'fr-FR' : 'en-US';
@@ -343,7 +344,7 @@ function getDailyData() {
 /**
  * Calculate streak (consecutive days with activity)
  */
-function calculateStreak() {
+async function calculateStreak() {
   const globalTracking = getGlobalTrackingData();
   const activeDays = new Set();
 
@@ -358,7 +359,7 @@ function calculateStreak() {
   // Load previous month archive for cross-month streaks
   const now = new Date();
   const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevSessions = ArchiveService.getArchivedGlobalSessions(
+  const prevSessions = await ArchiveService.getArchivedGlobalSessions(
     prevMonth.getFullYear(), prevMonth.getMonth()
   );
   for (const session of prevSessions) {
@@ -404,8 +405,8 @@ function calculateStreak() {
 /**
  * Get most active project for current period
  */
-function getMostActiveProject() {
-  const projectBreakdown = getTimeByProject();
+async function getMostActiveProject() {
+  const projectBreakdown = await getTimeByProject();
   if (projectBreakdown.length === 0) return null;
 
   const top = projectBreakdown[0];
@@ -418,8 +419,8 @@ function getMostActiveProject() {
 /**
  * Calculate average daily time for current period
  */
-function getAverageDailyTime() {
-  const dailyData = getDailyData();
+async function getAverageDailyTime() {
+  const dailyData = await getDailyData();
   const activeDays = dailyData.filter(d => d.time > 0);
   if (activeDays.length === 0) return 0;
 
@@ -430,16 +431,16 @@ function getAverageDailyTime() {
 /**
  * Get session count for current period
  */
-function getSessionCount() {
-  const globalSessions = getGlobalSessionsForPeriod();
+async function getSessionCount() {
+  const globalSessions = await getGlobalSessionsForPeriod();
   return globalSessions.length;
 }
 
 /**
  * Get day-specific stats (first/last session times)
  */
-function getDayStats() {
-  const globalSessions = getGlobalSessionsForPeriod();
+async function getDayStats() {
+  const globalSessions = await getGlobalSessionsForPeriod();
   if (globalSessions.length === 0) {
     return { firstSession: null, lastSession: null, projectCount: 0 };
   }
@@ -453,7 +454,7 @@ function getDayStats() {
   const lastSession = new Date(sorted[sorted.length - 1].endTime);
 
   // Count unique projects
-  const { sessions } = getSessionsForPeriod();
+  const { sessions } = await getSessionsForPeriod();
   const uniqueProjects = new Set(sessions.map(s => s.projectId));
 
   return { firstSession, lastSession, projectCount: uniqueProjects.size };
@@ -462,19 +463,19 @@ function getDayStats() {
 /**
  * Render the time tracking dashboard
  */
-function render(container) {
+async function render(container) {
   const globalTimes = getGlobalTimes();
-  const totalPeriodTime = getTotalTimeForPeriod();
+  const totalPeriodTime = await getTotalTimeForPeriod();
   const { hours, minutes } = formatDurationLarge(totalPeriodTime);
-  const projectBreakdown = getTimeByProject();
-  const dailyData = getDailyData();
+  const projectBreakdown = await getTimeByProject();
+  const dailyData = await getDailyData();
   const maxDailyTime = Math.max(...dailyData.map(d => d.time), 1);
-  const streak = calculateStreak();
-  const mostActive = getMostActiveProject();
-  const avgDaily = getAverageDailyTime();
-  const sessionCount = getSessionCount();
-  const { sessions: projectSessions } = getSessionsForPeriod();
-  const dayStats = getDayStats();
+  const streak = await calculateStreak();
+  const mostActive = await getMostActiveProject();
+  const avgDaily = await getAverageDailyTime();
+  const sessionCount = await getSessionCount();
+  const { sessions: projectSessions } = await getSessionsForPeriod();
+  const dayStats = await getDayStats();
   const locale = t('language.code') === 'fr' ? 'fr-FR' : 'en-US';
 
   // Calculate percentages based on project time breakdown
@@ -734,6 +735,11 @@ function render(container) {
  * Close the calendar popup
  */
 function closeCalendarPopup() {
+  // Cancel pending listener registration if not yet fired
+  if (calendarListenerTimer) {
+    clearTimeout(calendarListenerTimer);
+    calendarListenerTimer = null;
+  }
   // Remove document-level listeners
   if (calendarOutsideClickHandler) {
     document.removeEventListener('mousedown', calendarOutsideClickHandler);
@@ -894,7 +900,7 @@ function showCalendarPopup(container, anchorEl) {
 
     // Shortcut buttons
     popup.querySelectorAll('.tt-calendar-shortcut-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const period = btn.dataset.period;
         const offset = btn.dataset.offset !== '' ? parseInt(btn.dataset.offset) : 0;
@@ -917,7 +923,7 @@ function showCalendarPopup(container, anchorEl) {
         }
 
         closeCalendarPopup();
-        render(container);
+        await render(container);
       });
     });
 
@@ -948,7 +954,7 @@ function showCalendarPopup(container, anchorEl) {
     });
 
     // Apply button
-    popup.querySelector('#tt-cal-apply')?.addEventListener('click', (e) => {
+    popup.querySelector('#tt-cal-apply')?.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (rangeStart && rangeEnd) {
         customStartDate = new Date(rangeStart);
@@ -957,7 +963,7 @@ function showCalendarPopup(container, anchorEl) {
         currentPeriod = 'custom';
         currentOffset = 0;
         closeCalendarPopup();
-        render(container);
+        await render(container);
       }
     });
   }
@@ -971,7 +977,10 @@ function showCalendarPopup(container, anchorEl) {
       closeCalendarPopup();
     }
   };
-  setTimeout(() => document.addEventListener('mousedown', calendarOutsideClickHandler), 0);
+  calendarListenerTimer = setTimeout(() => {
+    calendarListenerTimer = null;
+    document.addEventListener('mousedown', calendarOutsideClickHandler);
+  }, 0);
 
   // Close on Escape
   calendarEscHandler = (e) => {
@@ -988,13 +997,13 @@ function showCalendarPopup(container, anchorEl) {
 function attachEventListeners(container) {
   // Period selector buttons
   container.querySelectorAll('.tt-period-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       currentPeriod = btn.dataset.period;
       currentOffset = 0;
       customStartDate = null;
       customEndDate = null;
       closeCalendarPopup();
-      render(container);
+      await render(container);
     });
   });
 
@@ -1006,7 +1015,7 @@ function attachEventListeners(container) {
   });
 
   // Navigation buttons
-  container.querySelector('#tt-prev')?.addEventListener('click', () => {
+  container.querySelector('#tt-prev')?.addEventListener('click', async () => {
     if (currentPeriod === 'custom') {
       currentPeriod = 'day';
       customStartDate = null;
@@ -1014,14 +1023,14 @@ function attachEventListeners(container) {
       currentOffset = 0;
     }
     currentOffset--;
-    render(container);
+    await render(container);
   });
 
-  container.querySelector('#tt-next')?.addEventListener('click', () => {
+  container.querySelector('#tt-next')?.addEventListener('click', async () => {
     if (currentPeriod === 'custom') return;
     if (currentOffset < 0) {
       currentOffset++;
-      render(container);
+      await render(container);
     }
   });
 }
@@ -1029,8 +1038,8 @@ function attachEventListeners(container) {
 /**
  * Initialize the dashboard with auto-refresh
  */
-function init(container) {
-  render(container);
+async function init(container) {
+  await render(container);
 
   // Clear existing interval if any
   if (updateInterval) {
@@ -1038,10 +1047,10 @@ function init(container) {
   }
 
   // Update every 30 seconds
-  updateInterval = setInterval(() => {
+  updateInterval = setInterval(async () => {
     // Only update if the container is still in the DOM and visible
     if (container.offsetParent !== null) {
-      render(container);
+      await render(container);
     }
   }, 30000);
 }

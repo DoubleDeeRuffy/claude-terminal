@@ -2,7 +2,19 @@
 global.window = global.window || {};
 window.electron_nodeModules = {
   path: require('path'),
-  fs: { existsSync: jest.fn(), readFileSync: jest.fn(), writeFileSync: jest.fn(), mkdirSync: jest.fn(), copyFileSync: jest.fn(), renameSync: jest.fn(), unlinkSync: jest.fn() },
+  fs: {
+    existsSync: jest.fn(),
+    readFileSync: jest.fn(),
+    writeFileSync: jest.fn(),
+    mkdirSync: jest.fn(),
+    copyFileSync: jest.fn(),
+    renameSync: jest.fn(),
+    unlinkSync: jest.fn(),
+    promises: {
+      readFile: jest.fn(),
+      writeFile: jest.fn(),
+    }
+  },
   os: { homedir: () => '/mock/home' },
   process: { resourcesPath: '/mock/resources' },
   __dirname: '/mock/app'

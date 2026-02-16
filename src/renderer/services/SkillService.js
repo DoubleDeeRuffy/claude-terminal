@@ -196,15 +196,15 @@ function getSkill(id) {
 /**
  * Read skill content
  * @param {string} id - Skill ID
- * @returns {string|null}
+ * @returns {Promise<string|null>}
  */
-function readSkillContent(id) {
+async function readSkillContent(id) {
   const skill = getSkill(id);
   if (!skill) return null;
 
   const skillFile = path.join(skill.path, 'SKILL.md');
   try {
-    return fs.readFileSync(skillFile, 'utf8');
+    return await fs.promises.readFile(skillFile, 'utf8');
   } catch (e) {
     console.error('Error reading skill:', e);
     return null;

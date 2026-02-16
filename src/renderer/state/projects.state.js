@@ -139,12 +139,12 @@ function createCorruptedBackup(filePath) {
 /**
  * Load projects from file
  */
-function loadProjects() {
+async function loadProjects() {
   try {
     ensureDataDir();
 
     if (fs.existsSync(projectsFile)) {
-      const rawContent = fs.readFileSync(projectsFile, 'utf8');
+      const rawContent = await fs.promises.readFile(projectsFile, 'utf8');
 
       // Check for empty or whitespace-only file
       if (!rawContent || !rawContent.trim()) {

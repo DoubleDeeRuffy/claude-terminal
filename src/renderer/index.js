@@ -27,7 +27,7 @@ const events = require('./events');
 /**
  * Initialize all renderer modules
  */
-function initialize() {
+async function initialize() {
   // Tag platform on body for CSS targeting (macOS traffic lights, etc.)
   const platform = window.electron_nodeModules?.process?.platform || 'win32';
   document.body.classList.add(`platform-${platform}`);
@@ -36,14 +36,14 @@ function initialize() {
   utils.ensureDirectories();
 
   // Initialize state
-  state.initializeState();
+  await state.initializeState();
 
   // Initialize i18n with saved language or auto-detect
   const savedLanguage = state.getSetting('language');
   i18n.initI18n(savedLanguage);
 
   // Initialize settings (applies accent color, etc.)
-  services.SettingsService.initializeSettings();
+  await services.SettingsService.initializeSettings();
 
   // Terminal IPC listeners are handled by TerminalManager's centralized dispatcher
 
@@ -88,13 +88,18 @@ function initialize() {
   // Initialize Claude event bus and provider
   events.initClaudeEvents();
 
-  // Load disk-cached dashboard data immediately (sync, fast)
-  services.DashboardService.loadAllDiskCaches();
-
-  // Then refresh from APIs in background
-  setTimeout(() => {
-    services.DashboardService.preloadAllProjects();
-  }, 500);
+  // Load disk-cached dashboard data then refresh from APIs in background
+  services.DashboardService.loadAllDiskCaches().then(() => {
+    setTimeout(() => {
+      services.DashboardService.preloadAllProjects();
+    }, 500);
+  }).catch(e => {
+    console.error('Error loading disk caches:', e);
+    // Still try to preload even if disk cache fails
+    setTimeout(() => {
+      services.DashboardService.preloadAllProjects();
+    }, 500);
+  });
 
 }
 
