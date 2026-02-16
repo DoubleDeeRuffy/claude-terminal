@@ -5,8 +5,20 @@
 
 const MemoryEditor = require('./MemoryEditor');
 const GitChangesPanel = require('./GitChangesPanel');
+const ShortcutsManager = require('./ShortcutsManager');
+const SettingsPanel = require('./SettingsPanel');
+const SkillsAgentsPanel = require('./SkillsAgentsPanel');
+const PluginsPanel = require('./PluginsPanel');
+const MarketplacePanel = require('./MarketplacePanel');
+const McpPanel = require('./McpPanel');
 
 module.exports = {
   MemoryEditor,
-  GitChangesPanel
+  GitChangesPanel,
+  ShortcutsManager,
+  SettingsPanel,
+  SkillsAgentsPanel,
+  PluginsPanel,
+  MarketplacePanel,
+  McpPanel
 };
