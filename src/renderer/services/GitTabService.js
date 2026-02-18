@@ -541,15 +541,21 @@ function renderWorktrees() {
   // Delegated click handler
   container.onclick = (e) => {
     const btn = e.target.closest('.git-wt-btn');
-    if (!btn) return;
-    const item = btn.closest('.git-worktree-item');
+    const item = e.target.closest('.git-worktree-item');
+    if (!item) return;
     const wtPath = item.dataset.wtPath;
     const wtBranch = item.dataset.wtBranch;
-    if (btn.classList.contains('open')) handleOpenWorktreeAsProject(wtPath);
-    else if (btn.classList.contains('merge')) handleMerge(wtBranch);
-    else if (btn.classList.contains('lock')) handleLockWorktree(wtPath);
-    else if (btn.classList.contains('unlock')) handleUnlockWorktree(wtPath);
-    else if (btn.classList.contains('remove')) handleRemoveWorktree(wtPath);
+
+    if (btn) {
+      if (btn.classList.contains('open')) handleOpenWorktreeAsProject(wtPath);
+      else if (btn.classList.contains('merge')) handleMerge(wtBranch);
+      else if (btn.classList.contains('lock')) handleLockWorktree(wtPath);
+      else if (btn.classList.contains('unlock')) handleUnlockWorktree(wtPath);
+      else if (btn.classList.contains('remove')) handleRemoveWorktree(wtPath);
+    } else {
+      // Click on worktree item itself — quick switch to project
+      handleQuickSwitchWorktree(wtPath);
+    }
   };
 }
 
@@ -735,20 +741,35 @@ async function handleCreateWorktree() {
   });
 }
 
+function handleQuickSwitchWorktree(wtPath) {
+  const { addProject, setOpenedProjectId } = require('../state');
+  const normalizedPath = wtPath.replace(/\\/g, '/');
+
+  // Find existing project matching this worktree path
+  const projects = projectsState.get().projects;
+  let existing = projects.find(p => p.path?.replace(/\\/g, '/') === normalizedPath);
+
+  if (!existing) {
+    // Not yet a project — add it first
+    const name = normalizedPath.split('/').pop();
+    const wt = worktreesData.find(w => w.path === wtPath);
+    existing = addProject({
+      name,
+      path: wtPath,
+      type: 'standalone',
+      isWorktree: true,
+      parentRepoProjectId: selectedProjectId,
+      worktreeBranch: wt?.branch || null
+    });
+  }
+
+  if (existing?.id) {
+    setOpenedProjectId(existing.id);
+  }
+}
+
 async function handleOpenWorktreeAsProject(wtPath) {
-  const { addProject } = require('../state');
-  const name = wtPath.replace(/\\/g, '/').split('/').pop();
-  const wt = worktreesData.find(w => w.path === wtPath);
-
-  addProject({
-    name: `${name}`,
-    path: wtPath,
-    type: 'standalone',
-    isWorktree: true,
-    parentRepoProjectId: selectedProjectId,
-    worktreeBranch: wt?.branch || null
-  });
-
+  handleQuickSwitchWorktree(wtPath);
   showToast(t('gitTab.worktreeOpened'), 'success');
 }
 
