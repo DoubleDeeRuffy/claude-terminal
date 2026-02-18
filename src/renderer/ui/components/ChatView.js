@@ -2817,7 +2817,7 @@ function createChatView(wrapperEl, project, options = {}) {
             setStatus('working', t('chat.subagentRunning') || 'Agent running...');
           } else if (block.name !== 'AskUserQuestion') {
             const card = appendToolCard(block.name, '');
-            if (block.id) card.dataset.toolUseId = block.id;
+            card.dataset.toolUseId = block.id || `fallback-${blockIdx}`;
             toolCards.set(blockIdx, card);
           }
           toolInputBuffers.set(blockIdx, '');
@@ -2912,13 +2912,15 @@ function createChatView(wrapperEl, project, options = {}) {
       case 'message_stop':
         removeThinkingIndicator();
         finalizeStreamBlock();
+        // Always complete any remaining tool cards — if a tool_result was missed
+        // or matching failed, this prevents spinners from staying stuck forever
+        for (const [, card] of toolCards) {
+          completeToolCard(card);
+        }
+        toolCards.clear();
         if (!currentMsgHasToolUse) {
           // Turn is complete (no tool use) — reset streaming
           setStreaming(false);
-          for (const [, card] of toolCards) {
-            completeToolCard(card);
-          }
-          toolCards.clear();
           // Don't complete subagent cards here — they have their own lifecycle
           // via parent_tool_use_id messages and will be completed when their
           // individual 'result' message arrives or on chat-done/chat-error
@@ -3016,6 +3018,8 @@ function createChatView(wrapperEl, project, options = {}) {
           if (output) matchedCard.dataset.toolOutput = output;
           completeToolCard(matchedCard);
           if (matchedIdx !== null) toolCards.delete(matchedIdx);
+        } else {
+          console.warn('[ChatView] tool_result unmatched, tool_use_id:', block.tool_use_id, 'toolCards size:', toolCards.size);
         }
       }
     }
