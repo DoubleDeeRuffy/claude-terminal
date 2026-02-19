@@ -269,10 +269,22 @@ function copyDirSync(src, dest) {
 }
 
 /**
+ * Validate skillId to prevent path traversal attacks
+ * Only allows alphanumeric, hyphens, underscores, and dots — no separators
+ */
+function isValidSkillId(skillId) {
+  return typeof skillId === 'string' && /^[\w\-\.]+$/.test(skillId) && !skillId.includes('..');
+}
+
+/**
  * Install a skill from the marketplace
  */
 async function installSkill({ source, skillId, name, installs }) {
   console.debug(`[Marketplace] Installing skill ${skillId} from ${source}`);
+
+  if (!isValidSkillId(skillId)) {
+    throw new Error(`Invalid skillId: "${skillId}"`);
+  }
 
   const repoUrl = `https://github.com/${source}.git`;
   let tmpDir = null;
@@ -370,7 +382,15 @@ async function installSkill({ source, skillId, name, installs }) {
 function uninstallSkill(skillId) {
   console.debug(`[Marketplace] Uninstalling skill ${skillId}`);
 
-  const skillDir = path.join(skillsDir, skillId);
+  if (!isValidSkillId(skillId)) {
+    throw new Error(`Invalid skillId: "${skillId}"`);
+  }
+
+  // Resolve and verify the path stays within skillsDir
+  const skillDir = path.resolve(skillsDir, skillId);
+  if (!skillDir.startsWith(path.resolve(skillsDir) + path.sep)) {
+    throw new Error(`Path traversal detected for skillId: "${skillId}"`);
+  }
   if (fs.existsSync(skillDir)) {
     fs.rmSync(skillDir, { recursive: true, force: true });
   }
