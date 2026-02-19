@@ -8,6 +8,11 @@ const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDeta
 const { generateCommitMessage } = require('../utils/commitMessageGenerator');
 const GitHubAuthService = require('../services/GitHubAuthService');
 
+// Input validators
+const isValidCommitHash = (h) => typeof h === 'string' && /^[a-f0-9]{4,64}$/i.test(h);
+const isValidBranchName = (b) => typeof b === 'string' && b.length > 0 && b.length < 256 && !/[^a-zA-Z0-9._\-\/]/.test(b);
+const isValidStashRef = (r) => typeof r === 'string' && /^stash@\{\d+\}$/.test(r);
+
 /**
  * Register git IPC handlers
  */
@@ -54,11 +59,13 @@ function registerGitHandlers() {
 
   // Checkout branch
   ipcMain.handle('git-checkout', async (event, { projectPath, branch }) => {
+    if (!isValidBranchName(branch)) return { success: false, error: 'Invalid branch name' };
     return checkoutBranch(projectPath, branch);
   });
 
   // Git merge
   ipcMain.handle('git-merge', async (event, { projectPath, branch }) => {
+    if (!isValidBranchName(branch)) return { success: false, error: 'Invalid branch name' };
     return gitMerge(projectPath, branch);
   });
 
@@ -106,11 +113,13 @@ function registerGitHandlers() {
 
   // Create a new branch
   ipcMain.handle('git-create-branch', async (event, { projectPath, branch }) => {
+    if (!isValidBranchName(branch)) return { success: false, error: 'Invalid branch name' };
     return createBranch(projectPath, branch);
   });
 
   // Delete a branch
   ipcMain.handle('git-delete-branch', async (event, { projectPath, branch, force }) => {
+    if (!isValidBranchName(branch)) return { success: false, error: 'Invalid branch name' };
     return deleteBranch(projectPath, branch, force);
   });
 
@@ -126,16 +135,19 @@ function registerGitHandlers() {
 
   // Get commit detail
   ipcMain.handle('git-commit-detail', async (event, { projectPath, commitHash }) => {
+    if (!isValidCommitHash(commitHash)) return '';
     return getCommitDetail(projectPath, commitHash);
   });
 
   // Cherry-pick a commit
   ipcMain.handle('git-cherry-pick', async (event, { projectPath, commitHash }) => {
+    if (!isValidCommitHash(commitHash)) return { success: false, error: 'Invalid commit hash' };
     return cherryPick(projectPath, commitHash);
   });
 
   // Revert a commit
   ipcMain.handle('git-revert', async (event, { projectPath, commitHash }) => {
+    if (!isValidCommitHash(commitHash)) return { success: false, error: 'Invalid commit hash' };
     return revertCommit(projectPath, commitHash);
   });
 
@@ -146,11 +158,13 @@ function registerGitHandlers() {
 
   // Apply stash
   ipcMain.handle('git-stash-apply', async (event, { projectPath, stashRef }) => {
+    if (!isValidStashRef(stashRef)) return { success: false, error: 'Invalid stash reference' };
     return stashApply(projectPath, stashRef);
   });
 
   // Drop stash
   ipcMain.handle('git-stash-drop', async (event, { projectPath, stashRef }) => {
+    if (!isValidStashRef(stashRef)) return { success: false, error: 'Invalid stash reference' };
     return stashDrop(projectPath, stashRef);
   });
 
@@ -173,8 +187,7 @@ function registerGitHandlers() {
 
       // Tracked files: git diff HEAD
       if (trackedFiles.length > 0) {
-        const trackedPaths = trackedFiles.map(f => `"${f.path}"`).join(' ');
-        const diff = await execGit(projectPath, `diff HEAD -- ${trackedPaths}`, 15000);
+        const diff = await execGit(projectPath, ['diff', 'HEAD', '--', ...trackedFiles.map(f => f.path)], 15000);
         if (diff) diffParts.push(diff);
       }
 

@@ -74,17 +74,27 @@ function registerDialogHandlers() {
 
   // Open in external editor
   ipcMain.on('open-in-editor', (event, { editor, path: projectPath }) => {
-    const { exec } = require('child_process');
-    exec(`${editor} "${projectPath}"`, (error) => {
+    const { execFile } = require('child_process');
+    // Allowlist of known editors - prevents arbitrary command injection
+    const ALLOWED_EDITORS = ['code', 'cursor', 'webstorm', 'idea', 'subl', 'atom', 'notepad++', 'notepad', 'vim', 'nvim', 'nano', 'zed'];
+    const editorBin = (editor || '').trim();
+    const isAllowed = ALLOWED_EDITORS.some(e => editorBin === e || editorBin.endsWith(`/${e}`) || editorBin.endsWith(`\\${e}`) || editorBin.endsWith(`\\${e}.exe`) || editorBin.endsWith(`/${e}.exe`));
+    if (!isAllowed) {
+      console.error(`[Dialog IPC] Editor not in allowlist: "${editorBin}"`);
+      return;
+    }
+    execFile(editorBin, [projectPath], (error) => {
       if (error) {
-        console.error(`[Dialog IPC] Failed to open editor "${editor}":`, error.message);
+        console.error(`[Dialog IPC] Failed to open editor "${editorBin}":`, error.message);
       }
     });
   });
 
-  // Open external URL in browser
+  // Open external URL in browser (only https:// and http:// allowed)
   ipcMain.on('open-external', (event, url) => {
-    shell.openExternal(url);
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      shell.openExternal(url);
+    }
   });
 
   // Show notification (custom BrowserWindow)
