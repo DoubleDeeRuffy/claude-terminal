@@ -51,6 +51,18 @@ function createMainWindow({ isDev = false } = {}) {
     }
   });
 
+  // Block navigation to external URLs — prevents XSS-injected links from navigating the main window
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const htmlPath = path.join(__dirname, '..', '..', '..', 'index.html');
+    const fileUrl = `file://${htmlPath.replace(/\\/g, '/')}`;
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+    }
+  });
+
+  // Block window.open() calls
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   // Open DevTools in development
   if (isDev) {
     mainWindow.webContents.openDevTools();
