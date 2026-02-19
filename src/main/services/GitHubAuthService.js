@@ -28,6 +28,11 @@ function httpsRequest(options, postData = null, maxRedirects = 3) {
           hostname: redirectUrl.hostname,
           path: redirectUrl.pathname + redirectUrl.search,
         };
+        // Strip Authorization header on cross-origin redirects to prevent token leakage
+        if (redirectUrl.hostname !== options.hostname) {
+          const { Authorization, authorization, ...safeHeaders } = newOptions.headers || {};
+          newOptions.headers = safeHeaders;
+        }
         return httpsRequest(newOptions, postData, maxRedirects - 1).then(resolve).catch(reject);
       }
 
