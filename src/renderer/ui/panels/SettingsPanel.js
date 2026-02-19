@@ -453,6 +453,26 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             <div class="settings-row">
               <div class="settings-label">
+                <div>${t('settings.editor')}</div>
+                <div class="settings-desc">${t('settings.editorDesc')}</div>
+              </div>
+              <div class="settings-dropdown" id="editor-dropdown" data-value="${settings.editor || 'code'}">
+                <div class="settings-dropdown-trigger">
+                  <span>${{'code':'VS Code','cursor':'Cursor','zed':'Zed','subl':'Sublime Text','webstorm':'WebStorm','idea':'IntelliJ IDEA','nvim':'Neovim','vim':'Vim'}[settings.editor || 'code'] || (settings.editor || 'code')}</span>
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                </div>
+                <div class="settings-dropdown-menu">
+                  ${[{v:'code',l:'VS Code'},{v:'cursor',l:'Cursor'},{v:'zed',l:'Zed'},{v:'subl',l:'Sublime Text'},{v:'webstorm',l:'WebStorm'},{v:'idea',l:'IntelliJ IDEA'},{v:'nvim',l:'Neovim'},{v:'vim',l:'Vim'}].map(o =>
+                    `<div class="settings-dropdown-option ${(settings.editor || 'code') === o.v ? 'selected' : ''}" data-value="${o.v}">
+                      <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                      ${o.l}
+                    </div>`
+                  ).join('')}
+                </div>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-label">
                 <div>${t('settings.closeWindow')}</div>
                 <div class="settings-desc">${t('settings.closeWindowDesc')}</div>
               </div>
@@ -1040,8 +1060,9 @@ async function renderSettingsTab(initialTab = 'general') {
     const context1MToggle = document.getElementById('enable-1m-context-toggle');
     const newEnable1MContext = context1MToggle ? context1MToggle.checked : settings.enable1MContext || false;
 
+    const editorDropdown = document.getElementById('editor-dropdown');
     const newSettings = {
-      editor: settings.editor || 'code',
+      editor: editorDropdown?.dataset.value || settings.editor || 'code',
       skipPermissions: selectedMode?.dataset.mode === 'dangerous',
       accentColor,
       closeAction: closeActionDropdown?.dataset.value || 'ask',
