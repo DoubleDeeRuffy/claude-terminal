@@ -12,7 +12,9 @@ const os = require('os');
 const http = require('http');
 
 const HOOK_NAME = process.argv[2] || 'unknown';
-const PORT_FILE = path.join(os.homedir(), '.claude-terminal', 'hooks', 'port');
+const HOOKS_DIR = path.join(os.homedir(), '.claude-terminal', 'hooks');
+const PORT_FILE = path.join(HOOKS_DIR, 'port');
+const TOKEN_FILE = path.join(HOOKS_DIR, 'token');
 
 // Read stdin
 let stdinData = '';
@@ -46,12 +48,13 @@ function finish() {
     cwd: process.cwd()
   });
 
-  // Read port and send to app
-  let port;
+  // Read port and token, send to app
+  let port, token;
   try {
     port = parseInt(fs.readFileSync(PORT_FILE, 'utf8').trim(), 10);
+    token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
   } catch (e) {
-    // App not running or port file missing — exit silently
+    // App not running or files missing — exit silently
     process.exit(0);
   }
 
@@ -60,7 +63,11 @@ function finish() {
     port,
     path: '/hook',
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(entry) },
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(entry),
+      'Authorization': `Bearer ${token}`
+    },
     timeout: 1000
   }, () => {
     process.exit(0);

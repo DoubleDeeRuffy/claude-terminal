@@ -11,6 +11,7 @@ const updaterService = require('./UpdaterService');
 const chatService = require('./ChatService');
 const hooksService = require('./HooksService');
 const hookEventServer = require('./HookEventServer');
+const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
 
 /**
  * Initialize all services with main window reference
@@ -25,6 +26,7 @@ function initializeServices(mainWindow) {
   updaterService.setMainWindow(mainWindow);
   chatService.setMainWindow(mainWindow);
   hookEventServer.setMainWindow(mainWindow);
+  minecraftService.setMainWindow(mainWindow);
 }
 
 /**
@@ -36,6 +38,7 @@ function cleanupServices() {
   fivemService.stopAll();
   webAppService.stopAll();
   apiService.stopAll();
+  minecraftService.stopAll();
   chatService.closeAll();
   hookEventServer.stop();
 }
@@ -50,6 +53,7 @@ module.exports = {
   chatService,
   hooksService,
   hookEventServer,
+  minecraftService,
   initializeServices,
   cleanupServices
 };
