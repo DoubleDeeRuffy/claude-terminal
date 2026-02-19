@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob: https:; connect-src 'self' https:; navigate-to 'none'">
   <title>Quick Pick</title>
   <style>
     * {
@@ -197,9 +198,7 @@
           const color = settings.accentColor || '#d97706';
           applyAccentColor(color);
         }
-      } catch (e) {
-        // Ignore errors, use default color
-      }
+      } catch (e) {}
     }
 
     function applyAccentColor(color) {
@@ -221,12 +220,7 @@
       try {
         if (fs.existsSync(projectsFile)) {
           const data = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
-          // Gérer l'ancien format (tableau) et le nouveau format (objet)
-          if (Array.isArray(data)) {
-            projects = data;
-          } else {
-            projects = data.projects || [];
-          }
+          projects = Array.isArray(data) ? data : (data.projects || []);
         }
       } catch (e) {
         projects = [];

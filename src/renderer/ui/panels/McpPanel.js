@@ -223,12 +223,14 @@ function getMcpServerType(server) {
 
 function getMcpServerIcon(server) {
   if (server.icons && server.icons.length > 0) {
-    return `<img src="${escapeHtml(server.icons[0])}" onerror="this.parentElement.textContent='${escapeHtml((server.title || server.name || '?').charAt(0).toUpperCase())}'">`;
+    const fallback = escapeHtml((server.title || server.name || '?').charAt(0).toUpperCase());
+    return `<img src="${escapeHtml(server.icons[0])}" data-fallback="${fallback}" class="mcp-icon-img">`;
   }
   if (server.repository && server.repository.url) {
     const ghMatch = server.repository.url.match(/github\.com\/([^/]+)/);
     if (ghMatch) {
-      return `<img src="https://github.com/${ghMatch[1]}.png?size=64" onerror="this.parentElement.textContent='${escapeHtml((server.title || server.name || '?').charAt(0).toUpperCase())}'">`;
+      const fallback = escapeHtml((server.title || server.name || '?').charAt(0).toUpperCase());
+      return `<img src="https://github.com/${ghMatch[1]}.png?size=64" data-fallback="${fallback}" class="mcp-icon-img">`;
     }
   }
   return escapeHtml((server.title || server.name || '?').charAt(0).toUpperCase());
@@ -353,6 +355,13 @@ async function renderMcpRegistryCards(servers, sectionTitle) {
 function bindMcpRegistryCardHandlers() {
   const list = document.getElementById('mcp-list');
 
+  // Handle icon image load errors using data-fallback instead of inline onerror handlers
+  list.querySelectorAll('.mcp-icon-img').forEach(img => {
+    img.addEventListener('error', () => {
+      if (img.parentElement) img.parentElement.textContent = img.dataset.fallback || '?';
+    });
+  });
+
   list.querySelectorAll('.mcp-registry-card').forEach(card => {
     const serverName = card.dataset.serverName;
 
@@ -412,7 +421,7 @@ async function showMcpRegistryDetail(serverName) {
       metaHtml += `<div class="mcp-detail-meta-row"><span class="mcp-detail-meta-label">${t('mcpRegistry.packages')}</span><span class="mcp-detail-meta-value">${escapeHtml(pkg.name || pkg.package_name || '')}</span></div>`;
     }
     if (server.repository && server.repository.url) {
-      metaHtml += `<div class="mcp-detail-meta-row"><span class="mcp-detail-meta-label">${t('mcpRegistry.repository')}</span><span class="mcp-detail-meta-value"><a href="#" onclick="api.dialog.openExternal('${escapeHtml(server.repository.url)}'); return false;" style="color: var(--accent);">${escapeHtml(server.repository.url)}</a></span></div>`;
+      metaHtml += `<div class="mcp-detail-meta-row"><span class="mcp-detail-meta-label">${t('mcpRegistry.repository')}</span><span class="mcp-detail-meta-value"><a href="#" class="mcp-repo-link" data-url="${escapeHtml(server.repository.url)}" style="color: var(--accent);">${escapeHtml(server.repository.url)}</a></span></div>`;
     }
 
     const detailContent = `
@@ -434,6 +443,17 @@ async function showMcpRegistryDetail(serverName) {
     `;
 
     document.getElementById('modal-body').innerHTML = detailContent;
+
+    const repoLink = document.querySelector('.mcp-repo-link');
+    if (repoLink) {
+      repoLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        const url = repoLink.dataset.url;
+        if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+          api.dialog.openExternal(url);
+        }
+      });
+    }
 
     const installDetailBtn = document.querySelector('.btn-mcp-install-detail');
     if (installDetailBtn) {

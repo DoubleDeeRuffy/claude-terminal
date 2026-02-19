@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' data: blob: https:; navigate-to 'none'">
   <title>Claude Terminal - Setup</title>
   <style>
     * {
@@ -1003,14 +1004,14 @@
   </div>
 
   <script>
-    // Use preload-exposed APIs (contextBridge) with fallback to require
+    // Use preload-exposed APIs (contextBridge)
     const api = window.electron_api || {};
     const nodeModules = window.electron_nodeModules || {};
-    const fs = nodeModules.fs || require('fs');
-    const path = nodeModules.path || require('path');
-    const os = nodeModules.os || require('os');
+    const fs = nodeModules.fs;
+    const path = nodeModules.path;
+    const os = nodeModules.os;
     // __dirname from preload (points to app root)
-    const appRoot = (nodeModules.__dirname) || __dirname;
+    const appRoot = nodeModules.__dirname || '';
 
     // ============================================
     // TRANSLATIONS (inline for self-containment)

@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob: https:; navigate-to 'none'">
   <title>Notification</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -176,7 +177,7 @@
     document.getElementById('body').textContent = body;
     document.getElementById('btnShow').textContent = (labels && labels.show) || 'Show';
 
-    // Show button — fire action IPC, then play exit animation
+    // Show button — fire action IPC, then dismiss
     document.getElementById('btnShow').addEventListener('click', function() {
       ipcRenderer.send('notification-action', { action: 'show', terminalId });
       dismiss();
@@ -201,7 +202,7 @@
       autoDismissTimer = setTimeout(function() { dismiss(); }, autoDismiss);
     }
 
-    // Dismiss — close window immediately (no exit animation needed without transparency)
+    // Dismiss
     var dismissed = false;
     function dismiss() {
       if (dismissed) return;

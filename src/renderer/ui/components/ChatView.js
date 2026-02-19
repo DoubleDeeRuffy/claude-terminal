@@ -86,7 +86,12 @@ function renderMarkdown(text) {
   html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
   html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="chat-link" target="_blank">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    const safePrefixes = ['https://', 'http://', '#', '/'];
+    const isSafe = safePrefixes.some(p => url.startsWith(p));
+    const href = isSafe ? url : '#';
+    return `<a href="${href}" class="chat-link" target="_blank">${text}</a>`;
+  });
   html = html.replace(/\n\n/g, '</p><p>');
   html = html.replace(/\n/g, '<br>');
 
