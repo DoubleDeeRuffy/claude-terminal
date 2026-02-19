@@ -131,7 +131,10 @@ class TerminalService {
       setTimeout(() => {
         let claudeCmd = 'claude';
         if (resumeSessionId) {
-          claudeCmd += ` --resume ${resumeSessionId}`;
+          // Validate session ID format to prevent shell injection via PTY
+          if (/^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
+            claudeCmd += ` --resume ${resumeSessionId}`;
+          }
         }
         if (skipPermissions) {
           claudeCmd += ' --dangerously-skip-permissions';
