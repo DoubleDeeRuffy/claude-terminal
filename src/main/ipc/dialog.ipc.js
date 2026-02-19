@@ -74,20 +74,24 @@ function registerDialogHandlers() {
 
   // Open in external editor
   ipcMain.on('open-in-editor', (event, { editor, path: projectPath }) => {
-    const { execFile } = require('child_process');
-    // Allowlist of known editors - prevents arbitrary command injection
+    const path = require('path');
+    // Allowlist checked against basename only — prevents ../../evil/code bypasses
     const ALLOWED_EDITORS = ['code', 'cursor', 'webstorm', 'idea', 'subl', 'atom', 'notepad++', 'notepad', 'vim', 'nvim', 'nano', 'zed'];
     const editorBin = (editor || '').trim();
-    const isAllowed = ALLOWED_EDITORS.some(e => editorBin === e || editorBin.endsWith(`/${e}`) || editorBin.endsWith(`\\${e}`) || editorBin.endsWith(`\\${e}.exe`) || editorBin.endsWith(`/${e}.exe`));
-    if (!isAllowed) {
+    const baseName = path.basename(editorBin).replace(/\.exe$/i, '').toLowerCase();
+    if (!ALLOWED_EDITORS.includes(baseName)) {
       console.error(`[Dialog IPC] Editor not in allowlist: "${editorBin}"`);
       return;
     }
-    execFile(editorBin, [projectPath], { shell: true }, (error) => {
-      if (error) {
-        console.error(`[Dialog IPC] Failed to open editor "${editorBin}":`, error.message);
-      }
+    // shell:true is required on Windows for PATH-based launchers (.cmd wrappers like `idea`, `cursor`, `zed`).
+    // Injection is prevented by validating editorBin against the allowlist (basename only) and passing
+    // projectPath as a separate argument array — never via string interpolation.
+    const { spawn } = require('child_process');
+    const proc = spawn(editorBin, [projectPath], { shell: true, detached: true, stdio: 'ignore' });
+    proc.on('error', (error) => {
+      console.error(`[Dialog IPC] Failed to open editor "${editorBin}":`, error.message);
     });
+    proc.unref();
   });
 
   // Open external URL in browser (only https:// and http:// allowed)

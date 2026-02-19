@@ -1030,19 +1030,19 @@ async function getWorktrees(projectPath) {
 function createWorktree(projectPath, worktreePath, options = {}) {
   return new Promise((resolve) => {
     const { branch, newBranch, startPoint } = options;
-    let args = 'worktree add';
+    const args = ['worktree', 'add'];
 
     if (newBranch) {
-      args += ` -b "${newBranch}" "${worktreePath}"`;
-      if (startPoint) args += ` "${startPoint}"`;
+      args.push('-b', newBranch, worktreePath);
+      if (startPoint) args.push(startPoint);
     } else if (branch) {
-      args += ` "${worktreePath}" "${branch}"`;
+      args.push(worktreePath, branch);
     } else {
-      args += ` "${worktreePath}"`;
+      args.push(worktreePath);
     }
 
-    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
-    exec(`git ${safeDir} ${args}`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    const fullArgs = [...safeDirArgs(projectPath), ...args];
+    execFile('git', fullArgs, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         resolve({ success: false, error: stderr || error.message });
       } else {
@@ -1061,9 +1061,11 @@ function createWorktree(projectPath, worktreePath, options = {}) {
  */
 function removeWorktree(projectPath, worktreePath, force = false) {
   return new Promise((resolve) => {
-    const forceFlag = force ? ' --force' : '';
-    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
-    exec(`git ${safeDir} worktree remove${forceFlag} "${worktreePath}"`, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    const args = ['worktree', 'remove'];
+    if (force) args.push('--force');
+    args.push(worktreePath);
+    const fullArgs = [...safeDirArgs(projectPath), ...args];
+    execFile('git', fullArgs, { cwd: projectPath, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         resolve({ success: false, error: stderr || error.message });
       } else {
@@ -1082,9 +1084,11 @@ function removeWorktree(projectPath, worktreePath, force = false) {
  */
 function lockWorktree(projectPath, worktreePath, reason = '') {
   return new Promise((resolve) => {
-    const reasonFlag = reason ? ` --reason "${reason.replace(/"/g, '\\"')}"` : '';
-    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
-    exec(`git ${safeDir} worktree lock${reasonFlag} "${worktreePath}"`, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
+    const args = ['worktree', 'lock'];
+    if (reason) args.push('--reason', reason);
+    args.push(worktreePath);
+    const fullArgs = [...safeDirArgs(projectPath), ...args];
+    execFile('git', fullArgs, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
       if (error) {
         resolve({ success: false, error: stderr || error.message });
       } else {
@@ -1102,8 +1106,8 @@ function lockWorktree(projectPath, worktreePath, reason = '') {
  */
 function unlockWorktree(projectPath, worktreePath) {
   return new Promise((resolve) => {
-    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
-    exec(`git ${safeDir} worktree unlock "${worktreePath}"`, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
+    const fullArgs = [...safeDirArgs(projectPath), 'worktree', 'unlock', worktreePath];
+    execFile('git', fullArgs, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
       if (error) {
         resolve({ success: false, error: stderr || error.message });
       } else {
@@ -1120,8 +1124,8 @@ function unlockWorktree(projectPath, worktreePath) {
  */
 function pruneWorktrees(projectPath) {
   return new Promise((resolve) => {
-    const safeDir = `-c safe.directory="${projectPath.replace(/\\/g, '/')}"`;
-    exec(`git ${safeDir} worktree prune`, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
+    const fullArgs = [...safeDirArgs(projectPath), 'worktree', 'prune'];
+    execFile('git', fullArgs, { cwd: projectPath, encoding: 'utf8' }, (error, stdout, stderr) => {
       if (error) {
         resolve({ success: false, error: stderr || error.message });
       } else {
