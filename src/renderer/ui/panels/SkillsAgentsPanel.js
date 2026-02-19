@@ -54,7 +54,9 @@ async function loadLocalSkills() {
               id: item,
               name: parsed.name || item,
               description: parsed.description || t('common.noDescription'),
-              path: itemPath
+              sections: parsed.sections || [],
+              path: itemPath,
+              filePath: skillFile
             });
           } catch { /* SKILL.md not found, skip */ }
         }
@@ -139,7 +141,15 @@ function parseSkillMd(content) {
     }
   }
 
-  return { name, description };
+  // Extract H2/H3 section names (skip H1)
+  const sections = [];
+  const sectionMatches = content.matchAll(/^#{2,3}\s+(.+)/mg);
+  for (const m of sectionMatches) {
+    const title = m[1].trim();
+    if (title && sections.length < 6) sections.push(title);
+  }
+
+  return { name, description, sections };
 }
 
 async function loadAgents() {
@@ -161,7 +171,9 @@ async function loadAgents() {
             name: parsed.name || id,
             description: parsed.description || 'Aucune description',
             tools: parsed.tools || [],
-            path: itemPath
+            sections: parsed.sections || [],
+            path: itemPath,
+            filePath: itemPath
           });
         } else if (stat.isDirectory()) {
           const agentFile = ctx.path.join(itemPath, 'AGENT.md');
@@ -173,7 +185,9 @@ async function loadAgents() {
               name: parsed.name || item,
               description: parsed.description || t('common.noDescription'),
               tools: parsed.tools || [],
-              path: itemPath
+              sections: parsed.sections || [],
+              path: itemPath,
+              filePath: agentFile
             });
           } catch { /* AGENT.md not found, skip */ }
         }
@@ -239,7 +253,48 @@ function parseAgentMd(content) {
     }
   }
 
-  return { name, description, tools };
+  // Extract H2/H3 section names (skip H1)
+  const sections = [];
+  const sectionMatches = content.matchAll(/^#{2,3}\s+(.+)/mg);
+  for (const m of sectionMatches) {
+    const title = m[1].trim();
+    if (title && sections.length < 6) sections.push(title);
+  }
+
+  return { name, description, tools, sections };
+}
+
+function renderSkillCard(s, isPlugin) {
+  const desc = (s.description && s.description !== '---' && s.description !== t('common.noDescription')) ? escapeHtml(s.description) : '';
+  const initial = escapeHtml((s.name || '?').charAt(0).toUpperCase());
+  const cardClass = isPlugin ? 'list-card plugin-card' : 'list-card';
+  const badge = isPlugin
+    ? `<div class="list-card-badge plugin">Plugin</div>`
+    : `<div class="list-card-badge">${t('skillsAgents.skill')}</div>`;
+  const filePath = s.filePath ? s.filePath.replace(/"/g, '&quot;') : '';
+
+  return `
+  <div class="${cardClass}" data-path="${s.path.replace(/"/g, '&quot;')}" data-file-path="${filePath}" data-is-plugin="${isPlugin}">
+    <div class="card-initial">${initial}</div>
+    <div class="list-card-header">
+      <div class="list-card-title">${escapeHtml(s.name)}</div>
+      ${badge}
+    </div>
+    ${desc ? `<div class="list-card-desc">${desc}</div>` : ''}
+    <div class="list-card-footer">
+      ${!isPlugin && filePath ? `<button class="btn-sm btn-accent btn-edit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        ${t('common.edit')}
+      </button>` : ''}
+      <button class="btn-sm btn-secondary btn-open">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        ${t('marketplace.openFolder')}
+      </button>
+      ${!isPlugin ? `<button class="btn-sm btn-delete btn-del" title="${t('common.delete')}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+      </button>` : ''}
+    </div>
+  </div>`;
 }
 
 function renderSkills() {
@@ -264,28 +319,7 @@ function renderSkills() {
     html += `<div class="list-section">
       <div class="list-section-title">${t('skillsAgents.local')} <span class="list-section-count">${localSkills.length}</span></div>
       <div class="list-section-grid">`;
-    html += localSkills.map(s => {
-      const desc = (s.description && s.description !== '---' && s.description !== t('common.noDescription')) ? escapeHtml(s.description) : '';
-      const initial = escapeHtml((s.name || '?').charAt(0).toUpperCase());
-      return `
-      <div class="list-card" data-path="${s.path.replace(/"/g, '&quot;')}" data-is-plugin="false">
-        <div class="card-initial">${initial}</div>
-        <div class="list-card-header">
-          <div class="list-card-title">${escapeHtml(s.name)}</div>
-          <div class="list-card-badge">${t('skillsAgents.skill')}</div>
-        </div>
-        ${desc ? `<div class="list-card-desc">${desc}</div>` : ''}
-        <div class="list-card-footer">
-          <button class="btn-sm btn-secondary btn-open">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-            ${t('marketplace.openFolder')}
-          </button>
-          <button class="btn-sm btn-delete btn-del" title="${t('common.delete')}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-          </button>
-        </div>
-      </div>`;
-    }).join('');
+    html += localSkills.map(s => renderSkillCard(s, false)).join('');
     html += `</div></div>`;
   }
 
@@ -293,25 +327,7 @@ function renderSkills() {
     html += `<div class="list-section">
       <div class="list-section-title"><span class="plugin-badge">Plugin</span> ${escapeHtml(source)} <span class="list-section-count">${skills.length}</span></div>
       <div class="list-section-grid">`;
-    html += skills.map(s => {
-      const desc = (s.description && s.description !== '---' && s.description !== t('common.noDescription')) ? escapeHtml(s.description) : '';
-      const initial = escapeHtml((s.name || '?').charAt(0).toUpperCase());
-      return `
-      <div class="list-card plugin-card" data-path="${s.path.replace(/"/g, '&quot;')}" data-is-plugin="true">
-        <div class="card-initial">${initial}</div>
-        <div class="list-card-header">
-          <div class="list-card-title">${escapeHtml(s.name)}</div>
-          <div class="list-card-badge plugin">Plugin</div>
-        </div>
-        ${desc ? `<div class="list-card-desc">${desc}</div>` : ''}
-        <div class="list-card-footer">
-          <button class="btn-sm btn-secondary btn-open">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-            ${t('marketplace.openFolder')}
-          </button>
-        </div>
-      </div>`;
-    }).join('');
+    html += skills.map(s => renderSkillCard(s, true)).join('');
     html += `</div></div>`;
   });
 
@@ -319,6 +335,13 @@ function renderSkills() {
 
   list.querySelectorAll('.list-card').forEach(card => {
     card.querySelector('.btn-open').onclick = () => ctx.api.dialog.openInExplorer(card.dataset.path);
+    const editBtn = card.querySelector('.btn-edit');
+    if (editBtn) {
+      editBtn.onclick = () => {
+        const fp = card.dataset.filePath;
+        if (fp) ctx.api.dialog.openInEditor({ editor: ctx.getSetting('editor') || 'code', path: fp });
+      };
+    }
     const delBtn = card.querySelector('.btn-del');
     if (delBtn) {
       delBtn.onclick = async () => {
@@ -342,15 +365,24 @@ function renderAgents() {
   html += skillsAgentsState.agents.map(a => {
     const desc = (a.description && a.description !== '---' && a.description !== t('common.noDescription')) ? escapeHtml(a.description) : '';
     const initial = escapeHtml((a.name || '?').charAt(0).toUpperCase());
+    const filePath = a.filePath ? a.filePath.replace(/"/g, '&quot;') : '';
+    const toolChips = (a.tools && a.tools.length > 0)
+      ? `<div class="skill-sections agent-tools">${a.tools.slice(0, 5).map(tool => `<span class="skill-section-chip agent-tool-chip">${escapeHtml(tool)}</span>`).join('')}</div>`
+      : '';
     return `
-    <div class="list-card agent-card" data-path="${a.path.replace(/"/g, '&quot;')}">
+    <div class="list-card agent-card" data-path="${a.path.replace(/"/g, '&quot;')}" data-file-path="${filePath}">
       <div class="card-initial">${initial}</div>
       <div class="list-card-header">
         <div class="list-card-title">${escapeHtml(a.name)}</div>
         <div class="list-card-badge agent">${t('skillsAgents.agent')}</div>
       </div>
       ${desc ? `<div class="list-card-desc">${desc}</div>` : ''}
+      ${toolChips}
       <div class="list-card-footer">
+        ${filePath ? `<button class="btn-sm btn-accent btn-edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          ${t('common.edit')}
+        </button>` : ''}
         <button class="btn-sm btn-secondary btn-open">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
           ${t('marketplace.openFolder')}
@@ -367,6 +399,13 @@ function renderAgents() {
 
   list.querySelectorAll('.list-card').forEach(card => {
     card.querySelector('.btn-open').onclick = () => ctx.api.dialog.openInExplorer(card.dataset.path);
+    const editBtn = card.querySelector('.btn-edit');
+    if (editBtn) {
+      editBtn.onclick = () => {
+        const fp = card.dataset.filePath;
+        if (fp) ctx.api.dialog.openInEditor({ editor: ctx.getSetting('editor') || 'code', path: fp });
+      };
+    }
     card.querySelector('.btn-del').onclick = async () => {
       const ok = await showConfirm({ title: t('skillsAgents.deleteAgent') || 'Delete agent', message: t('skillsAgents.confirmDeleteAgent'), confirmLabel: t('common.delete'), danger: true });
       if (ok) { await ctx.fs.promises.rm(card.dataset.path, { recursive: true, force: true }); loadAgents(); }

@@ -202,7 +202,7 @@ const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn }
   });
 
   SkillsAgentsPanel.init({
-    api, fs, path, skillsDir, agentsDir,
+    api, fs, path, skillsDir, agentsDir, getSetting,
     loadMarketplaceContent: () => MarketplacePanel.loadMarketplaceContent(),
     searchMarketplace: (q) => MarketplacePanel.searchMarketplace(q),
     loadMarketplaceFeatured: () => MarketplacePanel.loadMarketplaceFeatured(),

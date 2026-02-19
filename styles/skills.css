@@ -1211,3 +1211,44 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ==================== SKILL/AGENT BUTTONS & CHIPS ==================== */
+
+/* Agent tool chips — slightly blueish tint */
+.agent-tool-chip {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.1);
+  color: var(--text-muted);
+}
+
+.agent-tool-chip::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--info);
+  opacity: 0.5;
+  margin-right: 5px;
+}
+
+.list-card:hover .agent-tool-chip {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+/* Edit button — accent-colored */
+.btn-sm.btn-accent {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(217, 119, 6, 0.18);
+  font-weight: 600;
+}
+
+.btn-sm.btn-accent:hover {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.25);
+}
