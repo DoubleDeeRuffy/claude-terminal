@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-0.9.4-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.9.5-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -58,7 +58,7 @@
 - Customize each project with colors and emoji icons
 - Quick Actions toolbar: configurable one-click commands per project (build, test, deploy, custom scripts...)
 - Built-in file explorer with tree view, multi-select, search, git status indicators, and inline rename
-- Modular project type system (standard, FiveM, webapp, Python, API)
+- Modular project type system (standard, FiveM, webapp, Python, API, Minecraft)
 - Per-project settings modal
 
 ### Git Integration
@@ -67,6 +67,7 @@
 - **Changes panel**: view staged/unstaged/untracked files, stage/unstage and commit
 - **Commit history**: IntelliJ-style commit graph with SVG rendering, branch/author filtering, infinite scroll
 - **Cherry-pick & revert**: advanced commit operations from history
+- **Worktree management**: create, switch, and delete Git worktrees with quick-switch badge in the toolbar
 - **Stash management**: save, apply, drop stashes
 - **AI commit messages**: auto-generate conventional commit messages via GitHub Models API
 - **Pull Requests**: create and view PRs directly from the app
@@ -153,7 +154,8 @@
 - Global shortcuts (`Ctrl+Shift+P` / `Cmd+Shift+P` quick picker, `Ctrl+Shift+T` / `Cmd+Shift+T` new terminal)
 - Single instance lock
 - Custom NSIS installer with branded images (Windows), DMG (macOS), AppImage (Linux)
-- FiveM server management (launch, integrated console, resource scanning)
+- FiveM server management (launch, integrated console, resource scanning, resource creator wizard)
+- Minecraft project type with Java plugin generator and platform-aware launch scripts
 - Web app management with framework auto-detection
 - Python project detection (version, venv, dependencies, entry point)
 - API project type with integrated route tester, variables, and console
@@ -352,6 +354,10 @@ claude-terminal/
 │       │   └── i18n/          # en.json, fr.json
 │       ├── python/            # Python projects (detection only)
 │       │   ├── main/          # Detection service
+│       │   ├── renderer/      # Dashboard, state, wizard
+│       │   └── i18n/          # en.json, fr.json
+│       ├── minecraft/          # Minecraft Java plugin projects
+│       │   ├── main/          # Detection service, plugin generator
 │       │   ├── renderer/      # Dashboard, state, wizard
 │       │   └── i18n/          # en.json, fr.json
 │       └── api/               # API/backend projects
