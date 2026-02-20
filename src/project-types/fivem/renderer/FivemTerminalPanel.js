@@ -168,6 +168,13 @@ function setupViewSwitcher(wrapper, terminalId, projectIndex, project, deps) {
     renderResourcesList(wrapper, projectIndex, project, searchInput.value, deps);
   };
 
+  // ── Console output click → focus input ──
+  const consoleOutput = wrapper.querySelector('.fivem-console-output');
+  consoleOutput.addEventListener('click', () => {
+    const input = wrapper.querySelector('.fivem-console-input');
+    if (input) input.focus();
+  });
+
   // ── Console input bar ──
   const consoleInput = wrapper.querySelector('.fivem-console-input');
   const consoleSend = wrapper.querySelector('.fivem-console-send');

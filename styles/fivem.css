@@ -766,6 +766,12 @@
   background: #0d0d0d !important;
 }
 
+.fivem-console-output .xterm,
+.fivem-console-output .xterm-screen,
+.fivem-console-output canvas {
+  outline: none !important;
+}
+
 .detail-actions-row {
   display: flex;
   gap: 12px;
