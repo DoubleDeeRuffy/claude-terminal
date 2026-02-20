@@ -154,6 +154,16 @@ function bootstrapApp() {
         mainWindow.webContents.send('open-terminal-current-project');
       }, 100);
     });
+
+    globalShortcut.register('CommandOrControl+Shift+W', () => {
+      const mainWindow = getMainWindow();
+      if (mainWindow) {
+        showMainWindow();
+        setTimeout(() => {
+          mainWindow.webContents.send('open-new-worktree');
+        }, 100);
+      }
+    });
   }
 
   /**

@@ -329,7 +329,8 @@ contextBridge.exposeInMainWorld('electron_api', {
   tray: {
     updateAccentColor: (color) => ipcRenderer.send('update-accent-color', color),
     onOpenTerminal: createListener('open-terminal-current-project'),
-    onShowSessions: createListener('show-sessions-panel')
+    onShowSessions: createListener('show-sessions-panel'),
+    onOpenNewWorktree: createListener('open-new-worktree')
   },
 
   // ==================== UPDATES ====================

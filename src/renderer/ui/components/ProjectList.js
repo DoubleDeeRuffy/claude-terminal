@@ -49,6 +49,7 @@ let callbacks = {
   onOpenFivemConsole: null,
   onGitPull: null,
   onGitPush: null,
+  onNewWorktree: null,
   onDeleteProject: null,
   onRenameProject: null,
   onRenderProjects: null,
@@ -198,6 +199,10 @@ function renderProjectHtml(project, depth) {
       <button class="more-actions-item btn-git-push ${gitOps.pushing ? 'loading' : ''}" data-project-id="${project.id}" ${gitOps.pushing ? 'disabled' : ''}>
         ${menuIcons.gitPush}
         ${t('projects.gitPush')}
+      </button>
+      <button class="more-actions-item btn-new-worktree" data-project-id="${project.id}">
+        ${menuIcons.gitBranch}
+        ${t('projects.newWorktree')}
       </button>
       <div class="more-actions-divider"></div>`;
   }
@@ -673,6 +678,10 @@ function attachListeners(list) {
         if (callbacks.onGitPull) callbacks.onGitPull(projectId);
       } else if (btn.classList.contains('btn-git-push')) {
         if (callbacks.onGitPush) callbacks.onGitPush(projectId);
+      } else if (btn.classList.contains('btn-new-worktree')) {
+        const project = getProject(projectId);
+        closeAllMoreActionsMenus();
+        if (callbacks.onNewWorktree) callbacks.onNewWorktree(project);
       } else if (btn.classList.contains('btn-basic-terminal')) {
         const project = getProject(projectId);
         const projectIndex = getProjectIndex(projectId);

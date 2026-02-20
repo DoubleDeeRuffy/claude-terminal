@@ -879,6 +879,83 @@ function createBasicTerminalForProject(project) {
   });
 }
 
+// ========== WORKTREE CREATION ==========
+function openNewWorktreeModal(project) {
+  const modalId = 'worktree-modal';
+  const html = `
+    <div class="worktree-modal-body">
+      <div class="worktree-project-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+        <span>${escapeHtml(project.name || project.path)}</span>
+      </div>
+      <div class="worktree-input-wrap">
+        <span class="worktree-branch-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path stroke-linecap="round" stroke-linejoin="round" d="M6 3v12m0 0a3 3 0 100 6 3 3 0 000-6zm12-6a3 3 0 100-6 3 3 0 000 6zm0 0c0 4.5-1.5 6-6 6"/></svg>
+        </span>
+        <input type="text" id="worktree-branch-input" class="worktree-input"
+          placeholder="${t('projects.worktreeBranchPlaceholder')}"
+          autocomplete="off" spellcheck="false">
+      </div>
+      <p class="worktree-hint">${t('projects.worktreeBranchLabel')}</p>
+    </div>
+    <div class="worktree-modal-footer">
+      <button class="worktree-btn-cancel" onclick="closeModal()">
+        ${t('common.cancel')}
+      </button>
+      <button class="worktree-btn-create" id="worktree-create-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        ${t('projects.worktreeCreate')}
+      </button>
+    </div>`;
+
+  showModal(t('projects.newWorktree'), html);
+
+  const input = document.getElementById('worktree-branch-input');
+  const createBtn = document.getElementById('worktree-create-btn');
+  if (!input || !createBtn) return;
+
+  input.focus();
+
+  async function doCreate() {
+    const branchName = input.value.trim();
+    if (!branchName) { input.focus(); return; }
+
+    createBtn.disabled = true;
+    createBtn.innerHTML = `<span class="worktree-btn-spinner"></span>${t('projects.worktreeCreating')}`;
+
+    // Worktree path: sibling folder named <project>-<branch> (slashes → dashes)
+    const basePath = window.electron_nodeModules.path.dirname(project.path);
+    const safeBranch = branchName.replace(/[/\\:*?"<>|]/g, '-');
+    const projectBase = window.electron_nodeModules.path.basename(project.path);
+    const worktreePath = window.electron_nodeModules.path.join(basePath, `${projectBase}-${safeBranch}`);
+
+    const result = await api.git.worktreeCreate({
+      projectPath: project.path,
+      worktreePath,
+      newBranch: branchName
+    });
+
+    if (!result.success) {
+      createBtn.disabled = false;
+      createBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>${t('projects.worktreeCreate')}`;
+      showToast(t('projects.worktreeError', { error: result.error }), 'error');
+      return;
+    }
+
+    closeModal();
+    showToast(t('projects.worktreeSuccess', { branch: branchName }), 'success');
+
+    // Open terminal/chat on the worktree path
+    const worktreeProject = { ...project, path: worktreePath, name: `${project.name || projectBase} (${safeBranch})` };
+    createTerminalForProject(worktreeProject);
+  }
+
+  createBtn.addEventListener('click', doCreate);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doCreate();
+  });
+}
+
 // ========== SESSIONS MODAL ==========
 // Pin storage for modal (shared with TerminalManager via same file)
 const _modalPinsFile = path.join(window.electron_nodeModules.os.homedir(), '.claude-terminal', 'session-pins.json');
@@ -1177,6 +1254,7 @@ ProjectList.setCallbacks({
   onOpenApiConsole: openApiConsole,
   onGitPull: gitPull,
   onGitPush: gitPush,
+  onNewWorktree: openNewWorktreeModal,
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),
@@ -2825,6 +2903,13 @@ api.tray.onOpenTerminal(() => {
     // No project selected, use the first one
     createTerminalForProject(projects[0]);
   }
+});
+
+api.tray.onOpenNewWorktree(() => {
+  const selectedFilter = projectsState.get().selectedProjectFilter;
+  const projects = projectsState.get().projects;
+  const project = selectedFilter !== null ? projects[selectedFilter] : projects[0];
+  if (project) openNewWorktreeModal(project);
 });
 
 api.tray.onShowSessions(() => {
