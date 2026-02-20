@@ -87,7 +87,7 @@ function registerDialogHandlers() {
     // Injection is prevented by validating editorBin against the allowlist (basename only) and passing
     // projectPath as a separate argument array — never via string interpolation.
     const { spawn } = require('child_process');
-    const proc = spawn(editorBin, [projectPath], { shell: true, detached: true, stdio: 'ignore' });
+    const proc = spawn(editorBin, [projectPath], { shell: process.platform === 'win32', detached: true, stdio: 'ignore' });
     proc.on('error', (error) => {
       console.error(`[Dialog IPC] Failed to open editor "${editorBin}":`, error.message);
     });
