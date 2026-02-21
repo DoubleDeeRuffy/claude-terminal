@@ -23,6 +23,49 @@
 
 ---
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Features](#features)
+- [Usage](#usage)
+- [Building](#building)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+
+---
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- [Claude Code](https://github.com/anthropics/claude-code) installed globally
+- **Windows** 10 or 11
+- **macOS** 12+ (Intel or Apple Silicon)
+- **Linux** Ubuntu 22.04+, Fedora 38+, or equivalent
+  - AppImage requires `libfuse2` on Ubuntu 24.04+: `sudo apt install libfuse2`
+  - GitHub token storage requires `libsecret`: `sudo apt install libsecret-1-dev gnome-keyring`
+
+## Installation
+
+Download the latest installer from [Releases](https://github.com/Sterll/claude-terminal/releases).
+
+> [!IMPORTANT]
+> **macOS users:** If you see *"Claude Terminal is damaged and can't be opened"*, run this in Terminal:
+> ```bash
+> xattr -cr /Applications/Claude\ Terminal.app
+> ```
+> This is needed because the app is not code-signed yet. Alternatively, right-click the app → Open.
+
+Or build from source:
+
+```bash
+git clone https://github.com/Sterll/claude-terminal.git
+cd claude-terminal
+npm install
+```
+
+---
+
 ## Features
 
 ### Chat UI (Claude Agent SDK)
@@ -160,37 +203,6 @@
 - Web app management with framework auto-detection
 - Python project detection (version, venv, dependencies, entry point)
 - API project type with integrated route tester, variables, and console
-
----
-
-## Prerequisites
-
-- [Node.js](https://nodejs.org/) 18+
-- [Claude Code](https://github.com/anthropics/claude-code) installed globally
-- **Windows** 10 or 11
-- **macOS** 12+ (Intel or Apple Silicon)
-- **Linux** Ubuntu 22.04+, Fedora 38+, or equivalent
-  - AppImage requires `libfuse2` on Ubuntu 24.04+: `sudo apt install libfuse2`
-  - GitHub token storage requires `libsecret`: `sudo apt install libsecret-1-dev gnome-keyring`
-
-## Installation
-
-Download the latest installer from [Releases](https://github.com/Sterll/claude-terminal/releases).
-
-> [!IMPORTANT]
-> **macOS users:** If you see *"Claude Terminal is damaged and can't be opened"*, run this in Terminal:
-> ```bash
-> xattr -cr /Applications/Claude\ Terminal.app
-> ```
-> This is needed because the app is not code-signed yet. Alternatively, right-click the app → Open.
-
-Or build from source:
-
-```bash
-git clone https://github.com/Sterll/claude-terminal.git
-cd claude-terminal
-npm install
-```
 
 ## Usage
 
