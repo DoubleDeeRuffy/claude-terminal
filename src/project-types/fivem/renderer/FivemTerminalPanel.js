@@ -32,7 +32,7 @@ function getViewSwitcherHtml() {
       </button>
     </div>
     <div class="fivem-view-content">
-      <div class="fivem-console-view">
+      <div class="fivem-console-view fivem-view fivem-view-active">
         <div class="fivem-console-output"></div>
         <div class="fivem-console-inputbar">
           <span class="fivem-console-prompt">&gt;</span>
@@ -42,7 +42,7 @@ function getViewSwitcherHtml() {
           </button>
         </div>
       </div>
-      <div class="fivem-errors-view" style="display: none;">
+      <div class="fivem-errors-view fivem-view">
         <div class="fivem-errors-header">
           <span>${t('fivem.errors')}</span>
           <button class="fivem-clear-errors" title="${t('fivem.clearErrors')}">
@@ -55,7 +55,7 @@ function getViewSwitcherHtml() {
           <span>${t('fivem.noErrors')}</span>
         </div>
       </div>
-      <div class="fivem-resources-view" style="display: none;">
+      <div class="fivem-resources-view fivem-view">
         <div class="fivem-resources-header">
           <div class="fivem-resources-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -117,21 +117,19 @@ function setupViewSwitcher(wrapper, terminalId, projectIndex, project, deps) {
       viewTabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
 
-      consoleView.style.display = 'none';
-      errorsView.style.display = 'none';
-      resourcesView.style.display = 'none';
+      [consoleView, errorsView, resourcesView].forEach(v => v.classList.remove('fivem-view-active'));
 
       if (view === 'console') {
-        consoleView.style.display = '';
+        consoleView.classList.add('fivem-view-active');
         const termData = getTerminal(terminalId);
         if (termData) {
           setTimeout(() => termData.fitAddon.fit(), 50);
         }
       } else if (view === 'errors') {
-        errorsView.style.display = '';
+        errorsView.classList.add('fivem-view-active');
         renderErrorsList(wrapper, projectIndex, project, deps);
       } else if (view === 'resources') {
-        resourcesView.style.display = '';
+        resourcesView.classList.add('fivem-view-active');
         const { resources, lastScan } = getFivemResources(projectIndex);
         if (!lastScan || resources.length === 0) {
           scanAndRenderResources(wrapper, projectIndex, project, deps);
