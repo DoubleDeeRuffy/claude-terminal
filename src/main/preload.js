@@ -289,6 +289,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     interrupt: (params) => ipcRenderer.send('chat-interrupt', params),
     respondPermission: (params) => ipcRenderer.send('chat-permission-response', params),
     alwaysAllow: (params) => ipcRenderer.send('chat-always-allow', params),
+    setModel: (params) => ipcRenderer.invoke('chat-set-model', params),
+    setEffort: (params) => ipcRenderer.invoke('chat-set-effort', params),
     onMessage: createListener('chat-message'),
     onError: createListener('chat-error'),
     onDone: createListener('chat-done'),

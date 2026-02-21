@@ -313,15 +313,14 @@ function createChatView(wrapperEl, project, options = {}) {
     modelLabel.textContent = option.label;
     modelDropdown.style.display = 'none';
     setSetting('chatModel', modelId);
-  }
 
-  function lockModelSelector() {
-    modelBtn.classList.add('locked');
-    modelBtn.disabled = true;
+    // If session is active, change model mid-session via SDK
+    if (sessionId) {
+      api.chat.setModel({ sessionId, model: modelId }).catch(() => {});
+    }
   }
 
   modelBtn.addEventListener('click', (e) => {
-    if (sessionId) return; // Locked once session starts
     e.stopPropagation();
     toggleModelDropdown();
   });
@@ -371,15 +370,16 @@ function createChatView(wrapperEl, project, options = {}) {
     effortLabel.textContent = option.label;
     effortDropdown.style.display = 'none';
     setSetting('effortLevel', effortId);
-  }
 
-  function lockEffortSelector() {
-    effortBtn.classList.add('locked');
-    effortBtn.disabled = true;
+    // If session is active, change effort mid-session via SDK
+    if (sessionId) {
+      api.chat.setEffort({ sessionId, effort: effortId }).catch(err => {
+        console.warn('[ChatView] setEffort failed:', err);
+      });
+    }
   }
 
   effortBtn.addEventListener('click', (e) => {
-    if (sessionId) return;
     e.stopPropagation();
     toggleEffortDropdown();
   });
@@ -1448,6 +1448,7 @@ function createChatView(wrapperEl, project, options = {}) {
     }
   });
 
+
   // ── Send message ──
 
   let sendLock = false;
@@ -1502,8 +1503,8 @@ function createChatView(wrapperEl, project, options = {}) {
         // Assign sessionId BEFORE await to prevent race condition:
         // _processStream fires events immediately, but await returns later.
         sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        lockModelSelector();
-        lockEffortSelector();
+        // Model and effort selectors stay interactive during the session
+        // Changes are applied mid-session via SDK setModel/setMaxThinkingTokens
         const startOpts = {
           cwd: project.path,
           prompt: text || '',
@@ -1515,6 +1516,7 @@ function createChatView(wrapperEl, project, options = {}) {
           effort: selectedEffort,
           enable1MContext: getSetting('enable1MContext') || false
         };
+
         if (pendingResumeId) {
           startOpts.resumeSessionId = pendingResumeId;
           if (pendingForkSession) {
@@ -2866,6 +2868,11 @@ function createChatView(wrapperEl, project, options = {}) {
         blockIndex = 0;
         currentMsgHasToolUse = false;
         turnHadAssistantContent = false;
+        // Update model from stream (reflects mid-session model changes)
+        if (event.message?.model) {
+          model = event.message.model;
+          updateStatusInfo();
+        }
         // Clear queued badges — this message is now being processed
         for (const qEl of messagesEl.querySelectorAll('.chat-msg-user.queued')) {
           qEl.classList.remove('queued');

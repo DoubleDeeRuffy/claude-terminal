@@ -482,6 +482,31 @@ class ChatService {
     }
   }
 
+  /**
+   * Change model mid-session via SDK queryStream.setModel()
+   */
+  async setModel(sessionId, model) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.queryStream?.setModel) {
+      throw new Error('Session not found or setModel not available');
+    }
+    await session.queryStream.setModel(model || undefined);
+  }
+
+  /**
+   * Change effort (thinking budget) mid-session via SDK queryStream.setMaxThinkingTokens()
+   * Maps effort levels to token budgets.
+   */
+  async setEffort(sessionId, effort) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.queryStream?.setMaxThinkingTokens) {
+      throw new Error('Session not found or setMaxThinkingTokens not available');
+    }
+    const effortMap = { low: 1024, medium: 8192, high: null };
+    const tokens = effort in effortMap ? effortMap[effort] : null;
+    await session.queryStream.setMaxThinkingTokens(tokens);
+  }
+
 
 
   /**
