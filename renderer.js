@@ -52,6 +52,8 @@ const {
   renameFolder,
   renameProject,
   setSelectedProjectFilter,
+  setOpenedProjectId,
+  addProject,
   generateProjectId,
   initializeState,
 
@@ -938,15 +940,31 @@ function openNewWorktreeModal(project) {
     if (!result.success) {
       createBtn.disabled = false;
       createBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>${t('projects.worktreeCreate')}`;
-      showToast(t('projects.worktreeError', { error: result.error }), 'error');
+      showToast({ type: 'error', title: t('projects.worktreeError', { error: result.error }) });
       return;
     }
 
     closeModal();
-    showToast(t('projects.worktreeSuccess', { branch: branchName }), 'success');
+    showToast({ type: 'success', title: t('projects.worktreeSuccess', { branch: branchName }) });
 
-    // Open terminal/chat on the worktree path
-    const worktreeProject = { ...project, path: worktreePath, name: `${project.name || projectBase} (${safeBranch})` };
+    // Register the worktree as a real project, then open it
+    const projects = projectsState.get().projects;
+    let worktreeProject = projects.find(p => p.path?.replace(/\\/g, '/') === worktreePath.replace(/\\/g, '/'));
+    if (!worktreeProject) {
+      worktreeProject = addProject({
+        name: `${project.name || projectBase} (${safeBranch})`,
+        path: worktreePath,
+        type: project.type || 'standalone',
+        isWorktree: true,
+        parentRepoProjectId: project.id,
+        worktreeBranch: branchName
+      });
+      saveProjects();
+      ProjectList.render();
+    }
+    const newIdx = getProjectIndex(worktreeProject.id);
+    setSelectedProjectFilter(newIdx);
+    setOpenedProjectId(null);
     createTerminalForProject(worktreeProject);
   }
 
