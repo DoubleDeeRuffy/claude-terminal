@@ -220,7 +220,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     getVersion: () => ipcRenderer.invoke('get-app-version'),
     getLaunchAtStartup: () => ipcRenderer.invoke('get-launch-at-startup'),
     setLaunchAtStartup: (enabled) => ipcRenderer.invoke('set-launch-at-startup', enabled),
-    installUpdate: () => ipcRenderer.send('update-install')
+    installUpdate: () => ipcRenderer.send('update-install'),
+    clipboardRead: () => ipcRenderer.invoke('clipboard-read'),
+    clipboardWrite: (text) => ipcRenderer.invoke('clipboard-write', text)
   },
 
   // ==================== NOTIFICATIONS ====================

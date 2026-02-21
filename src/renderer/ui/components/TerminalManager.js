@@ -452,6 +452,48 @@ function extractTerminalContext(terminal) {
  * @param {string|number} terminalId - Terminal ID for IPC
  * @param {string} inputChannel - IPC channel for input
  */
+/**
+ * Setup DOM-level clipboard shortcuts (capture phase, before xterm intercepts)
+ * xterm.js 6.x handles Ctrl+Shift+V internally but fails in Electron — we must intercept first.
+ */
+function setupClipboardShortcuts(wrapper, terminal, terminalId, inputChannel = 'terminal-input') {
+  wrapper.addEventListener('keydown', (e) => {
+    if (!e.ctrlKey || !e.shiftKey) return;
+    // Don't intercept if focus is on a textarea/input — let native paste work
+    const tag = document.activeElement?.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+
+    const sendPaste = (text) => {
+      if (!text) return;
+      if (inputChannel === 'fivem-input') {
+        api.fivem.input({ projectIndex: terminalId, data: text });
+      } else if (inputChannel === 'webapp-input') {
+        api.webapp.input({ projectIndex: terminalId, data: text });
+      } else {
+        api.terminal.input({ id: terminalId, data: text });
+      }
+    };
+
+    if (e.key === 'V') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const now = Date.now();
+      if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
+      lastPasteTime = now;
+      navigator.clipboard.readText()
+        .then(sendPaste)
+        .catch(() => api.app.clipboardRead().then(sendPaste));
+    } else if (e.key === 'C') {
+      const selection = terminal.getSelection();
+      if (selection) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+      }
+    }
+  }, true); // capture phase — runs before xterm
+}
+
 function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input') {
   wrapper.addEventListener('paste', (e) => {
     e.preventDefault();
@@ -461,17 +503,19 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
       return;
     }
     lastPasteTime = now;
-    navigator.clipboard.readText().then(text => {
-      if (text) {
-        if (inputChannel === 'fivem-input') {
-          api.fivem.input({ projectIndex: terminalId, data: text });
-        } else if (inputChannel === 'webapp-input') {
-          api.webapp.input({ projectIndex: terminalId, data: text });
-        } else {
-          api.terminal.input({ id: terminalId, data: text });
-        }
+    const sendPaste = (text) => {
+      if (!text) return;
+      if (inputChannel === 'fivem-input') {
+        api.fivem.input({ projectIndex: terminalId, data: text });
+      } else if (inputChannel === 'webapp-input') {
+        api.webapp.input({ projectIndex: terminalId, data: text });
+      } else {
+        api.terminal.input({ id: terminalId, data: text });
       }
-    });
+    };
+    navigator.clipboard.readText()
+      .then(sendPaste)
+      .catch(() => api.app.clipboardRead().then(sendPaste));
   }, true);
 }
 
@@ -537,7 +581,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
     if (e.ctrlKey && e.shiftKey && e.key === 'C' && e.type === 'keydown') {
       const selection = terminal.getSelection();
       if (selection) {
-        navigator.clipboard.writeText(selection);
+        navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
       }
       return false;
     }
@@ -548,17 +592,19 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
         return false;
       }
       lastPasteTime = now;
-      navigator.clipboard.readText().then(text => {
-        if (text) {
-          if (inputChannel === 'fivem-input') {
-            api.fivem.input({ projectIndex: terminalId, data: text });
-          } else if (inputChannel === 'webapp-input') {
-            api.webapp.input({ projectIndex: terminalId, data: text });
-          } else {
-            api.terminal.input({ id: terminalId, data: text });
-          }
+      const sendPaste = (text) => {
+        if (!text) return;
+        if (inputChannel === 'fivem-input') {
+          api.fivem.input({ projectIndex: terminalId, data: text });
+        } else if (inputChannel === 'webapp-input') {
+          api.webapp.input({ projectIndex: terminalId, data: text });
+        } else {
+          api.terminal.input({ id: terminalId, data: text });
         }
-      });
+      };
+      navigator.clipboard.readText()
+        .then(sendPaste)
+        .catch(() => api.app.clipboardRead().then(sendPaste));
       return false;
     }
 
@@ -1156,6 +1202,7 @@ async function createTerminal(project, options = {}) {
 
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
+  setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -1402,6 +1449,7 @@ function createTypeConsole(project, projectIndex) {
 
   // Prevent double-paste issue
   setupPasteHandler(consoleView, projectIndex, `${typeId}-input`);
+  setupClipboardShortcuts(consoleView, terminal, projectIndex, `${typeId}-input`);
 
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
@@ -2531,6 +2579,7 @@ async function resumeSession(project, sessionId, options = {}) {
 
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
+  setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -2687,6 +2736,7 @@ async function createTerminalWithPrompt(project, prompt) {
 
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
+  setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3227,9 +3277,10 @@ async function switchTerminalMode(id) {
 
     setTimeout(() => fitAddon.fit(), 100);
 
-    // Setup paste handler and key handler
-    setupPasteHandler(wrapper, id, 'terminal-input');
-    terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
+    // Setup paste handler and key handler (use ptyId for PTY input routing)
+    setupPasteHandler(wrapper, ptyId, 'terminal-input');
+    setupClipboardShortcuts(wrapper, terminal, ptyId, 'terminal-input');
+    terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, ptyId, 'terminal-input'));
 
     // Title change
     let lastTitle = '';
