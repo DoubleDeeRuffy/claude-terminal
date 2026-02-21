@@ -6,7 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const pty = require('node-pty');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 // Port detection patterns from dev server output
 const PORT_PATTERNS = [
@@ -81,29 +81,27 @@ class WebAppService {
     const proc = this.processes.get(projectIndex);
     if (proc) {
       const pid = proc.pid;
+      this.processes.delete(projectIndex);
+      this.detectedPorts.delete(projectIndex);
       try {
-        // Send Ctrl+C first for graceful shutdown
         proc.write('\x03');
         setTimeout(() => {
-          if (this.processes.has(projectIndex)) {
-            this._forceKill(pid);
-            this.processes.delete(projectIndex);
-          }
+          this._forceKill(pid);
         }, 3000);
       } catch (e) {
         this._forceKill(pid);
-        this.processes.delete(projectIndex);
       }
+    } else {
+      this.detectedPorts.delete(projectIndex);
     }
-    this.detectedPorts.delete(projectIndex);
     return { success: true };
   }
 
   _forceKill(pid) {
-    if (!pid) return;
+    if (!pid || !Number.isInteger(pid) || pid <= 0) return;
     try {
       if (process.platform === 'win32') {
-        exec(`taskkill /F /T /PID ${pid}`, () => {});
+        execFile('taskkill', ['/F', '/T', '/PID', String(pid)], () => {});
       } else {
         process.kill(-pid, 'SIGKILL');
       }
@@ -140,8 +138,8 @@ class WebAppService {
       const re = new RegExp(pattern.source, 'gi');
       let m;
       while ((m = re.exec(clean)) !== null) {
-        const p = parseInt(m[1]);
-        if (p > 0 && p < 65536) found = p;
+        const p = parseInt(m[1], 10);
+        if (!isNaN(p) && p > 0 && p < 65536) found = p;
       }
       if (found) break;
     }

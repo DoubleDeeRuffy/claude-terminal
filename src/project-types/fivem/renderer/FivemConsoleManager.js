@@ -6,8 +6,9 @@
 
 const { getFivemServer, getFivemErrors, dismissLastError } = require('./FivemState');
 
-// Track error overlays by projectIndex
-const errorOverlays = new Map();
+// Track error overlays and their auto-hide timers by projectIndex
+const errorOverlays = new Map();   // projectIndex -> overlay element
+const errorTimers = new Map();     // projectIndex -> setTimeout ID
 
 /**
  * Get console configuration for FiveM projects.
@@ -110,9 +111,10 @@ function showErrorOverlay(projectIndex, error, tmApi) {
   };
 
   // Auto-hide after 30 seconds
-  setTimeout(() => {
+  const timerId = setTimeout(() => {
     hideErrorOverlay(projectIndex);
   }, 30000);
+  errorTimers.set(projectIndex, timerId);
 }
 
 /**
@@ -120,6 +122,13 @@ function showErrorOverlay(projectIndex, error, tmApi) {
  * @param {number} projectIndex
  */
 function hideErrorOverlay(projectIndex) {
+  // Cancel auto-hide timer if still pending
+  const timerId = errorTimers.get(projectIndex);
+  if (timerId !== undefined) {
+    clearTimeout(timerId);
+    errorTimers.delete(projectIndex);
+  }
+
   const overlay = errorOverlays.get(projectIndex);
   if (overlay) {
     overlay.classList.add('hiding');
