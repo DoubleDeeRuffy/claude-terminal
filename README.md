@@ -177,10 +177,12 @@
 
 Download the latest installer from [Releases](https://github.com/Sterll/claude-terminal/releases).
 
-> **macOS note:** If you see *"Claude Terminal is damaged and can't be opened"*, this is because the app is not code-signed yet. Run this command to fix it:
+> [!IMPORTANT]
+> **macOS users:** If you see *"Claude Terminal is damaged and can't be opened"*, run this in Terminal:
 > ```bash
 > xattr -cr /Applications/Claude\ Terminal.app
 > ```
+> This is needed because the app is not code-signed yet. Alternatively, right-click the app → Open.
 
 Or build from source:
 
