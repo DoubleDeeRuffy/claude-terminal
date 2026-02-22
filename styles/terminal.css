@@ -928,6 +928,7 @@
   bottom: 0;
   display: none;
   padding: 8px;
+  pointer-events: none;
 }
 
 .terminal-wrapper.active {
@@ -935,6 +936,7 @@
   flex-direction: column;
   background: var(--bg-primary);
   z-index: 1;
+  pointer-events: auto;
 }
 
 .terminal-wrapper.webapp-wrapper {

@@ -941,13 +941,18 @@ function setActiveTerminal(id) {
   const prevTermData = prevActiveId ? getTerminal(prevActiveId) : null;
   const prevProjectId = prevTermData?.project?.id;
 
+  // Blur previous terminal so its hidden xterm textarea doesn't capture cursor/input
+  if (prevTermData && prevTermData.terminal && prevActiveId !== id) {
+    try { prevTermData.terminal.blur(); } catch (e) {}
+  }
+
   setActiveTerminalState(id);
   document.querySelectorAll('.terminal-tab').forEach(t => t.classList.toggle('active', t.dataset.id == id));
   document.querySelectorAll('.terminal-wrapper').forEach(w => {
     const isActive = w.dataset.id == id;
     w.classList.toggle('active', isActive);
-    // Clear inline display style so CSS .terminal-wrapper { display: none } can apply to inactive wrappers
-    if (!isActive && w.style.display !== 'none') w.style.removeProperty('display');
+    // Always clear inline display so CSS rules control visibility via .active class
+    w.style.removeProperty('display');
   });
   const termData = getTerminal(id);
   if (termData) {
