@@ -12,21 +12,37 @@ const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
 
-// ========== CACHE SYSTEM ==========
+// ========== CACHE SYSTEM (LRU with size limit) ==========
+const MAX_CACHE_SIZE = 50; // Max cached projects
 const dashboardCache = new Map(); // projectId -> { data, timestamp, loading }
 const CACHE_TTL = 30000; // 30 seconds cache validity
 const REFRESH_DEBOUNCE = 2000; // 2 seconds minimum between refreshes
 const DISK_CACHE_FILE = '.claude-terminal';
 
-// Periodic cache cleanup to prevent unbounded growth
-let _cacheCleanupInterval = setInterval(() => {
+/**
+ * Evict oldest entries when cache exceeds MAX_CACHE_SIZE.
+ * Also removes expired entries opportunistically.
+ */
+function evictCache() {
   const now = Date.now();
+  // First pass: remove expired entries
   for (const [key, entry] of dashboardCache.entries()) {
     if (now - entry.timestamp > CACHE_TTL * 4) {
       dashboardCache.delete(key);
     }
   }
-}, 60000);
+  // Second pass: if still over limit, remove oldest entries (LRU)
+  if (dashboardCache.size > MAX_CACHE_SIZE) {
+    const sorted = [...dashboardCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toRemove = sorted.slice(0, dashboardCache.size - MAX_CACHE_SIZE);
+    for (const [key] of toRemove) {
+      dashboardCache.delete(key);
+    }
+  }
+}
+
+// Periodic cache cleanup to prevent unbounded growth
+let _cacheCleanupInterval = setInterval(evictCache, 60000);
 
 // ========== DISK CACHE ==========
 
@@ -268,6 +284,10 @@ function setCacheData(projectId, data) {
     timestamp: Date.now(),
     loading: false
   });
+  // Enforce LRU size limit
+  if (dashboardCache.size > MAX_CACHE_SIZE) {
+    evictCache();
+  }
 
   // Persist to disk asynchronously
   const project = projectsState.get().projects.find(p => p.id === projectId);
@@ -1395,9 +1415,7 @@ async function preloadAllProjects() {
   const projects = projectsState.get().projects;
   if (!projects || projects.length === 0) return;
 
-  // Preloading projects silently
-
-  const PROJECT_TIMEOUT = 20000; // 20s max per project
+  const PROJECT_TIMEOUT = 15000; // 15s max per project (reduced from 20s)
 
   function withTimeout(promise, ms, name) {
     return Promise.race([
@@ -1406,8 +1424,13 @@ async function preloadAllProjects() {
     ]);
   }
 
-  // Load projects in parallel batches
-  const BATCH_SIZE = 4;
+  // Yield to the event loop between batches so UI stays responsive
+  function yieldToUI() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  // Load projects in parallel batches (increased from 4 to 8)
+  const BATCH_SIZE = 8;
   for (let i = 0; i < projects.length; i += BATCH_SIZE) {
     const batch = projects.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (project) => {
@@ -1422,7 +1445,6 @@ async function preloadAllProjects() {
           project.name
         );
         setCacheData(project.id, data);
-        // Preloaded
       } catch (e) {
         console.error(`[Dashboard] Failed to preload ${project.name}:`, e.message);
         // Store minimal data (project type) so it's not stuck as "no data"
@@ -1436,9 +1458,10 @@ async function preloadAllProjects() {
 
     // Notify after each batch so overview can refresh progressively
     window.dispatchEvent(new CustomEvent('dashboard-preload-progress'));
-  }
 
-  // Preload complete
+    // Yield to UI between batches to prevent renderer freeze
+    await yieldToUI();
+  }
 }
 
 /**
