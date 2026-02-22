@@ -934,6 +934,7 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+  z-index: 1;
 }
 
 .terminal-wrapper.webapp-wrapper {

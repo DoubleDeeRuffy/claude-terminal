@@ -943,7 +943,12 @@ function setActiveTerminal(id) {
 
   setActiveTerminalState(id);
   document.querySelectorAll('.terminal-tab').forEach(t => t.classList.toggle('active', t.dataset.id == id));
-  document.querySelectorAll('.terminal-wrapper').forEach(w => w.classList.toggle('active', w.dataset.id == id));
+  document.querySelectorAll('.terminal-wrapper').forEach(w => {
+    const isActive = w.dataset.id == id;
+    w.classList.toggle('active', isActive);
+    // Clear inline display style so CSS .terminal-wrapper { display: none } can apply to inactive wrappers
+    if (!isActive && w.style.display !== 'none') w.style.removeProperty('display');
+  });
   const termData = getTerminal(id);
   if (termData) {
     if (termData.mode === 'chat') {
@@ -1848,7 +1853,14 @@ function filterByProject(projectIndex) {
     ));
 
     if (tab) tab.style.display = shouldShow ? '' : 'none';
-    if (wrapper) wrapper.style.display = shouldShow ? '' : 'none';
+    if (wrapper) {
+      if (shouldShow) {
+        // Remove inline display so CSS .terminal-wrapper/.active rules control visibility
+        wrapper.style.removeProperty('display');
+      } else {
+        wrapper.style.display = 'none';
+      }
+    }
     if (shouldShow) {
       visibleCount++;
       if (!firstVisibleId) firstVisibleId = id;
