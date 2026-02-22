@@ -252,18 +252,18 @@ function gitCloneTemp(repoUrl) {
 }
 
 /**
- * Recursively copy a directory
+ * Recursively copy a directory (async to avoid blocking the main thread)
  */
-function copyDirSync(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
+async function copyDirAsync(src, dest) {
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDirSync(srcPath, destPath);
+      await copyDirAsync(srcPath, destPath);
     } else {
-      fs.copyFileSync(srcPath, destPath);
+      await fs.promises.copyFile(srcPath, destPath);
     }
   }
 }
@@ -341,7 +341,7 @@ async function installSkill({ source, skillId, name, installs }) {
       fs.rmSync(destDir, { recursive: true, force: true });
     }
     fs.mkdirSync(destDir, { recursive: true });
-    copyDirSync(skillSourceDir, destDir);
+    await copyDirAsync(skillSourceDir, destDir);
 
     // Remove .git if we copied the whole repo
     const gitDir = path.join(destDir, '.git');
