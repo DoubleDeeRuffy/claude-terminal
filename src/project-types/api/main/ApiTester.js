@@ -44,8 +44,7 @@ class ApiTester {
         path: parsed.pathname + parsed.search,
         method: method.toUpperCase(),
         headers: { ...headers },
-        timeout: 30000,
-        rejectUnauthorized: false
+        timeout: 30000
       };
 
       // Set content-length for body
