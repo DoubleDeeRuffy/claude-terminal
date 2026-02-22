@@ -23,6 +23,12 @@ const { app } = require('electron');
 const { settingsFile, projectsFile } = require('../utils/paths');
 
 const PIN_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const MAX_AUTH_ATTEMPTS = 5;
+const AUTH_LOCKOUT_MS = 60_000; // 1 minute lockout after max attempts
+const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_POST_BODY = 1024; // 1 KB
+const WS_MAX_PAYLOAD = 5 * 1024 * 1024; // 5 MB
+const MAX_MENTION_FILE_SIZE = 1024 * 1024; // 1 MB
 
 // In packaged builds, remote-ui is in extraResources; in dev, relative to project root
 function getPwaDir() {
@@ -52,10 +58,13 @@ let _pin = null;       // string '0000'–'9999'
 let _pinExpiry = 0;    // timestamp ms
 let _pinUsed = false;  // true after one successful auth (PIN stays displayed but can't be reused)
 
-// Valid session tokens → WebSocket (once authenticated via PIN)
-// Map<sessionToken, WebSocket | null>
-const _sessionTokens = new Set();
+// Valid session tokens → { issuedAt } (once authenticated via PIN)
+const _sessionTokens = new Map(); // Map<token, { issuedAt }>
 const _connectedClients = new Map(); // Map<sessionToken, WebSocket>
+
+// Brute-force protection
+let _failedAttempts = 0;
+let _lockoutUntil = 0;
 
 // Live time data pushed from renderer
 let _timeData = { todayMs: 0 };
@@ -103,15 +112,37 @@ function _getNetworkInterfaces() {
 // ─── PIN Management ───────────────────────────────────────────────────────────
 
 function generatePin() {
-  _pin = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  _pin = String(crypto.randomInt(0, 10000)).padStart(4, '0');
   _pinExpiry = Date.now() + PIN_TTL_MS;
   _pinUsed = false;
-  console.log(`[Remote] PIN generated: ${_pin} (valid 2 min)`);
+  console.log(`[Remote] New PIN generated (valid 2 min)`);
   return _pin;
 }
 
 function _isPinValid(pin) {
-  return _pin !== null && !_pinUsed && pin === _pin && Date.now() < _pinExpiry;
+  if (Date.now() < _lockoutUntil) return false;
+  if (_pin !== null && !_pinUsed && pin === _pin && Date.now() < _pinExpiry) {
+    _failedAttempts = 0;
+    return true;
+  }
+  _failedAttempts++;
+  if (_failedAttempts >= MAX_AUTH_ATTEMPTS) {
+    _lockoutUntil = Date.now() + AUTH_LOCKOUT_MS;
+    _failedAttempts = 0;
+    generatePin();
+    console.warn('[Remote] Too many failed PIN attempts — locked out for 60s, new PIN generated');
+  }
+  return false;
+}
+
+function _isTokenValid(token) {
+  const entry = _sessionTokens.get(token);
+  if (!entry) return false;
+  if (Date.now() - entry.issuedAt > TOKEN_TTL_MS) {
+    _sessionTokens.delete(token);
+    return false;
+  }
+  return true;
 }
 
 function getPin() {
@@ -121,26 +152,39 @@ function getPin() {
 // ─── HTTP Handler ─────────────────────────────────────────────────────────────
 
 function _handleHttpRequest(req, res) {
-  // CORS for local dev
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS headers — only allow same-origin (PWA is served from this server)
+  const origin = req.headers.origin;
+  if (origin) {
+    // Only allow requests from the server's own origin
+    const serverOrigin = `http://${req.headers.host}`;
+    if (origin === serverOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+  }
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 
   // POST /auth — exchange PIN for session token
   if (req.method === 'POST' && req.url === '/auth') {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let bodySize = 0;
+    req.on('data', chunk => {
+      bodySize += chunk.length;
+      if (bodySize > MAX_POST_BODY) { req.destroy(); res.writeHead(413); res.end('Payload too large'); return; }
+      body += chunk;
+    });
     req.on('end', () => {
       try {
         const { pin } = JSON.parse(body);
         if (!_isPinValid(pin)) {
-          console.warn(`[Remote] Auth failed — wrong or expired PIN (got: "${pin}", expected: "${_pin}", expired: ${Date.now() >= _pinExpiry})`);
+          console.warn(`[Remote] Auth failed — wrong or expired PIN`);
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid or expired PIN' }));
           return;
         }
         // Generate a session token and mark PIN as used (keeps displaying until expiry)
         const token = crypto.randomBytes(24).toString('hex');
-        _sessionTokens.add(token);
+        _sessionTokens.set(token, { issuedAt: Date.now() });
         _pinUsed = true;
         console.log(`[Remote] Auth OK — session token issued, ${_sessionTokens.size} active token(s)`);
         // Immediately generate a fresh PIN for next auth
@@ -148,7 +192,7 @@ function _handleHttpRequest(req, res) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ token }));
       } catch (e) {
-        console.warn(`[Remote] Auth error — bad JSON body: ${e.message}`);
+        console.warn(`[Remote] Auth error — bad JSON body`);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Bad request' }));
       }
@@ -169,8 +213,10 @@ function _handleHttpRequest(req, res) {
 
   const filePath = path.join(pwaDir, urlPath);
 
-  // Security: prevent path traversal
-  if (!filePath.startsWith(pwaDir)) {
+  // Security: prevent path traversal (use resolved paths with separator check)
+  const normalizedFile = path.resolve(filePath);
+  const normalizedBase = path.resolve(pwaDir);
+  if (normalizedFile !== normalizedBase && !normalizedFile.startsWith(normalizedBase + path.sep)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -198,11 +244,13 @@ function _handleHttpRequest(req, res) {
 // ─── WebSocket Auth & Message Handling ───────────────────────────────────────
 
 function _handleWsUpgrade(request, socket, head) {
+  if (!wss) { socket.destroy(); return; }
+
   const urlParams = new URLSearchParams(request.url.replace(/^.*\?/, ''));
   const token = urlParams.get('token');
 
-  if (!token || !_sessionTokens.has(token)) {
-    console.warn(`[Remote] WS upgrade rejected — invalid token (token present: ${!!token}, known tokens: ${_sessionTokens.size})`);
+  if (!token || !_isTokenValid(token)) {
+    console.warn(`[Remote] WS upgrade rejected — invalid or expired token`);
     // Accepter le WS puis fermer avec code 4401 pour que le client sache que c'est un token invalide
     // (un rejet HTTP 401 sur upgrade est moins fiable sur iOS Safari)
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -297,36 +345,48 @@ function _sendProjectsAndSessions(ws) {
   }
 }
 
+function _isRegisteredProjectPath(cwd) {
+  try {
+    if (!fs.existsSync(projectsFile)) return false;
+    const data = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+    const normalized = path.resolve(cwd);
+    return (data.projects || []).some(p => path.resolve(p.path) === normalized);
+  } catch (e) { return false; }
+}
+
 function _handleClientMessage(ws, token, raw) {
   let msg;
   try { msg = JSON.parse(raw); } catch (e) { return; }
 
   const { type, data } = msg;
+  if (!type) return;
   if (type !== 'ping') console.log(`[Remote] ← ${type}`, data ? JSON.stringify(data).slice(0, 120) : '');
 
-  switch (type) {
-    case 'ping':
-      _wsSend(ws, 'pong', {});
-      break;
+  try {
+    switch (type) {
+      case 'ping':
+        _wsSend(ws, 'pong', {});
+        break;
 
-    case 'chat:send': {
-      try {
+      case 'chat:send': {
         const chatService = require('./ChatService');
+        const sessionId = data?.sessionId;
+        if (!sessionId) { _wsSend(ws, 'chat-error', { error: 'Missing sessionId' }); break; }
         const images = Array.isArray(data.images) ? data.images : [];
         const mentions = Array.isArray(data.mentions) ? data.mentions : [];
-        // Resolve mentions inline, then send
-        const sessionInfo = chatService.getSessionInfo?.(data.sessionId);
+        const sessionInfo = chatService.getSessionInfo?.(sessionId);
         const cwd = sessionInfo?.cwd || null;
         _resolveMentions(mentions, cwd).then(resolvedText => {
           const fullText = resolvedText ? (data.text || '') + resolvedText : (data.text || '');
-          chatService.sendMessage(data.sessionId, fullText, images);
+          chatService.sendMessage(sessionId, fullText, images);
         }).catch(() => {
-          chatService.sendMessage(data.sessionId, data.text || '', images);
+          try { chatService.sendMessage(sessionId, data.text || '', images); }
+          catch (sendErr) { _wsSend(ws, 'chat-error', { sessionId, error: sendErr.message }); }
         });
         // Notify renderer so it can display the user message in ChatView
         if (_isMainWindowReady()) {
           mainWindow.webContents.send('remote:user-message', {
-            sessionId: data.sessionId,
+            sessionId,
             text: data.text,
             images: images.map(img => ({
               base64: img.base64,
@@ -336,128 +396,133 @@ function _handleClientMessage(ws, token, raw) {
             })),
           });
         }
-      } catch (err) {
-        _wsSend(ws, 'chat-error', { sessionId: data.sessionId, error: err.message });
+        break;
       }
-      break;
-    }
 
-    case 'chat:start': {
-      // Demander au renderer d'ouvrir un nouveau tab chat (lui qui démarre la session via SDK)
-      if (_isMainWindowReady()) {
-        const mentions = Array.isArray(data.mentions) ? data.mentions : [];
-        _resolveMentions(mentions, data.cwd).then(resolvedText => {
-          const prompt = resolvedText ? (data.prompt || '') + resolvedText : (data.prompt || '');
-          mainWindow.webContents.send('remote:open-chat-tab', {
-            cwd: data.cwd,
-            prompt,
-            images: Array.isArray(data.images) ? data.images : [],
-            sessionId: data.sessionId,
-            model: data.model || null,
-            effort: data.effort || null,
+      case 'chat:start': {
+        if (_isMainWindowReady()) {
+          const mentions = Array.isArray(data?.mentions) ? data.mentions : [];
+          const cwd = data?.cwd;
+          _resolveMentions(mentions, cwd).then(resolvedText => {
+            const prompt = resolvedText ? (data.prompt || '') + resolvedText : (data.prompt || '');
+            mainWindow.webContents.send('remote:open-chat-tab', {
+              cwd,
+              prompt,
+              images: Array.isArray(data.images) ? data.images : [],
+              sessionId: data.sessionId,
+              model: data.model || null,
+              effort: data.effort || null,
+            });
+          }).catch(() => {
+            mainWindow.webContents.send('remote:open-chat-tab', {
+              cwd,
+              prompt: data?.prompt || '',
+              images: Array.isArray(data?.images) ? data.images : [],
+              sessionId: data?.sessionId,
+              model: data?.model || null,
+              effort: data?.effort || null,
+            });
           });
-        }).catch(() => {
-          mainWindow.webContents.send('remote:open-chat-tab', {
-            cwd: data.cwd,
-            prompt: data.prompt || '',
-            images: Array.isArray(data.images) ? data.images : [],
-            sessionId: data.sessionId,
-            model: data.model || null,
-            effort: data.effort || null,
-          });
+        } else {
+          _wsSend(ws, 'chat-error', { sessionId: data?.sessionId, error: 'App window not available' });
+        }
+        break;
+      }
+
+      case 'chat:interrupt': {
+        const chatService = require('./ChatService');
+        if (data?.sessionId) chatService.interrupt(data.sessionId);
+        break;
+      }
+
+      case 'chat:permission-response': {
+        const chatService = require('./ChatService');
+        const { requestId, result } = data || {};
+        if (!requestId || typeof result?.behavior !== 'string') {
+          console.warn('[Remote] Invalid permission response');
+          break;
+        }
+        chatService.resolvePermission(requestId, result);
+        break;
+      }
+
+      case 'git:status': {
+        const git = require('../utils/git');
+        const cwd = data?.cwd;
+        if (!cwd || !_isRegisteredProjectPath(cwd)) { _wsSend(ws, 'git:status', { error: 'Invalid project path' }); break; }
+        git.getGitInfoFull(cwd, { skipFetch: true }).then(info => {
+          _wsSend(ws, 'git:status', info);
+        }).catch(err => {
+          _wsSend(ws, 'git:status', { isGitRepo: false, error: err.message });
         });
-      } else {
-        _wsSend(ws, 'chat-error', { sessionId: data.sessionId, error: 'App window not available' });
+        break;
       }
-      break;
-    }
 
-    case 'chat:interrupt': {
-      const chatService = require('./ChatService');
-      chatService.interrupt(data.sessionId);
-      break;
-    }
-
-    case 'chat:permission-response': {
-      const chatService = require('./ChatService');
-      chatService.resolvePermission(data.requestId, data.result);
-      break;
-    }
-
-    case 'git:status': {
-      const git = require('../utils/git');
-      const cwd = data?.cwd;
-      if (!cwd) { _wsSend(ws, 'git:status', { error: 'Missing cwd' }); break; }
-      git.getGitInfoFull(cwd, { skipFetch: true }).then(info => {
-        _wsSend(ws, 'git:status', info);
-      }).catch(err => {
-        _wsSend(ws, 'git:status', { isGitRepo: false, error: err.message });
-      });
-      break;
-    }
-
-    case 'git:pull': {
-      const git = require('../utils/git');
-      const cwd = data?.cwd;
-      if (!cwd) { _wsSend(ws, 'git:pull', { success: false, error: 'Missing cwd' }); break; }
-      git.gitPull(cwd).then(result => {
-        _wsSend(ws, 'git:pull', result);
-        // Refresh status after pull
-        git.getGitInfoFull(cwd, { skipFetch: true }).then(info => _wsSend(ws, 'git:status', info)).catch(() => {});
-      }).catch(err => {
-        _wsSend(ws, 'git:pull', { success: false, error: err.message });
-      });
-      break;
-    }
-
-    case 'git:push': {
-      const git = require('../utils/git');
-      const cwd = data?.cwd;
-      if (!cwd) { _wsSend(ws, 'git:push', { success: false, error: 'Missing cwd' }); break; }
-      git.gitPush(cwd).then(result => {
-        _wsSend(ws, 'git:push', result);
-        // Refresh status after push
-        git.getGitInfoFull(cwd, { skipFetch: true }).then(info => _wsSend(ws, 'git:status', info)).catch(() => {});
-      }).catch(err => {
-        _wsSend(ws, 'git:push', { success: false, error: err.message });
-      });
-      break;
-    }
-
-    case 'mention:file-list': {
-      // Return a list of files for the @file picker
-      const cwd = _resolveProjectPath(data?.projectId);
-      if (!cwd) { _wsSend(ws, 'mention:file-list', { files: [] }); break; }
-      _getProjectFiles(cwd).then(files => {
-        _wsSend(ws, 'mention:file-list', { files });
-      }).catch(() => {
-        _wsSend(ws, 'mention:file-list', { files: [] });
-      });
-      break;
-    }
-
-    case 'settings:update': {
-      const chatService = require('./ChatService');
-      const { sessionId, model, effort } = data || {};
-      const ops = [];
-      if (model && sessionId) {
-        ops.push(chatService.setModel(sessionId, model).catch(err => {
-          _wsSend(ws, 'chat-error', { sessionId, error: `Model change failed: ${err.message}` });
-        }));
+      case 'git:pull': {
+        const git = require('../utils/git');
+        const cwd = data?.cwd;
+        if (!cwd || !_isRegisteredProjectPath(cwd)) { _wsSend(ws, 'git:pull', { success: false, error: 'Invalid project path' }); break; }
+        git.gitPull(cwd).then(result => {
+          _wsSend(ws, 'git:pull', result);
+          git.getGitInfoFull(cwd, { skipFetch: true }).then(info => _wsSend(ws, 'git:status', info)).catch(() => {});
+        }).catch(err => {
+          _wsSend(ws, 'git:pull', { success: false, error: err.message });
+        });
+        break;
       }
-      if (effort && sessionId) {
-        ops.push(chatService.setEffort(sessionId, effort).catch(err => {
-          _wsSend(ws, 'chat-error', { sessionId, error: `Effort change failed: ${err.message}` });
-        }));
-      }
-      Promise.all(ops).then(() => {
-        _wsSend(ws, 'settings:updated', { sessionId, model, effort });
-      });
-      break;
-    }
 
-    default:
-      break;
+      case 'git:push': {
+        const git = require('../utils/git');
+        const cwd = data?.cwd;
+        if (!cwd || !_isRegisteredProjectPath(cwd)) { _wsSend(ws, 'git:push', { success: false, error: 'Invalid project path' }); break; }
+        git.gitPush(cwd).then(result => {
+          _wsSend(ws, 'git:push', result);
+          git.getGitInfoFull(cwd, { skipFetch: true }).then(info => _wsSend(ws, 'git:status', info)).catch(() => {});
+        }).catch(err => {
+          _wsSend(ws, 'git:push', { success: false, error: err.message });
+        });
+        break;
+      }
+
+      case 'mention:file-list': {
+        const cwd = _resolveProjectPath(data?.projectId);
+        if (!cwd) { _wsSend(ws, 'mention:file-list', { files: [] }); break; }
+        _getProjectFiles(cwd).then(files => {
+          _wsSend(ws, 'mention:file-list', { files });
+        }).catch(() => {
+          _wsSend(ws, 'mention:file-list', { files: [] });
+        });
+        break;
+      }
+
+      case 'settings:update': {
+        const chatService = require('./ChatService');
+        const { sessionId, model, effort } = data || {};
+        const ops = [];
+        let anyFailed = false;
+        if (model && sessionId) {
+          ops.push(chatService.setModel(sessionId, model).catch(err => {
+            anyFailed = true;
+            _wsSend(ws, 'chat-error', { sessionId, error: `Model change failed: ${err.message}` });
+          }));
+        }
+        if (effort && sessionId) {
+          ops.push(chatService.setEffort(sessionId, effort).catch(err => {
+            anyFailed = true;
+            _wsSend(ws, 'chat-error', { sessionId, error: `Effort change failed: ${err.message}` });
+          }));
+        }
+        Promise.all(ops).then(() => {
+          if (!anyFailed) _wsSend(ws, 'settings:updated', { sessionId, model, effort });
+        });
+        break;
+      }
+
+      default:
+        break;
+    }
+  } catch (err) {
+    console.warn(`[Remote] Error handling ${type}: ${err.message}`);
   }
 }
 
@@ -471,17 +536,30 @@ async function _resolveMentions(mentions, cwd) {
     let content = '';
     switch (mention.type) {
       case 'file': {
-        const filePath = mention.data?.fullPath || (cwd && mention.data?.path ? path.join(cwd, mention.data.path) : null);
-        if (!filePath) { content = '[No file path]'; break; }
+        // Only allow relative paths resolved within cwd — no fullPath from remote clients
+        const relativePath = mention.data?.path;
+        if (!relativePath || !cwd) { content = '[No file path]'; break; }
+        const filePath = path.resolve(cwd, relativePath);
+        // Containment check: file must be within the project directory
+        const resolvedCwd = path.resolve(cwd);
+        if (!filePath.startsWith(resolvedCwd + path.sep) && filePath !== resolvedCwd) {
+          content = '[File path outside project directory]';
+          break;
+        }
         try {
+          const stats = fs.statSync(filePath);
+          if (stats.size > MAX_MENTION_FILE_SIZE) {
+            content = `[File too large: ${(stats.size / 1024 / 1024).toFixed(1)} MB]`;
+            break;
+          }
           const raw = fs.readFileSync(filePath, 'utf8');
           const lines = raw.split('\n');
-          const displayPath = mention.data?.path || path.basename(filePath);
+          const displayPath = relativePath;
           content = lines.length > 500
             ? `File: ${displayPath} (first 500/${lines.length} lines)\n\n${lines.slice(0, 500).join('\n')}`
             : `File: ${displayPath}\n\n${raw}`;
         } catch (e) {
-          content = `[Error reading file: ${mention.data?.path || filePath}]`;
+          content = `[Error reading file: ${relativePath}]`;
         }
         break;
       }
@@ -574,7 +652,7 @@ async function _getProjectFiles(cwd, maxFiles = 500) {
     });
     const lines = stdout.split('\n').filter(Boolean);
     for (const line of lines.slice(0, maxFiles)) {
-      files.push({ path: line, fullPath: path.join(cwd, line) });
+      files.push({ path: line });
     }
   } catch (e) {
     // Fallback: simple recursive readdir (1 level)
@@ -582,7 +660,7 @@ async function _getProjectFiles(cwd, maxFiles = 500) {
       const entries = fs.readdirSync(cwd, { withFileTypes: true });
       for (const entry of entries.slice(0, maxFiles)) {
         if (entry.isFile() && !entry.name.startsWith('.')) {
-          files.push({ path: entry.name, fullPath: path.join(cwd, entry.name) });
+          files.push({ path: entry.name });
         }
       }
     } catch (e2) {}
@@ -598,7 +676,9 @@ function _isMainWindowReady() {
 
 function _wsSend(ws, type, data) {
   if (ws.readyState === 1 /* OPEN */) {
-    try { ws.send(JSON.stringify({ type, data })); } catch (e) {}
+    try { ws.send(JSON.stringify({ type, data })); } catch (e) {
+      console.warn(`[Remote] Failed to send ${type}: ${e.message}`);
+    }
   }
 }
 
@@ -670,6 +750,7 @@ function start(win, port = 3712) {
   httpServer = http.createServer(_handleHttpRequest);
   wss = new WebSocketServer({
     noServer: true,
+    maxPayload: WS_MAX_PAYLOAD,
     perMessageDeflate: {
       zlibDeflateOptions: { level: 1 },  // fast compression
       threshold: 128,                     // only compress messages > 128 bytes
@@ -685,7 +766,7 @@ function start(win, port = 3712) {
 
   httpServer.on('error', (e) => {
     console.error(`[Remote] Server error: ${e.message}`);
-    httpServer = null;
+    stop(); // Full cleanup including wss, callback, clients
   });
 
   // Bridge ChatService events → connected WS clients
@@ -724,6 +805,8 @@ function stop() {
   _sessionTokens.clear();
   _sessionProjectMap.clear();
   _pin = null;
+  _failedAttempts = 0;
+  _lockoutUntil = 0;
 
   if (wss) { wss.close(); wss = null; }
   if (httpServer) { httpServer.close(); httpServer = null; }

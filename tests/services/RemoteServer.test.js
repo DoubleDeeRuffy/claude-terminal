@@ -55,12 +55,13 @@ describe('generatePin', () => {
   });
 
   test('PIN is padded to 4 digits', () => {
-    // Even if random gives 0, should be '0000'
-    jest.spyOn(Math, 'random').mockReturnValueOnce(0);
+    // Even if crypto.randomInt gives 0, should be '0000'
+    const crypto = require('crypto');
+    jest.spyOn(crypto, 'randomInt').mockReturnValueOnce(0);
     const pin = remoteServer.generatePin();
     expect(pin).toBe('0000');
     expect(pin.length).toBe(4);
-    Math.random.mockRestore();
+    crypto.randomInt.mockRestore();
   });
 });
 

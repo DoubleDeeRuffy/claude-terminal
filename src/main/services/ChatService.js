@@ -824,6 +824,7 @@ class ChatService {
   closeSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {
+      if (session.abortController) session.abortController.abort();
       if (session.queryStream?.close) session.queryStream.close();
       if (session.messageQueue) session.messageQueue.close();
       // Reject pending permissions for this session
@@ -845,7 +846,9 @@ class ChatService {
   getActiveSessions() {
     const result = [];
     for (const [sessionId, session] of this.sessions) {
-      result.push({ sessionId, cwd: session.cwd || null });
+      if (!session._streamEnded) {
+        result.push({ sessionId, cwd: session.cwd || null });
+      }
     }
     return result;
   }
@@ -857,7 +860,8 @@ class ChatService {
   }
 
   closeAll() {
-    for (const [id] of this.sessions) {
+    const ids = [...this.sessions.keys()];
+    for (const id of ids) {
       this.closeSession(id);
     }
     // Close naming session

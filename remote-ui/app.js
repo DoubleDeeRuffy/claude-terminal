@@ -93,7 +93,7 @@ const state = {
   selectedProjectId: null,
   sessions: {},           // { [sessionId]: Session }
   selectedSessionId: null,
-  pendingPermission: null,
+  pendingPermissions: new Map(), // Map<requestId, permData>
   currentView: 'projects',
   todayMs: 0,
   _pendingUserMessage: null,
@@ -484,6 +484,7 @@ function _getOrCreateSession(sessionId, projectId) {
     const pid = projectId || state.selectedProjectId;
     const project = state.projects.find(p => p.id === pid);
     state.sessions[sessionId] = _makeSession(sessionId, pid, project?.name || 'Chat', []);
+    _saveSessions();
   }
   return state.sessions[sessionId];
 }
@@ -768,10 +769,10 @@ function onChatUserMessage({ sessionId, text, images }) {
   const imageLabel = imageCount > 0
     ? (_isFr ? ` (${imageCount} image${imageCount > 1 ? 's' : ''})` : ` (${imageCount} image${imageCount > 1 ? 's' : ''})`)
     : '';
-  session.messages.push({
-    role: 'user',
-    content: (text || '') + imageLabel || (_isFr ? '(image jointe)' : '(image attached)'),
-  });
+  let content = text || '';
+  if (imageLabel) content += imageLabel;
+  if (!content) content = _isFr ? '(image jointe)' : '(image attached)';
+  session.messages.push({ role: 'user', content });
   _renderIfActive(sessionId);
 }
 
@@ -844,7 +845,7 @@ function onPermissionRequest(data) {
     session.lastActivity = `${_isFr ? 'Permission :' : 'Permission:'} ${data.toolName || 'Tool'}`;
     _refreshControlIfActive();
   }
-  state.pendingPermission = data;
+  state.pendingPermissions.set(data.requestId, data);
   _renderIfActive(data.sessionId);
   if (state.currentView !== 'chat') $('chat-badge')?.classList.remove('hidden');
 }
@@ -965,6 +966,7 @@ function switchView(view) {
 function enterProjectHub(projectId) {
   state.selectedProjectId = projectId;
   state.inProjectHub = true;
+  state.fileList = []; // Clear stale file list from previous project
 
   const project = state.projects.find(p => p.id === projectId);
 
@@ -1111,7 +1113,7 @@ function renderControlView() {
   list.innerHTML = sorted.map(s => {
     const project = state.projects.find(p => p.id === s.projectId);
     const projectName = project?.name || s.tabName || 'Chat';
-    const projectColor = project?.color || 'var(--accent)';
+    const projectColor = /^#[0-9a-fA-F]{3,8}$/.test(project?.color) ? project.color : 'var(--accent)';
     const statusLabel = {
       active: _isFr ? 'Actif' : 'Active',
       permission: _isFr ? 'Permission' : 'Permission',
@@ -1163,14 +1165,16 @@ function _getSessionLastMessage(session) {
 
 // ─── Projects View ────────────────────────────────────────────────────────────
 
-function _countProjectsInFolder(folderId) {
+function _countProjectsInFolder(folderId, visited = new Set()) {
+  if (visited.has(folderId)) return 0;
+  visited.add(folderId);
   const folder = state.folders.find(f => f.id === folderId);
   if (!folder) return 0;
   let count = 0;
   for (const childId of (folder.children || [])) {
     const isFolder = state.folders.some(f => f.id === childId);
     if (isFolder) {
-      count += _countProjectsInFolder(childId);
+      count += _countProjectsInFolder(childId, visited);
     } else {
       count++;
     }
@@ -1184,7 +1188,9 @@ function _toggleFolder(folderId) {
   renderProjectsList();
 }
 
-function _renderItem(itemId, depth) {
+function _renderItem(itemId, depth, visited = new Set()) {
+  if (visited.has(itemId)) return '';
+  visited.add(itemId);
   const folder = state.folders.find(f => f.id === itemId);
   if (folder) {
     const collapsed = !!state.collapsedFolders[folder.id];
@@ -1200,7 +1206,7 @@ function _renderItem(itemId, depth) {
     </div>`;
     if (!collapsed) {
       for (const childId of (folder.children || [])) {
-        html += _renderItem(childId, depth + 1);
+        html += _renderItem(childId, depth + 1, visited);
       }
     }
     return html;
@@ -1225,12 +1231,13 @@ function renderProjectsList() {
 
   if (countEl) countEl.textContent = state.projects.length;
 
+  if (!list) return;
   if (!state.projects.length) {
     list.innerHTML = '';
-    empty.classList.remove('hidden');
+    if (empty) empty.classList.remove('hidden');
     return;
   }
-  empty.classList.add('hidden');
+  if (empty) empty.classList.add('hidden');
 
   // If we have rootOrder + folders, render hierarchically
   if (state.rootOrder.length > 0 && state.folders.length > 0) {
@@ -1462,7 +1469,7 @@ function _renderInlinePermission(m) {
     ).join('\n');
   } catch (e) {}
 
-  const resolved = !state.pendingPermission || state.pendingPermission.requestId !== perm.requestId;
+  const resolved = !state.pendingPermissions.has(perm.requestId);
 
   return `<div class="perm-inline ${resolved ? 'resolved' : ''}" data-request-id="${escHtml(perm.requestId || '')}">
     <div class="perm-inline-header">
@@ -1483,13 +1490,14 @@ function _renderInlinePermission(m) {
 }
 
 function _respondInlinePermission(el, allow) {
-  if (!state.pendingPermission) return;
+  const requestId = el.dataset.requestId;
+  if (!requestId || !state.pendingPermissions.has(requestId)) return;
   navigator.vibrate?.(10);
   wsSend('chat:permission-response', {
-    requestId: state.pendingPermission.requestId,
+    requestId,
     result: { behavior: allow ? 'allow' : 'deny' },
   });
-  state.pendingPermission = null;
+  state.pendingPermissions.delete(requestId);
   el.classList.add('resolved');
   const actionsEl = el.querySelector('.perm-inline-actions');
   if (actionsEl) actionsEl.innerHTML = `<div class="perm-inline-resolved">${allow ? 'Allowed' : 'Denied'}</div>`;
@@ -1599,8 +1607,8 @@ function _showSlashDropdown(query) {
   const dd = $('autocomplete-dropdown');
   dd.innerHTML = filtered.map((c, i) => `
     <div class="ac-item${i === _acIndex ? ' active' : ''}" data-idx="${i}">
-      <span class="ac-cmd">${_escHtml(c.cmd)}</span>
-      ${c.desc ? `<span class="ac-desc">${_escHtml(c.desc)}</span>` : ''}
+      <span class="ac-cmd">${escHtml(c.cmd)}</span>
+      ${c.desc ? `<span class="ac-desc">${escHtml(c.desc)}</span>` : ''}
     </div>
   `).join('');
   dd.classList.remove('hidden');
@@ -1619,8 +1627,8 @@ function _showMentionTypes(query) {
   dd.innerHTML = filtered.map((m, i) => `
     <div class="ac-item${i === _acIndex ? ' active' : ''}" data-idx="${i}">
       <span class="ac-icon">${m.icon}</span>
-      <span class="ac-cmd">${_escHtml(m.label)}</span>
-      <span class="ac-desc">${_escHtml(m.desc)}</span>
+      <span class="ac-cmd">${escHtml(m.label)}</span>
+      <span class="ac-desc">${escHtml(m.desc)}</span>
     </div>
   `).join('');
   dd.classList.remove('hidden');
@@ -1647,7 +1655,7 @@ function _showFilePicker(query) {
   dd.innerHTML = shown.map((f, i) => `
     <div class="ac-item${i === _acIndex ? ' active' : ''}" data-idx="${i}">
       <span class="ac-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-      <span class="ac-file-path">${_escHtml(f.path)}</span>
+      <span class="ac-file-path">${escHtml(f.path)}</span>
     </div>
   `).join('');
   dd.classList.remove('hidden');
@@ -1796,7 +1804,7 @@ function _renderMentionChips() {
   container.innerHTML = _pendingMentions.map((chip, i) => `
     <span class="mention-chip">
       <span class="mention-chip-icon">${chip.icon}</span>
-      <span class="mention-chip-label">${_escHtml(chip.label)}</span>
+      <span class="mention-chip-label">${escHtml(chip.label)}</span>
       <button class="mention-chip-remove" data-idx="${i}">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -2083,9 +2091,7 @@ function _selectEffort(effort) {
   _closePlusMenu();
 }
 
-function _escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// Use escHtml() below for all HTML escaping (includes &quot;)
 
 // ─── Scroll FAB ───────────────────────────────────────────────────────────────
 

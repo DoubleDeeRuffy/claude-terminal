@@ -1054,8 +1054,8 @@ html, body {
   position: absolute;
   bottom: 80px;
   right: 16px;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--bg3);
   border: 1px solid var(--border-light);
@@ -1185,8 +1185,8 @@ html, body {
 
 /* Plus menu button */
 .plus-menu-btn {
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -1405,8 +1405,10 @@ html, body {
 
 .mention-chip-remove {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  min-width: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1417,6 +1419,7 @@ html, body {
   cursor: pointer;
   padding: 0;
   border-radius: 50%;
+  margin: -10px;
 }
 
 .mention-chip-remove:active { opacity: 1; background: rgba(217,119,6,0.2); }
@@ -1446,10 +1449,10 @@ html, body {
 
 .image-preview-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 20px;
-  height: 20px;
+  top: -4px;
+  right: -4px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: rgba(0,0,0,0.7);
   border: none;
