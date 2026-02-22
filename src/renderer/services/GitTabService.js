@@ -6,6 +6,7 @@
 const api = window.electron_api;
 const { projectsState, getProject, getFolder, getProjectIndex } = require('../state');
 const { escapeHtml } = require('../utils');
+const { sanitizeColor } = require('../utils/color');
 const { t } = require('../i18n');
 const Toast = require('../ui/components/Toast');
 const { showConfirm, createModal, showModal, closeModal } = require('../ui/components/Modal');
@@ -1610,7 +1611,7 @@ function renderPullRequests(container) {
         <div class="git-pr-item-meta">
           <span class="git-pr-author">${escapeHtml(pr.author || '')}</span>
           <span class="git-pr-updated">${new Date(pr.updatedAt).toLocaleDateString()}</span>
-          ${pr.labels?.length > 0 ? pr.labels.map(l => `<span class="git-pr-label" style="background:#${l.color}20;color:#${l.color};border-color:#${l.color}40">${escapeHtml(l.name)}</span>`).join('') : ''}
+          ${pr.labels?.length > 0 ? pr.labels.map(l => { const c = sanitizeColor('#' + l.color) || '#888'; return `<span class="git-pr-label" style="background:${c}20;color:${c};border-color:${c}40">${escapeHtml(l.name)}</span>`; }).join('') : ''}
         </div>
       </div>`;
     }

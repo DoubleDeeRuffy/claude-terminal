@@ -106,11 +106,28 @@ const ACCENT_COLORS = [
   { name: 'Lime', hex: '#65a30d' }
 ];
 
+/**
+ * Sanitize a color value for safe injection into CSS style attributes.
+ * Only allows strict hex colors (#rgb, #rrggbb, #rrggbbaa).
+ * Returns empty string for any invalid/suspicious value.
+ * @param {string} color
+ * @returns {string}
+ */
+function sanitizeColor(color) {
+  if (typeof color !== 'string') return '';
+  const trimmed = color.trim();
+  if (/^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{4}$|^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{8}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return '';
+}
+
 module.exports = {
   hexToRgb,
   rgbToHex,
   lightenColor,
   darkenColor,
   applyAccentColor,
+  sanitizeColor,
   ACCENT_COLORS
 };

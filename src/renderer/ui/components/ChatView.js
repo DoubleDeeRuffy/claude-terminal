@@ -6,6 +6,7 @@
 
 const api = window.electron_api;
 const { escapeHtml, highlight } = require('../../utils');
+const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
 const { heartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
@@ -42,17 +43,19 @@ function ensureMarkedConfig() {
         return `<code class="chat-inline-code">${text}</code>`;
       },
       table({ header, rows }) {
-        const headerHtml = header.map(h => `<th style="text-align:${h.align || 'left'}">${h.text}</th>`).join('');
+        const safeAlign = (a) => ['left', 'center', 'right'].includes(a) ? a : 'left';
+        const headerHtml = header.map(h => `<th style="text-align:${safeAlign(h.align)}">${escapeHtml(typeof h.text === 'string' ? h.text : String(h.text || ''))}</th>`).join('');
         const rowsHtml = rows.map(row =>
-          `<tr>${row.map(cell => `<td style="text-align:${cell.align || 'left'}">${cell.text}</td>`).join('')}</tr>`
+          `<tr>${row.map(cell => `<td style="text-align:${safeAlign(cell.align)}">${escapeHtml(typeof cell.text === 'string' ? cell.text : String(cell.text || ''))}</td>`).join('')}</tr>`
         ).join('');
         return `<div class="chat-table-wrapper"><table class="chat-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
       },
       link({ href, text }) {
-        const safePrefixes = ['https://', 'http://', '#', '/'];
-        const isSafe = safePrefixes.some(p => (href || '').startsWith(p));
-        const safeHref = isSafe ? href : '#';
-        return `<a href="${safeHref}" class="chat-link" target="_blank">${text}</a>`;
+        const raw = (href || '').trim();
+        const safePrefixes = ['https://', 'http://', '#'];
+        const isSafe = safePrefixes.some(p => raw.startsWith(p));
+        const safeHref = isSafe ? escapeHtml(raw) : '#';
+        return `<a href="${safeHref}" class="chat-link" target="_blank" rel="noopener noreferrer">${escapeHtml(typeof text === 'string' ? text : String(text || ''))}</a>`;
       }
     },
     breaks: true,
@@ -711,7 +714,7 @@ function createChatView(wrapperEl, project, options = {}) {
       renderItem: (p) => {
         const pIcon = p.icon || null;
         const pColorRaw = p.color || null;
-        const pColor = pColorRaw && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(pColorRaw) ? pColorRaw : null;
+        const pColor = sanitizeColor(pColorRaw) || null;
         const iconHtml = pIcon
           ? `<span class="chat-mention-item-emoji"${pColor ? ` style="color:${pColor}"` : ''}>${escapeHtml(pIcon)}</span>`
           : `<span class="chat-mention-item-icon"${pColor ? ` style="color:${pColor}"` : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg></span>`;
@@ -978,7 +981,7 @@ function createChatView(wrapperEl, project, options = {}) {
     mentionChipsEl.style.display = 'flex';
     mentionChipsEl.innerHTML = pendingMentions.map((chip, i) => {
       const chipColorRaw = (chip.type === 'project' && chip.data?.color) ? chip.data.color : '';
-      const chipColor = chipColorRaw && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(chipColorRaw) ? chipColorRaw : '';
+      const chipColor = sanitizeColor(chipColorRaw);
       const colorStyle = chipColor ? ` style="--chip-color: ${chipColor}"` : '';
       const isProject = chip.type === 'project';
       const displayName = isProject && chip.data?.name ? chip.data.name : chip.label;
@@ -1887,7 +1890,7 @@ function createChatView(wrapperEl, project, options = {}) {
     if (mentions.length > 0) {
       html += `<div class="chat-msg-mentions">${mentions.map(m => {
         const tagColorRaw = (m.type === 'project' && m.data?.color) ? m.data.color : '';
-        const tagColor = tagColorRaw && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(tagColorRaw) ? tagColorRaw : '';
+        const tagColor = sanitizeColor(tagColorRaw);
         const tagStyle = tagColor ? ` style="--chip-color: ${tagColor}"` : '';
         return `<span class="chat-msg-mention-tag${tagColor ? ' has-project-color' : ''}"${tagStyle}>${escapeHtml(m.icon)}<span>${escapeHtml(m.label)}</span></span>`;
       }).join('')}</div>`;

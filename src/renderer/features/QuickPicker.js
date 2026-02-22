@@ -102,17 +102,21 @@ function renderQuickPickerList(list, onSelect, picker) {
     return;
   }
 
-  list.innerHTML = quickPickerState.filteredProjects.map((project, index) => `
+  const defaultIcon = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>';
+  list.innerHTML = quickPickerState.filteredProjects.map((project, index) => {
+    const typeHandler = registry.get(project.type);
+    // Only allow SVG icons (no script/foreignObject injection)
+    const rawIcon = typeHandler?.icon || defaultIcon;
+    const safeIcon = typeof rawIcon === 'string' && rawIcon.trim().startsWith('<svg') && !/<script|<foreignObject|on\w+\s*=/i.test(rawIcon) ? rawIcon : defaultIcon;
+    return `
     <div class="quick-picker-item ${index === quickPickerState.selectedIndex ? 'selected' : ''}" data-index="${index}">
-      <div class="quick-picker-item-icon">
-        ${registry.get(project.type).icon || '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>'}
-      </div>
+      <div class="quick-picker-item-icon">${safeIcon}</div>
       <div class="quick-picker-item-content">
         <div class="quick-picker-item-name">${escapeHtml(project.name)}</div>
         <div class="quick-picker-item-path">${escapeHtml(project.path)}</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   list.querySelectorAll('.quick-picker-item').forEach(item => {
     item.onclick = () => {

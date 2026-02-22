@@ -8,6 +8,7 @@ const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getFolder, getProject, countProjectsRecursive } = require('../state');
 const { escapeHtml } = require('../utils');
+const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
@@ -1006,7 +1007,7 @@ function buildPullRequestsHtml(pullRequestsData) {
               </div>
               <div class="pull-request-meta">
                 <span class="pr-author">${escapeHtml(pr.author)}</span>
-                ${pr.labels.length > 0 ? `<span class="pr-labels">${pr.labels.map(l => `<span class="pr-label" style="background: #${l.color}20; color: #${l.color}; border-color: #${l.color}40">${escapeHtml(l.name)}</span>`).join('')}</span>` : ''}
+                ${pr.labels.length > 0 ? `<span class="pr-labels">${pr.labels.map(l => { const c = sanitizeColor('#' + l.color) || '#888'; return `<span class="pr-label" style="background: ${c}20; color: ${c}; border-color: ${c}40">${escapeHtml(l.name)}</span>`; }).join('')}</span>` : ''}
                 <span class="pr-time">${formatTime(pr.updatedAt)}</span>
               </div>
             </div>
@@ -1389,10 +1390,11 @@ async function renderDashboard(container, project, options = {}) {
     setCacheLoading(projectId, false);
     container.innerHTML = `
       <div class="dashboard-error">
-        <p>${t('dashboard.loadError')}</p>
-        <button class="btn-secondary" onclick="location.reload()">${t('dashboard.retry')}</button>
+        <p>${escapeHtml(t('dashboard.loadError'))}</p>
+        <button class="btn-secondary dashboard-retry-btn">${escapeHtml(t('dashboard.retry'))}</button>
       </div>
     `;
+    container.querySelector('.dashboard-retry-btn')?.addEventListener('click', () => location.reload());
   }
 }
 
@@ -1508,7 +1510,7 @@ function buildOverviewCardHtml(project, dataMap, timesMap) {
 
   let typeBadgeHtml = '';
   if (projectType) {
-    typeBadgeHtml = `<span class="overview-type-badge" style="--type-color: ${projectType.color}">${escapeHtml(projectType.label)}</span>`;
+    typeBadgeHtml = `<span class="overview-type-badge" style="--type-color: ${sanitizeColor(projectType.color) || '#888'}">${escapeHtml(projectType.label)}</span>`;
   }
 
   const openPrs = (pullRequests?.pullRequests || []).filter(pr => pr.state === 'open').length;
@@ -1614,7 +1616,8 @@ function buildOverviewHtml(projects, options = {}) {
     const projectCount = countProjectsRecursive(folder.id);
     if (projectCount === 0) return '';
 
-    const colorStyle = folder.color ? `style="color: ${folder.color}"` : '';
+    const safeFolderColor = sanitizeColor(folder.color);
+    const colorStyle = safeFolderColor ? `style="color: ${safeFolderColor}"` : '';
     const folderIcon = folder.icon
       ? `<span class="overview-section-emoji">${folder.icon}</span>`
       : `<svg viewBox="0 0 24 24" fill="currentColor" ${colorStyle}><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`;

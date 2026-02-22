@@ -32,6 +32,7 @@ const {
   getEditorCommand
 } = require('../../state');
 const { escapeHtml } = require('../../utils');
+const { sanitizeColor } = require('../../utils/color');
 const { formatDuration } = require('../../utils/format');
 const { t } = require('../../i18n');
 const CustomizePicker = require('./CustomizePicker');
@@ -123,7 +124,7 @@ function renderFolderHtml(folder, depth) {
     });
   }
 
-  const safeFolderColor = folderColor && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(folderColor) ? folderColor : '';
+  const safeFolderColor = sanitizeColor(folderColor);
   const colorStyle = safeFolderColor ? `style="color: ${safeFolderColor}"` : '';
   const colorIndicator = safeFolderColor ? `<span class="color-indicator" style="background: ${safeFolderColor}"></span>` : '';
   const folderIcon = folder.icon || null;
@@ -181,7 +182,7 @@ function renderProjectHtml(project, depth) {
   // Customize button for menu (opens the CustomizePicker)
   const projectIcon = project.icon || null;
   const customizePreview = projectIcon || '📁';
-  const safeProjectColor = projectColor && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(projectColor) ? projectColor : '';
+  const safeProjectColor = sanitizeColor(projectColor);
   const customizeColorDot = safeProjectColor ? `<span class="customize-preview-dot" style="background: ${safeProjectColor}"></span>` : '';
 
   let menuItemsHtml = '';
