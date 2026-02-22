@@ -7,7 +7,7 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 const homeDir = os.homedir();
 const skillsDir = path.join(homeDir, '.claude', 'skills');
@@ -235,10 +235,15 @@ async function getSkillReadme(source, skillId) {
  */
 function gitCloneTemp(repoUrl) {
   return new Promise((resolve, reject) => {
+    // Validate repo URL to prevent command injection
+    if (typeof repoUrl !== 'string' || !/^https?:\/\/[^\s"';&|`$()]+$/.test(repoUrl)) {
+      return reject(new Error('Invalid repository URL'));
+    }
     const tmpDir = path.join(os.tmpdir(), `claude-marketplace-${Date.now()}`);
-    // Use --depth 1 for faster clone
-    exec(
-      `git clone --depth 1 "${repoUrl}" "${tmpDir}"`,
+    // Use execFile with args array to prevent shell injection
+    execFile(
+      'git',
+      ['clone', '--depth', '1', repoUrl, tmpDir],
       { timeout: 120000, maxBuffer: 1024 * 1024 * 10 },
       (error) => {
         if (error) {
