@@ -102,15 +102,17 @@ function getViewSwitcherHtml() {
 
 /**
  * Detach the webview from DOM (removes the native surface entirely).
- * Stores it so we can re-attach later without losing state.
  */
 function detachWebview(previewView) {
   const webview = previewView.querySelector('.webapp-preview-webview');
   if (!webview) return;
-  const currentUrl = webview.getURL();
-  // Remove from DOM — this destroys the OS-level surface
+  try {
+    const currentUrl = webview.getURL();
+    detachedWebviews.set(previewView, currentUrl);
+  } catch (e) {
+    detachedWebviews.delete(previewView);
+  }
   webview.remove();
-  detachedWebviews.set(previewView, currentUrl);
 }
 
 /**
@@ -153,9 +155,8 @@ function wireWebviewEvents(previewView, webview) {
 
   webview.addEventListener('console-message', (e) => {
     if (e.level >= 2) {
-      const logEntry = { level: e.level, message: e.message, source: e.sourceId, line: e.line };
       if (!previewView._consoleLogs) previewView._consoleLogs = [];
-      previewView._consoleLogs.push(logEntry);
+      previewView._consoleLogs.push({ level: e.level, message: e.message, source: e.sourceId, line: e.line });
       if (previewView._consoleLogs.length > 100) previewView._consoleLogs.shift();
     }
   });
@@ -217,7 +218,6 @@ function setupViewSwitcher(wrapper, terminalId, projectIndex, project, deps) {
     if (!wrapper.classList.contains('active') && previewView) {
       detachWebview(previewView);
     } else if (wrapper.classList.contains('active') && previewView && previewView.classList.contains('wa-view-active')) {
-      // Re-attach if we come back to this tab and preview was the active sub-tab
       if (detachedWebviews.has(previewView)) {
         attachWebview(previewView);
       }
@@ -272,11 +272,12 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   clearPollTimer(wrapper);
   const url = `http://localhost:${port}`;
 
-  // If webview already exists for this port, just re-attach if needed
+  // If webview already exists for this port, skip
   const existingWebview = previewView.querySelector('.webapp-preview-webview');
   if (existingWebview && previewView.dataset.loadedPort === String(port)) {
     return;
   }
+  // If detached for this port, re-attach
   if (!existingWebview && detachedWebviews.has(previewView) && previewView.dataset.loadedPort === String(port)) {
     attachWebview(previewView);
     return;
