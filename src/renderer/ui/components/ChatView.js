@@ -148,7 +148,7 @@ function getToolDisplayInfo(toolName, input) {
 // ── Create Chat View ──
 
 function createChatView(wrapperEl, project, options = {}) {
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -163,8 +163,8 @@ function createChatView(wrapperEl, project, options = {}) {
   let currentAssistantMsgEl = null; // tracks the current .chat-msg-assistant wrapper for UUID tagging
   let sdkSessionId = null; // real SDK session UUID (different from our internal sessionId)
   let model = '';
-  let selectedModel = getSetting('chatModel') || MODEL_OPTIONS[0].id;
-  let selectedEffort = getSetting('effortLevel') || 'high';
+  let selectedModel = initialModel || getSetting('chatModel') || MODEL_OPTIONS[0].id;
+  let selectedEffort = initialEffort || getSetting('effortLevel') || 'high';
   let totalCost = 0;
   let totalTokens = 0;
   const toolCards = new Map(); // content_block index -> element
@@ -276,8 +276,8 @@ function createChatView(wrapperEl, project, options = {}) {
   // ── Model selector ──
 
   function initModelSelector() {
-    const saved = getSetting('chatModel');
-    const current = MODEL_OPTIONS.find(m => m.id === saved) || MODEL_OPTIONS[0];
+    const preferred = initialModel || getSetting('chatModel');
+    const current = MODEL_OPTIONS.find(m => m.id === preferred) || MODEL_OPTIONS[0];
     modelLabel.textContent = current.label;
     selectedModel = current.id;
   }
@@ -333,8 +333,8 @@ function createChatView(wrapperEl, project, options = {}) {
   // ── Effort selector ──
 
   function initEffortSelector() {
-    const saved = getSetting('effortLevel');
-    const current = EFFORT_OPTIONS.find(e => e.id === saved) || EFFORT_OPTIONS.find(e => e.id === 'high');
+    const preferred = initialEffort || getSetting('effortLevel');
+    const current = EFFORT_OPTIONS.find(e => e.id === preferred) || EFFORT_OPTIONS.find(e => e.id === 'high');
     effortLabel.textContent = current.label;
     selectedEffort = current.id;
   }
@@ -1503,6 +1503,7 @@ function createChatView(wrapperEl, project, options = {}) {
         // Assign sessionId BEFORE await to prevent race condition:
         // _processStream fires events immediately, but await returns later.
         sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        if (onSessionStart) onSessionStart(sessionId);
         // Model and effort selectors stay interactive during the session
         // Changes are applied mid-session via SDK setModel/setMaxThinkingTokens
         const startOpts = {
@@ -3204,6 +3205,25 @@ function createChatView(wrapperEl, project, options = {}) {
   });
   unsubscribers.push(unsubIdle);
 
+  // ── IPC: Remote user message (sent from mobile PWA) ──
+
+  const unsubRemoteMsg = api.remote.onUserMessage(({ sessionId: sid, text, images }) => {
+    if (sid !== sessionId) return;
+    appendUserMessage(text, images || [], [], isStreaming);
+    // Trigger tab rename for remote messages (same logic as _send)
+    if (onTabRename && text && !text.startsWith('/')) {
+      const words = text.split(/\s+/).slice(0, 5).join(' ');
+      onTabRename(words.length > 30 ? words.slice(0, 28) + '...' : words);
+      if (!tabNamePending) {
+        tabNamePending = true;
+        api.chat.generateTabName({ userMessage: text }).then(res => {
+          if (res?.success && res.name) onTabRename(res.name);
+        }).catch(() => {}).finally(() => { tabNamePending = false; });
+      }
+    }
+  });
+  unsubscribers.push(unsubRemoteMsg);
+
   // ── IPC: Permission request ──
 
   const unsubPerm = api.chat.onPermissionRequest((data) => {
@@ -3357,7 +3377,20 @@ function createChatView(wrapperEl, project, options = {}) {
   }
 
   // Focus input
-  setTimeout(() => inputEl.focus(), 100);
+  setTimeout(() => {
+    inputEl.focus();
+    // Auto-submit si un prompt initial est fourni (ex: depuis Remote Control)
+    if (initialPrompt) {
+      // Inject initial images if provided (from Remote Control camera)
+      if (initialImages && initialImages.length) {
+        for (const img of initialImages) {
+          pendingImages.push({ base64: img.base64, mediaType: img.mediaType, name: 'remote-image', dataUrl: '' });
+        }
+      }
+      inputEl.value = initialPrompt;
+      handleSend();
+    }
+  }, 100);
 
   // ── Public API ──
 

@@ -1065,6 +1065,8 @@
     "serverStopped": "Arrêté",
     "pairedDevices": "Appareils associés",
     "pairDevice": "Associer un appareil",
+    "sectionQrCode": "QR Code",
+    "qrHint": "Scannez avec votre téléphone pour vous connecter",
     "sectionPin": "Code de connexion",
     "pinLabel": "Entrez ce code sur votre téléphone",
     "pinHint": "Ouvrez l'adresse du serveur sur votre téléphone, entrez le code pour vous connecter",
@@ -1073,6 +1075,8 @@
     "pinRefresh": "Nouveau code",
     "networkInterface": "Interface réseau",
     "networkInterfaceDesc": "Adresse IP affichée dans l'URL du serveur",
-    "networkInterfaceAuto": "Auto (première disponible)"
+    "networkInterfaceAuto": "Auto (première disponible)",
+    "startServer": "Démarrer",
+    "stopServer": "Arrêter"
   }
 }

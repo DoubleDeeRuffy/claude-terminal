@@ -6,6 +6,7 @@
 
 const { escapeHtml } = require('../../utils');
 const { t, setLanguage, getCurrentLanguage, getAvailableLanguages } = require('../../i18n');
+const RemotePanel = require('./RemotePanel');
 
 let ctx = null;
 
@@ -346,6 +347,7 @@ async function renderSettingsTab(initialTab = 'general') {
         <button class="settings-tab ${initialTab === 'themes' ? 'active' : ''}" data-tab="themes">${t('settings.tabThemes')}</button>
         <button class="settings-tab ${initialTab === 'shortcuts' ? 'active' : ''}" data-tab="shortcuts">${t('settings.tabShortcuts')}</button>
         <button class="settings-tab ${initialTab === 'library' ? 'active' : ''}" data-tab="library">${t('settings.tabLibrary')}</button>
+        <button class="settings-tab ${initialTab === 'remote' ? 'active' : ''}" data-tab="remote">${t('remote.tabTitle')}</button>
         ${(() => {
           const registry = require('../../../project-types/registry');
           const dynamicTabs = registry.collectAllSettingsFields();
@@ -701,6 +703,9 @@ async function renderSettingsTab(initialTab = 'general') {
         <div class="settings-panel ${initialTab === 'library' ? 'active' : ''}" data-panel="library">
           ${buildLibraryPanel()}
         </div>
+        <div class="settings-panel ${initialTab === 'remote' ? 'active' : ''}" data-panel="remote">
+          ${RemotePanel.buildHtml(settings)}
+        </div>
         ${(() => {
           const registry = require('../../../project-types/registry');
           const dynamicTabs = registry.collectAllSettingsFields();
@@ -759,6 +764,7 @@ async function renderSettingsTab(initialTab = 'general') {
   });
 
   ctx.ShortcutsManager.setupShortcutsPanelHandlers();
+  RemotePanel.setupHandlers(ctx);
 
   // Custom presets management
   const addPresetBtn = document.getElementById('btn-add-preset');

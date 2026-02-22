@@ -34,6 +34,11 @@ module.exports = {
       from: "resources/hooks",
       to: "hooks",
       filter: ["**/*"]
+    },
+    {
+      from: "remote-ui",
+      to: "remote-ui",
+      filter: ["**/*"]
     }
   ],
   win: {

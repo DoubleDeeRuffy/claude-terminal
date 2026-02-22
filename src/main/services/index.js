@@ -12,6 +12,7 @@ const chatService = require('./ChatService');
 const hooksService = require('./HooksService');
 const hookEventServer = require('./HookEventServer');
 const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
+const remoteServer = require('./RemoteServer');
 
 /**
  * Initialize all services with main window reference
@@ -27,6 +28,7 @@ function initializeServices(mainWindow) {
   chatService.setMainWindow(mainWindow);
   hookEventServer.setMainWindow(mainWindow);
   minecraftService.setMainWindow(mainWindow);
+  remoteServer.setMainWindow(mainWindow); // auto-starts if remoteEnabled
 }
 
 /**
@@ -41,6 +43,7 @@ function cleanupServices() {
   minecraftService.stopAll();
   chatService.closeAll();
   hookEventServer.stop();
+  remoteServer.stop();
 }
 
 module.exports = {
@@ -54,6 +57,7 @@ module.exports = {
   hooksService,
   hookEventServer,
   minecraftService,
+  remoteServer,
   initializeServices,
   cleanupServices
 };

@@ -1065,6 +1065,8 @@
     "serverStopped": "Stopped",
     "pairedDevices": "Paired Devices",
     "pairDevice": "Pair new device",
+    "sectionQrCode": "QR Code",
+    "qrHint": "Scan with your phone to connect",
     "sectionPin": "Connection PIN",
     "pinLabel": "Enter this code on your mobile device",
     "pinHint": "Open the server address on your phone, enter the PIN to connect",
@@ -1073,6 +1075,8 @@
     "pinRefresh": "New PIN",
     "networkInterface": "Network interface",
     "networkInterfaceDesc": "IP address shown in the server URL",
-    "networkInterfaceAuto": "Auto (first available)"
+    "networkInterfaceAuto": "Auto (first available)",
+    "startServer": "Start",
+    "stopServer": "Stop"
   }
 }

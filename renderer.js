@@ -83,6 +83,7 @@ const {
 
   // Time Tracking
   getProjectTimes,
+  getGlobalTimes,
 
   // Themes
   TERMINAL_THEMES,
@@ -2940,6 +2941,43 @@ api.quickPicker.onOpenProject((project) => {
     createTerminalForProject(existingProject);
   }
 });
+
+// Remote Control: ouvrir un tab chat depuis mobile
+api.remote.onOpenChatTab(({ cwd, prompt, images, model, effort }) => {
+  const projects = projectsState.get().projects;
+  const project = projects.find(p => cwd && cwd.replace(/\\/g, '/').startsWith(p.path.replace(/\\/g, '/')));
+  if (!project) return;
+  const projectIndex = getProjectIndex(project.id);
+  setSelectedProjectFilter(projectIndex);
+  ProjectList.render();
+  TerminalManager.createTerminal(project, {
+    mode: 'chat',
+    skipPermissions: settingsState.get().skipPermissions,
+    cwd,
+    initialPrompt: prompt,
+    initialImages: Array.isArray(images) && images.length ? images : null,
+    initialModel: model || null,
+    initialEffort: effort || null,
+    onSessionStart: (sessionId) => {
+      api.remote.notifySessionCreated({ sessionId, projectId: project.id, tabName: project.name });
+    },
+  });
+});
+
+// Remote Control: push live time tracking data
+(function _startRemoteTimePush() {
+  function pushTime() {
+    try {
+      const { today } = getGlobalTimes();
+      console.log('[Remote] pushTime → todayMs:', today);
+      api.remote.pushTimeData({ todayMs: today });
+    } catch (e) { console.error('[Remote] pushTime error:', e); }
+  }
+  // Push immédiat quand le serveur le demande (nouveau client connecté)
+  api.remote.onRequestTimePush(pushTime);
+  // Push périodique toutes les 30s pour les clients déjà connectés
+  setInterval(pushTime, 30000);
+})();
 
 api.tray.onOpenTerminal(() => {
   const selectedFilter = projectsState.get().selectedProjectFilter;

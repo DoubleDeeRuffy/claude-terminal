@@ -230,9 +230,16 @@ class ChatService {
     this.mainWindow = window;
   }
 
+  setRemoteEventCallback(fn) {
+    this._remoteEventCallback = fn || null;
+  }
+
   _send(channel, data) {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data);
+    }
+    if (this._remoteEventCallback) {
+      this._remoteEventCallback(channel, data);
     }
   }
 
@@ -261,6 +268,10 @@ class ChatService {
         parent_tool_use_id: null,
         session_id: sessionId
       });
+      // Relay initial user message to remote clients
+      if (this._remoteEventCallback) {
+        this._remoteEventCallback('chat-user-message', { sessionId, text: prompt, images: images.length });
+      }
     }
 
     const abortController = new AbortController();
@@ -325,6 +336,7 @@ class ChatService {
         messageQueue,
         queryStream,
         alwaysAllow: permissionMode === 'bypassPermissions',
+        cwd,
       });
 
       this._processStream(sessionId, queryStream);
@@ -355,6 +367,10 @@ class ChatService {
         parent_tool_use_id: null,
         session_id: sessionId
       });
+      // Relay user message to remote clients so mobile sees it
+      if (this._remoteEventCallback) {
+        this._remoteEventCallback('chat-user-message', { sessionId, text, images: images.length });
+      }
     } catch (err) {
       console.error(`[ChatService] sendMessage error (transport not ready):`, err.message);
       // Session transport died — clean up
@@ -549,6 +565,12 @@ class ChatService {
     } finally {
       if (session) session.interrupting = false;
       this._rejectPendingPermissions(sessionId, 'Stream ended');
+      // Mark session as stream-ended so closeSession won't emit duplicate session:closed
+      if (session) session._streamEnded = true;
+      // Notify remote clients that this session's stream has ended
+      if (this._remoteEventCallback) {
+        this._remoteEventCallback('session:closed', { sessionId });
+      }
     }
   }
 
@@ -811,8 +833,27 @@ class ChatService {
           pending.reject(new Error('Session closed'));
         }
       }
+      const alreadyNotified = session._streamEnded;
       this.sessions.delete(sessionId);
+      // Notify remote clients (skip if _processStream already sent session:closed)
+      if (!alreadyNotified && this._remoteEventCallback) {
+        this._remoteEventCallback('session:closed', { sessionId });
+      }
     }
+  }
+
+  getActiveSessions() {
+    const result = [];
+    for (const [sessionId, session] of this.sessions) {
+      result.push({ sessionId, cwd: session.cwd || null });
+    }
+    return result;
+  }
+
+  getSessionInfo(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return { sessionId, cwd: session.cwd || null };
   }
 
   closeAll() {

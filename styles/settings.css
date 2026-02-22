@@ -1663,3 +1663,234 @@
   color: var(--accent);
   margin-left: 6px;
 }
+
+/* ── Remote Control Panel ── */
+
+.remote-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.remote-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.remote-status-badge.running {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success);
+}
+
+.remote-status-badge.stopped {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.remote-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.remote-device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.remote-device-item:last-child {
+  border-bottom: none;
+}
+
+.remote-device-info { flex: 1; min-width: 0; }
+
+.remote-device-name {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.remote-device-meta {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.remote-no-devices {
+  padding: 12px 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  text-align: center;
+}
+
+.remote-devices-loading {
+  padding: 12px 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  text-align: center;
+}
+
+.remote-qr-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.remote-qr-image {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  display: block;
+}
+
+.remote-qr-url {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  word-break: break-all;
+  text-align: center;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  width: 100%;
+}
+
+.remote-qr-hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.remote-port-input {
+  width: 100px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: var(--font-sm);
+  outline: none;
+  text-align: center;
+}
+
+.remote-port-input:focus {
+  border-color: var(--accent);
+}
+
+.remote-iface-select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: var(--font-sm);
+  outline: none;
+  max-width: 260px;
+}
+
+.remote-iface-select:focus {
+  border-color: var(--accent);
+}
+
+/* QR Code */
+.remote-qr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0 8px;
+}
+
+.remote-qr-block canvas {
+  border-radius: var(--radius);
+}
+
+.remote-qr-url {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--font-sm);
+  color: var(--accent);
+  user-select: all;
+}
+
+.remote-qr-hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+/* PIN display */
+.remote-pin-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 4px;
+}
+
+.remote-pin-label {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.remote-pin-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: all;
+}
+
+.remote-pin-digit {
+  width: 44px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.remote-pin-sep {
+  font-size: 1.5rem;
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
+.remote-pin-countdown {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.remote-pin-countdown.expired {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.remote-pin-hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 280px;
+}
+

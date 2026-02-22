@@ -64,6 +64,8 @@
     "electron-updater": "^6.1.7",
     "keytar": "^7.9.0",
     "marked": "^17.0.3",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.19.0"
   }
 }

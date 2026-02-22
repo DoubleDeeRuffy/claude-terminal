@@ -1082,7 +1082,7 @@ function closeTerminal(id) {
  * Create a new terminal for a project
  */
 async function createTerminal(project, options = {}) {
-  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null } = options;
+  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null } = options;
 
   // Determine mode: explicit > setting > default
   const mode = explicitMode || (runClaude ? (getSetting('defaultTerminalMode') || 'terminal') : 'terminal');
@@ -1090,7 +1090,7 @@ async function createTerminal(project, options = {}) {
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
     const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
-    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null });
+    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
   }
 
   const result = await api.terminal.create({
@@ -3062,9 +3062,10 @@ function focusPrevTerminal() {
  * Create a chat-mode terminal (Claude Agent SDK UI)
  */
 async function createChatTerminal(project, options = {}) {
-  const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, parentProjectId = null } = options;
+  const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, parentProjectId = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null } = options;
 
   const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let _chatSessionId = null;
   const projectIndex = getProjectIndex(parentProjectId || project.id);
   const tabName = customName || project.name;
 
@@ -3117,11 +3118,23 @@ async function createChatTerminal(project, options = {}) {
     resumeSessionId,
     forkSession,
     resumeSessionAt,
+    initialPrompt,
+    initialImages,
+    initialModel,
+    initialEffort,
+    onSessionStart: (sid) => {
+      _chatSessionId = sid;
+      if (onSessionStart) onSessionStart(sid);
+    },
     onTabRename: (name) => {
       const nameEl = tab.querySelector('.tab-name');
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
+      // Notify remote PWA of tab rename
+      if (_chatSessionId && api.remote?.notifyTabRenamed) {
+        api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
+      }
     },
     onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
     onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),

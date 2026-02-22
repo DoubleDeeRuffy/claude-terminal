@@ -313,6 +313,22 @@ contextBridge.exposeInMainWorld('electron_api', {
     onEvent: createListener('hook-event')
   },
 
+  // ==================== REMOTE CONTROL ====================
+  remote: {
+    getPin: () => ipcRenderer.invoke('remote:get-pin'),
+    generatePin: () => ipcRenderer.invoke('remote:generate-pin'),
+    getServerInfo: () => ipcRenderer.invoke('remote:get-server-info'),
+    notifyProjectsUpdated: (params) => ipcRenderer.send('remote:notify-projects-updated', params),
+    notifySessionCreated: (params) => ipcRenderer.send('remote:session-created', params),
+    notifyTabRenamed: (params) => ipcRenderer.send('remote:tab-renamed', params),
+    pushTimeData: (params) => ipcRenderer.send('remote:push-time-data', params),
+    startServer: () => ipcRenderer.invoke('remote:start-server'),
+    stopServer: () => ipcRenderer.invoke('remote:stop-server'),
+    onOpenChatTab: createListener('remote:open-chat-tab'),
+    onRequestTimePush: createListener('remote:request-time-push'),
+    onUserMessage: createListener('remote:user-message'),
+  },
+
   // ==================== USAGE ====================
   usage: {
     getData: () => ipcRenderer.invoke('get-usage-data'),
