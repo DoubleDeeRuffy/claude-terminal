@@ -122,6 +122,7 @@ class TerminalService {
 
     // Handle exit
     ptyProcess.onExit(() => {
+      ptyProcess.kill();
       this.terminals.delete(id);
       this.sendToRenderer('terminal-exit', { id });
     });

@@ -105,6 +105,7 @@ class FivemService {
 
     // Handle exit
     ptyProcess.onExit(({ exitCode }) => {
+      ptyProcess.kill();
       this.processes.delete(projectIndex);
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('fivem-exit', { projectIndex, code: exitCode });

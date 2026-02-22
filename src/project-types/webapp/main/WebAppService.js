@@ -64,6 +64,7 @@ class WebAppService {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      ptyProcess.kill();
       this.processes.delete(projectIndex);
       this.detectedPorts.delete(projectIndex);
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {

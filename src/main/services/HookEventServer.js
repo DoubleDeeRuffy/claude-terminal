@@ -58,7 +58,7 @@ function start(win) {
 
         try {
           const event = JSON.parse(body);
-          console.debug(`[HookEventServer] Received: ${event.hook} (cwd: ${event.cwd || '?'})`);
+          // Hook event received — forwarded to renderer via IPC
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('hook-event', event);
           }
