@@ -3412,6 +3412,16 @@ function createChatView(wrapperEl, project, options = {}) {
     },
     focus() {
       inputEl?.focus();
+    },
+    sendMessage(text, images = [], mentions = []) {
+      for (const img of images) {
+        pendingImages.push({ base64: img.base64, mediaType: img.mediaType, name: img.name || 'visual', dataUrl: '' });
+      }
+      for (const m of mentions) {
+        pendingMentions.push(m);
+      }
+      inputEl.value = text;
+      handleSend();
     }
   };
 }

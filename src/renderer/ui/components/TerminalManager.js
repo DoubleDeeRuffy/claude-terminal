@@ -1151,6 +1151,7 @@ async function createTerminal(project, options = {}) {
     inputBuffer: '',
     isBasic: isBasicTerminal,
     mode: 'terminal',
+    ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
 
@@ -1220,12 +1221,29 @@ async function createTerminal(project, options = {}) {
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
 
-  // Title change handling (adaptive debounce + tool/task detection)
+  // Title change handling (adaptive debounce + tool/task detection + pending prompt)
   let lastTitle = '';
+  let promptSent = false;
   terminal.onTitleChange(title => {
     if (title === lastTitle) return;
     lastTitle = title;
-    handleClaudeTitleChange(id, title);
+    handleClaudeTitleChange(id, title, initialPrompt ? {
+      onPendingPrompt: () => {
+        const td = getTerminal(id);
+        if (td && td.pendingPrompt && !promptSent) {
+          promptSent = true;
+          setTimeout(() => {
+            api.terminal.input({ id, data: td.pendingPrompt + '\r' });
+            updateTerminal(id, { pendingPrompt: null });
+            postEnterExtended.add(id);
+            cancelScheduledReady(id);
+            updateTerminalStatus(id, 'working');
+          }, 500);
+          return true;
+        }
+        return false;
+      }
+    } : undefined);
   });
 
   // IPC data handling via centralized dispatcher
@@ -1324,7 +1342,18 @@ function getTypePanelDeps(consoleId, projectIndex) {
     api,
     t,
     consoleId,
+    createTerminal,
+    setActiveTerminal,
     createTerminalWithPrompt,
+    findChatTab: (projectPath, namePrefix) => {
+      const terminals = terminalsState.get().terminals;
+      for (const [id, td] of terminals) {
+        if (td.mode === 'chat' && td.chatView && td.project?.path === projectPath && td.name?.startsWith(namePrefix)) {
+          return { id, termData: td };
+        }
+      }
+      return null;
+    },
     buildDebugPrompt: (error) => {
       try {
         return require('../../../project-types/fivem/renderer/FivemConsoleManager').buildDebugPrompt(error, t);
