@@ -134,10 +134,10 @@
 .filter-git-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: none;
-  background: var(--bg-tertiary);
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.04);
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 500;
@@ -147,12 +147,14 @@
 }
 
 .filter-git-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
+  opacity: 0.8;
 }
 
 .filter-git-btn:hover {
-  background: var(--bg-hover);
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
   color: var(--text-primary);
 }
 
