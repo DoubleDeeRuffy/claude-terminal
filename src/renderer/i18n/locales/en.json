@@ -651,7 +651,10 @@
     "commitError": "Commit error",
     "loading": "Loading changes...",
     "noChanges": "No changes detected",
-    "errorStatus": "Error: {message}"
+    "errorStatus": "Error: {message}",
+    "showDiff": "Show diff",
+    "hideDiff": "Hide diff",
+    "noDiff": "No diff (binary or new file)"
   },
   "skillsAgents": {
     "noSkills": "No skills",

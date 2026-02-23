@@ -17,6 +17,7 @@ let getProject = null;
 let refreshDashboardAsync = null;
 let closeBranchDropdown = null;
 let closeActionsDropdown = null;
+let openGitTab = null;
 
 // DOM elements (acquired lazily)
 let gitChangesPanel = null;
@@ -35,7 +36,8 @@ const gitChangesState = {
   files: [],
   selectedFiles: new Set(),
   projectId: null,
-  projectPath: null
+  projectPath: null,
+  stashes: []
 };
 
 function init(context) {
@@ -46,6 +48,7 @@ function init(context) {
   refreshDashboardAsync = context.refreshDashboardAsync;
   closeBranchDropdown = context.closeBranchDropdown;
   closeActionsDropdown = context.closeActionsDropdown;
+  openGitTab = context.openGitTab || null;
 
   // Acquire DOM elements
   gitChangesPanel = document.getElementById('git-changes-panel');
@@ -69,7 +72,6 @@ function setupEventListeners() {
     e.stopPropagation();
     const isOpen = gitChangesPanel.classList.contains('active');
 
-    // Close other dropdowns
     if (closeBranchDropdown) closeBranchDropdown();
     if (closeActionsDropdown) closeActionsDropdown();
 
@@ -85,7 +87,6 @@ function setupEventListeners() {
         left = Math.max(0, maxRight - panelWidth);
       }
       gitChangesPanel.style.left = left + 'px';
-
       gitChangesPanel.classList.add('active');
       loadGitChanges();
     }
@@ -259,7 +260,10 @@ async function loadGitChanges() {
   gitChangesList.innerHTML = `<div class="git-changes-loading">${t('gitChanges.loading')}</div>`;
 
   try {
-    const status = await api.git.statusDetailed({ projectPath: project.path });
+    const [status, gitInfo] = await Promise.all([
+      api.git.statusDetailed({ projectPath: project.path }),
+      api.git.infoFull(project.path).catch(() => null)
+    ]);
 
     if (!status.success) {
       gitChangesList.innerHTML = `<div class="git-changes-empty"><p>${t('gitChanges.errorStatus', { message: status.error })}</p></div>`;
@@ -268,8 +272,10 @@ async function loadGitChanges() {
 
     gitChangesState.files = status.files || [];
     gitChangesState.selectedFiles.clear();
+    gitChangesState.stashes = gitInfo?.stashes || [];
 
     renderGitChanges();
+    renderStashSection();
     updateChangesCount();
   } catch (e) {
     gitChangesList.innerHTML = `<div class="git-changes-empty"><p>${t('gitChanges.errorStatus', { message: e.message })}</p></div>`;
@@ -322,15 +328,20 @@ function renderGitChanges() {
     const isSelected = gitChangesState.selectedFiles.has(index);
 
     return `<div class="git-file-item ${isSelected ? 'selected' : ''}" data-index="${index}">
-        <input type="checkbox" ${isSelected ? 'checked' : ''}>
-        <span class="git-file-status ${file.status}">${file.status}</span>
-        <div class="git-file-info">
-          <div class="git-file-name">${escapeHtml(fileName)}</div>
-          ${filePath ? `<div class="git-file-path">${escapeHtml(filePath)}</div>` : ''}
-        </div>
-        <div class="git-file-diff">
-          ${file.additions ? `<span class="additions">+${file.additions}</span>` : ''}
-          ${file.deletions ? `<span class="deletions">-${file.deletions}</span>` : ''}
+        <div class="git-file-item-row">
+          <input type="checkbox" ${isSelected ? 'checked' : ''}>
+          <span class="git-file-status ${file.status}">${file.status}</span>
+          <div class="git-file-info">
+            <div class="git-file-name">${escapeHtml(fileName)}</div>
+            ${filePath ? `<div class="git-file-path">${escapeHtml(filePath)}</div>` : ''}
+          </div>
+          <div class="git-file-diff">
+            ${file.additions ? `<span class="additions">+${file.additions}</span>` : ''}
+            ${file.deletions ? `<span class="deletions">-${file.deletions}</span>` : ''}
+          </div>
+          <button class="git-diff-toggle" title="${t('gitChanges.showDiff')}" data-index="${index}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
         </div>
       </div>`;
   }
@@ -380,10 +391,11 @@ function renderGitChanges() {
 
   gitChangesList.querySelectorAll('.git-file-item').forEach(item => {
     const checkbox = item.querySelector('input[type="checkbox"]');
+    const diffToggle = item.querySelector('.git-diff-toggle');
     const index = parseInt(item.dataset.index);
 
-    item.onclick = (e) => {
-      if (e.target === checkbox) return;
+    item.querySelector('.git-file-item-row').onclick = (e) => {
+      if (e.target === checkbox || e.target.closest('.git-diff-toggle')) return;
       checkbox.checked = !checkbox.checked;
       toggleFileSelection(index, checkbox.checked);
     };
@@ -391,6 +403,13 @@ function renderGitChanges() {
     checkbox.onchange = () => {
       toggleFileSelection(index, checkbox.checked);
     };
+
+    if (diffToggle) {
+      diffToggle.onclick = (e) => {
+        e.stopPropagation();
+        openDiffModal(index);
+      };
+    }
   });
 
   gitChangesList.querySelectorAll('.git-section-checkbox').forEach(cb => {
@@ -422,6 +441,153 @@ function renderGitChanges() {
   });
 
   updateSelectAllState();
+}
+
+async function openDiffModal(index) {
+  const file = gitChangesState.files[index];
+  if (!file) return;
+
+  const modalOverlay = document.getElementById('modal-overlay');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+  const modalFooter = document.getElementById('modal-footer');
+
+  if (!modalOverlay) return;
+
+  if (modalTitle) modalTitle.textContent = file.path;
+  if (modalBody) modalBody.innerHTML = '<div class="git-diff-view"><div style="padding:24px;text-align:center;color:var(--text-muted)"><span class="loading-spinner"></span></div></div>';
+  if (modalFooter) modalFooter.style.display = 'none';
+  modalOverlay.classList.add('active');
+
+  try {
+    const diff = await api.git.fileDiff({
+      projectPath: gitChangesState.projectPath,
+      filePath: file.path,
+      staged: file.staged || false
+    });
+
+    if (!modalBody) return;
+    if (!diff || diff.trim() === '') {
+      modalBody.innerHTML = '<p style="color:var(--text-secondary);padding:16px">' + t('gitChanges.noDiff') + '</p>';
+      return;
+    }
+
+    const lines = diff.split('\n').map(line => {
+      const cls = line.startsWith('+') ? 'diff-add' : line.startsWith('-') ? 'diff-del' : line.startsWith('@@') ? 'diff-hunk' : '';
+      return `<div class="diff-line ${cls}">${escapeHtml(line)}</div>`;
+    }).join('');
+    modalBody.innerHTML = `<div class="git-diff-view"><pre class="git-diff-content">${lines}</pre></div>`;
+  } catch (e) {
+    if (modalBody) modalBody.innerHTML = `<p style="color:var(--danger);padding:16px">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function renderStashSection() {
+  // Find or create stash section inside the panel
+  let stashSection = gitChangesPanel.querySelector('.git-changes-stash-section');
+  if (!stashSection) {
+    stashSection = document.createElement('div');
+    stashSection.className = 'git-changes-stash-section';
+    // Insert before the commit section
+    const commitSection = gitChangesPanel.querySelector('.git-commit-section');
+    if (commitSection) {
+      gitChangesPanel.insertBefore(stashSection, commitSection);
+    } else {
+      gitChangesPanel.appendChild(stashSection);
+    }
+  }
+
+  const stashes = gitChangesState.stashes;
+  const saveDisabled = gitChangesState.files.length === 0;
+
+  let html = `<div class="git-changes-stash-header">
+    <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M20 6h-2.18c.07-.44.18-.88.18-1.34C18 2.99 16.99 2 15.66 2c-.87 0-1.54.5-2.12 1.09L12 4.62l-1.55-1.53C9.88 2.5 9.21 2 8.34 2 7.01 2 6 2.99 6 4.34c0 .46.11.9.18 1.34H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-5-2c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM9 4.34c0-.55.45-1 1-1s1 .45 1 1-.45 1-1 1-1-.45-1-1z"/></svg>
+    <span>${t('gitTab.stashes')}</span>
+    <span class="git-changes-stash-count">${stashes.length}</span>
+    <button class="git-changes-stash-save-btn" title="${t('gitTab.stashSave')}" ${saveDisabled ? 'disabled' : ''}>
+      <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    </button>
+  </div>`;
+
+  if (stashes.length === 0) {
+    html += `<div class="git-changes-stash-empty">${t('gitTab.noStashes')}</div>`;
+  } else {
+    html += `<div class="git-changes-stash-list">`;
+    for (const stash of stashes) {
+      html += `<div class="git-changes-stash-item" data-ref="${escapeHtml(stash.ref)}">
+        <div class="git-changes-stash-info">
+          <span class="git-changes-stash-ref">${escapeHtml(stash.ref)}</span>
+          <span class="git-changes-stash-msg">${escapeHtml(stash.message || '')}</span>
+        </div>
+        <div class="git-changes-stash-date">${escapeHtml(stash.date || '')}</div>
+        <div class="git-changes-stash-actions">
+          <button class="git-changes-stash-btn apply" title="${t('gitTab.applyStash')}" data-ref="${escapeHtml(stash.ref)}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          </button>
+          <button class="git-changes-stash-btn drop" title="${t('gitTab.dropStash')}" data-ref="${escapeHtml(stash.ref)}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  stashSection.innerHTML = html;
+
+  // Save stash button
+  const saveBtn = stashSection.querySelector('.git-changes-stash-save-btn');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const msg = window.prompt(t('gitTab.stashMessage'), '') ?? null;
+      if (msg === null) return; // cancelled
+      saveBtn.disabled = true;
+      try {
+        const result = await api.git.stashSave({ projectPath: gitChangesState.projectPath, message: msg });
+        if (result && result.success !== false) {
+          showToast({ type: 'success', title: t('gitTab.stashSave'), message: t('gitTab.stashAppliedSuccess'), duration: 3000 });
+          await loadGitChanges();
+        } else {
+          showToast({ type: 'error', title: t('gitTab.stashSave'), message: result?.error || 'Failed', duration: 4000 });
+          saveBtn.disabled = false;
+        }
+      } catch (e) {
+        showToast({ type: 'error', title: t('gitTab.stashSave'), message: e.message, duration: 4000 });
+        saveBtn.disabled = false;
+      }
+    };
+  }
+
+  // Apply / Drop buttons
+  stashSection.querySelectorAll('.git-changes-stash-btn').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const ref = btn.dataset.ref;
+      const isApply = btn.classList.contains('apply');
+      if (!isApply && !window.confirm(t('gitTab.confirmDropStash', { ref }))) return;
+      btn.disabled = true;
+      try {
+        const result = isApply
+          ? await api.git.stashApply({ projectPath: gitChangesState.projectPath, stashRef: ref })
+          : await api.git.stashDrop({ projectPath: gitChangesState.projectPath, stashRef: ref });
+        if (result?.success !== false) {
+          showToast({
+            type: 'success',
+            title: isApply ? t('gitTab.applyStash') : t('gitTab.dropStash'),
+            message: isApply ? t('gitTab.stashAppliedSuccess') : t('gitTab.stashDroppedSuccess'),
+            duration: 3000
+          });
+          await loadGitChanges();
+        } else {
+          showToast({ type: 'error', title: isApply ? t('gitTab.applyStash') : t('gitTab.dropStash'), message: result?.error || 'Failed', duration: 4000 });
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showToast({ type: 'error', title: isApply ? t('gitTab.applyStash') : t('gitTab.dropStash'), message: err.message, duration: 4000 });
+        btn.disabled = false;
+      }
+    };
+  });
 }
 
 function toggleFileSelection(index, selected) {

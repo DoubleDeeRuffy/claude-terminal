@@ -717,7 +717,10 @@
     "commitError": "Erreur de commit",
     "loading": "Chargement des changements...",
     "noChanges": "Aucun changement détecté",
-    "errorStatus": "Erreur : {message}"
+    "errorStatus": "Erreur : {message}",
+    "showDiff": "Voir le diff",
+    "hideDiff": "Masquer le diff",
+    "noDiff": "Aucun diff (fichier binaire ou nouveau)"
   },
   "skillsAgents": {
     "noSkills": "Aucun skill",
