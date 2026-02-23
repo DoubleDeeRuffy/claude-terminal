@@ -433,7 +433,6 @@ module.exports = createType({
 /* Popover */
 .wa-pin-popover { position: absolute; pointer-events: auto; z-index: 3; width: 280px; background: var(--bg-secondary); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); padding: 10px; display: flex; flex-direction: column; gap: 8px; animation: wa-in 0.12s ease; }
 .wa-popover-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.wa-popover-thumb { width: 32px; height: 24px; object-fit: cover; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; background: #000; }
 .wa-popover-selector { font-family: var(--wa-mono); font-size: 10.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .wa-popover-close { width: 20px; height: 20px; border: none; background: transparent; color: rgba(255,255,255,0.3); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; flex-shrink: 0; }
 .wa-popover-close:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }

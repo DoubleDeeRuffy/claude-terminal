@@ -171,6 +171,11 @@ function getInspectInjectScript() {
     if (e.key === 'Escape') {
       console.log('__CT_INSPECT_CANCEL__');
     }
+    if (e.key === 'i' || e.key === 'I') {
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        console.log('__CT_INSPECT_TOGGLE__');
+      }
+    }
   }, { signal: s });
 })();`;
 }
@@ -241,30 +246,6 @@ function getViewSwitcherHtml() {
 }
 
 /**
- * Crop a region from a dataUrl image.
- */
-function cropImage(dataUrl, x, y, w, h) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const cx = Math.max(0, Math.round(x));
-      const cy = Math.max(0, Math.round(y));
-      const cw = Math.min(Math.round(w), img.width - cx);
-      const ch = Math.min(Math.round(h), img.height - cy);
-      if (cw <= 0 || ch <= 0) { resolve(dataUrl); return; }
-      const canvas = document.createElement('canvas');
-      canvas.width = cw;
-      canvas.height = ch;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
-      resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
-}
-
-/**
  * Detach the webview from DOM (removes the native surface entirely).
  */
 function detachWebview(previewView) {
@@ -307,27 +288,29 @@ function wireWebviewEvents(previewView, webview) {
   const addrPort = previewView.querySelector('.wa-addr-port');
 
   webview.addEventListener('did-navigate', (e) => {
+    let newPath = '/';
     try {
       const u = new URL(e.url);
       if (addrPort) addrPort.textContent = u.port ? `:${u.port}` : '';
-      if (addrPath) addrPath.textContent = u.pathname !== '/' ? u.pathname : '';
+      newPath = u.pathname + u.search;
+      if (addrPath) addrPath.textContent = newPath !== '/' ? newPath : '';
     } catch (err) {}
+    // Switch pins to the new page
+    previewView._inspectHandlers?.switchPage?.(newPath);
     // Re-inject inspect script after navigation if active
     if (previewView._inspectHandlers?.isActive()) {
       setTimeout(() => {
         try { webview.executeJavaScript(getInspectInjectScript()); } catch (e) {}
-      }, 300);
-    } else if (previewView._inspectHandlers?.hasPins?.()) {
-      // Pins visible but inspect not in selection mode — keep scroll tracking
-      setTimeout(() => {
-        try { webview.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
       }, 300);
     }
   });
   webview.addEventListener('did-navigate-in-page', (e) => {
     try {
       const u = new URL(e.url);
-      if (addrPath) addrPath.textContent = u.pathname !== '/' ? u.pathname : '';
+      const newPath = u.pathname + u.search;
+      if (addrPath) addrPath.textContent = newPath !== '/' ? newPath : '';
+      // Switch pins for SPA navigation (React, Vue, Next.js, etc.)
+      previewView._inspectHandlers?.switchPage?.(newPath);
     } catch (err) {}
   });
 
@@ -350,6 +333,10 @@ function wireWebviewEvents(previewView, webview) {
       }
       if (e.message === '__CT_INSPECT_CANCEL__') {
         previewView._inspectHandlers?.handleEscape();
+        return;
+      }
+      if (e.message === '__CT_INSPECT_TOGGLE__') {
+        previewView._inspectHandlers?.toggle();
         return;
       }
     }
@@ -494,7 +481,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
         <div class="wa-address-bar">
           <span class="wa-addr-scheme">http://</span><span class="wa-addr-host">localhost</span><span class="wa-addr-port">:${port}</span><span class="wa-addr-path"></span>
         </div>
-        <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')}">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
+        <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')} (I)">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
         <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
       </div>
@@ -512,9 +499,11 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   const webview = previewView.querySelector('.webapp-preview-webview');
   wireWebviewEvents(previewView, webview);
 
-  // ── Inspect mode with multi-annotation pins ──
+  // ── Inspect mode with multi-annotation pins (per-page) ──
   let inspectActive = false;
-  const annotations = [];
+  // Per-page annotation storage: pathname → { annotations[], scroll }
+  const pageAnnotations = new Map();
+  let currentPagePath = '/';
   let nextPinId = 1;
   // Track webview scroll position for pin offset calculation
   let currentScroll = { x: 0, y: 0 };
@@ -524,8 +513,32 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   const sendAllBtn = previewView.querySelector('.wa-send-all');
   const overlay = previewView.querySelector('.wa-pins-overlay');
 
+  /** Get annotations for the current page */
+  function getPageAnns() {
+    if (!pageAnnotations.has(currentPagePath)) {
+      pageAnnotations.set(currentPagePath, { annotations: [], scroll: { x: 0, y: 0 } });
+    }
+    return pageAnnotations.get(currentPagePath);
+  }
+
+  /** Count total annotations across all pages */
+  function getTotalCount() {
+    let total = 0;
+    for (const page of pageAnnotations.values()) total += page.annotations.length;
+    return total;
+  }
+
+  /** Get all annotations flattened with their page path */
+  function getAllAnnotations() {
+    const all = [];
+    for (const [path, page] of pageAnnotations) {
+      for (const ann of page.annotations) all.push({ ...ann, pagePath: path });
+    }
+    return all;
+  }
+
   function updateBadge() {
-    const count = annotations.length;
+    const count = getTotalCount();
     if (count > 0) {
       badgeEl.textContent = count;
       badgeEl.classList.add('visible');
@@ -550,9 +563,10 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     return { x: absX - currentScroll.x, y: absY - currentScroll.y };
   }
 
-  /** Reposition all pins and popover based on current scroll */
+  /** Reposition all pins and popover based on current scroll (current page only) */
   function repositionAllPins() {
-    for (const ann of annotations) {
+    const page = getPageAnns();
+    for (const ann of page.annotations) {
       const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${ann.id}"]`);
       if (!pinEl) continue;
       const abs = ann.elementData.absRect;
@@ -578,19 +592,14 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     }
   }
 
-  function showPopover(elementData, screenshot, existingAnnotation) {
+  function showPopover(elementData, existingAnnotation) {
     closePopover();
 
     const pop = document.createElement('div');
     pop.className = 'wa-pin-popover';
 
-    const thumbHtml = screenshot
-      ? `<img class="wa-popover-thumb" src="${screenshot}" alt=""/>`
-      : '';
-
     pop.innerHTML = `
       <div class="wa-popover-header">
-        ${thumbHtml}
         <span class="wa-popover-selector">${escapeAttr(elementData.selector)}</span>
         <button class="wa-popover-close" title="Close">&times;</button>
       </div>
@@ -647,8 +656,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       if (existingAnnotation) {
         existingAnnotation.instruction = instruction;
       } else {
-        const ann = { id: nextPinId++, elementData, instruction, screenshot };
-        annotations.push(ann);
+        const ann = { id: nextPinId++, elementData, instruction };
+        getPageAnns().annotations.push(ann);
         addPin(ann);
         updateBadge();
       }
@@ -701,31 +710,50 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     pin.style.left = vp.x + 'px';
     pin.onclick = (e) => {
       e.stopPropagation();
-      showPopover(annotation.elementData, annotation.screenshot, annotation);
+      showPopover(annotation.elementData, annotation);
     };
     overlay.appendChild(pin);
   }
 
   function removePin(annotationId) {
-    const idx = annotations.findIndex(a => a.id === annotationId);
-    if (idx !== -1) annotations.splice(idx, 1);
+    // Search in all pages
+    for (const page of pageAnnotations.values()) {
+      const idx = page.annotations.findIndex(a => a.id === annotationId);
+      if (idx !== -1) { page.annotations.splice(idx, 1); break; }
+    }
     const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${annotationId}"]`);
     if (pinEl) pinEl.remove();
     updateBadge();
   }
 
   function clearAllPins() {
-    annotations.length = 0;
+    pageAnnotations.clear();
     nextPinId = 1;
     currentScroll = { x: 0, y: 0 };
     overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
     updateBadge();
   }
 
+  /** Remove pin DOM elements (keep data in memory) */
+  function hidePins() {
+    overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
+  }
+
+  /** Re-create pin DOM elements for the current page from stored data */
+  function showPins() {
+    // Clear existing pin DOM first to avoid duplicates
+    overlay.querySelectorAll('.wa-pin').forEach(el => el.remove());
+    const page = pageAnnotations.get(currentPagePath);
+    if (!page) return;
+    for (const ann of page.annotations) addPin(ann);
+  }
+
   function activateInspect() {
     inspectActive = true;
     inspectBtn.classList.add('active');
     previewView.classList.add('inspect-mode');
+    // Show pins of current page
+    showPins();
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (wv) {
       try { wv.executeJavaScript(getInspectInjectScript()); } catch (e) {}
@@ -742,10 +770,24 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       try { wv.executeJavaScript(SCROLL_UNLISTEN_SCRIPT); } catch (e) {}
     }
     closePopover();
+    hidePins();
+  }
+
+  /** Full cleanup: deactivate + clear all pins */
+  function deactivateAndClear() {
+    inspectActive = false;
+    inspectBtn.classList.remove('active');
+    previewView.classList.remove('inspect-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(INSPECT_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(SCROLL_UNLISTEN_SCRIPT); } catch (e) {}
+    }
+    closePopover();
     clearAllPins();
   }
 
-  async function handleCapture(elementData) {
+  function handleCapture(elementData) {
     // Compute document-absolute rect from viewport rect + scroll at capture time
     const scroll = elementData.scroll || { x: 0, y: 0 };
     elementData.absRect = {
@@ -755,7 +797,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       height: elementData.rect.height
     };
 
-    // Temporarily uninject inspect overlay for screenshot + popover
+    // Uninject inspect overlay for popover interaction
     // but keep scroll listener active for pin repositioning
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (wv) {
@@ -763,28 +805,13 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       try { wv.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
     }
 
-    let screenshot = null;
-    if (wv) {
-      try {
-        const nativeImage = await wv.capturePage();
-        const fullDataUrl = nativeImage.toDataURL();
-        const dpr = window.devicePixelRatio || 1;
-        const pad = 20 * dpr;
-        const r = elementData.rect;
-        screenshot = await cropImage(
-          fullDataUrl,
-          r.x * dpr - pad, r.y * dpr - pad,
-          r.width * dpr + pad * 2, r.height * dpr + pad * 2
-        );
-      } catch (e) {}
-    }
-
-    showPopover(elementData, screenshot, null);
+    showPopover(elementData, null);
   }
 
   function handleScroll(scroll) {
     currentScroll = { x: scroll.scrollX, y: scroll.scrollY };
-    if (annotations.length > 0) {
+    const page = pageAnnotations.get(currentPagePath);
+    if (page && page.annotations.length > 0) {
       repositionAllPins();
     }
   }
@@ -803,6 +830,30 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     }
   }
 
+  /** Switch visible pins when navigating to a different page */
+  function switchToPage(newPath) {
+    if (newPath === currentPagePath) return;
+    closePopover();
+
+    // Save scroll position for current page
+    const oldPage = pageAnnotations.get(currentPagePath);
+    if (oldPage) oldPage.scroll = { ...currentScroll };
+
+    // Remove pin DOM of old page
+    overlay.querySelectorAll('.wa-pin').forEach(el => el.remove());
+
+    // Switch
+    currentPagePath = newPath;
+    currentScroll = { x: 0, y: 0 };
+
+    // Restore pins of new page only if inspect is active
+    const newPage = pageAnnotations.get(currentPagePath);
+    if (newPage && inspectActive) {
+      currentScroll = { ...newPage.scroll };
+      for (const ann of newPage.annotations) addPin(ann);
+    }
+  }
+
   inspectBtn.onclick = () => {
     if (inspectActive) {
       deactivateInspect();
@@ -812,19 +863,41 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   };
 
   sendAllBtn.onclick = () => {
-    if (annotations.length === 0) return;
-    sendAllFeedback(previewView, [...annotations], deps);
-    deactivateInspect();
+    if (getTotalCount() === 0) return;
+    sendAllFeedback(previewView, getAllAnnotations(), deps);
+    deactivateAndClear();
   };
 
   previewView._inspectHandlers = {
     handleCapture,
-    deactivate: deactivateInspect,
+    deactivate: deactivateAndClear,
     handleEscape: handleEscapeFromWebview,
     handleScroll,
+    toggle: () => { inspectActive ? deactivateInspect() : activateInspect(); },
     isActive: () => inspectActive,
-    hasPins: () => annotations.length > 0
+    hasPins: () => getTotalCount() > 0,
+    switchPage: switchToPage
   };
+
+  // ── Keyboard shortcut: "I" to toggle inspect ──
+  const shortcutHandler = (e) => {
+    // Only act when preview tab is visible and no input is focused
+    if (!previewView.classList.contains('wa-view-active')) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === 'i' || e.key === 'I') {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      e.preventDefault();
+      if (inspectActive) {
+        deactivateInspect();
+      } else {
+        activateInspect();
+      }
+    }
+  };
+  document.addEventListener('keydown', shortcutHandler);
+  // Store for cleanup
+  previewView._inspectShortcutHandler = shortcutHandler;
 
   // ── Browser nav buttons ──
   previewView.querySelector('.wa-reload').onclick = () => {
@@ -945,25 +1018,39 @@ function sendAllFeedback(previewView, annotations, deps) {
   const project = previewView._project;
   if (!project || annotations.length === 0) return;
 
-  // Build a concise numbered prompt
-  const lines = annotations.map((ann, i) => {
-    const ed = ann.elementData;
-    const tag = `<${ed.tagName}>`;
-    const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
-    return `${i + 1}. \`${ed.selector}\` (${tag}${classes}): "${ann.instruction}"`;
-  });
-
-  const prompt = annotations.length === 1
-    ? `The user selected an element in their web app preview and wants a change:\n\n"${annotations[0].instruction}"\n\nElement: \`${annotations[0].elementData.selector}\` (<${annotations[0].elementData.tagName}>${annotations[0].elementData.className ? `, classes: \`${annotations[0].elementData.className}\`` : ''})\n\nFind this element in the project source code and make the requested change directly.`
-    : `The user annotated ${annotations.length} elements in their web app preview. Make all these changes:\n\n${lines.join('\n')}\n\nFind each element in the project source code and make the requested changes.`;
-
-  // Collect all screenshots
-  const images = [];
+  // Group annotations by page path
+  const byPage = new Map();
   for (const ann of annotations) {
-    if (ann.screenshot) {
-      const base64 = ann.screenshot.replace(/^data:image\/png;base64,/, '');
-      images.push({ base64, mediaType: 'image/png', name: `pin-${ann.id}` });
+    const path = ann.pagePath || '/';
+    if (!byPage.has(path)) byPage.set(path, []);
+    byPage.get(path).push(ann);
+  }
+
+  let prompt;
+  const multiPage = byPage.size > 1;
+
+  if (annotations.length === 1) {
+    const ann = annotations[0];
+    const ed = ann.elementData;
+    const pageHint = multiPage ? ` (page: ${ann.pagePath})` : '';
+    prompt = `The user selected an element in their web app preview and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})${pageHint}\n\nFind this element in the project source code and make the requested change directly.`;
+  } else {
+    let num = 1;
+    const sections = [];
+    for (const [path, anns] of byPage) {
+      const lines = anns.map(ann => {
+        const ed = ann.elementData;
+        const tag = `<${ed.tagName}>`;
+        const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
+        return `${num++}. \`${ed.selector}\` (${tag}${classes}): "${ann.instruction}"`;
+      });
+      if (multiPage) {
+        sections.push(`Page \`${path}\`:\n${lines.join('\n')}`);
+      } else {
+        sections.push(lines.join('\n'));
+      }
     }
+    prompt = `The user annotated ${annotations.length} elements in their web app preview. Make all these changes:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.`;
   }
 
   const VISUAL_TAB_PREFIX = '\ud83c\udfaf Visual';
@@ -972,7 +1059,7 @@ function sendAllFeedback(previewView, annotations, deps) {
   if (existing) {
     const { id, termData } = existing;
     if (termData.chatView) {
-      termData.chatView.sendMessage(prompt, images);
+      termData.chatView.sendMessage(prompt);
       setActiveTerminal(id);
       return;
     }
@@ -982,7 +1069,6 @@ function sendAllFeedback(previewView, annotations, deps) {
   createTerminal(project, {
     skipPermissions: getSetting('skipPermissions') || false,
     initialPrompt: prompt,
-    initialImages: images.length ? images : null,
     name: '\ud83c\udfaf Visual Feedback'
   });
 }
@@ -1000,6 +1086,10 @@ function cleanup(wrapper) {
   }
   const previewView = wrapper.querySelector('.webapp-preview-view');
   if (previewView) {
+    if (previewView._inspectShortcutHandler) {
+      document.removeEventListener('keydown', previewView._inspectShortcutHandler);
+      delete previewView._inspectShortcutHandler;
+    }
     const webview = previewView.querySelector('.webapp-preview-webview');
     if (webview) webview.remove();
     detachedWebviews.delete(previewView);
