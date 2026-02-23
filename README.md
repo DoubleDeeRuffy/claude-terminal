@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-0.9.5-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.9.6-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
@@ -23,6 +23,49 @@
 
 ---
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Features](#features)
+- [Usage](#usage)
+- [Building](#building)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+
+---
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- [Claude Code](https://github.com/anthropics/claude-code) installed globally
+- **Windows** 10 or 11
+- **macOS** 12+ (Intel or Apple Silicon)
+- **Linux** Ubuntu 22.04+, Fedora 38+, or equivalent
+  - AppImage requires `libfuse2` on Ubuntu 24.04+: `sudo apt install libfuse2`
+  - GitHub token storage requires `libsecret`: `sudo apt install libsecret-1-dev gnome-keyring`
+
+## Installation
+
+Download the latest installer from [Releases](https://github.com/Sterll/claude-terminal/releases).
+
+> [!IMPORTANT]
+> **macOS users:** If you see *"Claude Terminal is damaged and can't be opened"*, run this in Terminal:
+> ```bash
+> xattr -cr /Applications/Claude\ Terminal.app
+> ```
+> This is needed because the app is not code-signed yet. Alternatively, right-click the app → Open.
+
+Or build from source:
+
+```bash
+git clone https://github.com/Sterll/claude-terminal.git
+cd claude-terminal
+npm install
+```
+
+---
+
 ## Features
 
 ### Chat UI (Claude Agent SDK)
@@ -38,6 +81,7 @@
 - **Slash commands**: auto-completing commands (/compact, /clear, /help, custom skills)
 - **Cost tracking**: model name, token count, and USD cost in the status bar
 - **1M context window**: extended context for larger codebases (API mode only)
+- **Dynamic model and effort switching**: change model (Sonnet, Opus, Haiku) and effort level (low, medium, high) mid-conversation without starting a new session
 - **Pin conversations**: keep important sessions at the top of the list
 - **Fork sessions**: branch from any message to explore alternative paths
 - Type @project to attach README.md and file tree from any project as context
@@ -159,35 +203,6 @@
 - Web app management with framework auto-detection
 - Python project detection (version, venv, dependencies, entry point)
 - API project type with integrated route tester, variables, and console
-
----
-
-## Prerequisites
-
-- [Node.js](https://nodejs.org/) 18+
-- [Claude Code](https://github.com/anthropics/claude-code) installed globally
-- **Windows** 10 or 11
-- **macOS** 12+ (Intel or Apple Silicon)
-- **Linux** Ubuntu 22.04+, Fedora 38+, or equivalent
-  - AppImage requires `libfuse2` on Ubuntu 24.04+: `sudo apt install libfuse2`
-  - GitHub token storage requires `libsecret`: `sudo apt install libsecret-1-dev gnome-keyring`
-
-## Installation
-
-Download the latest installer from [Releases](https://github.com/Sterll/claude-terminal/releases).
-
-> **macOS note:** If you see *"Claude Terminal is damaged and can't be opened"*, this is because the app is not code-signed yet. Run this command to fix it:
-> ```bash
-> xattr -cr /Applications/Claude\ Terminal.app
-> ```
-
-Or build from source:
-
-```bash
-git clone https://github.com/Sterll/claude-terminal.git
-cd claude-terminal
-npm install
-```
 
 ## Usage
 

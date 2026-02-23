@@ -3,7 +3,7 @@
  * Handles dialog and system-related IPC communication
  */
 
-const { ipcMain, dialog, shell, app } = require('electron');
+const { ipcMain, dialog, shell, app, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const updaterService = require('../services/UpdaterService');
@@ -142,6 +142,10 @@ function registerDialogHandlers() {
     });
     return enabled;
   });
+
+  // Clipboard access (needed when navigator.clipboard is unavailable in xterm context)
+  ipcMain.handle('clipboard-read', () => clipboard.readText());
+  ipcMain.handle('clipboard-write', (event, text) => { clipboard.writeText(text); });
 }
 
 module.exports = {

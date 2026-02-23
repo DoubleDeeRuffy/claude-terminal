@@ -8,25 +8,42 @@ const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getFolder, getProject, countProjectsRecursive } = require('../state');
 const { escapeHtml } = require('../utils');
+const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
 
-// ========== CACHE SYSTEM ==========
+// ========== CACHE SYSTEM (LRU with size limit) ==========
+const MAX_CACHE_SIZE = 50; // Max cached projects
 const dashboardCache = new Map(); // projectId -> { data, timestamp, loading }
 const CACHE_TTL = 30000; // 30 seconds cache validity
 const REFRESH_DEBOUNCE = 2000; // 2 seconds minimum between refreshes
 const DISK_CACHE_FILE = '.claude-terminal';
 
-// Periodic cache cleanup to prevent unbounded growth
-let _cacheCleanupInterval = setInterval(() => {
+/**
+ * Evict oldest entries when cache exceeds MAX_CACHE_SIZE.
+ * Also removes expired entries opportunistically.
+ */
+function evictCache() {
   const now = Date.now();
+  // First pass: remove expired entries
   for (const [key, entry] of dashboardCache.entries()) {
     if (now - entry.timestamp > CACHE_TTL * 4) {
       dashboardCache.delete(key);
     }
   }
-}, 60000);
+  // Second pass: if still over limit, remove oldest entries (LRU)
+  if (dashboardCache.size > MAX_CACHE_SIZE) {
+    const sorted = [...dashboardCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toRemove = sorted.slice(0, dashboardCache.size - MAX_CACHE_SIZE);
+    for (const [key] of toRemove) {
+      dashboardCache.delete(key);
+    }
+  }
+}
+
+// Periodic cache cleanup to prevent unbounded growth
+let _cacheCleanupInterval = setInterval(evictCache, 60000);
 
 // ========== DISK CACHE ==========
 
@@ -268,6 +285,10 @@ function setCacheData(projectId, data) {
     timestamp: Date.now(),
     loading: false
   });
+  // Enforce LRU size limit
+  if (dashboardCache.size > MAX_CACHE_SIZE) {
+    evictCache();
+  }
 
   // Persist to disk asynchronously
   const project = projectsState.get().projects.find(p => p.id === projectId);
@@ -986,7 +1007,7 @@ function buildPullRequestsHtml(pullRequestsData) {
               </div>
               <div class="pull-request-meta">
                 <span class="pr-author">${escapeHtml(pr.author)}</span>
-                ${pr.labels.length > 0 ? `<span class="pr-labels">${pr.labels.map(l => `<span class="pr-label" style="background: #${l.color}20; color: #${l.color}; border-color: #${l.color}40">${escapeHtml(l.name)}</span>`).join('')}</span>` : ''}
+                ${pr.labels.length > 0 ? `<span class="pr-labels">${pr.labels.map(l => { const c = sanitizeColor('#' + l.color) || '#888'; return `<span class="pr-label" style="background: ${c}20; color: ${c}; border-color: ${c}40">${escapeHtml(l.name)}</span>`; }).join('')}</span>` : ''}
                 <span class="pr-time">${formatTime(pr.updatedAt)}</span>
               </div>
             </div>
@@ -1369,10 +1390,11 @@ async function renderDashboard(container, project, options = {}) {
     setCacheLoading(projectId, false);
     container.innerHTML = `
       <div class="dashboard-error">
-        <p>${t('dashboard.loadError')}</p>
-        <button class="btn-secondary" onclick="location.reload()">${t('dashboard.retry')}</button>
+        <p>${escapeHtml(t('dashboard.loadError'))}</p>
+        <button class="btn-secondary dashboard-retry-btn">${escapeHtml(t('dashboard.retry'))}</button>
       </div>
     `;
+    container.querySelector('.dashboard-retry-btn')?.addEventListener('click', () => location.reload());
   }
 }
 
@@ -1395,9 +1417,7 @@ async function preloadAllProjects() {
   const projects = projectsState.get().projects;
   if (!projects || projects.length === 0) return;
 
-  // Preloading projects silently
-
-  const PROJECT_TIMEOUT = 20000; // 20s max per project
+  const PROJECT_TIMEOUT = 15000; // 15s max per project (reduced from 20s)
 
   function withTimeout(promise, ms, name) {
     return Promise.race([
@@ -1406,8 +1426,13 @@ async function preloadAllProjects() {
     ]);
   }
 
-  // Load projects in parallel batches
-  const BATCH_SIZE = 4;
+  // Yield to the event loop between batches so UI stays responsive
+  function yieldToUI() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  // Load projects in parallel batches (increased from 4 to 8)
+  const BATCH_SIZE = 8;
   for (let i = 0; i < projects.length; i += BATCH_SIZE) {
     const batch = projects.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (project) => {
@@ -1422,7 +1447,6 @@ async function preloadAllProjects() {
           project.name
         );
         setCacheData(project.id, data);
-        // Preloaded
       } catch (e) {
         console.error(`[Dashboard] Failed to preload ${project.name}:`, e.message);
         // Store minimal data (project type) so it's not stuck as "no data"
@@ -1436,9 +1460,10 @@ async function preloadAllProjects() {
 
     // Notify after each batch so overview can refresh progressively
     window.dispatchEvent(new CustomEvent('dashboard-preload-progress'));
-  }
 
-  // Preload complete
+    // Yield to UI between batches to prevent renderer freeze
+    await yieldToUI();
+  }
 }
 
 /**
@@ -1485,7 +1510,7 @@ function buildOverviewCardHtml(project, dataMap, timesMap) {
 
   let typeBadgeHtml = '';
   if (projectType) {
-    typeBadgeHtml = `<span class="overview-type-badge" style="--type-color: ${projectType.color}">${escapeHtml(projectType.label)}</span>`;
+    typeBadgeHtml = `<span class="overview-type-badge" style="--type-color: ${sanitizeColor(projectType.color) || '#888'}">${escapeHtml(projectType.label)}</span>`;
   }
 
   const openPrs = (pullRequests?.pullRequests || []).filter(pr => pr.state === 'open').length;
@@ -1591,7 +1616,8 @@ function buildOverviewHtml(projects, options = {}) {
     const projectCount = countProjectsRecursive(folder.id);
     if (projectCount === 0) return '';
 
-    const colorStyle = folder.color ? `style="color: ${folder.color}"` : '';
+    const safeFolderColor = sanitizeColor(folder.color);
+    const colorStyle = safeFolderColor ? `style="color: ${safeFolderColor}"` : '';
     const folderIcon = folder.icon
       ? `<span class="overview-section-emoji">${folder.icon}</span>`
       : `<svg viewBox="0 0 24 24" fill="currentColor" ${colorStyle}><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>`;

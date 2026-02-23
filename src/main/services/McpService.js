@@ -34,15 +34,29 @@ class McpService {
       this.stop({ id });
     }
 
+    // Validate inputs to prevent shell injection
+    if (typeof command !== 'string' || !command.trim()) {
+      return { success: false, error: 'Invalid command' };
+    }
+    if (!Array.isArray(args) || args.some(a => typeof a !== 'string')) {
+      return { success: false, error: 'Invalid arguments' };
+    }
+    // Block obvious shell injection characters in command
+    const dangerousPattern = /[;&|`$(){}]/;
+    if (dangerousPattern.test(command)) {
+      console.error(`[MCP] Blocked suspicious command: ${command}`);
+      return { success: false, error: 'Command contains disallowed characters' };
+    }
+
     // Merge environment variables
     const processEnv = { ...process.env, ...env };
 
-    // Spawn the process
+    // Spawn the process - use shell:false when possible, shell:true only on Windows for PATH resolution
     let proc;
     try {
       proc = spawn(command, args, {
         env: processEnv,
-        shell: true,
+        shell: process.platform === 'win32',
         windowsHide: true
       });
     } catch (error) {

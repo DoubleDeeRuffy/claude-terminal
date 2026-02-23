@@ -6,7 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const pty = require('node-pty');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 // Port detection patterns from dev server output
 const PORT_PATTERNS = [
@@ -19,7 +19,6 @@ class WebAppService {
   constructor() {
     this.processes = new Map(); // projectIndex -> pty process
     this.detectedPorts = new Map(); // projectIndex -> port number
-    this.outputBuffers = new Map(); // projectIndex -> accumulated output for port detection
     this.mainWindow = null;
   }
 
@@ -41,7 +40,6 @@ class WebAppService {
     }
 
     this.detectedPorts.delete(projectIndex);
-    this.outputBuffers.set(projectIndex, '');
 
     const shellPath = process.platform === 'win32' ? 'cmd.exe' : 'bash';
     const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
@@ -66,6 +64,7 @@ class WebAppService {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      ptyProcess.kill();
       this.processes.delete(projectIndex);
       this.detectedPorts.delete(projectIndex);
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
@@ -83,30 +82,27 @@ class WebAppService {
     const proc = this.processes.get(projectIndex);
     if (proc) {
       const pid = proc.pid;
+      this.processes.delete(projectIndex);
+      this.detectedPorts.delete(projectIndex);
       try {
-        // Send Ctrl+C first for graceful shutdown
         proc.write('\x03');
         setTimeout(() => {
-          if (this.processes.has(projectIndex)) {
-            this._forceKill(pid);
-            this.processes.delete(projectIndex);
-          }
+          this._forceKill(pid);
         }, 3000);
       } catch (e) {
         this._forceKill(pid);
-        this.processes.delete(projectIndex);
       }
+    } else {
+      this.detectedPorts.delete(projectIndex);
     }
-    this.detectedPorts.delete(projectIndex);
-    this.outputBuffers.delete(projectIndex);
     return { success: true };
   }
 
   _forceKill(pid) {
-    if (!pid) return;
+    if (!pid || !Number.isInteger(pid) || pid <= 0) return;
     try {
       if (process.platform === 'win32') {
-        exec(`taskkill /F /T /PID ${pid}`, () => {});
+        execFile('taskkill', ['/F', '/T', '/PID', String(pid)], () => {});
       } else {
         process.kill(-pid, 'SIGKILL');
       }
@@ -127,30 +123,32 @@ class WebAppService {
 
   /**
    * Detect port from dev server output
+   * Runs on every data chunk — always takes the latest detected port
+   * so restarts with a different port are picked up correctly.
    */
   _detectPort(projectIndex, data) {
-    if (this.detectedPorts.has(projectIndex)) return;
+    // Strip ANSI escape sequences (CSI, OSC, simple escapes)
+    const clean = data
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC sequences
+      .replace(/\x1b[@-Z\\-_]|\x1b\[[0-9;]*[A-Za-z]/g, '') // CSI / simple
+      .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g, '');  // other control chars
 
-    // Accumulate output and strip ALL ANSI escape sequences
-    let buffer = (this.outputBuffers.get(projectIndex) || '') + data;
-    const clean = buffer.replace(/\x1b[\[\]()#;?]*[0-9;]*[a-zA-Z@]/g, '');
-
-    // Keep buffer bounded (last 2KB)
-    if (buffer.length > 2048) buffer = buffer.slice(-2048);
-    this.outputBuffers.set(projectIndex, buffer);
-
+    let found = null;
     for (const pattern of PORT_PATTERNS) {
-      const match = clean.match(pattern);
-      if (match) {
-        const port = parseInt(match[1]);
-        if (port > 0 && port < 65536) {
-          this.detectedPorts.set(projectIndex, port);
-          this.outputBuffers.delete(projectIndex);
-          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-            this.mainWindow.webContents.send('webapp-port-detected', { projectIndex, port });
-          }
-          break;
-        }
+      // Use global flag to find ALL matches and take the last one
+      const re = new RegExp(pattern.source, 'gi');
+      let m;
+      while ((m = re.exec(clean)) !== null) {
+        const p = parseInt(m[1], 10);
+        if (!isNaN(p) && p > 0 && p < 65536) found = p;
+      }
+      if (found) break;
+    }
+
+    if (found && found !== this.detectedPorts.get(projectIndex)) {
+      this.detectedPorts.set(projectIndex, found);
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('webapp-port-detected', { projectIndex, port: found });
       }
     }
   }
@@ -239,7 +237,6 @@ class WebAppService {
     });
     this.processes.clear();
     this.detectedPorts.clear();
-    this.outputBuffers.clear();
   }
 
   count() {

@@ -21,6 +21,12 @@
     "reload": "Reload",
     "preview": "Preview",
     "devCommandHint": "Leave empty to auto-detect from package.json",
+    "inspect": "Visual Feedback",
+    "feedbackPlaceholder": "What would you like to change?",
+    "pinPlaceholder": "What to change here?",
+    "sendToClaude": "Send to Claude",
+    "sendAll": "Send all ({count})",
+    "deletePin": "Delete",
     "settings": {
       "previewEnabled": "In-app Preview",
       "previewEnabledDesc": "Embed a live preview of the dev server directly in the app (uses more memory)"

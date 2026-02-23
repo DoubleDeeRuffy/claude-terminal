@@ -5,6 +5,7 @@
 
 const { projectsState, getGlobalTimes, getProjectTimes, getProjectSessions, getGlobalTrackingData } = require('../state');
 const { escapeHtml } = require('../utils');
+const { sanitizeColor } = require('../utils/color');
 const { formatDuration, formatDurationLarge } = require('../utils/format');
 const { t } = require('../i18n');
 const ArchiveService = require('./ArchiveService');
@@ -591,7 +592,7 @@ async function render(container) {
           </div>
           ${mostActive ? `
           <div class="tt-stat-item tt-stat-project">
-            <div class="tt-stat-icon" style="background: ${mostActive.project.color || '#d97706'}20; color: ${mostActive.project.color || '#d97706'}">
+            <div class="tt-stat-icon" style="background: ${sanitizeColor(mostActive.project.color) || '#d97706'}20; color: ${sanitizeColor(mostActive.project.color) || '#d97706'}">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
             </div>
             <div class="tt-stat-value tt-stat-project-name">${escapeHtml(mostActive.project.name.length > 10 ? mostActive.project.name.substring(0, 10) + '...' : mostActive.project.name)}</div>

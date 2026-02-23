@@ -278,6 +278,18 @@ module.exports = createType({
 .api-view-tab.active svg { opacity: 1; }
 .api-view-tab svg { opacity: 0.5; }
 
+/* View switching via CSS classes (not inline styles) */
+.api-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.api-view.api-view-active {
+  display: flex;
+}
+
 /* Console view fills all space */
 .api-console-view {
   flex: 1;
@@ -1456,7 +1468,6 @@ module.exports = createType({
 .api-routes-view {
   flex: 1;
   min-height: 0;
-  display: flex;
   overflow: hidden;
 }
 

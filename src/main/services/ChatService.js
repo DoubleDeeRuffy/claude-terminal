@@ -218,21 +218,29 @@ class ChatService {
     // Catch SDK internal "ProcessTransport is not ready" errors that bubble as
     // unhandled rejections when a permission response is resolved after the
     // underlying CLI process has already exited.
-    process.on('unhandledRejection', (reason) => {
+    this._unhandledRejectionHandler = (reason) => {
       if (reason?.message?.includes('ProcessTransport is not ready')) {
         console.warn('[ChatService] Suppressed SDK ProcessTransport error (CLI process already exited)');
         return;
       }
-    });
+    };
+    process.on('unhandledRejection', this._unhandledRejectionHandler);
   }
 
   setMainWindow(window) {
     this.mainWindow = window;
   }
 
+  setRemoteEventCallback(fn) {
+    this._remoteEventCallback = fn || null;
+  }
+
   _send(channel, data) {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data);
+    }
+    if (this._remoteEventCallback) {
+      this._remoteEventCallback(channel, data);
     }
   }
 
@@ -245,7 +253,7 @@ class ChatService {
    * @param {string} [params.resumeSessionId] - Session ID to resume
    * @returns {Promise<string>} Session ID
    */
-  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null }) {
+  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null }) {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -261,6 +269,10 @@ class ChatService {
         parent_tool_use_id: null,
         session_id: sessionId
       });
+      // Relay initial user message to remote clients
+      if (this._remoteEventCallback) {
+        this._remoteEventCallback('chat-user-message', { sessionId, text: prompt, images: images.length });
+      }
     }
 
     const abortController = new AbortController();
@@ -294,6 +306,11 @@ class ChatService {
         options.model = model;
       }
 
+      // Set effort level if specified
+      if (effort) {
+        options.effort = effort;
+      }
+
       // Enable 1M token context window (beta)
       if (enable1MContext) {
         options.betas = ['context-1m-2025-08-07'];
@@ -320,6 +337,7 @@ class ChatService {
         messageQueue,
         queryStream,
         alwaysAllow: permissionMode === 'bypassPermissions',
+        cwd,
       });
 
       this._processStream(sessionId, queryStream);
@@ -350,6 +368,10 @@ class ChatService {
         parent_tool_use_id: null,
         session_id: sessionId
       });
+      // Relay user message to remote clients so mobile sees it
+      if (this._remoteEventCallback) {
+        this._remoteEventCallback('chat-user-message', { sessionId, text, images: images.length });
+      }
     } catch (err) {
       console.error(`[ChatService] sendMessage error (transport not ready):`, err.message);
       // Session transport died — clean up
@@ -477,6 +499,31 @@ class ChatService {
     }
   }
 
+  /**
+   * Change model mid-session via SDK queryStream.setModel()
+   */
+  async setModel(sessionId, model) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.queryStream?.setModel) {
+      throw new Error('Session not found or setModel not available');
+    }
+    await session.queryStream.setModel(model || undefined);
+  }
+
+  /**
+   * Change effort (thinking budget) mid-session via SDK queryStream.setMaxThinkingTokens()
+   * Maps effort levels to token budgets.
+   */
+  async setEffort(sessionId, effort) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.queryStream?.setMaxThinkingTokens) {
+      throw new Error('Session not found or setMaxThinkingTokens not available');
+    }
+    const effortMap = { low: 1024, medium: 8192, high: null };
+    const tokens = effort in effortMap ? effortMap[effort] : null;
+    await session.queryStream.setMaxThinkingTokens(tokens);
+  }
+
 
 
   /**
@@ -519,6 +566,12 @@ class ChatService {
     } finally {
       if (session) session.interrupting = false;
       this._rejectPendingPermissions(sessionId, 'Stream ended');
+      // Mark session as stream-ended so closeSession won't emit duplicate session:closed
+      if (session) session._streamEnded = true;
+      // Notify remote clients that this session's stream has ended
+      if (this._remoteEventCallback) {
+        this._remoteEventCallback('session:closed', { sessionId });
+      }
     }
   }
 
@@ -772,6 +825,7 @@ class ChatService {
   closeSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {
+      if (session.abortController) session.abortController.abort();
       if (session.queryStream?.close) session.queryStream.close();
       if (session.messageQueue) session.messageQueue.close();
       // Reject pending permissions for this session
@@ -781,12 +835,34 @@ class ChatService {
           pending.reject(new Error('Session closed'));
         }
       }
+      const alreadyNotified = session._streamEnded;
       this.sessions.delete(sessionId);
+      // Notify remote clients (skip if _processStream already sent session:closed)
+      if (!alreadyNotified && this._remoteEventCallback) {
+        this._remoteEventCallback('session:closed', { sessionId });
+      }
     }
   }
 
+  getActiveSessions() {
+    const result = [];
+    for (const [sessionId, session] of this.sessions) {
+      if (!session._streamEnded) {
+        result.push({ sessionId, cwd: session.cwd || null });
+      }
+    }
+    return result;
+  }
+
+  getSessionInfo(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return { sessionId, cwd: session.cwd || null };
+  }
+
   closeAll() {
-    for (const [id] of this.sessions) {
+    const ids = [...this.sessions.keys()];
+    for (const id of ids) {
       this.closeSession(id);
     }
     // Close naming session
@@ -799,6 +875,10 @@ class ChatService {
       gen.abortController.abort();
     }
     this.backgroundGenerations.clear();
+    // Remove global listener to prevent memory leak
+    if (this._unhandledRejectionHandler) {
+      process.removeListener('unhandledRejection', this._unhandledRejectionHandler);
+    }
   }
 }
 

@@ -83,6 +83,7 @@ const {
 
   // Time Tracking
   getProjectTimes,
+  getGlobalTimes,
 
   // Themes
   TERMINAL_THEMES,
@@ -880,23 +881,53 @@ function createBasicTerminalForProject(project) {
 }
 
 // ========== WORKTREE CREATION ==========
-function openNewWorktreeModal(project) {
-  const modalId = 'worktree-modal';
+async function openNewWorktreeModal(project) {
+  // Load existing worktrees first
+  let existingWorktrees = [];
+  try {
+    const wtResult = await api.git.worktreeList({ projectPath: project.path });
+    if (wtResult?.success && wtResult.worktrees?.length > 1) {
+      // Exclude main worktree (current project path)
+      existingWorktrees = wtResult.worktrees.filter(wt => !wt.isMain);
+    }
+  } catch (_) {}
+
+  const existingHtml = existingWorktrees.length > 0 ? `
+    <div class="worktree-section">
+      <p class="worktree-section-label">${escapeHtml(t('projects.worktreeExisting'))}</p>
+      <div class="worktree-existing-list">
+        ${existingWorktrees.map(wt => {
+          const branchLabel = wt.detached ? wt.head?.substring(0, 7) : (wt.branch || '?');
+          const shortPath = wt.path.replace(/\\/g, '/').split('/').slice(-2).join('/');
+          return `<button class="worktree-existing-item" data-wt-path="${escapeHtml(wt.path)}" data-wt-branch="${escapeHtml(branchLabel)}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path stroke-linecap="round" stroke-linejoin="round" d="M6 3v12m0 0a3 3 0 100 6 3 3 0 000-6zm12-6a3 3 0 100-6 3 3 0 000 6zm0 0c0 4.5-1.5 6-6 6"/></svg>
+            <span class="worktree-existing-branch">${escapeHtml(branchLabel)}</span>
+            <span class="worktree-existing-path">${escapeHtml(shortPath)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="worktree-divider"></div>` : '';
+
   const html = `
     <div class="worktree-modal-body">
       <div class="worktree-project-badge">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
         <span>${escapeHtml(project.name || project.path)}</span>
       </div>
-      <div class="worktree-input-wrap">
-        <span class="worktree-branch-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path stroke-linecap="round" stroke-linejoin="round" d="M6 3v12m0 0a3 3 0 100 6 3 3 0 000-6zm12-6a3 3 0 100-6 3 3 0 000 6zm0 0c0 4.5-1.5 6-6 6"/></svg>
-        </span>
-        <input type="text" id="worktree-branch-input" class="worktree-input"
-          placeholder="${t('projects.worktreeBranchPlaceholder')}"
-          autocomplete="off" spellcheck="false">
+      ${existingHtml}
+      <div class="worktree-section">
+        ${existingWorktrees.length > 0 ? `<p class="worktree-section-label">${escapeHtml(t('projects.worktreeCreateNew'))}</p>` : ''}
+        <div class="worktree-input-wrap">
+          <span class="worktree-branch-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path stroke-linecap="round" stroke-linejoin="round" d="M6 3v12m0 0a3 3 0 100 6 3 3 0 000-6zm12-6a3 3 0 100-6 3 3 0 000 6zm0 0c0 4.5-1.5 6-6 6"/></svg>
+          </span>
+          <input type="text" id="worktree-branch-input" class="worktree-input"
+            placeholder="${t('projects.worktreeBranchPlaceholder')}"
+            autocomplete="off" spellcheck="false">
+        </div>
+        <p class="worktree-hint">${t('projects.worktreeBranchLabel')}</p>
       </div>
-      <p class="worktree-hint">${t('projects.worktreeBranchLabel')}</p>
     </div>
     <div class="worktree-modal-footer">
       <button class="worktree-btn-cancel" onclick="closeModal()">
@@ -909,6 +940,20 @@ function openNewWorktreeModal(project) {
     </div>`;
 
   showModal(t('projects.newWorktree'), html);
+
+  // Wire existing worktree buttons
+  document.querySelectorAll('.worktree-existing-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wtPath = btn.dataset.wtPath;
+      const wtBranch = btn.dataset.wtBranch;
+      closeModal();
+      TerminalManager.createTerminal(project, {
+        skipPermissions: settingsState.get().skipPermissions,
+        cwd: wtPath,
+        name: wtBranch
+      });
+    });
+  });
 
   const input = document.getElementById('worktree-branch-input');
   const createBtn = document.getElementById('worktree-create-btn');
@@ -938,16 +983,19 @@ function openNewWorktreeModal(project) {
     if (!result.success) {
       createBtn.disabled = false;
       createBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>${t('projects.worktreeCreate')}`;
-      showToast(t('projects.worktreeError', { error: result.error }), 'error');
+      showToast({ type: 'error', title: t('projects.worktreeError', { error: result.error }) });
       return;
     }
 
     closeModal();
-    showToast(t('projects.worktreeSuccess', { branch: branchName }), 'success');
+    showToast({ type: 'success', title: t('projects.worktreeSuccess', { branch: branchName }) });
 
-    // Open terminal/chat on the worktree path
-    const worktreeProject = { ...project, path: worktreePath, name: `${project.name || projectBase} (${safeBranch})` };
-    createTerminalForProject(worktreeProject);
+    // Open a tab in the same project, with the worktree path as cwd
+    TerminalManager.createTerminal(project, {
+      skipPermissions: settingsState.get().skipPermissions,
+      cwd: worktreePath,
+      name: safeBranch
+    });
   }
 
   createBtn.addEventListener('click', doCreate);
@@ -2894,6 +2942,43 @@ api.quickPicker.onOpenProject((project) => {
   }
 });
 
+// Remote Control: ouvrir un tab chat depuis mobile
+api.remote.onOpenChatTab(({ cwd, prompt, images, model, effort }) => {
+  const projects = projectsState.get().projects;
+  const project = projects.find(p => cwd && cwd.replace(/\\/g, '/').startsWith(p.path.replace(/\\/g, '/')));
+  if (!project) return;
+  const projectIndex = getProjectIndex(project.id);
+  setSelectedProjectFilter(projectIndex);
+  ProjectList.render();
+  TerminalManager.createTerminal(project, {
+    mode: 'chat',
+    skipPermissions: settingsState.get().skipPermissions,
+    cwd,
+    initialPrompt: prompt,
+    initialImages: Array.isArray(images) && images.length ? images : null,
+    initialModel: model || null,
+    initialEffort: effort || null,
+    onSessionStart: (sessionId) => {
+      api.remote.notifySessionCreated({ sessionId, projectId: project.id, tabName: project.name });
+    },
+  });
+});
+
+// Remote Control: push live time tracking data
+(function _startRemoteTimePush() {
+  function pushTime() {
+    try {
+      const { today } = getGlobalTimes();
+      console.log('[Remote] pushTime → todayMs:', today);
+      api.remote.pushTimeData({ todayMs: today });
+    } catch (e) { console.error('[Remote] pushTime error:', e); }
+  }
+  // Push immédiat quand le serveur le demande (nouveau client connecté)
+  api.remote.onRequestTimePush(pushTime);
+  // Push périodique toutes les 30s pour les clients déjà connectés
+  setInterval(pushTime, 30000);
+})();
+
 api.tray.onOpenTerminal(() => {
   const selectedFilter = projectsState.get().selectedProjectFilter;
   const projects = projectsState.get().projects;
@@ -3541,13 +3626,13 @@ if (timeElements.container) {
 // ========== TIME TRACKING SAVE ON QUIT ==========
 // Listen for app quit to save active time tracking sessions
 api.lifecycle.onWillQuit(() => {
-  const { saveAllActiveSessions } = require('./src/renderer');
-  saveAllActiveSessions();
+  const { saveAndShutdown } = require('./src/renderer');
+  saveAndShutdown();
 });
 
 // Backup cleanup on window unload (in case onWillQuit doesn't fire)
 window.addEventListener('beforeunload', () => {
-  const { saveAllActiveSessions } = require('./src/renderer');
-  saveAllActiveSessions();
+  const { saveAndShutdown } = require('./src/renderer');
+  saveAndShutdown();
 });
 

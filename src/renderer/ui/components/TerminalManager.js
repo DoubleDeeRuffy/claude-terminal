@@ -28,12 +28,8 @@ const {
   setResourceShortcut,
   findResourceByShortcut,
   getSetting,
-  startTracking,
-  stopTracking,
-  recordActivity,
-  recordOutputActivity,
-  switchProject,
-  hasTerminalsForProject
+  heartbeat,
+  stopProject
 } = require('../../state');
 const { escapeHtml, getFileIcon, highlight } = require('../../utils');
 const { t, getCurrentLanguage } = require('../../i18n');
@@ -448,23 +444,6 @@ function extractTerminalContext(terminal) {
   return { type: 'done', text: null };
 }
 
-// ── Throttled recordActivity (max 1 call/sec per project) ──
-const activityThrottles = new Map();
-function throttledRecordActivity(projectId) {
-  if (!projectId || activityThrottles.has(projectId)) return;
-  recordActivity(projectId);
-  activityThrottles.set(projectId, true);
-  setTimeout(() => activityThrottles.delete(projectId), 1000);
-}
-
-// ── Throttled recordOutputActivity (max 1 call/5sec per project) ──
-const outputActivityThrottles = new Map();
-function throttledRecordOutputActivity(projectId) {
-  if (!projectId || outputActivityThrottles.has(projectId)) return;
-  recordOutputActivity(projectId);
-  outputActivityThrottles.set(projectId, true);
-  setTimeout(() => outputActivityThrottles.delete(projectId), 5000);
-}
 
 /**
  * Setup paste handler to prevent double-paste issue
@@ -473,6 +452,48 @@ function throttledRecordOutputActivity(projectId) {
  * @param {string|number} terminalId - Terminal ID for IPC
  * @param {string} inputChannel - IPC channel for input
  */
+/**
+ * Setup DOM-level clipboard shortcuts (capture phase, before xterm intercepts)
+ * xterm.js 6.x handles Ctrl+Shift+V internally but fails in Electron — we must intercept first.
+ */
+function setupClipboardShortcuts(wrapper, terminal, terminalId, inputChannel = 'terminal-input') {
+  wrapper.addEventListener('keydown', (e) => {
+    if (!e.ctrlKey || !e.shiftKey) return;
+    // Don't intercept if focus is on a textarea/input — let native paste work
+    const tag = document.activeElement?.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+
+    const sendPaste = (text) => {
+      if (!text) return;
+      if (inputChannel === 'fivem-input') {
+        api.fivem.input({ projectIndex: terminalId, data: text });
+      } else if (inputChannel === 'webapp-input') {
+        api.webapp.input({ projectIndex: terminalId, data: text });
+      } else {
+        api.terminal.input({ id: terminalId, data: text });
+      }
+    };
+
+    if (e.key === 'V') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const now = Date.now();
+      if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
+      lastPasteTime = now;
+      navigator.clipboard.readText()
+        .then(sendPaste)
+        .catch(() => api.app.clipboardRead().then(sendPaste));
+    } else if (e.key === 'C') {
+      const selection = terminal.getSelection();
+      if (selection) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+      }
+    }
+  }, true); // capture phase — runs before xterm
+}
+
 function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input') {
   wrapper.addEventListener('paste', (e) => {
     e.preventDefault();
@@ -482,17 +503,19 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
       return;
     }
     lastPasteTime = now;
-    navigator.clipboard.readText().then(text => {
-      if (text) {
-        if (inputChannel === 'fivem-input') {
-          api.fivem.input({ projectIndex: terminalId, data: text });
-        } else if (inputChannel === 'webapp-input') {
-          api.webapp.input({ projectIndex: terminalId, data: text });
-        } else {
-          api.terminal.input({ id: terminalId, data: text });
-        }
+    const sendPaste = (text) => {
+      if (!text) return;
+      if (inputChannel === 'fivem-input') {
+        api.fivem.input({ projectIndex: terminalId, data: text });
+      } else if (inputChannel === 'webapp-input') {
+        api.webapp.input({ projectIndex: terminalId, data: text });
+      } else {
+        api.terminal.input({ id: terminalId, data: text });
       }
-    });
+    };
+    navigator.clipboard.readText()
+      .then(sendPaste)
+      .catch(() => api.app.clipboardRead().then(sendPaste));
   }, true);
 }
 
@@ -558,7 +581,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
     if (e.ctrlKey && e.shiftKey && e.key === 'C' && e.type === 'keydown') {
       const selection = terminal.getSelection();
       if (selection) {
-        navigator.clipboard.writeText(selection);
+        navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
       }
       return false;
     }
@@ -569,17 +592,19 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
         return false;
       }
       lastPasteTime = now;
-      navigator.clipboard.readText().then(text => {
-        if (text) {
-          if (inputChannel === 'fivem-input') {
-            api.fivem.input({ projectIndex: terminalId, data: text });
-          } else if (inputChannel === 'webapp-input') {
-            api.webapp.input({ projectIndex: terminalId, data: text });
-          } else {
-            api.terminal.input({ id: terminalId, data: text });
-          }
+      const sendPaste = (text) => {
+        if (!text) return;
+        if (inputChannel === 'fivem-input') {
+          api.fivem.input({ projectIndex: terminalId, data: text });
+        } else if (inputChannel === 'webapp-input') {
+          api.webapp.input({ projectIndex: terminalId, data: text });
+        } else {
+          api.terminal.input({ id: terminalId, data: text });
         }
-      });
+      };
+      navigator.clipboard.readText()
+        .then(sendPaste)
+        .catch(() => api.app.clipboardRead().then(sendPaste));
       return false;
     }
 
@@ -916,9 +941,19 @@ function setActiveTerminal(id) {
   const prevTermData = prevActiveId ? getTerminal(prevActiveId) : null;
   const prevProjectId = prevTermData?.project?.id;
 
+  // Blur previous terminal so its hidden xterm textarea doesn't capture cursor/input
+  if (prevTermData && prevTermData.terminal && prevActiveId !== id) {
+    try { prevTermData.terminal.blur(); } catch (e) {}
+  }
+
   setActiveTerminalState(id);
   document.querySelectorAll('.terminal-tab').forEach(t => t.classList.toggle('active', t.dataset.id == id));
-  document.querySelectorAll('.terminal-wrapper').forEach(w => w.classList.toggle('active', w.dataset.id == id));
+  document.querySelectorAll('.terminal-wrapper').forEach(w => {
+    const isActive = w.dataset.id == id;
+    w.classList.toggle('active', isActive);
+    // Always clear inline display so CSS rules control visibility via .active class
+    w.style.removeProperty('display');
+  });
   const termData = getTerminal(id);
   if (termData) {
     if (termData.mode === 'chat') {
@@ -934,7 +969,7 @@ function setActiveTerminal(id) {
     // Handle project switch for time tracking
     const newProjectId = termData.project?.id;
     if (prevProjectId !== newProjectId) {
-      switchProject(prevProjectId, newProjectId);
+      if (newProjectId) heartbeat(newProjectId, 'terminal');
     }
   }
 }
@@ -1000,6 +1035,7 @@ function closeTerminal(id) {
   terminalSubstatus.delete(id);
   lastTerminalData.delete(id);
   terminalContext.delete(id);
+  errorOverlays.delete(closedProjectIndex);
 
   // Kill and cleanup
   if (termData && termData.mode === 'chat') {
@@ -1032,7 +1068,7 @@ function closeTerminal(id) {
 
   // Stop time tracking if no more terminals for this project
   if (!sameProjectTerminalId && closedProjectId) {
-    stopTracking(closedProjectId);
+    stopProject(closedProjectId);
   }
 
   if (sameProjectTerminalId) {
@@ -1057,18 +1093,19 @@ function closeTerminal(id) {
  * Create a new terminal for a project
  */
 async function createTerminal(project, options = {}) {
-  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null } = options;
+  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null } = options;
 
   // Determine mode: explicit > setting > default
   const mode = explicitMode || (runClaude ? (getSetting('defaultTerminalMode') || 'terminal') : 'terminal');
 
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
-    return createChatTerminal(project, { skipPermissions, name: customName });
+    const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
+    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
   }
 
   const result = await api.terminal.create({
-    cwd: project.path,
+    cwd: overrideCwd || project.path,
     runClaude,
     skipPermissions
   });
@@ -1113,13 +1150,15 @@ async function createTerminal(project, options = {}) {
     status: initialStatus,
     inputBuffer: '',
     isBasic: isBasicTerminal,
-    mode: 'terminal'
+    mode: 'terminal',
+    ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
+    ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
 
   addTerminal(id, termData);
 
   // Start time tracking for this project
-  startTracking(project.id);
+  heartbeat(project.id, 'terminal');
 
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
@@ -1177,16 +1216,34 @@ async function createTerminal(project, options = {}) {
 
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
+  setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
 
-  // Title change handling (adaptive debounce + tool/task detection)
+  // Title change handling (adaptive debounce + tool/task detection + pending prompt)
   let lastTitle = '';
+  let promptSent = false;
   terminal.onTitleChange(title => {
     if (title === lastTitle) return;
     lastTitle = title;
-    handleClaudeTitleChange(id, title);
+    handleClaudeTitleChange(id, title, initialPrompt ? {
+      onPendingPrompt: () => {
+        const td = getTerminal(id);
+        if (td && td.pendingPrompt && !promptSent) {
+          promptSent = true;
+          setTimeout(() => {
+            api.terminal.input({ id, data: td.pendingPrompt + '\r' });
+            updateTerminal(id, { pendingPrompt: null });
+            postEnterExtended.add(id);
+            cancelScheduledReady(id);
+            updateTerminalStatus(id, 'working');
+          }, 500);
+          return true;
+        }
+        return false;
+      }
+    } : undefined);
   });
 
   // IPC data handling via centralized dispatcher
@@ -1195,7 +1252,7 @@ async function createTerminal(project, options = {}) {
       terminal.write(data.data);
       resetOutputSilenceTimer(id);
       const td = getTerminal(id);
-      if (td?.project?.id) throttledRecordOutputActivity(td.project.id);
+      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     },
     () => closeTerminal(id)
   );
@@ -1211,7 +1268,7 @@ async function createTerminal(project, options = {}) {
     api.terminal.input({ id, data });
     // Record activity for time tracking (resets idle timer)
     const td = getTerminal(id);
-    if (td?.project?.id) throttledRecordActivity(td.project.id);
+    if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
       cancelScheduledReady(id);
       updateTerminalStatus(id, 'working');
@@ -1285,7 +1342,18 @@ function getTypePanelDeps(consoleId, projectIndex) {
     api,
     t,
     consoleId,
+    createTerminal,
+    setActiveTerminal,
     createTerminalWithPrompt,
+    findChatTab: (projectPath, namePrefix) => {
+      const terminals = terminalsState.get().terminals;
+      for (const [id, td] of terminals) {
+        if (td.mode === 'chat' && td.chatView && td.project?.path === projectPath && td.name?.startsWith(namePrefix)) {
+          return { id, termData: td };
+        }
+      }
+      return null;
+    },
     buildDebugPrompt: (error) => {
       try {
         return require('../../../project-types/fivem/renderer/FivemConsoleManager').buildDebugPrompt(error, t);
@@ -1382,7 +1450,7 @@ function createTypeConsole(project, projectIndex) {
   if (typeId === 'webapp') webappConsoleIds.set(projectIndex, id);
   if (typeId === 'api') apiConsoleIds.set(projectIndex, id);
 
-  startTracking(project.id);
+  heartbeat(project.id, 'terminal');
 
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
@@ -1423,6 +1491,7 @@ function createTypeConsole(project, projectIndex) {
 
   // Prevent double-paste issue
   setupPasteHandler(consoleView, projectIndex, `${typeId}-input`);
+  setupClipboardShortcuts(consoleView, terminal, projectIndex, `${typeId}-input`);
 
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
@@ -1812,10 +1881,20 @@ function filterByProject(projectIndex) {
     // O(1) lookup instead of O(n) querySelector
     const tab = tabsById.get(String(id));
     const wrapper = wrappersById.get(String(id));
-    const shouldShow = projectIndex === null || (project && termData.project && termData.project.path === project.path);
+    const shouldShow = projectIndex === null || (project && termData.project && (
+      termData.project.path === project.path ||
+      (termData.parentProjectId && termData.parentProjectId === project.id)
+    ));
 
     if (tab) tab.style.display = shouldShow ? '' : 'none';
-    if (wrapper) wrapper.style.display = shouldShow ? '' : 'none';
+    if (wrapper) {
+      if (shouldShow) {
+        // Remove inline display so CSS .terminal-wrapper/.active rules control visibility
+        wrapper.style.removeProperty('display');
+      } else {
+        wrapper.style.display = 'none';
+      }
+    }
     if (shouldShow) {
       visibleCount++;
       if (!firstVisibleId) firstVisibleId = id;
@@ -1866,7 +1945,7 @@ function countTerminalsForProject(projectIndex) {
   let count = 0;
   const terminals = terminalsState.get().terminals;
   terminals.forEach(termData => {
-    if (termData.project && termData.project.path === project.path) count++;
+    if (termData.project && (termData.project.path === project.path || (termData.parentProjectId && termData.parentProjectId === project.id))) count++;
   });
   return count;
 }
@@ -1883,7 +1962,7 @@ function getTerminalStatsForProject(projectIndex) {
   let working = 0;
   const terminals = terminalsState.get().terminals;
   terminals.forEach(termData => {
-    if (termData.project && termData.project.path === project.path && termData.type !== 'fivem' && termData.type !== 'file' && !termData.isBasic) {
+    if (termData.project && (termData.project.path === project.path || (termData.parentProjectId && termData.parentProjectId === project.id)) && termData.type !== 'fivem' && termData.type !== 'webapp' && termData.type !== 'file' && !termData.isBasic) {
       total++;
       if (termData.status === 'working') working++;
     }
@@ -2523,7 +2602,7 @@ async function resumeSession(project, sessionId, options = {}) {
   addTerminal(id, termData);
 
   // Start time tracking for this project
-  startTracking(project.id);
+  heartbeat(project.id, 'terminal');
 
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
@@ -2552,6 +2631,7 @@ async function resumeSession(project, sessionId, options = {}) {
 
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
+  setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -2570,7 +2650,7 @@ async function resumeSession(project, sessionId, options = {}) {
       terminal.write(data.data);
       resetOutputSilenceTimer(id);
       const td = getTerminal(id);
-      if (td?.project?.id) throttledRecordOutputActivity(td.project.id);
+      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     },
     () => closeTerminal(id)
   );
@@ -2586,7 +2666,7 @@ async function resumeSession(project, sessionId, options = {}) {
     api.terminal.input({ id, data });
     // Record activity for time tracking (resets idle timer)
     const td = getTerminal(id);
-    if (td?.project?.id) throttledRecordActivity(td.project.id);
+    if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
       cancelScheduledReady(id);
       updateTerminalStatus(id, 'working');
@@ -2708,6 +2788,7 @@ async function createTerminalWithPrompt(project, prompt) {
 
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
+  setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3028,10 +3109,11 @@ function focusPrevTerminal() {
  * Create a chat-mode terminal (Claude Agent SDK UI)
  */
 async function createChatTerminal(project, options = {}) {
-  const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null } = options;
+  const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, parentProjectId = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null } = options;
 
   const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const projectIndex = getProjectIndex(project.id);
+  let _chatSessionId = null;
+  const projectIndex = getProjectIndex(parentProjectId || project.id);
   const tabName = customName || project.name;
 
   const termData = {
@@ -3044,11 +3126,12 @@ async function createChatTerminal(project, options = {}) {
     inputBuffer: '',
     isBasic: false,
     mode: 'chat',
-    chatView: null
+    chatView: null,
+    ...(parentProjectId ? { parentProjectId } : {})
   };
 
   addTerminal(id, termData);
-  startTracking(project.id);
+  heartbeat(parentProjectId || project.id, 'terminal');
 
   // Create tab
   const tabsContainer = document.getElementById('terminals-tabs');
@@ -3082,11 +3165,23 @@ async function createChatTerminal(project, options = {}) {
     resumeSessionId,
     forkSession,
     resumeSessionAt,
+    initialPrompt,
+    initialImages,
+    initialModel,
+    initialEffort,
+    onSessionStart: (sid) => {
+      _chatSessionId = sid;
+      if (onSessionStart) onSessionStart(sid);
+    },
     onTabRename: (name) => {
       const nameEl = tab.querySelector('.tab-name');
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
+      // Notify remote PWA of tab rename
+      if (_chatSessionId && api.remote?.notifyTabRenamed) {
+        api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
+      }
     },
     onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
     onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),
@@ -3248,9 +3343,10 @@ async function switchTerminalMode(id) {
 
     setTimeout(() => fitAddon.fit(), 100);
 
-    // Setup paste handler and key handler
-    setupPasteHandler(wrapper, id, 'terminal-input');
-    terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
+    // Setup paste handler and key handler (use ptyId for PTY input routing)
+    setupPasteHandler(wrapper, ptyId, 'terminal-input');
+    setupClipboardShortcuts(wrapper, terminal, ptyId, 'terminal-input');
+    terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, ptyId, 'terminal-input'));
 
     // Title change
     let lastTitle = '';
@@ -3266,7 +3362,7 @@ async function switchTerminalMode(id) {
         terminal.write(data.data);
         resetOutputSilenceTimer(id);
         const td = getTerminal(id);
-        if (td?.project?.id) throttledRecordOutputActivity(td.project.id);
+        if (td?.project?.id) heartbeat(td.project.id, 'terminal');
       },
       () => closeTerminal(id)
     );
@@ -3279,7 +3375,7 @@ async function switchTerminalMode(id) {
     terminal.onData(data => {
       api.terminal.input({ id: ptyId, data });
       const td = getTerminal(id);
-      if (td?.project?.id) throttledRecordActivity(td.project.id);
+      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
       if (data === '\r' || data === '\n') {
         cancelScheduledReady(id);
         updateTerminalStatus(id, 'working');
@@ -3308,6 +3404,24 @@ async function switchTerminalMode(id) {
 
   // Update tab status
   tab.className = tab.className.replace(/status-\w+/, `status-${getTerminal(id)?.status || 'ready'}`);
+}
+
+/**
+ * Clean up all Maps entries for a given project index.
+ * Should be called when a project is deleted to prevent memory leaks.
+ * @param {number} projectIndex
+ */
+function cleanupProjectMaps(projectIndex) {
+  fivemConsoleIds.delete(projectIndex);
+  webappConsoleIds.delete(projectIndex);
+  apiConsoleIds.delete(projectIndex);
+  errorOverlays.delete(projectIndex);
+  // Clean type console ids (keyed by "${typeId}-${projectIndex}")
+  for (const key of typeConsoleIds.keys()) {
+    if (key.endsWith(`-${projectIndex}`)) {
+      typeConsoleIds.delete(key);
+    }
+  }
 }
 
 module.exports = {
@@ -3353,5 +3467,7 @@ module.exports = {
   // Chat mode
   switchTerminalMode,
   // Scraping callback for EventBus
-  setScrapingCallback
+  setScrapingCallback,
+  // Cleanup when a project is deleted
+  cleanupProjectMaps
 };

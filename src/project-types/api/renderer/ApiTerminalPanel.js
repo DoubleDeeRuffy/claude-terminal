@@ -120,9 +120,9 @@ function getViewSwitcherHtml() {
       </button>
     </div>
     <div class="api-view-content">
-      <div class="api-console-view"></div>
-      <div class="api-routes-view" style="display:none;"></div>
-      <div class="api-info-view" style="display:none;"></div>
+      <div class="api-console-view api-view api-view-active"></div>
+      <div class="api-routes-view api-view"></div>
+      <div class="api-info-view api-view"></div>
     </div>
   `;
 }
@@ -139,9 +139,10 @@ function setupViewSwitcher(wrapper, terminalId, projectIndex, project, deps) {
       wrapper.querySelectorAll('.api-view-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
 
-      consoleView.style.display = view === 'console' ? '' : 'none';
-      routesView.style.display = view === 'routes' ? '' : 'none';
-      infoView.style.display = view === 'info' ? '' : 'none';
+      [consoleView, routesView, infoView].forEach(v => v.classList.remove('api-view-active'));
+      if (view === 'console') consoleView.classList.add('api-view-active');
+      else if (view === 'routes') routesView.classList.add('api-view-active');
+      else if (view === 'info') infoView.classList.add('api-view-active');
 
       if (view === 'console') {
         const termData = getTerminal(terminalId);

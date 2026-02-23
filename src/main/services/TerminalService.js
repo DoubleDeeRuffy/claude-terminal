@@ -122,6 +122,7 @@ class TerminalService {
 
     // Handle exit
     ptyProcess.onExit(() => {
+      try { ptyProcess.kill(); } catch (e) {}
       this.terminals.delete(id);
       this.sendToRenderer('terminal-exit', { id });
     });
@@ -139,7 +140,7 @@ class TerminalService {
         if (skipPermissions) {
           claudeCmd += ' --dangerously-skip-permissions';
         }
-        ptyProcess.write(claudeCmd + '\r');
+        try { ptyProcess.write(claudeCmd + '\r'); } catch (e) {}
       }, 500);
     }
 
@@ -154,7 +155,11 @@ class TerminalService {
   write(id, data) {
     const term = this.terminals.get(id);
     if (term) {
-      term.write(data);
+      try {
+        term.write(data);
+      } catch (e) {
+        // PTY may have been killed — ignore write errors
+      }
     }
   }
 
@@ -167,7 +172,11 @@ class TerminalService {
   resize(id, cols, rows) {
     const term = this.terminals.get(id);
     if (term) {
-      term.resize(cols, rows);
+      try {
+        term.resize(cols, rows);
+      } catch (e) {
+        // PTY may have been killed — ignore resize errors
+      }
     }
   }
 

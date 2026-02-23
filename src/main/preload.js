@@ -220,7 +220,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     getVersion: () => ipcRenderer.invoke('get-app-version'),
     getLaunchAtStartup: () => ipcRenderer.invoke('get-launch-at-startup'),
     setLaunchAtStartup: (enabled) => ipcRenderer.invoke('set-launch-at-startup', enabled),
-    installUpdate: () => ipcRenderer.send('update-install')
+    installUpdate: () => ipcRenderer.send('update-install'),
+    clipboardRead: () => ipcRenderer.invoke('clipboard-read'),
+    clipboardWrite: (text) => ipcRenderer.invoke('clipboard-write', text)
   },
 
   // ==================== NOTIFICATIONS ====================
@@ -289,6 +291,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     interrupt: (params) => ipcRenderer.send('chat-interrupt', params),
     respondPermission: (params) => ipcRenderer.send('chat-permission-response', params),
     alwaysAllow: (params) => ipcRenderer.send('chat-always-allow', params),
+    setModel: (params) => ipcRenderer.invoke('chat-set-model', params),
+    setEffort: (params) => ipcRenderer.invoke('chat-set-effort', params),
     onMessage: createListener('chat-message'),
     onError: createListener('chat-error'),
     onDone: createListener('chat-done'),
@@ -307,6 +311,22 @@ contextBridge.exposeInMainWorld('electron_api', {
     status: () => ipcRenderer.invoke('hooks-status'),
     verify: () => ipcRenderer.invoke('hooks-verify'),
     onEvent: createListener('hook-event')
+  },
+
+  // ==================== REMOTE CONTROL ====================
+  remote: {
+    getPin: () => ipcRenderer.invoke('remote:get-pin'),
+    generatePin: () => ipcRenderer.invoke('remote:generate-pin'),
+    getServerInfo: () => ipcRenderer.invoke('remote:get-server-info'),
+    notifyProjectsUpdated: (params) => ipcRenderer.send('remote:notify-projects-updated', params),
+    notifySessionCreated: (params) => ipcRenderer.send('remote:session-created', params),
+    notifyTabRenamed: (params) => ipcRenderer.send('remote:tab-renamed', params),
+    pushTimeData: (params) => ipcRenderer.send('remote:push-time-data', params),
+    startServer: () => ipcRenderer.invoke('remote:start-server'),
+    stopServer: () => ipcRenderer.invoke('remote:stop-server'),
+    onOpenChatTab: createListener('remote:open-chat-tab'),
+    onRequestTimePush: createListener('remote:request-time-push'),
+    onUserMessage: createListener('remote:user-message'),
   },
 
   // ==================== USAGE ====================

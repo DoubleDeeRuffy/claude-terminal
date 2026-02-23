@@ -49,6 +49,28 @@ function registerChatHandlers() {
     chatService.setAlwaysAllow(sessionId);
   });
 
+  // Change model mid-session
+  ipcMain.handle('chat-set-model', async (_event, { sessionId, model }) => {
+    try {
+      await chatService.setModel(sessionId, model);
+      return { success: true };
+    } catch (err) {
+      console.error('[chat-set-model] Error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Change effort level mid-session
+  ipcMain.handle('chat-set-effort', async (_event, { sessionId, effort }) => {
+    try {
+      await chatService.setEffort(sessionId, effort);
+      return { success: true };
+    } catch (err) {
+      console.error('[chat-set-effort] Error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   // Generate a short tab name from user message (persistent haiku session)
   ipcMain.handle('chat-generate-tab-name', async (_event, { userMessage }) => {
     try {

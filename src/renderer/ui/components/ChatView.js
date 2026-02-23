@@ -6,8 +6,9 @@
 
 const api = window.electron_api;
 const { escapeHtml, highlight } = require('../../utils');
+const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
-const { recordActivity, recordOutputActivity } = require('../../state');
+const { heartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
 
 const MODEL_OPTIONS = [
@@ -16,94 +17,60 @@ const MODEL_OPTIONS = [
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Fastest for quick answers' },
 ];
 
-// ── Markdown Renderer ──
+const EFFORT_OPTIONS = [
+  { id: 'low', label: 'Low', desc: t('chat.effortLow') },
+  { id: 'medium', label: 'Medium', desc: t('chat.effortMedium') },
+  { id: 'high', label: 'High', desc: t('chat.effortHigh') },
+];
+
+// ── Markdown Renderer (using marked library) ──
+
+const { marked } = require('marked');
+
+// Configure marked with custom renderer for chat styling (single-pass, no manual regex)
+let _markedConfigured = false;
+function ensureMarkedConfig() {
+  if (_markedConfigured) return;
+  _markedConfigured = true;
+  marked.use({
+    renderer: {
+      code({ text, lang }) {
+        const decoded = (text || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+        const highlighted = lang ? highlight(decoded, lang) : escapeHtml(decoded);
+        return `<div class="chat-code-block"><div class="chat-code-header"><span class="chat-code-lang">${escapeHtml(lang || 'text')}</span><button class="chat-code-copy" title="${t('common.copy')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code>${highlighted}</code></pre></div>`;
+      },
+      codespan({ text }) {
+        return `<code class="chat-inline-code">${text}</code>`;
+      },
+      table({ header, rows }) {
+        const safeAlign = (a) => ['left', 'center', 'right'].includes(a) ? a : 'left';
+        const headerHtml = header.map(h => `<th style="text-align:${safeAlign(h.align)}">${escapeHtml(typeof h.text === 'string' ? h.text : String(h.text || ''))}</th>`).join('');
+        const rowsHtml = rows.map(row =>
+          `<tr>${row.map(cell => `<td style="text-align:${safeAlign(cell.align)}">${escapeHtml(typeof cell.text === 'string' ? cell.text : String(cell.text || ''))}</td>`).join('')}</tr>`
+        ).join('');
+        return `<div class="chat-table-wrapper"><table class="chat-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+      },
+      link({ href, text }) {
+        const raw = (href || '').trim();
+        const safePrefixes = ['https://', 'http://', '#'];
+        const isSafe = safePrefixes.some(p => raw.startsWith(p));
+        const safeHref = isSafe ? escapeHtml(raw) : '#';
+        return `<a href="${safeHref}" class="chat-link" target="_blank" rel="noopener noreferrer">${escapeHtml(typeof text === 'string' ? text : String(text || ''))}</a>`;
+      }
+    },
+    breaks: true,
+    gfm: true
+  });
+}
 
 function renderMarkdown(text) {
   if (!text) return '';
-
-  // Extract code blocks first to protect them from other transformations
-  const codeBlocks = [];
-  let processed = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    const decoded = code.trim();
-    const highlighted = lang ? highlight(decoded, lang) : escapeHtml(decoded);
-    const placeholder = `%%CODEBLOCK_${codeBlocks.length}%%`;
-    codeBlocks.push(`<div class="chat-code-block"><div class="chat-code-header"><span class="chat-code-lang">${escapeHtml(lang || 'text')}</span><button class="chat-code-copy" title="${t('common.copy')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code>${highlighted}</code></pre></div>`);
-    return placeholder;
-  });
-
-  // Extract tables before escaping
-  const tables = [];
-  processed = processed.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
-    const rows = tableBlock.trim().split('\n').filter(r => r.trim());
-    if (rows.length < 2) return tableBlock;
-
-    // Check if second row is a separator (|---|---|)
-    const sepRow = rows[1].trim();
-    if (!/^\|[\s:]*-{2,}[\s:]*(\|[\s:]*-{2,}[\s:]*)*\|$/.test(sepRow)) return tableBlock;
-
-    const parseRow = (row) => row.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
-    const headers = parseRow(rows[0]);
-    // Parse alignment from separator row
-    const sepCells = parseRow(rows[1]);
-    const aligns = sepCells.map(c => {
-      if (c.startsWith(':') && c.endsWith(':')) return 'center';
-      if (c.endsWith(':')) return 'right';
-      return 'left';
-    });
-    const bodyRows = rows.slice(2).map(parseRow);
-
-    let tableHtml = '<div class="chat-table-wrapper"><table class="chat-table"><thead><tr>';
-    headers.forEach((h, i) => {
-      tableHtml += `<th style="text-align:${aligns[i] || 'left'}">${escapeHtml(h)}</th>`;
-    });
-    tableHtml += '</tr></thead><tbody>';
-    bodyRows.forEach(row => {
-      tableHtml += '<tr>';
-      headers.forEach((_, i) => {
-        const cell = row[i] || '';
-        tableHtml += `<td style="text-align:${aligns[i] || 'left'}">${escapeHtml(cell)}</td>`;
-      });
-      tableHtml += '</tr>';
-    });
-    tableHtml += '</tbody></table></div>';
-
-    const placeholder = `%%TABLE_${tables.length}%%`;
-    tables.push(tableHtml);
-    return placeholder;
-  });
-
-  // Now escape HTML for the rest
-  let html = escapeHtml(processed);
-
-  // Inline formatting
-  html = html.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
-    const safePrefixes = ['https://', 'http://', '#', '/'];
-    const isSafe = safePrefixes.some(p => url.startsWith(p));
-    const href = isSafe ? url : '#';
-    return `<a href="${href}" class="chat-link" target="_blank">${text}</a>`;
-  });
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = html.replace(/\n/g, '<br>');
-
-  // Restore code blocks and tables
-  codeBlocks.forEach((block, i) => {
-    html = html.replace(`%%CODEBLOCK_${i}%%`, block);
-  });
-  tables.forEach((table, i) => {
-    html = html.replace(`%%TABLE_${i}%%`, table);
-  });
-
-  return `<p>${html}</p>`;
+  ensureMarkedConfig();
+  try {
+    return marked.parse(text);
+  } catch {
+    return `<p>${escapeHtml(text)}</p>`;
+  }
 }
 
 function unescapeHtml(html) {
@@ -142,7 +109,7 @@ function getToolDisplayInfo(toolName, input) {
 // ── Create Chat View ──
 
 function createChatView(wrapperEl, project, options = {}) {
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -157,7 +124,8 @@ function createChatView(wrapperEl, project, options = {}) {
   let currentAssistantMsgEl = null; // tracks the current .chat-msg-assistant wrapper for UUID tagging
   let sdkSessionId = null; // real SDK session UUID (different from our internal sessionId)
   let model = '';
-  let selectedModel = getSetting('chatModel') || MODEL_OPTIONS[0].id;
+  let selectedModel = initialModel || getSetting('chatModel') || MODEL_OPTIONS[0].id;
+  let selectedEffort = initialEffort || getSetting('effortLevel') || 'high';
   let totalCost = 0;
   let totalTokens = 0;
   const toolCards = new Map(); // content_block index -> element
@@ -214,6 +182,10 @@ function createChatView(wrapperEl, project, options = {}) {
             <span class="chat-status-text">${escapeHtml(t('chat.ready'))}</span>
           </div>
           <div class="chat-footer-right">
+            <div class="chat-effort-selector">
+              <button class="chat-effort-btn"><span class="chat-effort-label">High</span> <span class="chat-effort-arrow">&#9662;</span></button>
+              <div class="chat-effort-dropdown" style="display:none"></div>
+            </div>
             <div class="chat-model-selector">
               <button class="chat-model-btn"><span class="chat-model-label">Sonnet</span> <span class="chat-model-arrow">&#9662;</span></button>
               <div class="chat-model-dropdown" style="display:none"></div>
@@ -236,6 +208,9 @@ function createChatView(wrapperEl, project, options = {}) {
   const modelBtn = chatView.querySelector('.chat-model-btn');
   const modelLabel = chatView.querySelector('.chat-model-label');
   const modelDropdown = chatView.querySelector('.chat-model-dropdown');
+  const effortBtn = chatView.querySelector('.chat-effort-btn');
+  const effortLabel = chatView.querySelector('.chat-effort-label');
+  const effortDropdown = chatView.querySelector('.chat-effort-dropdown');
   const statusTokens = chatView.querySelector('.chat-status-tokens');
   const statusCost = chatView.querySelector('.chat-status-cost');
   const slashDropdown = chatView.querySelector('.chat-slash-dropdown');
@@ -258,12 +233,13 @@ function createChatView(wrapperEl, project, options = {}) {
   const pendingImages = []; // Array of { base64, mediaType, name, dataUrl }
   const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
   const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+  const MAX_PENDING_IMAGES = 5;
 
   // ── Model selector ──
 
   function initModelSelector() {
-    const saved = getSetting('chatModel');
-    const current = MODEL_OPTIONS.find(m => m.id === saved) || MODEL_OPTIONS[0];
+    const preferred = initialModel || getSetting('chatModel');
+    const current = MODEL_OPTIONS.find(m => m.id === preferred) || MODEL_OPTIONS[0];
     modelLabel.textContent = current.label;
     selectedModel = current.id;
   }
@@ -299,15 +275,14 @@ function createChatView(wrapperEl, project, options = {}) {
     modelLabel.textContent = option.label;
     modelDropdown.style.display = 'none';
     setSetting('chatModel', modelId);
-  }
 
-  function lockModelSelector() {
-    modelBtn.classList.add('locked');
-    modelBtn.disabled = true;
+    // If session is active, change model mid-session via SDK
+    if (sessionId) {
+      api.chat.setModel({ sessionId, model: modelId }).catch(() => {});
+    }
   }
 
   modelBtn.addEventListener('click', (e) => {
-    if (sessionId) return; // Locked once session starts
     e.stopPropagation();
     toggleModelDropdown();
   });
@@ -317,12 +292,74 @@ function createChatView(wrapperEl, project, options = {}) {
     if (opt) selectModel(opt.dataset.model);
   });
 
-  // Close dropdown on outside click
-  document.addEventListener('click', () => {
-    modelDropdown.style.display = 'none';
+  // ── Effort selector ──
+
+  function initEffortSelector() {
+    const preferred = initialEffort || getSetting('effortLevel');
+    const current = EFFORT_OPTIONS.find(e => e.id === preferred) || EFFORT_OPTIONS.find(e => e.id === 'high');
+    effortLabel.textContent = current.label;
+    selectedEffort = current.id;
+  }
+
+  function buildEffortDropdown() {
+    effortDropdown.innerHTML = EFFORT_OPTIONS.map(e => {
+      const isActive = e.id === selectedEffort;
+      return `
+      <div class="chat-effort-option${isActive ? ' active' : ''}" data-effort="${e.id}">
+        <div class="chat-effort-option-info">
+          <span class="chat-effort-option-label">${e.label}</span>
+          <span class="chat-effort-option-desc">${e.desc}</span>
+        </div>
+        ${isActive ? '<svg class="chat-effort-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  function toggleEffortDropdown() {
+    const visible = effortDropdown.style.display !== 'none';
+    if (visible) {
+      effortDropdown.style.display = 'none';
+    } else {
+      buildEffortDropdown();
+      effortDropdown.style.display = '';
+    }
+  }
+
+  function selectEffort(effortId) {
+    const option = EFFORT_OPTIONS.find(e => e.id === effortId);
+    if (!option) return;
+    selectedEffort = effortId;
+    effortLabel.textContent = option.label;
+    effortDropdown.style.display = 'none';
+    setSetting('effortLevel', effortId);
+
+    // If session is active, change effort mid-session via SDK
+    if (sessionId) {
+      api.chat.setEffort({ sessionId, effort: effortId }).catch(err => {
+        console.warn('[ChatView] setEffort failed:', err);
+      });
+    }
+  }
+
+  effortBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleEffortDropdown();
   });
 
+  effortDropdown.addEventListener('click', (e) => {
+    const opt = e.target.closest('.chat-effort-option');
+    if (opt) selectEffort(opt.dataset.effort);
+  });
+
+  // Close dropdowns on outside click
+  function _closeDropdowns() {
+    modelDropdown.style.display = 'none';
+    effortDropdown.style.display = 'none';
+  }
+  document.addEventListener('click', _closeDropdowns);
+
   initModelSelector();
+  initEffortSelector();
 
   attachBtn.addEventListener('click', () => fileInput.click());
 
@@ -335,10 +372,12 @@ function createChatView(wrapperEl, project, options = {}) {
 
   function addImageFiles(files) {
     for (const file of files) {
+      if (pendingImages.length >= MAX_PENDING_IMAGES) break;
       if (!SUPPORTED_TYPES.includes(file.type)) continue;
       if (file.size > MAX_IMAGE_SIZE) continue;
       const reader = new FileReader();
       reader.onload = () => {
+        if (pendingImages.length >= MAX_PENDING_IMAGES) return;
         const dataUrl = reader.result;
         const base64 = dataUrl.split(',')[1];
         pendingImages.push({ base64, mediaType: file.type, name: file.name, dataUrl });
@@ -675,7 +714,7 @@ function createChatView(wrapperEl, project, options = {}) {
       renderItem: (p) => {
         const pIcon = p.icon || null;
         const pColorRaw = p.color || null;
-        const pColor = pColorRaw && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(pColorRaw) ? pColorRaw : null;
+        const pColor = sanitizeColor(pColorRaw) || null;
         const iconHtml = pIcon
           ? `<span class="chat-mention-item-emoji"${pColor ? ` style="color:${pColor}"` : ''}>${escapeHtml(pIcon)}</span>`
           : `<span class="chat-mention-item-icon"${pColor ? ` style="color:${pColor}"` : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg></span>`;
@@ -942,7 +981,7 @@ function createChatView(wrapperEl, project, options = {}) {
     mentionChipsEl.style.display = 'flex';
     mentionChipsEl.innerHTML = pendingMentions.map((chip, i) => {
       const chipColorRaw = (chip.type === 'project' && chip.data?.color) ? chip.data.color : '';
-      const chipColor = chipColorRaw && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(chipColorRaw) ? chipColorRaw : '';
+      const chipColor = sanitizeColor(chipColorRaw);
       const colorStyle = chipColor ? ` style="--chip-color: ${chipColor}"` : '';
       const isProject = chip.type === 'project';
       const displayName = isProject && chip.data?.name ? chip.data.name : chip.label;
@@ -1374,6 +1413,7 @@ function createChatView(wrapperEl, project, options = {}) {
     }
   });
 
+
   // ── Send message ──
 
   let sendLock = false;
@@ -1385,7 +1425,7 @@ function createChatView(wrapperEl, project, options = {}) {
     if ((!text && !hasImages && !hasMentions) || sendLock) return;
 
     sendLock = true;
-    if (project?.id) recordActivity(project.id);
+    if (project?.id) heartbeat(project.id, 'chat');
 
     // Reset scroll detection when user sends a message
     resetScrollDetection();
@@ -1428,7 +1468,9 @@ function createChatView(wrapperEl, project, options = {}) {
         // Assign sessionId BEFORE await to prevent race condition:
         // _processStream fires events immediately, but await returns later.
         sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        lockModelSelector();
+        if (onSessionStart) onSessionStart(sessionId);
+        // Model and effort selectors stay interactive during the session
+        // Changes are applied mid-session via SDK setModel/setMaxThinkingTokens
         const startOpts = {
           cwd: project.path,
           prompt: text || '',
@@ -1437,8 +1479,10 @@ function createChatView(wrapperEl, project, options = {}) {
           images: imagesPayload,
           mentions: resolvedMentions,
           model: selectedModel,
+          effort: selectedEffort,
           enable1MContext: getSetting('enable1MContext') || false
         };
+
         if (pendingResumeId) {
           startOpts.resumeSessionId = pendingResumeId;
           if (pendingForkSession) {
@@ -1846,7 +1890,7 @@ function createChatView(wrapperEl, project, options = {}) {
     if (mentions.length > 0) {
       html += `<div class="chat-msg-mentions">${mentions.map(m => {
         const tagColorRaw = (m.type === 'project' && m.data?.color) ? m.data.color : '';
-        const tagColor = tagColorRaw && /^#[0-9a-fA-F]{3,8}$|^rgb\(|^hsl\(/.test(tagColorRaw) ? tagColorRaw : '';
+        const tagColor = sanitizeColor(tagColorRaw);
         const tagStyle = tagColor ? ` style="--chip-color: ${tagColor}"` : '';
         return `<span class="chat-msg-mention-tag${tagColor ? ' has-project-color' : ''}"${tagStyle}>${escapeHtml(m.icon)}<span>${escapeHtml(m.label)}</span></span>`;
       }).join('')}</div>`;
@@ -1935,11 +1979,17 @@ function createChatView(wrapperEl, project, options = {}) {
     return el;
   }
 
+  let _streamRafId = null;
   function appendStreamDelta(text) {
     currentStreamText += text;
-    if (currentStreamEl) {
-      currentStreamEl.innerHTML = renderMarkdown(currentStreamText) + '<span class="chat-cursor"></span>';
-      scrollToBottom();
+    if (currentStreamEl && !_streamRafId) {
+      _streamRafId = requestAnimationFrame(() => {
+        _streamRafId = null;
+        if (currentStreamEl) {
+          currentStreamEl.innerHTML = renderMarkdown(currentStreamText) + '<span class="chat-cursor"></span>';
+          scrollToBottom();
+        }
+      });
     }
   }
 
@@ -2655,16 +2705,16 @@ function createChatView(wrapperEl, project, options = {}) {
     }
   });
 
+  let _scrollRafId = null;
   function scrollToBottom() {
-    // Only auto-scroll if user hasn't manually scrolled away
     if (!userHasScrolled) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      if (!_scrollRafId) {
+        _scrollRafId = requestAnimationFrame(() => {
+          _scrollRafId = null;
           messagesEl.scrollTop = messagesEl.scrollHeight;
         });
-      });
+      }
     } else {
-      // Show scroll button with new messages indicator
       hasNewMessages = true;
       scrollButton.classList.add('has-new-messages');
       scrollButton.style.display = '';
@@ -2777,12 +2827,9 @@ function createChatView(wrapperEl, project, options = {}) {
   unsubscribers.push(unsubMessage);
 
   // Throttled output activity tracker (max 1 call/sec)
-  let outputActivityThrottled = false;
   function trackOutputActivity() {
-    if (!project?.id || outputActivityThrottled) return;
-    recordOutputActivity(project.id);
-    outputActivityThrottled = true;
-    setTimeout(() => { outputActivityThrottled = false; }, 1000);
+    if (!project?.id) return;
+    heartbeat(project.id, 'chat');
   }
 
   function handleStreamEvent(event) {
@@ -2793,6 +2840,11 @@ function createChatView(wrapperEl, project, options = {}) {
         blockIndex = 0;
         currentMsgHasToolUse = false;
         turnHadAssistantContent = false;
+        // Update model from stream (reflects mid-session model changes)
+        if (event.message?.model) {
+          model = event.message.model;
+          updateStatusInfo();
+        }
         // Clear queued badges — this message is now being processed
         for (const qEl of messagesEl.querySelectorAll('.chat-msg-user.queued')) {
           qEl.classList.remove('queued');
@@ -3124,6 +3176,25 @@ function createChatView(wrapperEl, project, options = {}) {
   });
   unsubscribers.push(unsubIdle);
 
+  // ── IPC: Remote user message (sent from mobile PWA) ──
+
+  const unsubRemoteMsg = api.remote.onUserMessage(({ sessionId: sid, text, images }) => {
+    if (sid !== sessionId) return;
+    appendUserMessage(text, images || [], [], isStreaming);
+    // Trigger tab rename for remote messages (same logic as _send)
+    if (onTabRename && text && !text.startsWith('/')) {
+      const words = text.split(/\s+/).slice(0, 5).join(' ');
+      onTabRename(words.length > 30 ? words.slice(0, 28) + '...' : words);
+      if (!tabNamePending) {
+        tabNamePending = true;
+        api.chat.generateTabName({ userMessage: text }).then(res => {
+          if (res?.success && res.name) onTabRename(res.name);
+        }).catch(() => {}).finally(() => { tabNamePending = false; });
+      }
+    }
+  });
+  unsubscribers.push(unsubRemoteMsg);
+
   // ── IPC: Permission request ──
 
   const unsubPerm = api.chat.onPermissionRequest((data) => {
@@ -3180,104 +3251,135 @@ function createChatView(wrapperEl, project, options = {}) {
       }
     }
 
-    let currentAssistantEl = null;
+    // Batch rendering: build DOM in a fragment, process in chunks to avoid blocking UI
+    const BATCH_SIZE = 20;
+    let idx = 0;
 
-    for (const msg of messages) {
-      if (msg.role === 'user') {
-        currentAssistantEl = null;
-        const el = document.createElement('div');
-        el.className = 'chat-msg chat-msg-user history';
-        el.innerHTML = `<div class="chat-msg-content">${renderMarkdown(msg.text)}</div>`;
-        messagesEl.appendChild(el);
+    function renderBatch() {
+      const fragment = document.createDocumentFragment();
+      const end = Math.min(idx + BATCH_SIZE, messages.length);
 
-      } else if (msg.role === 'assistant' && msg.type === 'text') {
-        const el = document.createElement('div');
-        el.className = 'chat-msg chat-msg-assistant history';
-        el.innerHTML = `<div class="chat-msg-content">${renderMarkdown(msg.text)}</div>`;
-        messagesEl.appendChild(el);
-        currentAssistantEl = el;
-
-      } else if (msg.role === 'assistant' && msg.type === 'thinking') {
-        const el = document.createElement('div');
-        el.className = 'chat-thinking history';
-        el.innerHTML = `
-          <div class="chat-thinking-header">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="chat-thinking-chevron"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
-            <span>${escapeHtml(t('chat.thinking'))}</span>
-          </div>
-          <div class="chat-thinking-content">${renderMarkdown(msg.text)}</div>
-        `;
-        messagesEl.appendChild(el);
-
-      } else if (msg.role === 'assistant' && msg.type === 'tool_use') {
-        // Skip TodoWrite from history — it's internal state
-        if (msg.toolName === 'TodoWrite') continue;
-
-        // Task (subagent) — render as subagent card in history
-        if (msg.toolName === 'Task') {
-          const input = msg.toolInput || {};
-          const name = input.name || input.subagent_type || 'agent';
-          const desc = input.description || '';
+      for (; idx < end; idx++) {
+        const msg = messages[idx];
+        if (msg.role === 'user') {
           const el = document.createElement('div');
-          el.className = 'chat-subagent-card completed history';
+          el.className = 'chat-msg chat-msg-user history';
+          el.innerHTML = `<div class="chat-msg-content">${renderMarkdown(msg.text)}</div>`;
+          fragment.appendChild(el);
+
+        } else if (msg.role === 'assistant' && msg.type === 'text') {
+          const el = document.createElement('div');
+          el.className = 'chat-msg chat-msg-assistant history';
+          el.innerHTML = `<div class="chat-msg-content">${renderMarkdown(msg.text)}</div>`;
+          fragment.appendChild(el);
+
+        } else if (msg.role === 'assistant' && msg.type === 'thinking') {
+          const el = document.createElement('div');
+          el.className = 'chat-thinking history';
           el.innerHTML = `
-            <div class="chat-subagent-header">
-              <div class="chat-subagent-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/>
-                  <path d="M6 21V9a9 9 0 0 0 9 9"/>
-                </svg>
-              </div>
-              <div class="chat-subagent-info">
-                <span class="chat-subagent-type">${escapeHtml(name)}</span>
-                <span class="chat-subagent-desc">${escapeHtml(desc)}</span>
-              </div>
-              <div class="chat-subagent-status complete">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-              </div>
-              <svg class="chat-subagent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            <div class="chat-thinking-header">
+              <svg viewBox="0 0 24 24" fill="currentColor" class="chat-thinking-chevron"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+              <span>${escapeHtml(t('chat.thinking'))}</span>
             </div>
-            <div class="chat-subagent-body"></div>
+            <div class="chat-thinking-content">${renderMarkdown(msg.text)}</div>
           `;
-          el.querySelector('.chat-subagent-header').addEventListener('click', () => {
-            el.classList.toggle('expanded');
-          });
-          messagesEl.appendChild(el);
-          continue;
-        }
+          fragment.appendChild(el);
 
-        const detail = getToolDisplayInfo(msg.toolName, msg.toolInput || {});
-        const el = document.createElement('div');
-        el.className = 'chat-tool-card history';
-        const truncated = detail && detail.length > 80 ? '...' + detail.slice(-77) : (detail || '');
-        el.innerHTML = `
-          <div class="chat-tool-icon">${getToolIcon(msg.toolName)}</div>
-          <div class="chat-tool-info">
-            <span class="chat-tool-name">${escapeHtml(msg.toolName)}</span>
-            <span class="chat-tool-detail">${truncated ? escapeHtml(truncated) : ''}</span>
-          </div>
-          <div class="chat-tool-status complete">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-          </div>
-        `;
+        } else if (msg.role === 'assistant' && msg.type === 'tool_use') {
+          if (msg.toolName === 'TodoWrite') continue;
 
-        // Store tool input/output for expand
-        if (msg.toolUseId) el.dataset.toolUseId = msg.toolUseId;
-        if (msg.toolInput) {
-          el.dataset.toolInput = JSON.stringify(msg.toolInput);
-          el.classList.add('expandable');
-        }
-        if (msg.toolUseId && toolResults.has(msg.toolUseId)) {
-          el.dataset.toolOutput = toolResults.get(msg.toolUseId);
-        }
+          if (msg.toolName === 'Task') {
+            const input = msg.toolInput || {};
+            const name = input.name || input.subagent_type || 'agent';
+            const desc = input.description || '';
+            const el = document.createElement('div');
+            el.className = 'chat-subagent-card completed history';
+            el.innerHTML = `
+              <div class="chat-subagent-header">
+                <div class="chat-subagent-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/>
+                    <path d="M6 21V9a9 9 0 0 0 9 9"/>
+                  </svg>
+                </div>
+                <div class="chat-subagent-info">
+                  <span class="chat-subagent-type">${escapeHtml(name)}</span>
+                  <span class="chat-subagent-desc">${escapeHtml(desc)}</span>
+                </div>
+                <div class="chat-subagent-status complete">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                </div>
+                <svg class="chat-subagent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="chat-subagent-body"></div>
+            `;
+            el.querySelector('.chat-subagent-header').addEventListener('click', () => {
+              el.classList.toggle('expanded');
+            });
+            fragment.appendChild(el);
+            continue;
+          }
 
-        messagesEl.appendChild(el);
+          const detail = getToolDisplayInfo(msg.toolName, msg.toolInput || {});
+          const el = document.createElement('div');
+          el.className = 'chat-tool-card history';
+          const truncated = detail && detail.length > 80 ? '...' + detail.slice(-77) : (detail || '');
+          el.innerHTML = `
+            <div class="chat-tool-icon">${getToolIcon(msg.toolName)}</div>
+            <div class="chat-tool-info">
+              <span class="chat-tool-name">${escapeHtml(msg.toolName)}</span>
+              <span class="chat-tool-detail">${truncated ? escapeHtml(truncated) : ''}</span>
+            </div>
+            <div class="chat-tool-status complete">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+            </div>
+          `;
+
+          if (msg.toolUseId) el.dataset.toolUseId = msg.toolUseId;
+          if (msg.toolInput) {
+            el.dataset.toolInput = JSON.stringify(msg.toolInput);
+            el.classList.add('expandable');
+          }
+          if (msg.toolUseId && toolResults.has(msg.toolUseId)) {
+            el.dataset.toolOutput = toolResults.get(msg.toolUseId);
+          }
+
+          fragment.appendChild(el);
+        }
+      }
+
+      messagesEl.appendChild(fragment);
+
+      if (idx < messages.length) {
+        // Schedule next batch during idle time
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(() => renderBatch(), { timeout: 100 });
+        } else {
+          setTimeout(renderBatch, 0);
+        }
+      } else {
+        scrollToBottom();
       }
     }
+
+    renderBatch();
   }
 
   // Focus input
-  setTimeout(() => inputEl.focus(), 100);
+  setTimeout(() => {
+    inputEl.focus();
+    // Auto-submit si un prompt initial est fourni (ex: depuis Remote Control)
+    if (initialPrompt) {
+      // Inject initial images if provided (from Remote Control camera)
+      if (initialImages && initialImages.length) {
+        for (const img of initialImages) {
+          pendingImages.push({ base64: img.base64, mediaType: img.mediaType, name: 'remote-image', dataUrl: '' });
+        }
+      }
+      inputEl.value = initialPrompt;
+      handleSend();
+    }
+  }, 100);
 
   // ── Public API ──
 
@@ -3287,6 +3389,19 @@ function createChatView(wrapperEl, project, options = {}) {
       for (const unsub of unsubscribers) {
         if (typeof unsub === 'function') unsub();
       }
+      // Cancel pending RAF timers
+      if (_streamRafId) { cancelAnimationFrame(_streamRafId); _streamRafId = null; }
+      if (_scrollRafId) { cancelAnimationFrame(_scrollRafId); _scrollRafId = null; }
+      // Clean up Maps and Sets to free memory
+      toolCards.clear();
+      toolInputBuffers.clear();
+      todoToolIndices.clear();
+      taskToolIndices.clear();
+      // Clean up image data
+      pendingImages.length = 0;
+      lightboxImages.length = 0;
+      // Remove global listeners
+      document.removeEventListener('click', _closeDropdowns);
       document.removeEventListener('keydown', lightboxKeyHandler);
       if (lightboxEl?.parentNode) lightboxEl.parentNode.removeChild(lightboxEl);
       lightboxEl = null;
@@ -3297,6 +3412,16 @@ function createChatView(wrapperEl, project, options = {}) {
     },
     focus() {
       inputEl?.focus();
+    },
+    sendMessage(text, images = [], mentions = []) {
+      for (const img of images) {
+        pendingImages.push({ base64: img.base64, mediaType: img.mediaType, name: img.name || 'visual', dataUrl: '' });
+      }
+      for (const m of mentions) {
+        pendingMentions.push(m);
+      }
+      inputEl.value = text;
+      handleSend();
     }
   };
 }

@@ -7,7 +7,7 @@ const https = require('https');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 const homeDir = os.homedir();
 const skillsDir = path.join(homeDir, '.claude', 'skills');
@@ -235,10 +235,15 @@ async function getSkillReadme(source, skillId) {
  */
 function gitCloneTemp(repoUrl) {
   return new Promise((resolve, reject) => {
+    // Validate repo URL to prevent command injection
+    if (typeof repoUrl !== 'string' || !/^https?:\/\/[^\s"';&|`$()]+$/.test(repoUrl)) {
+      return reject(new Error('Invalid repository URL'));
+    }
     const tmpDir = path.join(os.tmpdir(), `claude-marketplace-${Date.now()}`);
-    // Use --depth 1 for faster clone
-    exec(
-      `git clone --depth 1 "${repoUrl}" "${tmpDir}"`,
+    // Use execFile with args array to prevent shell injection
+    execFile(
+      'git',
+      ['clone', '--depth', '1', repoUrl, tmpDir],
       { timeout: 120000, maxBuffer: 1024 * 1024 * 10 },
       (error) => {
         if (error) {
@@ -252,18 +257,18 @@ function gitCloneTemp(repoUrl) {
 }
 
 /**
- * Recursively copy a directory
+ * Recursively copy a directory (async to avoid blocking the main thread)
  */
-function copyDirSync(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
+async function copyDirAsync(src, dest) {
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDirSync(srcPath, destPath);
+      await copyDirAsync(srcPath, destPath);
     } else {
-      fs.copyFileSync(srcPath, destPath);
+      await fs.promises.copyFile(srcPath, destPath);
     }
   }
 }
@@ -341,7 +346,7 @@ async function installSkill({ source, skillId, name, installs }) {
       fs.rmSync(destDir, { recursive: true, force: true });
     }
     fs.mkdirSync(destDir, { recursive: true });
-    copyDirSync(skillSourceDir, destDir);
+    await copyDirAsync(skillSourceDir, destDir);
 
     // Remove .git if we copied the whole repo
     const gitDir = path.join(destDir, '.git');

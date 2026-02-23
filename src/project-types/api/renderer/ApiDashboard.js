@@ -21,13 +21,15 @@ function getDashboardStats(ctx) {
 
   if (status === 'stopped') return '';
 
-  const statusLabel = status === 'running'
-    ? (server.port ? `<span class="api-url-link">localhost:${server.port}</span>` : t('api.running'))
+  const safePort = server.port ? parseInt(server.port, 10) : null;
+  const safeStatus = ['running', 'starting', 'stopped'].includes(status) ? status : 'stopped';
+  const statusLabel = safeStatus === 'running'
+    ? (safePort ? `<span class="api-url-link">localhost:${safePort}</span>` : t('api.running'))
     : t('api.starting');
 
   return `
     <div class="dashboard-quick-stat api-stat">
-      <span class="api-status-dot ${status}"></span>
+      <span class="api-status-dot ${safeStatus}"></span>
       <span>${t('api.server')}: ${statusLabel}</span>
     </div>
   `;

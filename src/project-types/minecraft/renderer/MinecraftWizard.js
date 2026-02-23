@@ -43,75 +43,73 @@ function getWizardFields() {
         </div>
       </div>
 
-      <div class="wizard-field">
-        <label class="wizard-label">${t('minecraft.wizard.jvmMemory')}</label>
-        <input type="text" id="inp-minecraft-memory" placeholder="2G" value="2G" class="wizard-input" style="max-width: 120px;">
-        <span class="wizard-hint">${t('minecraft.wizard.jvmMemoryHint')}</span>
+      <div class="wizard-inline-fields">
+        <div class="wizard-field wizard-field-inline">
+          <label class="wizard-label">${t('minecraft.wizard.jvmMemory')}</label>
+          <input type="text" id="inp-minecraft-memory" placeholder="2G" value="2G" class="wizard-input">
+          <span class="wizard-hint">${t('minecraft.wizard.jvmMemoryHint')}</span>
+        </div>
+        <div class="wizard-field wizard-field-inline">
+          <label class="wizard-label">${t('minecraft.wizard.serverPort')}</label>
+          <input type="number" id="inp-minecraft-port" placeholder="25565" value="25565" class="wizard-input">
+        </div>
       </div>
 
-      <div class="wizard-field">
-        <label class="wizard-label">${t('minecraft.wizard.serverPort')}</label>
-        <input type="number" id="inp-minecraft-port" placeholder="25565" value="25565" class="wizard-input" style="max-width: 120px;">
-      </div>
-
-      <div class="wizard-section-separator" style="border-top: 1px solid var(--border-color); margin: 12px 0;"></div>
-
-      <div class="wizard-field">
-        <label class="wizard-checkbox">
-          <input type="checkbox" id="chk-minecraft-plugin">
-          <span class="wizard-checkbox-mark"></span>
+      <div class="wizard-collapsible" id="minecraft-plugin-section">
+        <button type="button" class="wizard-collapsible-toggle" id="btn-toggle-plugin">
+          <svg class="wizard-collapsible-chevron" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
           <span>${t('minecraft.plugin.createPlugin')}</span>
-        </label>
-      </div>
-
-      <div id="minecraft-plugin-fields" style="display: none;">
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.provider')}</label>
-          <select id="sel-plugin-provider" class="wizard-select">
-            <option value="paper">Paper</option>
-            <option value="spigot">Spigot</option>
-            <option value="bukkit">Bukkit</option>
-          </select>
-        </div>
-
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.apiVersion')}</label>
-          <select id="sel-plugin-version" class="wizard-select">
-            <option value="1.21.4">1.21.4</option>
-            <option value="1.21">1.21</option>
-            <option value="1.20.6">1.20.6</option>
-            <option value="1.20.4">1.20.4</option>
-            <option value="1.19.4">1.19.4</option>
-            <option value="1.18.2">1.18.2</option>
-          </select>
-        </div>
-
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.buildTool')}</label>
-          <select id="sel-plugin-build" class="wizard-select">
-            <option value="maven">${t('minecraft.plugin.maven')}</option>
-            <option value="gradle">${t('minecraft.plugin.gradle')}</option>
-          </select>
-        </div>
-
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.groupId')}</label>
-          <input type="text" id="inp-plugin-group" class="wizard-input" placeholder="com.example">
-        </div>
-
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.pluginName')}</label>
-          <input type="text" id="inp-plugin-name" class="wizard-input" placeholder="MyPlugin">
-        </div>
-
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.author')}</label>
-          <input type="text" id="inp-plugin-author" class="wizard-input" placeholder="YourName">
-        </div>
-
-        <div class="wizard-field">
-          <label class="wizard-label">${t('minecraft.plugin.description')}</label>
-          <input type="text" id="inp-plugin-desc" class="wizard-input" placeholder="A Minecraft plugin">
+          <input type="checkbox" id="chk-minecraft-plugin" style="display: none;">
+        </button>
+        <div class="wizard-collapsible-content" id="minecraft-plugin-fields">
+          <div class="wizard-inline-fields">
+            <div class="wizard-field wizard-field-inline">
+              <label class="wizard-label">${t('minecraft.plugin.provider')}</label>
+              <select id="sel-plugin-provider" class="wizard-select">
+                <option value="paper">Paper</option>
+                <option value="spigot">Spigot</option>
+                <option value="bukkit">Bukkit</option>
+              </select>
+            </div>
+            <div class="wizard-field wizard-field-inline">
+              <label class="wizard-label">${t('minecraft.plugin.apiVersion')}</label>
+              <select id="sel-plugin-version" class="wizard-select">
+                <option value="1.21.4">1.21.4</option>
+                <option value="1.21">1.21</option>
+                <option value="1.20.6">1.20.6</option>
+                <option value="1.20.4">1.20.4</option>
+                <option value="1.19.4">1.19.4</option>
+                <option value="1.18.2">1.18.2</option>
+              </select>
+            </div>
+          </div>
+          <div class="wizard-field">
+            <label class="wizard-label">${t('minecraft.plugin.buildTool')}</label>
+            <select id="sel-plugin-build" class="wizard-select">
+              <option value="maven">${t('minecraft.plugin.maven')}</option>
+              <option value="gradle">${t('minecraft.plugin.gradle')}</option>
+            </select>
+          </div>
+          <div class="wizard-inline-fields">
+            <div class="wizard-field wizard-field-inline">
+              <label class="wizard-label">${t('minecraft.plugin.groupId')}</label>
+              <input type="text" id="inp-plugin-group" class="wizard-input" placeholder="com.example">
+            </div>
+            <div class="wizard-field wizard-field-inline">
+              <label class="wizard-label">${t('minecraft.plugin.pluginName')}</label>
+              <input type="text" id="inp-plugin-name" class="wizard-input" placeholder="MyPlugin">
+            </div>
+          </div>
+          <div class="wizard-inline-fields">
+            <div class="wizard-field wizard-field-inline">
+              <label class="wizard-label">${t('minecraft.plugin.author')}</label>
+              <input type="text" id="inp-plugin-author" class="wizard-input" placeholder="YourName">
+            </div>
+            <div class="wizard-field wizard-field-inline">
+              <label class="wizard-label">${t('minecraft.plugin.description')}</label>
+              <input type="text" id="inp-plugin-desc" class="wizard-input" placeholder="A Minecraft plugin">
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -185,13 +183,15 @@ function bindWizardEvents(form, api) {
     };
   }
 
-  // Plugin checkbox toggle
+  // Plugin collapsible toggle
+  const toggleBtn = form.querySelector('#btn-toggle-plugin');
   const pluginCheckbox = form.querySelector('#chk-minecraft-plugin');
-  if (pluginCheckbox) {
-    pluginCheckbox.onchange = () => {
-      const pluginFields = form.querySelector('#minecraft-plugin-fields');
-      if (pluginFields) {
-        pluginFields.style.display = pluginCheckbox.checked ? 'block' : 'none';
+  if (toggleBtn && pluginCheckbox) {
+    toggleBtn.onclick = () => {
+      pluginCheckbox.checked = !pluginCheckbox.checked;
+      const section = form.querySelector('#minecraft-plugin-section');
+      if (section) {
+        section.classList.toggle('expanded', pluginCheckbox.checked);
       }
     };
   }

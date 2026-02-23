@@ -6,7 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const pty = require('node-pty');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 // Port detection patterns from server output
 const PORT_PATTERNS = [
@@ -84,29 +84,29 @@ class ApiService {
     const proc = this.processes.get(projectIndex);
     if (proc) {
       const pid = proc.pid;
+      this.processes.delete(projectIndex);
+      this.detectedPorts.delete(projectIndex);
+      this.outputBuffers.delete(projectIndex);
       try {
         proc.write('\x03');
         setTimeout(() => {
-          if (this.processes.has(projectIndex)) {
-            this._forceKill(pid);
-            this.processes.delete(projectIndex);
-          }
+          this._forceKill(pid);
         }, 3000);
       } catch (e) {
         this._forceKill(pid);
-        this.processes.delete(projectIndex);
       }
+    } else {
+      this.detectedPorts.delete(projectIndex);
+      this.outputBuffers.delete(projectIndex);
     }
-    this.detectedPorts.delete(projectIndex);
-    this.outputBuffers.delete(projectIndex);
     return { success: true };
   }
 
   _forceKill(pid) {
-    if (!pid) return;
+    if (!pid || !Number.isInteger(pid) || pid <= 0) return;
     try {
       if (process.platform === 'win32') {
-        exec(`taskkill /F /T /PID ${pid}`, () => {});
+        execFile('taskkill', ['/F', '/T', '/PID', String(pid)], () => {});
       } else {
         process.kill(-pid, 'SIGKILL');
       }
@@ -132,7 +132,10 @@ class ApiService {
     if (this.detectedPorts.has(projectIndex)) return;
 
     let buffer = (this.outputBuffers.get(projectIndex) || '') + data;
-    const clean = buffer.replace(/\x1b[\[\]()#;?]*[0-9;]*[a-zA-Z@]/g, '');
+    const clean = buffer
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC sequences
+      .replace(/\x1b[@-Z\\-_]|\x1b\[[0-9;]*[A-Za-z]/g, '') // CSI / Fe sequences
+      .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g, '');  // other control chars
 
     if (buffer.length > 2048) buffer = buffer.slice(-2048);
     this.outputBuffers.set(projectIndex, buffer);
@@ -140,8 +143,8 @@ class ApiService {
     for (const pattern of PORT_PATTERNS) {
       const match = clean.match(pattern);
       if (match) {
-        const port = parseInt(match[1]);
-        if (port > 0 && port < 65536) {
+        const port = parseInt(match[1], 10);
+        if (!isNaN(port) && port > 0 && port < 65536) {
           this.detectedPorts.set(projectIndex, port);
           this.outputBuffers.delete(projectIndex);
           if (this.mainWindow && !this.mainWindow.isDestroyed()) {

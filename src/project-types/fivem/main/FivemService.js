@@ -5,7 +5,7 @@
 
 const path = require('path');
 const pty = require('node-pty');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 class FivemService {
   constructor() {
@@ -105,6 +105,7 @@ class FivemService {
 
     // Handle exit
     ptyProcess.onExit(({ exitCode }) => {
+      ptyProcess.kill();
       this.processes.delete(projectIndex);
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('fivem-exit', { projectIndex, code: exitCode });
@@ -124,21 +125,18 @@ class FivemService {
     const proc = this.processes.get(projectIndex);
     if (proc) {
       const pid = proc.pid;
+      this.processes.delete(projectIndex);
       try {
         // Send quit command first for graceful shutdown
         proc.write('quit\r');
 
         // Force kill after timeout if still running
         setTimeout(() => {
-          if (this.processes.has(projectIndex)) {
-            this._forceKill(pid);
-            this.processes.delete(projectIndex);
-          }
+          this._forceKill(pid);
         }, 3000);
       } catch (e) {
         console.error('Error stopping FiveM server:', e);
         this._forceKill(pid);
-        this.processes.delete(projectIndex);
       }
     }
     return { success: true };
@@ -149,11 +147,11 @@ class FivemService {
    * @param {number} pid - Process ID
    */
   _forceKill(pid) {
-    if (!pid) return;
+    if (!pid || !Number.isInteger(pid) || pid <= 0) return;
 
     try {
       if (process.platform === 'win32') {
-        exec(`taskkill /F /T /PID ${pid}`, (err) => {
+        execFile('taskkill', ['/F', '/T', '/PID', String(pid)], (err) => {
           if (err && !err.message.includes('not found')) {
             console.error('taskkill error:', err.message);
           }
@@ -248,25 +246,28 @@ class FivemService {
   _buildManifest({ fxVersion = 'cerulean', game = 'gta5', name = '', description = '', version = '1.0.0', author = '', clientScriptsRaw = '', serverScriptsRaw = '', sharedScriptsRaw = '' , dependenciesRaw = '' } = {}) {
     const lines = [];
 
-    lines.push(`fx_version '${fxVersion}'`);
-    lines.push(`game '${game}'`);
+    // Escape single quotes in Lua string values to prevent Lua injection
+    const luaStr = (s) => String(s).replace(/'/g, "\\'");
+
+    lines.push(`fx_version '${luaStr(fxVersion)}'`);
+    lines.push(`game '${luaStr(game)}'`);
     lines.push('');
 
-    if (name) lines.push(`name '${name}'`);
-    if (description) lines.push(`description '${description}'`);
-    if (version) lines.push(`version '${version}'`);
-    if (author) lines.push(`author '${author}'`);
+    if (name) lines.push(`name '${luaStr(name)}'`);
+    if (description) lines.push(`description '${luaStr(description)}'`);
+    if (version) lines.push(`version '${luaStr(version)}'`);
+    if (author) lines.push(`author '${luaStr(author)}'`);
 
     const formatScripts = (raw, key) => {
       const entries = raw.split('\n').map(l => l.trim()).filter(Boolean);
       if (entries.length === 0) return null;
-      return `${key} { ${entries.map(e => `'${e}'`).join(', ')} }`;
+      return `${key} { ${entries.map(e => `'${luaStr(e)}'`).join(', ')} }`;
     };
 
     const formatDeps = (raw) => {
       const entries = raw.split(/[\n,]/).map(l => l.trim()).filter(Boolean);
       if (entries.length === 0) return null;
-      return `dependencies { ${entries.map(e => `'${e}'`).join(', ')} }`;
+      return `dependencies { ${entries.map(e => `'${luaStr(e)}'`).join(', ')} }`;
     };
 
     const clientLine = formatScripts(clientScriptsRaw, 'client_scripts');

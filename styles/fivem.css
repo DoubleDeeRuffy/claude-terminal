@@ -305,6 +305,42 @@
   opacity: 0.4;
 }
 
+.wizard-select {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='%23888'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.wizard-select:hover {
+  border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
+}
+
+.wizard-select:focus {
+  outline: none;
+  border-color: var(--type-color, var(--accent));
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1), 0 0 0 3px color-mix(in srgb, var(--type-color, var(--accent)) 12%, transparent);
+}
+
+.wizard-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
 .wizard-input-row {
   display: flex;
   gap: 8px;
@@ -383,6 +419,79 @@
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
   margin-top: -1px;
+}
+
+/* ---- Inline fields (side-by-side) ---- */
+.wizard-inline-fields {
+  display: flex;
+  gap: 12px;
+}
+
+.wizard-field-inline {
+  flex: 1;
+  min-width: 0;
+}
+
+.wizard-field-inline .wizard-input,
+.wizard-field-inline .wizard-select {
+  width: 100%;
+}
+
+/* ---- Collapsible section ---- */
+.wizard-collapsible {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.wizard-collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wizard-collapsible-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.wizard-collapsible.expanded .wizard-collapsible-toggle {
+  color: var(--type-color, var(--accent));
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wizard-collapsible-chevron {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.wizard-collapsible.expanded .wizard-collapsible-chevron {
+  transform: rotate(90deg);
+  opacity: 1;
+}
+
+.wizard-collapsible-content {
+  display: none;
+  padding: 14px;
+  gap: 12px;
+  flex-direction: column;
+  animation: wizardStepIn 0.2s ease forwards;
+}
+
+.wizard-collapsible.expanded .wizard-collapsible-content {
+  display: flex;
 }
 
 /* ---- Wizard actions (footer) ---- */
@@ -969,10 +1078,20 @@
   overflow: hidden;
 }
 
+/* View switching via CSS classes (not inline styles) */
+.fivem-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+.fivem-view.fivem-view-active {
+  display: flex;
+}
+
 /* Console view = xterm output + input bar */
 .fivem-console-view {
   flex: 1;
-  display: flex;
   flex-direction: column;
   overflow: hidden;
 }
@@ -1055,7 +1174,6 @@
 /* ── Errors view ── */
 .fivem-errors-view {
   flex: 1;
-  display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-primary);
@@ -1226,7 +1344,6 @@
 /* ── Resources view ── */
 .fivem-resources-view {
   flex: 1;
-  display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-primary);

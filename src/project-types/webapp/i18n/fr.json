@@ -21,6 +21,12 @@
     "reload": "Recharger",
     "preview": "Apercu",
     "devCommandHint": "Laisser vide pour auto-detection depuis package.json",
+    "inspect": "Retour visuel",
+    "feedbackPlaceholder": "Que voulez-vous modifier ?",
+    "pinPlaceholder": "Que modifier ici ?",
+    "sendToClaude": "Envoyer a Claude",
+    "sendAll": "Envoyer tout ({count})",
+    "deletePin": "Supprimer",
     "settings": {
       "previewEnabled": "Preview integre",
       "previewEnabledDesc": "Afficher un apercu live du serveur dev dans l'app (utilise plus de memoire)"

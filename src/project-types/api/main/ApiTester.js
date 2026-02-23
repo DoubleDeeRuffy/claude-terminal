@@ -20,12 +20,18 @@ class ApiTester {
   async sendRequest({ url, method, headers = {}, body = '' }) {
     return new Promise((resolve) => {
       const startTime = Date.now();
+      let settled = false;
+      const settle = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
 
       let parsed;
       try {
         parsed = new URL(url);
       } catch (e) {
-        resolve({ error: `Invalid URL: ${url}`, status: 0, time: 0 });
+        settle({ error: `Invalid URL: ${url}`, status: 0, time: 0 });
         return;
       }
 
@@ -38,8 +44,7 @@ class ApiTester {
         path: parsed.pathname + parsed.search,
         method: method.toUpperCase(),
         headers: { ...headers },
-        timeout: 30000,
-        rejectUnauthorized: false
+        timeout: 30000
       };
 
       // Set content-length for body
@@ -47,7 +52,6 @@ class ApiTester {
         const bodyBuf = Buffer.from(body, 'utf8');
         options.headers['Content-Length'] = bodyBuf.length;
         if (!options.headers['Content-Type']) {
-          // Try to detect if body is JSON
           try {
             JSON.parse(body);
             options.headers['Content-Type'] = 'application/json';
@@ -67,7 +71,6 @@ class ApiTester {
           const rawBody = Buffer.concat(chunks);
           const bodyStr = rawBody.toString('utf8');
 
-          // Collect response headers as plain object
           const resHeaders = {};
           const rawHeaders = res.rawHeaders || [];
           for (let i = 0; i < rawHeaders.length; i += 2) {
@@ -80,7 +83,7 @@ class ApiTester {
             }
           }
 
-          resolve({
+          settle({
             status: res.statusCode,
             statusText: res.statusMessage || '',
             headers: resHeaders,
@@ -89,31 +92,41 @@ class ApiTester {
             size: rawBody.length
           });
         });
+
+        res.on('aborted', () => {
+          settle({
+            error: 'Connection aborted by server',
+            status: 0,
+            statusText: 'Aborted',
+            headers: {},
+            body: '',
+            time: Date.now() - startTime,
+            size: 0
+          });
+        });
       });
 
       req.on('error', (err) => {
-        const elapsed = Date.now() - startTime;
-        resolve({
+        settle({
           error: err.message,
           status: 0,
           statusText: 'Error',
           headers: {},
           body: '',
-          time: elapsed,
+          time: Date.now() - startTime,
           size: 0
         });
       });
 
       req.on('timeout', () => {
         req.destroy();
-        const elapsed = Date.now() - startTime;
-        resolve({
+        settle({
           error: 'Request timed out (30s)',
           status: 0,
           statusText: 'Timeout',
           headers: {},
           body: '',
-          time: elapsed,
+          time: Date.now() - startTime,
           size: 0
         });
       });
