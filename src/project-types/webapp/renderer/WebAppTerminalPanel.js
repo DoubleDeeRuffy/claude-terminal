@@ -141,6 +141,8 @@ function getInspectInjectScript() {
   document.addEventListener('click', blockEvent, { capture: true, signal: s });
   document.addEventListener('auxclick', blockEvent, { capture: true, signal: s });
   document.addEventListener('submit', blockEvent, { capture: true, signal: s });
+  document.addEventListener('pointerup', blockEvent, { capture: true, signal: s });
+  document.addEventListener('mouseup', blockEvent, { capture: true, signal: s });
 
   document.addEventListener('mousedown', function(e) {
     e.preventDefault();
@@ -207,6 +209,18 @@ const SCROLL_LISTEN_SCRIPT = `(function() {
 const SCROLL_UNLISTEN_SCRIPT = `(function() {
   if (window.__CT_SCROLL_AC__) { window.__CT_SCROLL_AC__.abort(); delete window.__CT_SCROLL_AC__; }
   window.__CT_SCROLL_ACTIVE__ = false;
+})();`;
+
+// Lightweight key listener: forwards "I" keydown to host via console.log when inspect is not active
+const KEY_LISTEN_SCRIPT = `(function() {
+  if (window.__CT_KEY_ACTIVE__) return;
+  window.__CT_KEY_ACTIVE__ = true;
+  document.addEventListener('keydown', function(e) {
+    if (window.__CT_INSPECT_ACTIVE__) return;
+    if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      console.log('__CT_INSPECT_TOGGLE__');
+    }
+  });
 })();`;
 
 function getViewSwitcherHtml() {
@@ -298,11 +312,12 @@ function wireWebviewEvents(previewView, webview) {
     // Switch pins to the new page
     previewView._inspectHandlers?.switchPage?.(newPath);
     // Re-inject inspect script after navigation if active
-    if (previewView._inspectHandlers?.isActive()) {
-      setTimeout(() => {
+    setTimeout(() => {
+      try { webview.executeJavaScript(KEY_LISTEN_SCRIPT); } catch (e) {}
+      if (previewView._inspectHandlers?.isActive()) {
         try { webview.executeJavaScript(getInspectInjectScript()); } catch (e) {}
-      }, 300);
-    }
+      }
+    }, 300);
   });
   webview.addEventListener('did-navigate-in-page', (e) => {
     try {
@@ -498,6 +513,9 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
   const webview = previewView.querySelector('.webapp-preview-webview');
   wireWebviewEvents(previewView, webview);
+
+  // Inject key listener immediately (webview may already be loaded)
+  try { webview.executeJavaScript(KEY_LISTEN_SCRIPT); } catch (e) {}
 
   // ── Inspect mode with multi-annotation pins (per-page) ──
   let inspectActive = false;
