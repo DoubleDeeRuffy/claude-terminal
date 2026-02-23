@@ -405,6 +405,47 @@ module.exports = createType({
   color: rgba(255,255,255,0.35);
 }
 
+/* ── Inspect button ── */
+.wa-inspect { position: relative; }
+.wa-inspect.active { background: rgba(217,119,6,0.15); color: var(--accent); }
+.inspect-mode .webapp-preview-webview { cursor: crosshair; }
+
+/* Inspect badge count */
+.wa-inspect-count { position: absolute; top: -4px; right: -4px; min-width: 14px; height: 14px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 8px; font-weight: 700; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; }
+.wa-inspect-count.visible { display: flex; }
+
+/* Send all button in browser bar */
+.wa-send-all { display: none; align-items: center; gap: 4px; padding: 4px 10px; background: var(--accent); color: #fff; border: none; border-radius: 5px; font-size: 10.5px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.wa-send-all.visible { display: flex; }
+.wa-send-all:hover { background: var(--accent-hover); }
+
+/* ── Browser viewport wrapper ── */
+.wa-browser-viewport { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ── Pins overlay ── */
+.wa-pins-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; overflow: hidden; }
+
+/* Pin circle */
+.wa-pin { position: absolute; pointer-events: auto; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 2px solid rgba(255,255,255,0.9); transition: transform 0.12s; z-index: 2; animation: wa-pin-in 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+.wa-pin:hover { transform: scale(1.2); }
+@keyframes wa-pin-in { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* Popover */
+.wa-pin-popover { position: absolute; pointer-events: auto; z-index: 3; width: 280px; background: var(--bg-secondary); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); padding: 10px; display: flex; flex-direction: column; gap: 8px; animation: wa-in 0.12s ease; }
+.wa-popover-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wa-popover-thumb { width: 32px; height: 24px; object-fit: cover; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; background: #000; }
+.wa-popover-selector { font-family: var(--wa-mono); font-size: 10.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.wa-popover-close { width: 20px; height: 20px; border: none; background: transparent; color: rgba(255,255,255,0.3); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; flex-shrink: 0; }
+.wa-popover-close:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
+.wa-popover-delete { padding: 5px 12px; background: transparent; color: var(--danger); border: 1px solid rgba(239,68,68,0.25); border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.wa-popover-delete:hover { background: rgba(239,68,68,0.15); }
+.wa-popover-input { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: var(--text-primary); font-size: 12px; padding: 7px 9px; resize: none; outline: none; font-family: inherit; min-height: 30px; max-height: 80px; }
+.wa-popover-input:focus { border-color: rgba(217,119,6,0.4); }
+.wa-popover-input::placeholder { color: rgba(255,255,255,0.2); }
+.wa-popover-actions { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.wa-popover-ok { padding: 5px 12px; background: var(--accent); color: #fff; border: none; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.wa-popover-ok:hover { background: var(--accent-hover); }
+
 /* ════════════════════════════════════════════════════════
    EMPTY STATE
    ════════════════════════════════════════════════════════ */

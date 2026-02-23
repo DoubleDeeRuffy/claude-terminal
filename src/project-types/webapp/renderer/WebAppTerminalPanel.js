@@ -63,6 +63,146 @@ const ICON_BACK    = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor"
 const ICON_FWD     = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M4.5 2.5L8 6 4.5 9.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON_RELOAD  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M10 3.5A5 5 0 103.5 10" stroke-linecap="round"/><path d="M10 1.5v2H8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON_OPEN    = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M8 2h2v2M10 2L6 6M5 3H2v7h7V7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON_INSPECT = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 1l4.2 10 1.5-3.8L10.5 5.7z" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 7l4 4" stroke-linecap="round"/></svg>`;
+
+// ── Inspect inject/uninject scripts ──────────────────────────────────
+function getInspectInjectScript() {
+  const hex = getSetting('accentColor') || '#d97706';
+  // Parse hex to r,g,b for rgba usage inside webview
+  const r = parseInt(hex.slice(1, 3), 16) || 217;
+  const g = parseInt(hex.slice(3, 5), 16) || 119;
+  const b = parseInt(hex.slice(5, 7), 16) || 6;
+  return `(function() {
+  if (window.__CT_INSPECT_ACTIVE__) return;
+  window.__CT_INSPECT_ACTIVE__ = true;
+  // Kill standalone scroll listener (we have our own)
+  if (window.__CT_SCROLL_AC__) { window.__CT_SCROLL_AC__.abort(); delete window.__CT_SCROLL_AC__; window.__CT_SCROLL_ACTIVE__ = false; }
+  const ac = new AbortController();
+  window.__CT_INSPECT_AC__ = ac;
+  const s = ac.signal;
+  const _c = '${hex}', _bg = 'rgba(${r},${g},${b},0.08)';
+
+  const overlay = document.createElement('div');
+  overlay.id = '__ct_inspect_overlay__';
+  Object.assign(overlay.style, {
+    position: 'fixed', zIndex: '2147483647', pointerEvents: 'none',
+    border: '2px solid ' + _c, borderRadius: '3px',
+    background: _bg, transition: 'all 0.08s ease',
+    display: 'none', top: '0', left: '0', width: '0', height: '0'
+  });
+  document.body.appendChild(overlay);
+
+  const label = document.createElement('div');
+  label.id = '__ct_inspect_label__';
+  Object.assign(label.style, {
+    position: 'fixed', zIndex: '2147483647', pointerEvents: 'none',
+    background: _c, color: '#fff', fontSize: '10px', fontFamily: 'monospace',
+    padding: '2px 6px', borderRadius: '3px', whiteSpace: 'nowrap',
+    display: 'none', top: '0', left: '0'
+  });
+  document.body.appendChild(label);
+
+  // Send scroll position so host can reposition pins
+  var scrollThrottle = null;
+  window.addEventListener('scroll', function() {
+    if (scrollThrottle) return;
+    scrollThrottle = setTimeout(function() {
+      scrollThrottle = null;
+      console.log('__CT_INSPECT_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+    }, 16);
+  }, { capture: true, signal: s });
+
+  // Send initial scroll position
+  console.log('__CT_INSPECT_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+
+  let lastEl = null;
+  document.addEventListener('mousemove', function(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === overlay || el === label) return;
+    if (el === lastEl) return;
+    lastEl = el;
+    const r = el.getBoundingClientRect();
+    Object.assign(overlay.style, {
+      display: 'block', top: r.top + 'px', left: r.left + 'px',
+      width: r.width + 'px', height: r.height + 'px'
+    });
+    const tag = el.tagName.toLowerCase();
+    const dim = Math.round(r.width) + 'x' + Math.round(r.height);
+    label.textContent = tag + (el.id ? '#' + el.id : '') + ' ' + dim;
+    Object.assign(label.style, {
+      display: 'block',
+      top: Math.max(0, r.top - 20) + 'px',
+      left: r.left + 'px'
+    });
+  }, { signal: s });
+
+  // Block all clicks/navigation while in inspect mode
+  function blockEvent(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
+  document.addEventListener('click', blockEvent, { capture: true, signal: s });
+  document.addEventListener('auxclick', blockEvent, { capture: true, signal: s });
+  document.addEventListener('submit', blockEvent, { capture: true, signal: s });
+
+  document.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === overlay || el === label) return;
+    const r = el.getBoundingClientRect();
+    const selector = (function() {
+      if (el.id) return '#' + el.id;
+      let s = el.tagName.toLowerCase();
+      if (el.className && typeof el.className === 'string') s += '.' + el.className.trim().split(/\\s+/).join('.');
+      return s;
+    })();
+    const data = {
+      tagName: el.tagName.toLowerCase(),
+      id: el.id || '',
+      className: (typeof el.className === 'string' ? el.className : ''),
+      selector: selector,
+      text: (el.textContent || '').trim().substring(0, 60),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      scroll: { x: window.scrollX, y: window.scrollY }
+    };
+    console.log('__CT_INSPECT__:' + JSON.stringify(data));
+  }, { capture: true, signal: s });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      console.log('__CT_INSPECT_CANCEL__');
+    }
+  }, { signal: s });
+})();`;
+}
+
+const INSPECT_UNINJECT_SCRIPT = `(function() {
+  if (window.__CT_INSPECT_AC__) { window.__CT_INSPECT_AC__.abort(); delete window.__CT_INSPECT_AC__; }
+  var o = document.getElementById('__ct_inspect_overlay__'); if (o) o.remove();
+  var l = document.getElementById('__ct_inspect_label__'); if (l) l.remove();
+  window.__CT_INSPECT_ACTIVE__ = false;
+})();`;
+
+// Lightweight scroll-only listener (stays active while pins are displayed)
+const SCROLL_LISTEN_SCRIPT = `(function() {
+  if (window.__CT_SCROLL_ACTIVE__) return;
+  window.__CT_SCROLL_ACTIVE__ = true;
+  var ac = new AbortController();
+  window.__CT_SCROLL_AC__ = ac;
+  var throttle = null;
+  window.addEventListener('scroll', function() {
+    if (throttle) return;
+    throttle = setTimeout(function() {
+      throttle = null;
+      console.log('__CT_INSPECT_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+    }, 16);
+  }, { capture: true, signal: ac.signal });
+  console.log('__CT_INSPECT_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+})();`;
+
+const SCROLL_UNLISTEN_SCRIPT = `(function() {
+  if (window.__CT_SCROLL_AC__) { window.__CT_SCROLL_AC__.abort(); delete window.__CT_SCROLL_AC__; }
+  window.__CT_SCROLL_ACTIVE__ = false;
+})();`;
 
 function getViewSwitcherHtml() {
   const previewEnabled = isPreviewEnabled();
@@ -101,9 +241,36 @@ function getViewSwitcherHtml() {
 }
 
 /**
+ * Crop a region from a dataUrl image.
+ */
+function cropImage(dataUrl, x, y, w, h) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const cx = Math.max(0, Math.round(x));
+      const cy = Math.max(0, Math.round(y));
+      const cw = Math.min(Math.round(w), img.width - cx);
+      const ch = Math.min(Math.round(h), img.height - cy);
+      if (cw <= 0 || ch <= 0) { resolve(dataUrl); return; }
+      const canvas = document.createElement('canvas');
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
  * Detach the webview from DOM (removes the native surface entirely).
  */
 function detachWebview(previewView) {
+  if (previewView._inspectHandlers?.isActive()) {
+    previewView._inspectHandlers.deactivate();
+  }
   const webview = previewView.querySelector('.webapp-preview-webview');
   if (!webview) return;
   try {
@@ -121,13 +288,13 @@ function detachWebview(previewView) {
 function attachWebview(previewView) {
   const savedUrl = detachedWebviews.get(previewView);
   if (!savedUrl || savedUrl === 'about:blank') return;
-  const browserEl = previewView.querySelector('.wa-browser');
-  if (!browserEl) return;
+  const viewport = previewView.querySelector('.wa-browser-viewport');
+  if (!viewport) return;
   const webview = document.createElement('webview');
   webview.className = 'webapp-preview-webview';
   webview.setAttribute('src', savedUrl);
   webview.setAttribute('disableblinkfeatures', 'Auxclick');
-  browserEl.appendChild(webview);
+  viewport.insertBefore(webview, viewport.firstChild);
   wireWebviewEvents(previewView, webview);
   detachedWebviews.delete(previewView);
 }
@@ -145,6 +312,17 @@ function wireWebviewEvents(previewView, webview) {
       if (addrPort) addrPort.textContent = u.port ? `:${u.port}` : '';
       if (addrPath) addrPath.textContent = u.pathname !== '/' ? u.pathname : '';
     } catch (err) {}
+    // Re-inject inspect script after navigation if active
+    if (previewView._inspectHandlers?.isActive()) {
+      setTimeout(() => {
+        try { webview.executeJavaScript(getInspectInjectScript()); } catch (e) {}
+      }, 300);
+    } else if (previewView._inspectHandlers?.hasPins?.()) {
+      // Pins visible but inspect not in selection mode — keep scroll tracking
+      setTimeout(() => {
+        try { webview.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
+      }, 300);
+    }
   });
   webview.addEventListener('did-navigate-in-page', (e) => {
     try {
@@ -154,6 +332,27 @@ function wireWebviewEvents(previewView, webview) {
   });
 
   webview.addEventListener('console-message', (e) => {
+    // Intercept inspect protocol messages
+    if (typeof e.message === 'string') {
+      if (e.message.startsWith('__CT_INSPECT__:')) {
+        try {
+          const data = JSON.parse(e.message.slice('__CT_INSPECT__:'.length));
+          previewView._inspectHandlers?.handleCapture(data);
+        } catch (err) {}
+        return;
+      }
+      if (e.message.startsWith('__CT_INSPECT_SCROLL__:')) {
+        try {
+          const scroll = JSON.parse(e.message.slice('__CT_INSPECT_SCROLL__:'.length));
+          previewView._inspectHandlers?.handleScroll(scroll);
+        } catch (err) {}
+        return;
+      }
+      if (e.message === '__CT_INSPECT_CANCEL__') {
+        previewView._inspectHandlers?.handleEscape();
+        return;
+      }
+    }
     if (e.level >= 2) {
       if (!previewView._consoleLogs) previewView._consoleLogs = [];
       previewView._consoleLogs.push({ level: e.level, message: e.message, source: e.sourceId, line: e.line });
@@ -295,15 +494,339 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
         <div class="wa-address-bar">
           <span class="wa-addr-scheme">http://</span><span class="wa-addr-host">localhost</span><span class="wa-addr-port">:${port}</span><span class="wa-addr-path"></span>
         </div>
+        <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')}">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
+        <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
       </div>
-      <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
+      <div class="wa-browser-viewport">
+        <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
+        <div class="wa-pins-overlay"></div>
+      </div>
     </div>
   `;
+
+  // Store project & deps on previewView for inspect handlers
+  previewView._project = project;
+  previewView._deps = deps;
 
   const webview = previewView.querySelector('.webapp-preview-webview');
   wireWebviewEvents(previewView, webview);
 
+  // ── Inspect mode with multi-annotation pins ──
+  let inspectActive = false;
+  const annotations = [];
+  let nextPinId = 1;
+  // Track webview scroll position for pin offset calculation
+  let currentScroll = { x: 0, y: 0 };
+
+  const inspectBtn = previewView.querySelector('.wa-inspect');
+  const badgeEl = previewView.querySelector('.wa-inspect-count');
+  const sendAllBtn = previewView.querySelector('.wa-send-all');
+  const overlay = previewView.querySelector('.wa-pins-overlay');
+
+  function updateBadge() {
+    const count = annotations.length;
+    if (count > 0) {
+      badgeEl.textContent = count;
+      badgeEl.classList.add('visible');
+      sendAllBtn.textContent = `${t('webapp.sendAll').replace('{count}', count)}`;
+      sendAllBtn.classList.add('visible');
+    } else {
+      badgeEl.classList.remove('visible');
+      sendAllBtn.classList.remove('visible');
+    }
+  }
+
+  function closePopover() {
+    const pop = overlay.querySelector('.wa-pin-popover');
+    if (pop) pop.remove();
+  }
+
+  /**
+   * Convert document-absolute coords to current viewport-relative coords
+   * by subtracting the current webview scroll position.
+   */
+  function absToViewport(absX, absY) {
+    return { x: absX - currentScroll.x, y: absY - currentScroll.y };
+  }
+
+  /** Reposition all pins and popover based on current scroll */
+  function repositionAllPins() {
+    for (const ann of annotations) {
+      const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const abs = ann.elementData.absRect;
+      const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+      pinEl.style.top = vp.y + 'px';
+      pinEl.style.left = vp.x + 'px';
+    }
+    // Reposition popover if open
+    const pop = overlay.querySelector('.wa-pin-popover');
+    if (pop && pop._absRect) {
+      const popW = 280;
+      const popH = pop.offsetHeight || 120;
+      const overlayW = overlay.offsetWidth || 400;
+      const abs = pop._absRect;
+      const vpPos = absToViewport(abs.x, abs.y);
+      let top = vpPos.y - popH - 8;
+      let left = vpPos.x;
+      if (top < 4) top = vpPos.y + abs.height + 8;
+      if (left + popW > overlayW - 4) left = overlayW - popW - 4;
+      if (left < 4) left = 4;
+      pop.style.top = top + 'px';
+      pop.style.left = left + 'px';
+    }
+  }
+
+  function showPopover(elementData, screenshot, existingAnnotation) {
+    closePopover();
+
+    const pop = document.createElement('div');
+    pop.className = 'wa-pin-popover';
+
+    const thumbHtml = screenshot
+      ? `<img class="wa-popover-thumb" src="${screenshot}" alt=""/>`
+      : '';
+
+    pop.innerHTML = `
+      <div class="wa-popover-header">
+        ${thumbHtml}
+        <span class="wa-popover-selector">${escapeAttr(elementData.selector)}</span>
+        <button class="wa-popover-close" title="Close">&times;</button>
+      </div>
+      <textarea class="wa-popover-input" rows="1" placeholder="${t('webapp.pinPlaceholder')}">${existingAnnotation ? escapeAttr(existingAnnotation.instruction) : ''}</textarea>
+      <div class="wa-popover-actions">
+        ${existingAnnotation ? `<button class="wa-popover-delete">${t('webapp.deletePin')}</button>` : ''}
+        <button class="wa-popover-ok">${existingAnnotation ? 'Update' : 'OK'}</button>
+      </div>
+    `;
+
+    // Store absRect on popover for repositioning on scroll
+    const absRect = elementData.absRect || elementData.rect;
+    pop._absRect = absRect;
+
+    // Position above the element using viewport-relative coords
+    const overlayW = overlay.offsetWidth || 400;
+    const popW = 280;
+    const popH = 120; // estimate
+    const vpPos = absToViewport(absRect.x, absRect.y);
+    let top = vpPos.y - popH - 8;
+    let left = vpPos.x;
+    if (top < 4) top = vpPos.y + absRect.height + 8;
+    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
+    if (left < 4) left = 4;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+
+    overlay.appendChild(pop);
+
+    const textarea = pop.querySelector('.wa-popover-input');
+    const okBtn = pop.querySelector('.wa-popover-ok');
+    const closeBtn = pop.querySelector('.wa-popover-close');
+    const delBtn = pop.querySelector('.wa-popover-delete');
+
+    const dismissPopover = () => {
+      closePopover();
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && inspectActive) {
+        try { wv.executeJavaScript(getInspectInjectScript()); } catch (e) {}
+      }
+    };
+
+    // Auto-resize
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    });
+
+    const confirm = () => {
+      const instruction = textarea.value.trim();
+      if (!instruction) return;
+      closePopover();
+
+      if (existingAnnotation) {
+        existingAnnotation.instruction = instruction;
+      } else {
+        const ann = { id: nextPinId++, elementData, instruction, screenshot };
+        annotations.push(ann);
+        addPin(ann);
+        updateBadge();
+      }
+
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && inspectActive) {
+        try { wv.executeJavaScript(getInspectInjectScript()); } catch (e) {}
+      }
+    };
+
+    // Close button → just dismiss popover (no delete)
+    closeBtn.onclick = dismissPopover;
+
+    okBtn.onclick = confirm;
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        confirm();
+      }
+      if (e.key === 'Escape') {
+        dismissPopover();
+      }
+    });
+
+    // Delete button → remove the annotation + pin
+    if (delBtn) {
+      delBtn.onclick = () => {
+        closePopover();
+        if (existingAnnotation) {
+          removePin(existingAnnotation.id);
+        }
+        const wv = previewView.querySelector('.webapp-preview-webview');
+        if (wv && inspectActive) {
+          try { wv.executeJavaScript(getInspectInjectScript()); } catch (e) {}
+        }
+      };
+    }
+
+    setTimeout(() => textarea.focus(), 50);
+  }
+
+  function addPin(annotation) {
+    const abs = annotation.elementData.absRect;
+    const pin = document.createElement('div');
+    pin.className = 'wa-pin';
+    pin.dataset.pinId = annotation.id;
+    pin.textContent = annotation.id;
+    const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+    pin.style.top = vp.y + 'px';
+    pin.style.left = vp.x + 'px';
+    pin.onclick = (e) => {
+      e.stopPropagation();
+      showPopover(annotation.elementData, annotation.screenshot, annotation);
+    };
+    overlay.appendChild(pin);
+  }
+
+  function removePin(annotationId) {
+    const idx = annotations.findIndex(a => a.id === annotationId);
+    if (idx !== -1) annotations.splice(idx, 1);
+    const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${annotationId}"]`);
+    if (pinEl) pinEl.remove();
+    updateBadge();
+  }
+
+  function clearAllPins() {
+    annotations.length = 0;
+    nextPinId = 1;
+    currentScroll = { x: 0, y: 0 };
+    overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
+    updateBadge();
+  }
+
+  function activateInspect() {
+    inspectActive = true;
+    inspectBtn.classList.add('active');
+    previewView.classList.add('inspect-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(getInspectInjectScript()); } catch (e) {}
+    }
+  }
+
+  function deactivateInspect() {
+    inspectActive = false;
+    inspectBtn.classList.remove('active');
+    previewView.classList.remove('inspect-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(INSPECT_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(SCROLL_UNLISTEN_SCRIPT); } catch (e) {}
+    }
+    closePopover();
+    clearAllPins();
+  }
+
+  async function handleCapture(elementData) {
+    // Compute document-absolute rect from viewport rect + scroll at capture time
+    const scroll = elementData.scroll || { x: 0, y: 0 };
+    elementData.absRect = {
+      x: elementData.rect.x + scroll.x,
+      y: elementData.rect.y + scroll.y,
+      width: elementData.rect.width,
+      height: elementData.rect.height
+    };
+
+    // Temporarily uninject inspect overlay for screenshot + popover
+    // but keep scroll listener active for pin repositioning
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(INSPECT_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
+    }
+
+    let screenshot = null;
+    if (wv) {
+      try {
+        const nativeImage = await wv.capturePage();
+        const fullDataUrl = nativeImage.toDataURL();
+        const dpr = window.devicePixelRatio || 1;
+        const pad = 20 * dpr;
+        const r = elementData.rect;
+        screenshot = await cropImage(
+          fullDataUrl,
+          r.x * dpr - pad, r.y * dpr - pad,
+          r.width * dpr + pad * 2, r.height * dpr + pad * 2
+        );
+      } catch (e) {}
+    }
+
+    showPopover(elementData, screenshot, null);
+  }
+
+  function handleScroll(scroll) {
+    currentScroll = { x: scroll.scrollX, y: scroll.scrollY };
+    if (annotations.length > 0) {
+      repositionAllPins();
+    }
+  }
+
+  function handleEscapeFromWebview() {
+    // If popover is open, just close it
+    if (overlay.querySelector('.wa-pin-popover')) {
+      closePopover();
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && inspectActive) {
+        try { wv.executeJavaScript(getInspectInjectScript()); } catch (e) {}
+      }
+    } else {
+      // No popover → deactivate inspect entirely
+      deactivateInspect();
+    }
+  }
+
+  inspectBtn.onclick = () => {
+    if (inspectActive) {
+      deactivateInspect();
+    } else {
+      activateInspect();
+    }
+  };
+
+  sendAllBtn.onclick = () => {
+    if (annotations.length === 0) return;
+    sendAllFeedback(previewView, [...annotations], deps);
+    deactivateInspect();
+  };
+
+  previewView._inspectHandlers = {
+    handleCapture,
+    deactivate: deactivateInspect,
+    handleEscape: handleEscapeFromWebview,
+    handleScroll,
+    isActive: () => inspectActive,
+    hasPins: () => annotations.length > 0
+  };
+
+  // ── Browser nav buttons ──
   previewView.querySelector('.wa-reload').onclick = () => {
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (wv) wv.reload();
@@ -413,6 +936,59 @@ async function renderInfoView(wrapper, projectIndex, project, deps) {
       renderInfoView(wrapper, projectIndex, project, deps);
     });
   }
+}
+
+// ── Send All Feedback ──────────────────────────────────────────────
+
+function sendAllFeedback(previewView, annotations, deps) {
+  const { createTerminal, setActiveTerminal, findChatTab } = deps;
+  const project = previewView._project;
+  if (!project || annotations.length === 0) return;
+
+  // Build a concise numbered prompt
+  const lines = annotations.map((ann, i) => {
+    const ed = ann.elementData;
+    const tag = `<${ed.tagName}>`;
+    const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
+    return `${i + 1}. \`${ed.selector}\` (${tag}${classes}): "${ann.instruction}"`;
+  });
+
+  const prompt = annotations.length === 1
+    ? `The user selected an element in their web app preview and wants a change:\n\n"${annotations[0].instruction}"\n\nElement: \`${annotations[0].elementData.selector}\` (<${annotations[0].elementData.tagName}>${annotations[0].elementData.className ? `, classes: \`${annotations[0].elementData.className}\`` : ''})\n\nFind this element in the project source code and make the requested change directly.`
+    : `The user annotated ${annotations.length} elements in their web app preview. Make all these changes:\n\n${lines.join('\n')}\n\nFind each element in the project source code and make the requested changes.`;
+
+  // Collect all screenshots
+  const images = [];
+  for (const ann of annotations) {
+    if (ann.screenshot) {
+      const base64 = ann.screenshot.replace(/^data:image\/png;base64,/, '');
+      images.push({ base64, mediaType: 'image/png', name: `pin-${ann.id}` });
+    }
+  }
+
+  const VISUAL_TAB_PREFIX = '\ud83c\udfaf Visual';
+  const existing = findChatTab(project.path, VISUAL_TAB_PREFIX);
+
+  if (existing) {
+    const { id, termData } = existing;
+    if (termData.chatView) {
+      termData.chatView.sendMessage(prompt, images);
+      setActiveTerminal(id);
+      return;
+    }
+  }
+
+  // Respect user's defaultTerminalMode and skipPermissions settings
+  createTerminal(project, {
+    skipPermissions: getSetting('skipPermissions') || false,
+    initialPrompt: prompt,
+    initialImages: images.length ? images : null,
+    name: '\ud83c\udfaf Visual Feedback'
+  });
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function cleanup(wrapper) {
