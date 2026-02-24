@@ -1,4 +1,5 @@
 const { escapeHtml } = require('../../utils');
+const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
 
 let ctx = null;
 
@@ -59,10 +60,13 @@ const TRIGGER_CONFIG = {
 const state = {
   workflows: [],
   runs: [],
-  activeTab: 'workflows',
+  activeTab: 'workflows',  // 'workflows' | 'runs' | 'hub'
 };
 
-function init(context) { ctx = context; }
+function init(context) {
+  ctx = context;
+  WorkflowMarketplace.init(context);
+}
 
 async function load() {
   renderPanel();
@@ -86,6 +90,10 @@ function renderPanel() {
           </button>
           <button class="wf-tab" data-wftab="runs">
             Historique <span class="wf-badge">4</span>
+          </button>
+          <button class="wf-tab" data-wftab="hub">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            Hub
           </button>
         </div>
         <button class="wf-create-btn" id="wf-btn-new">
@@ -111,7 +119,9 @@ function renderPanel() {
 function renderContent() {
   const el = document.getElementById('wf-content');
   if (!el) return;
-  state.activeTab === 'workflows' ? renderWorkflowList(el) : renderRunHistory(el);
+  if (state.activeTab === 'workflows') renderWorkflowList(el);
+  else if (state.activeTab === 'runs') renderRunHistory(el);
+  else if (state.activeTab === 'hub') WorkflowMarketplace.render(el);
 }
 
 /* ─── Workflow list ────────────────────────────────────────────────────────── */
