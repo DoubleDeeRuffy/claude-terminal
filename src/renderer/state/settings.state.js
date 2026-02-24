@@ -30,6 +30,11 @@ const defaultSettings = {
   remoteEnabled: false, // Enable remote control via mobile PWA
   remotePort: 3712, // Port for the remote control WebSocket/HTTP server
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
+  terminalCtrlCV: true, // Ctrl+C to copy selection (or pass SIGINT), Ctrl+V to paste
+  terminalCtrlArrowWordJump: true, // Ctrl+Left/Right to jump words in terminal
+  terminalCtrlBackspace: true, // Ctrl+Backspace to delete word in terminal
+  terminalShiftEnter: true, // Shift+Enter to send literal newline in terminal
+  terminalCtrlTab: true, // Ctrl+Tab/Ctrl+Shift+Tab to switch terminal tabs
 };
 
 const settingsState = new State({ ...defaultSettings });

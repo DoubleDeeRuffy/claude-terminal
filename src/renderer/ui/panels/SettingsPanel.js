@@ -505,6 +505,61 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
           </div>
           <div class="settings-group">
+            <div class="settings-group-title">${t('settings.terminalShortcuts')}</div>
+            <div class="settings-card">
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.terminalCtrlCV')}</div>
+                <div class="settings-toggle-desc">${t('settings.terminalCtrlCVDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" class="dynamic-setting-toggle" data-setting-key="terminalCtrlCV" ${settings.terminalCtrlCV !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.terminalCtrlArrowWordJump')}</div>
+                <div class="settings-toggle-desc">${t('settings.terminalCtrlArrowWordJumpDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" class="dynamic-setting-toggle" data-setting-key="terminalCtrlArrowWordJump" ${settings.terminalCtrlArrowWordJump !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.terminalCtrlBackspace')}</div>
+                <div class="settings-toggle-desc">${t('settings.terminalCtrlBackspaceDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" class="dynamic-setting-toggle" data-setting-key="terminalCtrlBackspace" ${settings.terminalCtrlBackspace !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.terminalShiftEnter')}</div>
+                <div class="settings-toggle-desc">${t('settings.terminalShiftEnterDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" class="dynamic-setting-toggle" data-setting-key="terminalShiftEnter" ${settings.terminalShiftEnter !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.terminalCtrlTab')}</div>
+                <div class="settings-toggle-desc">${t('settings.terminalCtrlTabDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" class="dynamic-setting-toggle" data-setting-key="terminalCtrlTab" ${settings.terminalCtrlTab !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="settings-group-title">${t('settings.quickActionPresets')}</div>
             <div class="settings-card">
             <div class="settings-desc" style="margin-bottom: 10px; padding: 8px 16px 0;">${t('settings.quickActionPresetsDesc')}</div>
