@@ -96,6 +96,7 @@ const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
 const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel } = require('./src/renderer/ui/panels');
+const { loadSessionData, clearProjectSessions, saveTerminalSessions, saveTerminalSessionsImmediate } = require('./src/renderer/services/TerminalSessionService');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
 // These work with the existing HTML modal elements in index.html
@@ -156,6 +157,59 @@ const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn }
 (async () => {
   ensureDirectories();
   await initializeState(); // Loads settings, projects AND initializes time tracking
+
+  // Restore terminal sessions from previous run
+  if (settingsState.get().restoreTerminalSessions !== false) {
+    try {
+      const sessionData = loadSessionData();
+      if (sessionData && sessionData.projects) {
+        const projects = projectsState.get().projects;
+
+        for (const projectId of Object.keys(sessionData.projects)) {
+          const saved = sessionData.projects[projectId];
+          const project = projects.find(p => p.id === projectId);
+          if (!project) continue;
+          if (!fs.existsSync(project.path)) continue;
+          if (!saved.tabs || saved.tabs.length === 0) continue;
+
+          for (const tab of saved.tabs) {
+            const cwd = fs.existsSync(tab.cwd) ? tab.cwd : project.path;
+            await TerminalManager.createTerminal(project, {
+              runClaude: !tab.isBasic,
+              cwd,
+              skipPermissions: settingsState.get().skipPermissions,
+            });
+          }
+
+          // Set active terminal to the one matching saved activeCwd
+          if (saved.activeCwd) {
+            const terminals = terminalsState.get().terminals;
+            let activeId = null;
+            terminals.forEach((td, id) => {
+              if (td.project?.id === projectId && td.cwd === saved.activeCwd) {
+                activeId = id;
+              }
+            });
+            if (activeId !== null) {
+              TerminalManager.setActiveTerminal(activeId);
+            }
+          }
+        }
+
+        // Restore last opened project
+        if (sessionData.lastOpenedProjectId) {
+          const idx = projects.findIndex(p => p.id === sessionData.lastOpenedProjectId);
+          if (idx !== -1) {
+            setSelectedProjectFilter(idx);
+            TerminalManager.filterByProject(idx);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[SessionRestore] Error restoring terminal sessions:', err);
+    }
+  }
+
   initI18n(settingsState.get().language); // Initialize i18n with saved language preference
 
   // Initialize Claude event bus and provider (hooks or scraping)
@@ -861,6 +915,7 @@ async function deleteProjectUI(projectId) {
 
   projectsState.set({ projects, rootOrder });
   saveProjects();
+  clearProjectSessions(projectId);
 
   if (projectsState.get().selectedProjectFilter === projectIndex) {
     setSelectedProjectFilter(null);
@@ -1308,7 +1363,7 @@ ProjectList.setCallbacks({
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),
-  onFilterTerminals: (idx) => TerminalManager.filterByProject(idx),
+  onFilterTerminals: (idx) => { TerminalManager.filterByProject(idx); saveTerminalSessions(); },
   countTerminalsForProject: TerminalManager.countTerminalsForProject,
   getTerminalStatsForProject: TerminalManager.getTerminalStatsForProject
 });
@@ -3635,6 +3690,7 @@ api.lifecycle.onWillQuit(() => {
 
 // Backup cleanup on window unload (in case onWillQuit doesn't fire)
 window.addEventListener('beforeunload', () => {
+  saveTerminalSessionsImmediate();
   const { saveAndShutdown } = require('./src/renderer');
   saveAndShutdown();
 });
