@@ -1392,10 +1392,16 @@ TerminalManager.setCallbacks({
   onSwitchProject: switchProject
 });
 
-// Listen for Ctrl+Arrow forwarded from main process (bypasses Windows Snap)
+// Listen for Ctrl+Arrow forwarded from main process (Up/Down for project switch)
 api.window.onCtrlArrow((dir) => {
-  if (dir === 'left' || dir === 'right') switchTerminal(dir);
-  else if (dir === 'up' || dir === 'down') switchProject(dir);
+  if (dir === 'up' || dir === 'down') switchProject(dir);
+});
+
+// Listen for Ctrl+Tab forwarded from main process (terminal tab switching)
+api.window.onCtrlTab((dir) => {
+  if (settingsState.get().terminalCtrlTab !== false) {
+    switchTerminal(dir === 'prev' ? 'left' : 'right');
+  }
 });
 
 // Setup FileExplorer

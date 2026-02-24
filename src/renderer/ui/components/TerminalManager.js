@@ -527,32 +527,82 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
  * @returns {Function} Key event handler
  */
 function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal-input') {
+  const sendInput = (text) => {
+    if (inputChannel === 'fivem-input') {
+      api.fivem.input({ projectIndex: terminalId, data: text });
+    } else if (inputChannel === 'webapp-input') {
+      api.webapp.input({ projectIndex: terminalId, data: text });
+    } else {
+      api.terminal.input({ id: terminalId, data: text });
+    }
+  };
+  const isSpecialConsole = inputChannel === 'fivem-input' || inputChannel === 'webapp-input';
+
   return (e) => {
-    // Ctrl+Arrow to switch terminals/projects - handle directly with debounce
-    // xterm.js can trigger the handler multiple times, so we debounce
+    // Shift+Enter: send literal newline to terminal
+    if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
+      if (getSetting('terminalShiftEnter') !== false) {
+        sendInput('\n');
+        return false;
+      }
+    }
+
+    // Ctrl+Arrow Up/Down to switch projects (Left/Right pass through for word-jump)
     if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.repeat && e.type === 'keydown') {
-      const isArrowKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key);
-      if (isArrowKey) {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         const now = Date.now();
         if (now - lastArrowTime < ARROW_DEBOUNCE_MS) {
           return false;
         }
         lastArrowTime = now;
 
-        if (e.key === 'ArrowLeft' && callbacks.onSwitchTerminal) {
-          callbacks.onSwitchTerminal('left');
-          return false;
-        }
-        if (e.key === 'ArrowRight' && callbacks.onSwitchTerminal) {
-          callbacks.onSwitchTerminal('right');
-          return false;
-        }
         if (e.key === 'ArrowUp' && callbacks.onSwitchProject) {
           callbacks.onSwitchProject('up');
           return false;
         }
         if (e.key === 'ArrowDown' && callbacks.onSwitchProject) {
           callbacks.onSwitchProject('down');
+          return false;
+        }
+      }
+
+      // Ctrl+Left/Right: word-jump via VT escape sequences
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !isSpecialConsole) {
+        if (getSetting('terminalCtrlArrowWordJump') !== false) {
+          sendInput(e.key === 'ArrowLeft' ? '\x1b[1;5D' : '\x1b[1;5C');
+          return false;
+        }
+      }
+
+      // Ctrl+Backspace: delete word
+      if (e.key === 'Backspace' && !isSpecialConsole) {
+        if (getSetting('terminalCtrlBackspace') !== false) {
+          sendInput('\x17');
+          return false;
+        }
+      }
+
+      // Ctrl+C: copy selection if present, else pass through for SIGINT
+      if (e.key === 'c') {
+        if (getSetting('terminalCtrlCV') !== false) {
+          const selection = terminal.getSelection();
+          if (selection) {
+            navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+            return false;
+          }
+        }
+        return true; // pass through for SIGINT
+      }
+
+      // Ctrl+V: paste from clipboard
+      if (e.key === 'v') {
+        if (getSetting('terminalCtrlCV') !== false) {
+          const now = Date.now();
+          if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return false;
+          lastPasteTime = now;
+          navigator.clipboard.readText()
+            .then(sendInput)
+            .catch(() => api.app.clipboardRead().then(sendInput));
           return false;
         }
       }
