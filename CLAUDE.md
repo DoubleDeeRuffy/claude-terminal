@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Claude Terminal is a cross-platform Electron desktop application (v0.9.5) for managing Claude Code projects with an integrated terminal, chat UI, git management, and plugin ecosystem. Primary target: Windows 10/11 with NSIS installer. Also builds for macOS (DMG) and Linux (AppImage).
+Claude Terminal is a cross-platform Electron desktop application (v0.9.6) for managing Claude Code projects with an integrated terminal, chat UI, git management, and plugin ecosystem. Primary target: Windows 10/11 with NSIS installer. Also builds for macOS (DMG) and Linux (AppImage).
 
 **Repository:** `github.com/Sterll/claude-terminal` | **License:** GPL-3.0 | **Author:** Yanis
 
@@ -13,10 +13,13 @@ Claude Terminal is a cross-platform Electron desktop application (v0.9.5) for ma
 ```bash
 npm install              # Install dependencies (Node >=18 required, runs electron-rebuild)
 npm start                # Build renderer + run app
-npm start -- --dev       # Run with DevTools enabled
+npm start -- --dev       # Run with DevTools enabled (start:dev script)
 npm run watch            # Build renderer in watch mode (esbuild)
 npm run build:renderer   # Build renderer only → dist/renderer.bundle.js
 npm run build            # Build installer (NSIS/DMG/AppImage) → build/
+npm run build:win        # Build Windows installer only
+npm run build:mac        # Build macOS DMG only
+npm run build:linux      # Build Linux AppImage only
 npm run publish          # Build and publish installer to update server
 npm test                 # Run Jest tests (jsdom environment)
 npm run test:watch       # Jest in watch mode
@@ -29,8 +32,8 @@ npm run test:watch       # Jest in watch mode
 ```
 Electron Main Process (Node.js)
 ├── main.js                          # Bootstrap, lifecycle, single-instance lock, global shortcuts
-├── src/main/preload.js              # IPC bridge (25 namespaces, 100+ methods as electron_api)
-├── src/main/ipc/                    # IPC handlers (15 files, ~100 handlers)
+├── src/main/preload.js              # IPC bridge (26 namespaces, 118+ methods as electron_api)
+├── src/main/ipc/                    # IPC handlers (16 files, 118 handlers)
 ├── src/main/services/               # Business logic (13 services)
 ├── src/main/windows/                # Window managers (5 windows)
 └── src/main/utils/                  # Git operations, paths, AI commit, shell
@@ -39,19 +42,22 @@ Electron Renderer Process (Browser)
 ├── renderer.js                      # Entry point & orchestrator (bundled by esbuild → dist/)
 ├── src/renderer/index.js            # Module loader & initialization
 ├── src/renderer/state/              # Observable state management (9 modules)
-├── src/renderer/services/           # IPC wrappers & business logic (12 services)
+├── src/renderer/services/           # IPC wrappers & business logic (13 services)
 ├── src/renderer/ui/components/      # UI components (12 components)
-├── src/renderer/ui/panels/          # UI panels (9 panels)
+├── src/renderer/ui/panels/          # UI panels (10 panels)
 ├── src/renderer/features/           # Keyboard shortcuts, quick picker, drag-drop
 ├── src/renderer/events/             # Claude event bus + hook/scraping providers
 ├── src/renderer/i18n/               # EN/FR internationalization (~800 keys each)
 └── src/renderer/utils/              # DOM, color, format, paths, icons, syntax highlighting
 
 Project Types (Plugin System)
-└── src/project-types/               # api, fivem, python, webapp, general (49 files)
+└── src/project-types/               # api, fivem, minecraft, python, webapp, general (61 files)
 
 Styles
-└── styles/                          # 14 modular CSS files (20,795 lines total)
+└── styles/                          # 14 modular CSS files (23,357 lines total)
+
+Remote UI
+└── remote-ui/                       # Web interface for remote control (PWA)
 ```
 
 ## Main Process (`src/main/`)
@@ -61,19 +67,23 @@ Styles
 | File | Handlers | Key Operations |
 |------|----------|----------------|
 | `terminal.ipc.js` | 4 | Create PTY (node-pty), input, resize, kill |
-| `git.ipc.js` | 26+ | Status, branches, pull/push, merge, clone, stash, cherry-pick, revert, AI commit message |
-| `github.ipc.js` | 10 | OAuth Device Flow auth, workflow runs, PRs, create PR |
-| `chat.ipc.js` | 13 | Agent SDK streaming sessions, permissions, interrupt, tab name generation, history |
-| `dialog.ipc.js` | 16 | Window controls, file/folder dialogs, notifications, updates, startup settings |
-| `mcp.ipc.js` | 4 | Start/stop MCP server processes |
-| `mcpRegistry.ipc.js` | 3 | Browse/search MCP registry (`registry.modelcontextprotocol.io`) |
-| `marketplace.ipc.js` | 6 | Search/install/uninstall skills from `skills.sh` |
-| `plugin.ipc.js` | 6 | Installed plugins, catalog, install via Claude CLI PTY |
-| `usage.ipc.js` | 4 | Claude usage data (OAuth API primary, PTY `/usage` fallback) |
+| `git.ipc.js` | 38 | Status, branches, pull/push, merge, clone, stash, cherry-pick, revert, worktrees (11 ops), AI commit message, file diff |
+| `github.ipc.js` | 10 | OAuth Device Flow auth, workflow runs, PRs, create PR, token management |
+| `chat.ipc.js` | 11 | Agent SDK streaming sessions, permissions, interrupt, model/effort switching, tab name generation, skill/agent generation |
+| `dialog.ipc.js` | 18 | Window controls, file/folder dialogs, open in explorer/editor/browser, notifications, updates, startup settings, clipboard |
+| `mcp.ipc.js` | 2 | Start/stop MCP server processes |
+| `mcpRegistry.ipc.js` | 3 | Browse/search/detail MCP registry (`registry.modelcontextprotocol.io`) |
+| `marketplace.ipc.js` | 6 | Search skills, featured, readme, install/uninstall from `skills.sh` |
+| `plugin.ipc.js` | 6 | Installed plugins, catalog, marketplaces, readme, install via Claude CLI PTY |
+| `usage.ipc.js` | 4 | Claude usage data (OAuth API primary, PTY `/usage` fallback), monitor start/stop |
 | `claude.ipc.js` | 2 | Session listing, conversation history (parses .jsonl session files) |
-| `project.ipc.js` | 1 | TODO/FIXME scanning, project stats |
-| `hooks.ipc.js` | 4 | Install/remove/verify hooks in `~/.claude/settings.json` |
+| `project.ipc.js` | 1 | TODO/FIXME/HACK/XXX scanning, project stats |
+| `hooks.ipc.js` | 4 | Install/remove/status/verify hooks in `~/.claude/settings.json` |
+| `remote.ipc.js` | 9 | Get/generate PIN, server info/start/stop, notify projects/session/tab/time |
 | `fivem.ipc.js` | - | Delegated to `src/project-types/fivem/` |
+| `index.js` | - | Orchestrator - registers all handlers |
+
+**Total: 118 IPC handlers**
 
 ### Services (`src/main/services/`)
 
@@ -90,6 +100,7 @@ Styles
 | `UpdaterService.js` | Auto-updates | electron-updater, 30min periodic checks, stale cache cleanup |
 | `HooksService.js` | Claude hooks management | 15 hook types, non-destructive install, auto-backup/repair |
 | `HookEventServer.js` | Hook event receiver | HTTP server on `127.0.0.1:0`, receives POST from hook handler |
+| `RemoteServer.js` | WebSocket remote control | WS server on dynamic port, PIN 6-digit auth, broadcast updates to remote-ui |
 | `FivemService.js` | FiveM server launcher | Delegated to project-types |
 
 ### Windows (`src/main/windows/`)
@@ -107,7 +118,7 @@ Styles
 | Utility | Purpose |
 |---------|---------|
 | `paths.js` | Path constants (`~/.claude-terminal/`, `~/.claude/`), `ensureDataDir()`, `loadAccentColor()` |
-| `git.js` | 20+ git operations via `execGit()`, status parsing, safe.directory handling, 15s timeout |
+| `git.js` | 20+ git operations via `execGit()`, status parsing, safe.directory handling, 15s timeout, worktree support (7 functions) |
 | `commitMessageGenerator.js` | AI commit via GitHub Models API (gpt-4o-mini), heuristic fallback |
 | `shell.js` | Shell utilities (PATH resolution for macOS/Linux) |
 
@@ -156,6 +167,7 @@ Base class `State.js`: Observable with `subscribe()`, batched notifications via 
 | `AgentService.js` | Load agents from `~/.claude/agents/` |
 | `ArchiveService.js` | Past-month time tracking archival |
 | `FivemService.js` | FiveM IPC wrapper |
+| `ContextPromptService.js` | Context prompts management for chat |
 
 ### UI Components (`src/renderer/ui/components/`)
 
@@ -178,13 +190,14 @@ Base class `State.js`: Observable with `subscribe()`, batched notifications via 
 | Panel | Purpose |
 |-------|---------|
 | `SettingsPanel.js` | App settings, accent color, language, editor, startup, hooks config |
-| `GitChangesPanel.js` | Git status, staging, unstaging, commit, push/pull |
+| `GitChangesPanel.js` | Git status, staging, unstaging, commit, push/pull, inline diff viewer |
 | `McpPanel.js` | MCP server management, start/stop, config |
 | `PluginsPanel.js` | Claude Code plugins browse, install, uninstall |
 | `SkillsAgentsPanel.js` | Skills and agents display |
 | `MarketplacePanel.js` | Skill marketplace search and installation |
 | `MemoryEditor.js` | MEMORY.md editor |
 | `ShortcutsManager.js` | Keyboard shortcuts configuration |
+| `RemotePanel.js` | Remote control interface (PIN display, QR code, server start/stop) |
 
 ### Features (`src/renderer/features/`)
 
@@ -223,22 +236,33 @@ Pluggable project type system with base class (`base-type.js`) and registry (`re
 |------|----------|
 | `api/` | Route detection, API testing, dashboard |
 | `fivem/` | FiveM server launcher, resource scanning, console management |
-| `python/` | Python environment detection |
+| `minecraft/` | Minecraft server support |
+| `python/` | Python environment detection, venv |
 | `webapp/` | Web framework detection, dev server |
 | `general/` | Default fallback type |
 
 Each type provides: `main/[Type]Service.js`, `main/[type].ipc.js`, `renderer/[Type]Dashboard.js`, `renderer/[Type]ProjectList.js`, `renderer/[Type]RendererService.js`, `renderer/[Type]State.js`, `renderer/[Type]TerminalPanel.js`, `renderer/[Type]Wizard.js`, `i18n/en.json`, `i18n/fr.json`.
 
+## Remote Control System
+
+- **`remote-ui/`** — PWA web interface for remote control from mobile/browser
+- **`RemoteServer.js`** — WebSocket server (main process) on dynamic port, PIN 6-digit auth
+- **`remote.ipc.js`** — 9 IPC handlers: get/generate PIN, server info/start/stop, notify updates
+- **`RemotePanel.js`** — UI panel: PIN display, QR code generation, server status
+- **Authentication:** 6-digit PIN, unique per session
+- **Transport:** WebSocket (`ws` package v8.19.0)
+- **QR code:** Generated via `qrcode` package v1.5.4
+
 ## HTML Pages
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `index.html` | 739 | Main app: titlebar (usage, time, controls), sidebar (11 tabs), content panels, modals |
-| `quick-picker.html` | 341 | Standalone quick picker with inline Node.js script |
-| `setup-wizard.html` | 1475 | 7-step onboarding wizard with embedded EN/FR translations |
-| `notification.html` | 214 | Custom notification with auto-dismiss progress bar |
+| `index.html` | 772 | Main app: titlebar (usage, time, controls), sidebar (11+ tabs), content panels, modals |
+| `quick-picker.html` | 286 | Standalone quick picker with inline Node.js script |
+| `setup-wizard.html` | 1476 | 7-step onboarding wizard with embedded EN/FR translations |
+| `notification.html` | 207 | Custom notification with auto-dismiss progress bar |
 
-## CSS Architecture (`styles/` - 14 files, 20,795 lines)
+## CSS Architecture (`styles/` - 14 files, 23,357 lines)
 
 ### CSS Variables (`:root` in `base.css`)
 
@@ -263,19 +287,19 @@ Each type provides: `main/[Type]Service.js`, `main/[type].ipc.js`, `renderer/[Ty
 | File | Lines | Section |
 |------|-------|---------|
 | `base.css` | 244 | Variables, fonts, reset |
-| `layout.css` | 877 | Sidebar, content grid |
-| `terminal.css` | 1431 | xterm, tabs, loading |
-| `projects.css` | 3370 | Project list, tree, drag-drop |
-| `chat.css` | 2777 | Chat UI, messages, markdown |
-| `git.css` | 2335 | Git panel, diff view |
+| `layout.css` | 885 | Sidebar, content grid |
+| `terminal.css` | 1528 | xterm, tabs, loading |
+| `projects.css` | 3468 | Project list, tree, drag-drop |
+| `chat.css` | 2990 | Chat UI, messages, markdown |
+| `git.css` | 2871 | Git panel, diff view, worktrees |
 | `dashboard.css` | 2065 | Stats cards, sections |
-| `settings.css` | 1171 | Settings forms |
-| `modals.css` | 1510 | Modal dialogs |
+| `settings.css` | 1896 | Settings forms |
+| `modals.css` | 1752 | Modal dialogs |
 | `time-tracking.css` | 1118 | Charts, stats |
-| `skills.css` | 1213 | Skills/agents panel |
+| `skills.css` | 1254 | Skills/agents panel |
 | `mcp.css` | 562 | MCP management |
 | `memory.css` | 668 | Memory editor |
-| `fivem.css` | 1454 | FiveM-specific |
+| `fivem.css` | 2056 | FiveM-specific |
 
 ### Naming Convention
 
@@ -288,9 +312,9 @@ Each type provides: `main/[Type]Service.js`, `main/[type].ipc.js`, `renderer/[Ty
 
 ## Preload Bridge (`src/main/preload.js`)
 
-Exposes 25 API namespaces to renderer via `window.electron_api`:
+Exposes 26 API namespaces to renderer via `window.electron_api`:
 
-`terminal` | `git` (26 methods) | `github` | `chat` | `mcp` | `mcpRegistry` | `marketplace` | `plugins` | `dialog` | `window` | `app` | `notification` | `usage` | `project` | `claude` | `hooks` | `updates` | `setupWizard` | `lifecycle` | `quickPicker` | `tray` | `fivem` | `webapp` | `api` | `python`
+`terminal` | `git` (38 methods) | `github` | `chat` | `mcp` | `mcpRegistry` | `marketplace` | `plugins` | `dialog` | `window` | `app` | `notification` | `usage` | `project` | `claude` | `hooks` | `updates` | `setupWizard` | `lifecycle` | `quickPicker` | `tray` | `fivem` | `webapp` | `api` | `python` | `remote`
 
 Also exposes `window.electron_nodeModules`: `path`, `fs` (sync + promises), `os.homedir()`, `process.env`, `child_process.execSync`
 
@@ -331,10 +355,13 @@ Windows Credential Manager (via keytar)  # GitHub token storage
 | `@xterm/addon-fit` | ^0.11.0 | Auto-fit terminal to container |
 | `node-pty` | ^1.1.0 | PTY process management |
 | `keytar` | ^7.9.0 | OS credential storage (Windows Credential Manager) |
-| `marked` | ^17.0.2 | Markdown to HTML rendering |
+| `marked` | ^17.0.3 | Markdown to HTML rendering |
 | `electron-updater` | ^6.1.7 | Auto-update with generic provider |
+| `ws` | ^8.19.0 | WebSocket server for remote control |
+| `qrcode` | ^1.5.4 | QR code generation for remote access |
 | `esbuild` | ^0.27.2 | Renderer bundling (IIFE, Chrome 120 target, sourcemaps) |
 | `jest` | ^29.7.0 | Unit testing (jsdom environment) |
+| `playwright` | ^1.58.2 | Browser automation (screenshots, tests) |
 
 ## Key Implementation Details
 
@@ -350,11 +377,13 @@ Windows Credential Manager (via keytar)  # GitHub token storage
 - **Renderer bundling:** esbuild IIFE bundle → `dist/renderer.bundle.js` with sourcemaps
 - **Persistence:** Atomic writes (temp file + rename), backup files (`.bak`), corruption recovery
 - **Updates:** Generic provider, 30min periodic checks, differential packages
+- **Remote control:** WebSocket server with PIN auth, QR code for easy mobile connection, PWA in `remote-ui/`
+- **Git worktrees:** Full worktree support in git.js (7 functions) and git.ipc.js
 
 ## Testing
 
 ```bash
-npm test                    # Run all tests (12 suites, 227+ tests)
+npm test                    # Run all tests (14 suites)
 npm run test:watch          # Watch mode
 ```
 
@@ -362,9 +391,10 @@ npm run test:watch          # Watch mode
 - **Setup:** `tests/setup.js` mocks `window.electron_nodeModules` and `window.electron_api`
 - **Test files:**
   - `tests/state/` - State.test.js, settings.test.js, projects.state.test.js, timeTracking.state.test.js
-  - `tests/services/` - ChatService.test.js
+  - `tests/services/` - ChatService.test.js, RemoteServer.test.js
   - `tests/features/` - KeyboardShortcuts.test.js
   - `tests/utils/` - color.test.js, format.test.js, fileIcons.test.js, git.test.js, shell.test.js
+  - `tests/remote-ui/` - hierarchy.test.js
 - **Pattern:** `**/tests/**/*.test.js`
 
 ## CI/CD
@@ -374,14 +404,15 @@ npm run test:watch          # Watch mode
 - **`ci.yml`:** Triggers on push to `main` and PRs. Matrix: Node 18 + 20 on windows-latest, ubuntu-latest, macos-latest. Steps: checkout, npm ci, build:renderer, test.
 - **`release.yml`:** Triggers on `v*` tags. Builds NSIS (Windows x64), DMG (macOS arm64 + x64), AppImage (Linux x64).
 
-**Installer:** electron-builder config in `electron-builder.config.js`. AppId: `com.yanis.claude-terminal`. NSIS per-user install with custom images.
+**Installer:** electron-builder config in `electron-builder.config.js`. AppId: `com.yanis.claude-terminal`. NSIS per-user install with custom images. Publishes to GitHub releases.
 
 ## Bundled Resources
 
 - **`resources/bundled-skills/`:** `create-skill` (skill creation guide), `create-agents` (agent creation guide with templates)
 - **`resources/hooks/claude-terminal-hook-handler.js`:** Node.js script called by Claude hooks, forwards events via HTTP POST
-- **`assets/`:** `icon.ico`, `claude-mascot.svg`, `mascot-dance.svg`
+- **`assets/`:** `icon.ico`, `icon.png`, `claude-mascot.svg`, `mascot-dance.svg`
 - **`website/`:** Landing page, changelog, privacy policy, legal terms, mascot demo, OG generator
+- **`remote-ui/`:** PWA web interface for remote control (bundled via extraResources)
 
 ## Conventions
 
