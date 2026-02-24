@@ -3186,11 +3186,14 @@ async function createChatTerminal(project, options = {}) {
     onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
     onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),
     onSwitchProject: (dir) => callbacks.onSwitchProject?.(dir),
-    onForkSession: ({ resumeSessionId: forkSid, resumeSessionAt: forkAt }) => {
+    onForkSession: ({ resumeSessionId: forkSid, resumeSessionAt: forkAt, model: forkModel, effort: forkEffort, skipPermissions: forkSkipPerms }) => {
       createChatTerminal(project, {
         resumeSessionId: forkSid,
         forkSession: true,
         resumeSessionAt: forkAt,
+        skipPermissions: forkSkipPerms || false,
+        initialModel: forkModel || null,
+        initialEffort: forkEffort || null,
         name: `Fork: ${tabName}`
       });
     },

@@ -2995,7 +2995,10 @@ function createChatView(wrapperEl, project, options = {}) {
     if (!realSid || !onForkSession) return;
     onForkSession({
       resumeSessionId: realSid,
-      resumeSessionAt: messageUuid
+      resumeSessionAt: messageUuid,
+      model: selectedModel,
+      effort: selectedEffort,
+      skipPermissions,
     });
   }
 
