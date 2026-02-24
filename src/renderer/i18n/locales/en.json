@@ -525,6 +525,8 @@
     "launchAtStartupDesc": "Start automatically with Windows",
     "compactProjects": "Compact projects view",
     "compactProjectsDesc": "Show only the name of unselected projects",
+    "rightClickPaste": "Right-click copy/paste",
+    "rightClickPasteDesc": "Right-click in terminal: copies selected text or pastes from clipboard",
     "editor": "Code editor",
     "editorDesc": "Editor used to open files",
     "closeWindow": "Window close",

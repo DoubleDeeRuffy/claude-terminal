@@ -591,6 +591,8 @@
     "launchAtStartupDesc": "Démarrer automatiquement avec Windows",
     "compactProjects": "Vue compacte des projets",
     "compactProjectsDesc": "Afficher uniquement le nom des projets non sélectionnés",
+    "rightClickPaste": "Clic droit copier/coller",
+    "rightClickPasteDesc": "Clic droit dans le terminal : copie le texte sélectionné ou colle depuis le presse-papiers",
     "editor": "Éditeur de code",
     "editorDesc": "Éditeur utilisé pour ouvrir les fichiers",
     "closeWindow": "Fermeture de la fenêtre",

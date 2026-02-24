@@ -435,6 +435,16 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             <div class="settings-toggle-row">
               <div class="settings-toggle-label">
+                <div>${t('settings.rightClickPaste')}</div>
+                <div class="settings-toggle-desc">${t('settings.rightClickPasteDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="right-click-paste-toggle" ${settings.rightClickPaste !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
                 <div>${t('settings.reduceMotion')}</div>
                 <div class="settings-toggle-desc">${t('settings.reduceMotionDesc')}</div>
               </div>
@@ -1057,6 +1067,8 @@ async function renderSettingsTab(initialTab = 'general') {
 
     const compactProjectsToggle = document.getElementById('compact-projects-toggle');
     const newCompactProjects = compactProjectsToggle ? compactProjectsToggle.checked : true;
+    const rightClickPasteToggle = document.getElementById('right-click-paste-toggle');
+    const newRightClickPaste = rightClickPasteToggle ? rightClickPasteToggle.checked : true;
     const reduceMotionToggle = document.getElementById('reduce-motion-toggle');
     const newReduceMotion = reduceMotionToggle ? reduceMotionToggle.checked : false;
     const aiCommitToggle = document.getElementById('ai-commit-toggle');
@@ -1075,6 +1087,7 @@ async function renderSettingsTab(initialTab = 'general') {
       terminalTheme: newTerminalTheme,
       language: newLanguage,
       compactProjects: newCompactProjects,
+      rightClickPaste: newRightClickPaste,
       reduceMotion: newReduceMotion,
       aiCommitMessages: newAiCommitMessages,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',

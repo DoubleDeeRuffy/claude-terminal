@@ -520,6 +520,44 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
 }
 
 /**
+ * Setup right-click copy/paste on terminal wrapper.
+ * If text is selected, copies it; otherwise pastes from clipboard.
+ * Gated by the rightClickPaste setting.
+ */
+function setupRightClickPaste(wrapper, terminal, terminalId, inputChannel = 'terminal-input') {
+  wrapper.addEventListener('contextmenu', (e) => {
+    if (!getSetting('rightClickPaste')) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const sendPaste = (text) => {
+      if (!text) return;
+      if (inputChannel === 'fivem-input') {
+        api.fivem.input({ projectIndex: terminalId, data: text });
+      } else if (inputChannel === 'webapp-input') {
+        api.webapp.input({ projectIndex: terminalId, data: text });
+      } else {
+        api.terminal.input({ id: terminalId, data: text });
+      }
+    };
+
+    const selection = terminal.getSelection();
+    if (selection) {
+      // Copy selected text
+      navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+    } else {
+      // Paste from clipboard
+      const now = Date.now();
+      if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
+      lastPasteTime = now;
+      navigator.clipboard.readText()
+        .then(sendPaste)
+        .catch(() => api.app.clipboardRead().then(sendPaste));
+    }
+  });
+}
+
+/**
  * Create a custom key event handler for terminal shortcuts
  * @param {Terminal} terminal - The xterm.js terminal instance
  * @param {string|number} terminalId - Terminal ID for IPC
@@ -1217,6 +1255,7 @@ async function createTerminal(project, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickPaste(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -1492,6 +1531,7 @@ function createTypeConsole(project, projectIndex) {
   // Prevent double-paste issue
   setupPasteHandler(consoleView, projectIndex, `${typeId}-input`);
   setupClipboardShortcuts(consoleView, terminal, projectIndex, `${typeId}-input`);
+  setupRightClickPaste(consoleView, terminal, projectIndex, `${typeId}-input`);
 
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
@@ -2632,6 +2672,7 @@ async function resumeSession(project, sessionId, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickPaste(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -2789,6 +2830,7 @@ async function createTerminalWithPrompt(project, prompt) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickPaste(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3349,6 +3391,7 @@ async function switchTerminalMode(id) {
     // Setup paste handler and key handler (use ptyId for PTY input routing)
     setupPasteHandler(wrapper, ptyId, 'terminal-input');
     setupClipboardShortcuts(wrapper, terminal, ptyId, 'terminal-input');
+    setupRightClickPaste(wrapper, terminal, ptyId, 'terminal-input');
     terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, ptyId, 'terminal-input'));
 
     // Title change
