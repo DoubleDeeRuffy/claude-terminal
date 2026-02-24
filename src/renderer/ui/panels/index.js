@@ -11,6 +11,7 @@ const SkillsAgentsPanel = require('./SkillsAgentsPanel');
 const PluginsPanel = require('./PluginsPanel');
 const MarketplacePanel = require('./MarketplacePanel');
 const McpPanel = require('./McpPanel');
+const WorkflowPanel = require('./WorkflowPanel');
 
 module.exports = {
   MemoryEditor,
@@ -20,5 +21,6 @@ module.exports = {
   SkillsAgentsPanel,
   PluginsPanel,
   MarketplacePanel,
-  McpPanel
+  McpPanel,
+  WorkflowPanel
 };

@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="styles/time-tracking.css">
   <link rel="stylesheet" href="styles/skills.css">
   <link rel="stylesheet" href="styles/chat.css">
+  <link rel="stylesheet" href="styles/workflow.css">
 </head>
 <body>
   <!-- Title Bar -->
@@ -147,6 +148,14 @@
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM8 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5zM9.5 8c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5S9.5 9.38 9.5 8zm6.5 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
           </svg>
           <span>Agents</span>
+        </button>
+        <button class="nav-tab" data-tab="workflows" title="Workflows">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/>
+            <rect x="9" y="15" width="6" height="6" rx="1"/>
+            <path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/>
+          </svg>
+          <span>Workflows</span>
         </button>
         <button class="nav-tab" data-tab="mcp" title="MCP">
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -612,6 +621,11 @@
             <div class="mcp-list" id="mcp-list"></div>
           </div>
         </div>
+      </div>
+
+      <!-- Workflows Tab -->
+      <div class="tab-content" id="tab-workflows">
+        <div id="workflow-panel" style="height:100%;"></div>
       </div>
 
       <!-- Settings Tab -->
