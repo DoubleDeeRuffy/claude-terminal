@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.sterll.claude_terminal</id>
+
+  <name>Claude Terminal</name>
+  <summary>Manage Claude Code projects with an integrated terminal and AI chat</summary>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+
+  <description>
+    <p>
+      Claude Terminal is a desktop application for developers who use Claude Code.
+      It provides a unified workspace to manage multiple projects, run terminals,
+      chat with Claude via the Agent SDK, and handle git operations — all in one place.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Multi-project management with folder hierarchy and quick actions</li>
+      <li>Integrated terminal (xterm.js with WebGL rendering)</li>
+      <li>Claude AI chat with Agent SDK streaming support</li>
+      <li>Git panel with staging, commits, inline diff, stash and worktrees</li>
+      <li>Time tracking with per-project statistics and charts</li>
+      <li>Skills and agents marketplace</li>
+      <li>MCP server management</li>
+      <li>Remote control via WebSocket with QR code authentication</li>
+      <li>French and English interface</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.sterll.claude_terminal.desktop</launchable>
+
+  <url type="homepage">https://github.com/Sterll/claude-terminal</url>
+  <url type="bugtracker">https://github.com/Sterll/claude-terminal/issues</url>
+  <url type="vcs-browser">https://github.com/Sterll/claude-terminal</url>
+
+  <developer id="io.github.sterll">
+    <name>Yanis</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Project dashboard showing all managed projects with git status</caption>
+      <image type="source" width="1512" height="812">https://raw.githubusercontent.com/Sterll/claude-terminal/main/flatpak/screenshots/screenshot-dashboard.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Claude AI chat interface with Agent SDK streaming</caption>
+      <image type="source" width="1512" height="812">https://raw.githubusercontent.com/Sterll/claude-terminal/main/flatpak/screenshots/screenshot-chat.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Time tracking with weekly stats and per-project breakdown</caption>
+      <image type="source" width="1512" height="812">https://raw.githubusercontent.com/Sterll/claude-terminal/main/flatpak/screenshots/screenshot-timetracking.png</image>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="0.9.6" date="2025-02-01">
+      <description>
+        <p>Added workflow automation panel with wizard builder and improved git management.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+
+  <categories>
+    <category>Development</category>
+    <category>IDE</category>
+  </categories>
+
+  <keywords>
+    <keyword>claude</keyword>
+    <keyword>terminal</keyword>
+    <keyword>ai</keyword>
+    <keyword>git</keyword>
+    <keyword>developer</keyword>
+    <keyword>code</keyword>
+  </keywords>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">1000</display_length>
+  </requires>
+</component>

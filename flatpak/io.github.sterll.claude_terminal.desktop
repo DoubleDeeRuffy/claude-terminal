@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Claude Terminal
+GenericName=Claude Code Manager
+Comment=Manage Claude Code projects with an integrated terminal, chat UI and git tools
+Exec=claude-terminal %U
+Icon=io.github.sterll.claude_terminal
+Terminal=false
+Type=Application
+Categories=Development;IDE;
+Keywords=claude;terminal;ai;code;git;developer;
+StartupWMClass=claude-terminal
+StartupNotify=true

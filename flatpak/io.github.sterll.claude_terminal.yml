@@ -1,0 +1,46 @@
+app-id: io.github.sterll.claude_terminal
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
+base: org.electronjs.Electron2.BaseApp
+base-version: '23.08'
+command: claude-terminal
+separate-locales: false
+
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=pulseaudio
+  - --share=network
+  - --device=dri
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --env=TMPDIR=/var/tmp
+
+modules:
+  - name: claude-terminal
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/node20/bin
+      env:
+        npm_config_nodedir: /usr/lib/sdk/node20
+    build-commands:
+      # Install npm dependencies
+      - npm ci --offline --cache=/run/build/claude-terminal/flatpak-node/npm-cache
+      # Build renderer bundle
+      - npm run build:renderer
+      # Build Linux package (AppImage → extract)
+      - npx electron-builder --linux dir --config electron-builder.config.js
+      # Install to /app
+      - cp -r dist/linux-unpacked /app/claude-terminal
+      - install -Dm755 resources/claude-terminal.sh /app/bin/claude-terminal
+      - install -Dm644 assets/icon.png /app/share/icons/hicolor/512x512/apps/io.github.sterll.claude_terminal.png
+      - install -Dm644 flatpak/io.github.sterll.claude_terminal.desktop /app/share/applications/io.github.sterll.claude_terminal.desktop
+      - install -Dm644 flatpak/io.github.sterll.claude_terminal.metainfo.xml /app/share/metainfo/io.github.sterll.claude_terminal.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
+      - generated-sources.json
