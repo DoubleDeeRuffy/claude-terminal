@@ -180,6 +180,7 @@ function createChatView(wrapperEl, project, options = {}) {
           <div class="chat-footer-left">
             <span class="chat-status-dot"></span>
             <span class="chat-status-text">${escapeHtml(t('chat.ready'))}</span>
+            <span class="chat-keyboard-hint"><kbd>Shift</kbd>+<kbd>Enter</kbd> ${escapeHtml(t('chat.newLine'))}</span>
           </div>
           <div class="chat-footer-right">
             <div class="chat-effort-selector">

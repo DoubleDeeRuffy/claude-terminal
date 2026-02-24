@@ -2768,6 +2768,23 @@
   opacity: 0.6;
 }
 
+.chat-keyboard-hint {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  opacity: 0.35;
+  margin-left: 8px;
+}
+
+.chat-keyboard-hint kbd {
+  display: inline-block;
+  padding: 0 4px;
+  font-size: 9px;
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+}
+
 .chat-status-tokens,
 .chat-status-cost {
   font-size: 10px;
