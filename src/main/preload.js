@@ -368,5 +368,35 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== APP LIFECYCLE ====================
   lifecycle: {
     onWillQuit: createListener('app-will-quit')
+  },
+
+  // ==================== WORKFLOW AUTOMATION ====================
+  workflow: {
+    // CRUD
+    list:             ()             => ipcRenderer.invoke('workflow-list'),
+    get:              (id)           => ipcRenderer.invoke('workflow-get', { id }),
+    save:             (workflow)     => ipcRenderer.invoke('workflow-save', { workflow }),
+    delete:           (id)           => ipcRenderer.invoke('workflow-delete', { id }),
+    enable:           (id, enabled)  => ipcRenderer.invoke('workflow-enable', { id, enabled }),
+    // Execution
+    trigger:          (id, opts)     => ipcRenderer.invoke('workflow-trigger', { id, opts }),
+    cancel:           (runId)        => ipcRenderer.invoke('workflow-cancel', { runId }),
+    approveWait:      (runId, stepId, data) => ipcRenderer.invoke('workflow-approve-wait', { runId, stepId, data }),
+    // History
+    getRuns:          (workflowId, limit) => ipcRenderer.invoke('workflow-runs', { workflowId, limit }),
+    getRecentRuns:    (limit)        => ipcRenderer.invoke('workflow-recent-runs', { limit }),
+    getRun:           (runId)        => ipcRenderer.invoke('workflow-run-get', { runId }),
+    getRunResult:     (runId)        => ipcRenderer.invoke('workflow-run-result', { runId }),
+    getActiveRuns:    ()             => ipcRenderer.invoke('workflow-active-runs'),
+    // Graph & utilities
+    getDependencyGraph: ()           => ipcRenderer.invoke('workflow-dependency-graph'),
+    validateCron:     (expr)         => ipcRenderer.invoke('workflow-validate-cron', { expr }),
+    // Real-time event listeners
+    onRunStart:       createListener('workflow-run-start'),
+    onRunEnd:         createListener('workflow-run-end'),
+    onRunQueued:      createListener('workflow-run-queued'),
+    onStepUpdate:     createListener('workflow-step-update'),
+    onAgentMessage:   createListener('workflow-agent-message'),
+    onNotifyDesktop:  createListener('workflow-notify-desktop'),
   }
 });

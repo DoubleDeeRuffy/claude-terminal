@@ -62,6 +62,10 @@ function start(win) {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('hook-event', event);
           }
+          // Also forward to WorkflowService for hook-triggered workflows
+          try {
+            require('./WorkflowService').onHookEvent(event);
+          } catch (_) { /* WorkflowService optional dependency */ }
         } catch (e) {
           console.warn('[HookEventServer] Malformed payload:', body.substring(0, 200));
         }

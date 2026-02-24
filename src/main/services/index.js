@@ -13,6 +13,7 @@ const hooksService = require('./HooksService');
 const hookEventServer = require('./HookEventServer');
 const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
 const remoteServer = require('./RemoteServer');
+const workflowService = require('./WorkflowService');
 
 /**
  * Initialize all services with main window reference
@@ -29,6 +30,11 @@ function initializeServices(mainWindow) {
   hookEventServer.setMainWindow(mainWindow);
   minecraftService.setMainWindow(mainWindow);
   remoteServer.setMainWindow(mainWindow); // auto-starts if remoteEnabled
+
+  // Workflow service: inject deps + init scheduler
+  workflowService.setMainWindow(mainWindow);
+  workflowService.setDeps({ chatService });
+  workflowService.init();
 }
 
 /**
@@ -44,6 +50,7 @@ function cleanupServices() {
   chatService.closeAll();
   hookEventServer.stop();
   remoteServer.stop();
+  workflowService.destroy();
 }
 
 module.exports = {
@@ -58,6 +65,7 @@ module.exports = {
   hookEventServer,
   minecraftService,
   remoteServer,
+  workflowService,
   initializeServices,
   cleanupServices
 };
