@@ -39,15 +39,22 @@ function createMainWindow({ isDev = false } = {}) {
   const htmlPath = path.join(__dirname, '..', '..', '..', 'index.html');
   mainWindow.loadFile(htmlPath);
 
-  // Intercept Ctrl+Arrow to prevent Windows Snap and forward to renderer for tab switching
+  // Intercept Ctrl+Arrow (Up/Down only) for project switching, and Ctrl+Tab for terminal switching
   mainWindow.webContents.on('before-input-event', (event, input) => {
     const modKey = process.platform === 'darwin' ? input.meta : input.control;
-    if (modKey && !input.shift && !input.alt && input.type === 'keyDown') {
-      const dir = { Left: 'left', ArrowLeft: 'left', Right: 'right', ArrowRight: 'right',
-                     Up: 'up', ArrowUp: 'up', Down: 'down', ArrowDown: 'down' }[input.key];
-      if (dir) {
+    if (modKey && !input.alt && input.type === 'keyDown') {
+      // Ctrl+Arrow Up/Down: project switching (Left/Right pass through for word-jump)
+      if (!input.shift) {
+        const dir = { Up: 'up', ArrowUp: 'up', Down: 'down', ArrowDown: 'down' }[input.key];
+        if (dir) {
+          event.preventDefault();
+          mainWindow.webContents.send('ctrl-arrow', dir);
+        }
+      }
+      // Ctrl+Tab / Ctrl+Shift+Tab: terminal tab switching
+      if (input.key === 'Tab') {
         event.preventDefault();
-        mainWindow.webContents.send('ctrl-arrow', dir);
+        mainWindow.webContents.send('ctrl-tab', input.shift ? 'prev' : 'next');
       }
     }
   });
