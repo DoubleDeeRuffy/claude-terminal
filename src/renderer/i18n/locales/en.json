@@ -525,6 +525,8 @@
     "launchAtStartupDesc": "Start automatically with Windows",
     "compactProjects": "Compact projects view",
     "compactProjectsDesc": "Show only the name of unselected projects",
+    "restoreTerminalSessions": "Restore terminal sessions",
+    "restoreTerminalSessionsDesc": "Reopen terminal tabs from the previous session on app startup",
     "editor": "Code editor",
     "editorDesc": "Editor used to open files",
     "closeWindow": "Window close",

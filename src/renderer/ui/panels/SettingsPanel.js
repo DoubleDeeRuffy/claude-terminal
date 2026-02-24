@@ -435,6 +435,16 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             <div class="settings-toggle-row">
               <div class="settings-toggle-label">
+                <div>${t('settings.restoreTerminalSessions')}</div>
+                <div class="settings-toggle-desc">${t('settings.restoreTerminalSessionsDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="restore-sessions-toggle" ${settings.restoreTerminalSessions !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
                 <div>${t('settings.reduceMotion')}</div>
                 <div class="settings-toggle-desc">${t('settings.reduceMotionDesc')}</div>
               </div>
@@ -1061,6 +1071,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newReduceMotion = reduceMotionToggle ? reduceMotionToggle.checked : false;
     const aiCommitToggle = document.getElementById('ai-commit-toggle');
     const newAiCommitMessages = aiCommitToggle ? aiCommitToggle.checked : true;
+    const restoreSessionsToggle = document.getElementById('restore-sessions-toggle');
+    const newRestoreTerminalSessions = restoreSessionsToggle ? restoreSessionsToggle.checked : true;
     const hooksToggle = document.getElementById('hooks-enabled-toggle');
     const newHooksEnabled = hooksToggle ? hooksToggle.checked : settings.hooksEnabled;
     const context1MToggle = document.getElementById('enable-1m-context-toggle');
@@ -1077,6 +1089,7 @@ async function renderSettingsTab(initialTab = 'general') {
       compactProjects: newCompactProjects,
       reduceMotion: newReduceMotion,
       aiCommitMessages: newAiCommitMessages,
+      restoreTerminalSessions: newRestoreTerminalSessions,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',
       hooksEnabled: newHooksEnabled,
       enable1MContext: newEnable1MContext

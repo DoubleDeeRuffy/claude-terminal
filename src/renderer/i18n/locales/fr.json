@@ -591,6 +591,8 @@
     "launchAtStartupDesc": "Démarrer automatiquement avec Windows",
     "compactProjects": "Vue compacte des projets",
     "compactProjectsDesc": "Afficher uniquement le nom des projets non sélectionnés",
+    "restoreTerminalSessions": "Restaurer les sessions terminal",
+    "restoreTerminalSessionsDesc": "Rouvrir les onglets terminal de la session précédente au démarrage",
     "editor": "Éditeur de code",
     "editorDesc": "Éditeur utilisé pour ouvrir les fichiers",
     "closeWindow": "Fermeture de la fenêtre",
