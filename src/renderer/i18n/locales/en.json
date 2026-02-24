@@ -525,6 +525,8 @@
     "launchAtStartupDesc": "Start automatically with Windows",
     "compactProjects": "Compact projects view",
     "compactProjectsDesc": "Show only the name of unselected projects",
+    "showDotfiles": "Show dotfiles",
+    "showDotfilesDesc": "Show hidden files and folders starting with a dot in the file explorer",
     "editor": "Code editor",
     "editorDesc": "Editor used to open files",
     "closeWindow": "Window close",

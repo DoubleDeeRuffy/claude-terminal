@@ -11,6 +11,7 @@ const { getFileIcon, CHEVRON_ICON } = require('../../utils/fileIcons');
 const { showContextMenu } = require('./ContextMenu');
 const { showConfirm } = require('./Modal');
 const { t } = require('../../i18n');
+const { getSetting } = require('../../state/settings.state');
 
 // ========== STATE ==========
 let rootPath = null;
@@ -230,7 +231,7 @@ async function readDirectoryAsync(dirPath) {
 
     for (const name of names) {
       if (IGNORE_PATTERNS.has(name)) continue;
-      if (name.startsWith('.') && name !== '.env' && name !== '.gitignore') continue;
+      if (!getSetting('showDotfiles') && name.startsWith('.') && name !== '.env' && name !== '.gitignore') continue;
 
       if (result.length >= MAX_DISPLAY_ENTRIES) {
         skipped++;
@@ -367,7 +368,7 @@ async function collectAllFiles(dirPath, maxFiles = 5000) {
       const names = await fs.promises.readdir(dir);
       for (const name of names) {
         if (IGNORE_PATTERNS.has(name)) continue;
-        if (name.startsWith('.') && name !== '.env' && name !== '.gitignore') continue;
+        if (!getSetting('showDotfiles') && name.startsWith('.') && name !== '.env' && name !== '.gitignore') continue;
 
         const fullPath = path.join(dir, name);
         try {
