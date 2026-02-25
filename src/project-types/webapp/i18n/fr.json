@@ -34,6 +34,20 @@
       "laptop": "Portable",
       "desktop": "Bureau"
     },
+    "scan": {
+      "title": "Scanner les problemes visuels",
+      "scanning": "Analyse...",
+      "noIssues": "Aucun probleme detecte",
+      "issuesFound": "{count} probleme(s) detecte(s)",
+      "dismiss": "Ignorer",
+      "customInstruction": "Personnaliser l'instruction de correction...",
+      "types": {
+        "overflow": "Debordement",
+        "contrast": "Contraste",
+        "brokenImage": "Image cassee",
+        "zIndex": "Z-Index"
+      }
+    },
     "settings": {
       "previewEnabled": "Preview integre",
       "previewEnabledDesc": "Afficher un apercu live du serveur dev dans l'app (utilise plus de memoire)"

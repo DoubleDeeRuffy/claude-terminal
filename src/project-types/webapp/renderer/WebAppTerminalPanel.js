@@ -72,6 +72,9 @@ const ICON_RESPONSIVE_TABLET  = `<svg viewBox="0 0 12 12" fill="none" stroke="cu
 const ICON_RESPONSIVE_LAPTOP  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="2" y="2" width="8" height="6" rx="1"/><path d="M1 10h10" stroke-linecap="round"/></svg>`;
 const ICON_RESPONSIVE_DESKTOP = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="1" y="1.5" width="10" height="7" rx="1"/><path d="M4 10.5h4M6 8.5v2" stroke-linecap="round"/></svg>`;
 
+// Auto-scan icon
+const ICON_SCAN = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 3V1h2M9 1h2v2M11 9v2H9M3 11H1V9" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 6h5" stroke-linecap="round"/></svg>`;
+
 // ── Inspect inject/uninject scripts ──────────────────────────────────
 function getInspectInjectScript() {
   const hex = getSetting('accentColor') || '#d97706';
@@ -230,6 +233,176 @@ const KEY_LISTEN_SCRIPT = `(function() {
   });
 })();`;
 
+// ── Auto-scan injection script ──────────────────────────────────────
+function getScanInjectionScript() {
+  return `(function() {
+  var results = [];
+  var MAX_RESULTS = 50;
+
+  function getSelector(el) {
+    if (el.id) return '#' + el.id;
+    var s = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      var c = el.className.trim().split(/\\s+/).filter(Boolean);
+      if (c.length) s += '.' + c.join('.');
+    }
+    return s;
+  }
+
+  function makeResult(el, type, description) {
+    if (results.length >= MAX_RESULTS) return;
+    var r = el.getBoundingClientRect();
+    results.push({
+      type: type,
+      description: description,
+      tagName: el.tagName.toLowerCase(),
+      id: el.id || '',
+      className: (typeof el.className === 'string' ? el.className : ''),
+      selector: getSelector(el),
+      text: (el.textContent || '').trim().substring(0, 60),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      scroll: { x: window.scrollX, y: window.scrollY }
+    });
+  }
+
+  // ── 1. OVERFLOW ──
+  var all = document.querySelectorAll('*');
+  for (var i = 0; i < all.length && results.length < MAX_RESULTS; i++) {
+    var el = all[i];
+    if (el.tagName === 'HTML' || el.tagName === 'BODY') continue;
+    var r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (el.clientWidth > 0 && el.clientHeight > 0) {
+      var overX = el.scrollWidth - el.clientWidth;
+      var overY = el.scrollHeight - el.clientHeight;
+      if (overX > 5 || overY > 5) {
+        var st = window.getComputedStyle(el);
+        var ovf = st.overflow + ' ' + st.overflowX + ' ' + st.overflowY;
+        if (ovf.indexOf('hidden') === -1 && ovf.indexOf('scroll') === -1 && ovf.indexOf('auto') === -1) {
+          var desc = 'Content overflows by ' +
+            (overX > 5 ? overX + 'px horizontally' : '') +
+            (overX > 5 && overY > 5 ? ' and ' : '') +
+            (overY > 5 ? overY + 'px vertically' : '');
+          makeResult(el, 'overflow', desc);
+        }
+      }
+    }
+  }
+
+  // ── 2. CONTRAST (WCAG AA) ──
+  function luminance(r, g, b) {
+    var a = [r, g, b].map(function(v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+  }
+  function contrastRatio(l1, l2) {
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  }
+  function parseColor(str) {
+    var m = str.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
+    return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
+  }
+
+  var textTags = document.querySelectorAll('p,span,h1,h2,h3,h4,h5,h6,a,li,td,th,label,button');
+  for (var i = 0; i < textTags.length && results.length < MAX_RESULTS; i++) {
+    var el = textTags[i];
+    var r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    var hasText = false;
+    for (var c = 0; c < el.childNodes.length; c++) {
+      if (el.childNodes[c].nodeType === 3 && el.childNodes[c].textContent.trim()) { hasText = true; break; }
+    }
+    if (!hasText) continue;
+
+    var st = window.getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) < 0.1) continue;
+
+    var fg = parseColor(st.color);
+    if (!fg) continue;
+    var bg = null;
+    var p = el;
+    while (p) {
+      var pSt = window.getComputedStyle(p);
+      var pBg = parseColor(pSt.backgroundColor);
+      if (pBg && pSt.backgroundColor !== 'rgba(0, 0, 0, 0)' && pSt.backgroundColor.indexOf('0)') === -1) {
+        bg = pBg;
+        break;
+      }
+      p = p.parentElement;
+    }
+    if (!bg) bg = { r: 255, g: 255, b: 255 };
+
+    var fgL = luminance(fg.r, fg.g, fg.b);
+    var bgL = luminance(bg.r, bg.g, bg.b);
+    var ratio = contrastRatio(fgL, bgL);
+    var fs = parseFloat(st.fontSize);
+    var isBold = parseInt(st.fontWeight) >= 700 || st.fontWeight === 'bold';
+    var isLarge = fs >= 24 || (fs >= 18.66 && isBold);
+    var threshold = isLarge ? 3 : 4.5;
+
+    if (ratio < threshold) {
+      makeResult(el, 'contrast',
+        'Contrast ratio ' + ratio.toFixed(1) + ':1 (needs ' + threshold + ':1 for WCAG AA). ' +
+        'Text rgb(' + fg.r + ',' + fg.g + ',' + fg.b + ') on rgb(' + bg.r + ',' + bg.g + ',' + bg.b + ')'
+      );
+    }
+  }
+
+  // ── 3. BROKEN IMAGES ──
+  var imgs = document.querySelectorAll('img');
+  for (var i = 0; i < imgs.length && results.length < MAX_RESULTS; i++) {
+    var img = imgs[i];
+    var r = img.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (!img.src || img.src === '' || img.src === window.location.href) {
+      makeResult(img, 'broken-image', 'Image has no src attribute');
+    } else if (img.complete && img.naturalWidth === 0) {
+      makeResult(img, 'broken-image', 'Image failed to load: ' + img.src.substring(0, 80));
+    }
+  }
+
+  // ── 4. Z-INDEX OVERLAP ──
+  var zEls = [];
+  for (var i = 0; i < all.length; i++) {
+    var el = all[i];
+    var st = window.getComputedStyle(el);
+    var z = parseInt(st.zIndex);
+    if (!isNaN(z) && z > 0 && st.position !== 'static') {
+      var r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) zEls.push({ el: el, z: z, rect: r });
+    }
+  }
+  for (var i = 0; i < zEls.length && results.length < MAX_RESULTS; i++) {
+    for (var j = i + 1; j < zEls.length; j++) {
+      var a = zEls[i], b = zEls[j];
+      if (a.z === b.z) continue;
+      if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      var overlap = !(a.rect.right < b.rect.left || b.rect.right < a.rect.left ||
+                      a.rect.bottom < b.rect.top || b.rect.bottom < a.rect.top);
+      if (overlap) {
+        var hi = a.z > b.z ? a : b;
+        var lo = a.z > b.z ? b : a;
+        makeResult(hi.el, 'z-index',
+          'z-index: ' + hi.z + ' overlaps with ' + getSelector(lo.el) + ' (z-index: ' + lo.z + ')'
+        );
+      }
+    }
+  }
+
+  // Deduplicate
+  var seen = {};
+  var unique = [];
+  for (var i = 0; i < results.length; i++) {
+    var key = results[i].type + '|' + results[i].selector;
+    if (!seen[key]) { seen[key] = true; unique.push(results[i]); }
+  }
+
+  console.log('__CT_SCAN__:' + JSON.stringify(unique));
+})()`;
+}
+
 function getViewSwitcherHtml() {
   const previewEnabled = isPreviewEnabled();
   return `
@@ -359,6 +532,13 @@ function wireWebviewEvents(previewView, webview) {
       }
       if (e.message === '__CT_INSPECT_TOGGLE__') {
         previewView._inspectHandlers?.toggle();
+        return;
+      }
+      if (e.message.startsWith('__CT_SCAN__:')) {
+        try {
+          const data = JSON.parse(e.message.slice('__CT_SCAN__:'.length));
+          previewView._inspectHandlers?.handleScanResults(data);
+        } catch (err) {}
         return;
       }
     }
@@ -511,6 +691,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
           <button class="wa-responsive-btn" data-width="1024" title="${t('webapp.responsive.laptop')} (1024px)">${ICON_RESPONSIVE_LAPTOP}<span class="wa-responsive-label">1024</span></button>
           <button class="wa-responsive-btn" data-width="1440" title="${t('webapp.responsive.desktop')} (1440px)">${ICON_RESPONSIVE_DESKTOP}<span class="wa-responsive-label">1440</span></button>
         </div>
+        <button class="wa-browser-btn wa-scan" title="${t('webapp.scan.title')}">${ICON_SCAN}<span class="wa-scan-count"></span></button>
         <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')} (I)">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
         <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
@@ -544,9 +725,16 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   // Track webview scroll position for pin offset calculation
   let currentScroll = { x: 0, y: 0 };
 
+  // Auto-scan state (transient, cleared on re-scan/navigation)
+  let autoAnnotations = [];
+  let nextAutoPinId = 1000;
+  let scanActive = false;
+
   const inspectBtn = previewView.querySelector('.wa-inspect');
   const badgeEl = previewView.querySelector('.wa-inspect-count');
   const sendAllBtn = previewView.querySelector('.wa-send-all');
+  const scanBtn = previewView.querySelector('.wa-scan');
+  const scanBadge = previewView.querySelector('.wa-scan-count');
   const overlay = previewView.querySelector('.wa-pins-overlay');
 
   /** Get annotations for the current page */
@@ -564,25 +752,43 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     return total;
   }
 
-  /** Get all annotations flattened with their page path */
+  /** Get all annotations flattened with their page path (user + auto-detected) */
   function getAllAnnotations() {
     const all = [];
     for (const [path, page] of pageAnnotations) {
       for (const ann of page.annotations) all.push({ ...ann, pagePath: path });
     }
+    for (const ann of autoAnnotations) {
+      all.push({ ...ann, pagePath: currentPagePath, isAutoDetected: true });
+    }
     return all;
   }
 
   function updateBadge() {
-    const count = getTotalCount();
-    if (count > 0) {
-      badgeEl.textContent = count;
+    const userCount = getTotalCount();
+    const totalCount = userCount + autoAnnotations.length;
+    if (userCount > 0) {
+      badgeEl.textContent = userCount;
       badgeEl.classList.add('visible');
-      sendAllBtn.textContent = `${t('webapp.sendAll').replace('{count}', count)}`;
-      sendAllBtn.classList.add('visible');
     } else {
       badgeEl.classList.remove('visible');
+    }
+    if (totalCount > 0) {
+      sendAllBtn.textContent = `${t('webapp.sendAll').replace('{count}', totalCount)}`;
+      sendAllBtn.classList.add('visible');
+    } else {
       sendAllBtn.classList.remove('visible');
+    }
+  }
+
+  function updateScanBadge() {
+    const count = autoAnnotations.length;
+    if (count > 0) {
+      scanBadge.textContent = count;
+      scanBadge.classList.add('visible');
+    } else {
+      scanBadge.textContent = '';
+      scanBadge.classList.remove('visible');
     }
   }
 
@@ -604,6 +810,15 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const page = getPageAnns();
     for (const ann of page.annotations) {
       const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const abs = ann.elementData.absRect;
+      const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+      pinEl.style.top = vp.y + 'px';
+      pinEl.style.left = vp.x + 'px';
+    }
+    // Also reposition auto-detected pins
+    for (const ann of autoAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
       if (!pinEl) continue;
       const abs = ann.elementData.absRect;
       const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
@@ -767,7 +982,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     pageAnnotations.clear();
     nextPinId = 1;
     currentScroll = { x: 0, y: 0 };
-    overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
+    clearAutoAnnotations();
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-popover').forEach(el => el.remove());
     updateBadge();
   }
 
@@ -785,6 +1001,159 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     for (const ann of page.annotations) addPin(ann);
     // Dim pins from other viewports if responsive checker is active
     if (previewView._updatePinViewportStyles) previewView._updatePinViewportStyles();
+  }
+
+  // ── Auto-scan pin functions ──────────────────────────────────────────
+
+  function clearAutoAnnotations() {
+    autoAnnotations = [];
+    nextAutoPinId = 1000;
+    overlay.querySelectorAll('.wa-pin-auto').forEach(el => el.remove());
+    updateScanBadge();
+  }
+
+  function addAutoPin(annotation) {
+    const abs = annotation.elementData.absRect;
+    const pin = document.createElement('div');
+    pin.className = 'wa-pin wa-pin-auto';
+    pin.dataset.pinId = annotation.id;
+    pin.dataset.pinType = annotation.issueType;
+    pin.dataset.viewport = annotation.viewportWidth || 0;
+    const icons = { 'overflow': '\u2194', 'contrast': 'Aa', 'broken-image': '\u2298', 'z-index': 'Z' };
+    pin.textContent = icons[annotation.issueType] || '!';
+    const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+    pin.style.top = vp.y + 'px';
+    pin.style.left = vp.x + 'px';
+    pin.onclick = (e) => {
+      e.stopPropagation();
+      showAutoPopover(annotation);
+    };
+    overlay.appendChild(pin);
+  }
+
+  function showAutoPopover(annotation) {
+    closePopover();
+    const ed = annotation.elementData;
+    const pop = document.createElement('div');
+    pop.className = 'wa-pin-popover wa-pin-popover-auto';
+
+    const typeLabels = {
+      'overflow': t('webapp.scan.types.overflow'),
+      'contrast': t('webapp.scan.types.contrast'),
+      'broken-image': t('webapp.scan.types.brokenImage'),
+      'z-index': t('webapp.scan.types.zIndex')
+    };
+
+    const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    pop.innerHTML = `
+      <div class="wa-popover-header">
+        <span class="wa-scan-type-badge" data-type="${annotation.issueType}">${typeLabels[annotation.issueType] || annotation.issueType}</span>
+        <span class="wa-popover-selector">${escAttr(ed.selector)}</span>
+        <button class="wa-popover-close" title="Close">&times;</button>
+      </div>
+      <div class="wa-scan-description">${escAttr(annotation.description)}</div>
+      <textarea class="wa-popover-input" rows="1" placeholder="${t('webapp.scan.customInstruction')}">${escAttr(annotation.instruction)}</textarea>
+      <div class="wa-popover-actions">
+        <button class="wa-popover-delete">${t('webapp.scan.dismiss')}</button>
+        <button class="wa-popover-ok">${annotation._customized ? 'Update' : 'OK'}</button>
+      </div>
+    `;
+
+    const absRect = ed.absRect || ed.rect;
+    pop._absRect = absRect;
+    const popW = 280, popH = 140;
+    const overlayW = overlay.offsetWidth || 400;
+    const vpPos = absToViewport(absRect.x, absRect.y);
+    let top = vpPos.y - popH - 8;
+    let left = vpPos.x;
+    if (top < 4) top = vpPos.y + absRect.height + 8;
+    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
+    if (left < 4) left = 4;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+    overlay.appendChild(pop);
+
+    const textarea = pop.querySelector('.wa-popover-input');
+    const okBtn = pop.querySelector('.wa-popover-ok');
+    const closeBtn = pop.querySelector('.wa-popover-close');
+    const delBtn = pop.querySelector('.wa-popover-delete');
+
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    });
+
+    closeBtn.onclick = () => closePopover();
+    delBtn.onclick = () => {
+      autoAnnotations = autoAnnotations.filter(a => a.id !== annotation.id);
+      overlay.querySelector(`.wa-pin-auto[data-pin-id="${annotation.id}"]`)?.remove();
+      closePopover();
+      updateScanBadge();
+      updateBadge();
+    };
+    okBtn.onclick = () => {
+      const val = textarea.value.trim();
+      if (val) { annotation.instruction = val; annotation._customized = true; }
+      closePopover();
+    };
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); okBtn.onclick(); }
+      if (e.key === 'Escape') closePopover();
+    });
+    setTimeout(() => textarea.focus(), 50);
+  }
+
+  function handleScanResults(results) {
+    scanActive = false;
+    scanBtn?.classList.remove('scanning');
+
+    if (!results || results.length === 0) {
+      scanBtn?.classList.add('scan-clear');
+      setTimeout(() => scanBtn?.classList.remove('scan-clear'), 2000);
+      return;
+    }
+
+    // Ensure scroll listener for pin positioning
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
+    }
+
+    const instructions = {
+      'overflow': (d) => `Fix overflow: ${d}. Ensure content fits within its container.`,
+      'contrast': (d) => `Fix contrast: ${d}. Adjust text or background color to meet WCAG AA.`,
+      'broken-image': (d) => `Fix broken image: ${d}. Verify the image path and ensure it loads.`,
+      'z-index': (d) => `Fix z-index issue: ${d}. Review stacking context.`
+    };
+
+    for (const result of results) {
+      const scroll = result.scroll || { x: 0, y: 0 };
+      const absRect = {
+        x: result.rect.x + scroll.x, y: result.rect.y + scroll.y,
+        width: result.rect.width, height: result.rect.height
+      };
+      const ann = {
+        id: nextAutoPinId++,
+        issueType: result.type,
+        description: result.description,
+        elementData: {
+          tagName: result.tagName, id: result.id, className: result.className,
+          selector: result.selector, text: result.text,
+          rect: result.rect, absRect,
+          capturedAtViewport: currentBreakpoint || 0
+        },
+        instruction: (instructions[result.type] || ((d) => d))(result.description),
+        viewportWidth: currentBreakpoint || 0,
+        isAutoDetected: true
+      };
+      autoAnnotations.push(ann);
+      addAutoPin(ann);
+    }
+
+    updateScanBadge();
+    updateBadge();
+    scanBtn?.classList.add('scan-found');
+    setTimeout(() => scanBtn?.classList.remove('scan-found'), 2000);
   }
 
   function activateInspect() {
@@ -881,8 +1250,9 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const oldPage = pageAnnotations.get(currentPagePath);
     if (oldPage) oldPage.scroll = { ...currentScroll };
 
-    // Remove pin DOM of old page
-    overlay.querySelectorAll('.wa-pin').forEach(el => el.remove());
+    // Remove pin DOM of old page + auto-pins (transient per-page)
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto').forEach(el => el.remove());
+    clearAutoAnnotations();
 
     // Switch
     currentPagePath = newPath;
@@ -905,9 +1275,30 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   };
 
   sendAllBtn.onclick = () => {
-    if (getTotalCount() === 0) return;
-    sendAllFeedback(previewView, getAllAnnotations(), deps);
+    const all = getAllAnnotations();
+    if (all.length === 0) return;
+    sendAllFeedback(previewView, all, deps);
     deactivateAndClear();
+  };
+
+  // ── Scan button wiring ──
+  scanBtn.onclick = () => {
+    if (scanActive) return;
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (!wv) return;
+    clearAutoAnnotations();
+    scanActive = true;
+    scanBtn.classList.add('scanning');
+    try {
+      wv.executeJavaScript(getScanInjectionScript());
+    } catch (e) {
+      scanActive = false;
+      scanBtn.classList.remove('scanning');
+    }
+    // Timeout fallback
+    setTimeout(() => {
+      if (scanActive) { scanActive = false; scanBtn.classList.remove('scanning'); }
+    }, 5000);
   };
 
   previewView._inspectHandlers = {
@@ -915,9 +1306,10 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     deactivate: deactivateAndClear,
     handleEscape: handleEscapeFromWebview,
     handleScroll,
+    handleScanResults,
     toggle: () => { inspectActive ? deactivateInspect() : activateInspect(); },
     isActive: () => inspectActive,
-    hasPins: () => getTotalCount() > 0,
+    hasPins: () => getTotalCount() > 0 || autoAnnotations.length > 0,
     switchPage: switchToPage
   };
 
@@ -1003,12 +1395,13 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
   function invalidatePinsAfterResize() {
     const page = getPageAnns();
-    if (!page || page.annotations.length === 0) return;
+    const allAnns = [...(page ? page.annotations : []), ...autoAnnotations];
+    if (allAnns.length === 0) return;
 
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (!wv) return;
 
-    const selectors = page.annotations.map(a => a.elementData.selector);
+    const selectors = [...new Set(allAnns.map(a => a.elementData.selector))];
     const queryScript = `(function() {
       var results = {};
       var selectors = ${JSON.stringify(selectors)};
@@ -1028,7 +1421,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       wv.executeJavaScript(queryScript).then(resultStr => {
         try {
           const results = JSON.parse(resultStr);
-          for (const ann of page.annotations) {
+          for (const ann of allAnns) {
             const newRect = results[ann.elementData.selector];
             if (newRect) ann.elementData.absRect = newRect;
           }
@@ -1043,6 +1436,14 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     if (!page) return;
     for (const ann of page.annotations) {
       const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const annVp = ann.viewportWidth || 0;
+      const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
+      pinEl.classList.toggle('wa-pin-other-viewport', !matchesCurrent);
+    }
+    // Also update auto-detected pins
+    for (const ann of autoAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
       if (!pinEl) continue;
       const annVp = ann.viewportWidth || 0;
       const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
@@ -1159,51 +1560,84 @@ function sendAllFeedback(previewView, annotations, deps) {
   const project = previewView._project;
   if (!project || annotations.length === 0) return;
 
-  // Group annotations by page path
-  const byPage = new Map();
-  for (const ann of annotations) {
-    const path = ann.pagePath || '/';
-    if (!byPage.has(path)) byPage.set(path, []);
-    byPage.get(path).push(ann);
-  }
+  // Separate user vs auto-detected annotations
+  const userAnns = annotations.filter(a => !a.isAutoDetected);
+  const autoAnns = annotations.filter(a => a.isAutoDetected);
 
-  let prompt;
-  const multiPage = byPage.size > 1;
-
-  // Detect viewport info across annotations
+  // Detect viewport info across all annotations
   const viewports = [...new Set(annotations.map(a => a.viewportWidth || 0))];
   const hasViewportInfo = viewports.some(v => v > 0);
   const vpSuffix = hasViewportInfo
     ? '\n\nFor viewport-specific issues, ensure the fixes work correctly at the specified breakpoints using responsive CSS (media queries).'
     : '';
 
+  let prompt;
+
+  // Helper to format a single annotation line
+  const fmtLine = (ann, num) => {
+    const ed = ann.elementData;
+    const tag = `<${ed.tagName}>`;
+    const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
+    const vpTag = ann.viewportWidth ? ` @${ann.viewportWidth}px` : '';
+    const autoTag = ann.isAutoDetected ? ` [${(ann.issueType || 'auto').toUpperCase()}]` : '';
+    return `${num}. ${autoTag}\`${ed.selector}\` (${tag}${classes})${vpTag}: "${ann.instruction}"`;
+  };
+
   if (annotations.length === 1) {
     const ann = annotations[0];
     const ed = ann.elementData;
-    const pageHint = multiPage ? ` (page: ${ann.pagePath})` : '';
     const vpHint = ann.viewportWidth ? ` (at viewport: ${ann.viewportWidth}px)` : '';
-    prompt = `The user selected an element in their web app preview${vpHint} and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})${pageHint}\n\nFind this element in the project source code and make the requested change directly.${vpSuffix}`;
+    if (ann.isAutoDetected) {
+      prompt = `An auto-detected visual issue was found in the web app preview${vpHint}:\n\n[${(ann.issueType || '').toUpperCase()}] "${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})\n\nFind this element in the project source code and fix the issue.${vpSuffix}`;
+    } else {
+      prompt = `The user selected an element in their web app preview${vpHint} and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})\n\nFind this element in the project source code and make the requested change directly.${vpSuffix}`;
+    }
   } else {
+    // Group by page
+    const byPage = new Map();
+    for (const ann of annotations) {
+      const path = ann.pagePath || '/';
+      if (!byPage.has(path)) byPage.set(path, []);
+      byPage.get(path).push(ann);
+    }
+    const multiPage = byPage.size > 1;
+
     let num = 1;
     const sections = [];
-    for (const [path, anns] of byPage) {
-      const lines = anns.map(ann => {
-        const ed = ann.elementData;
-        const tag = `<${ed.tagName}>`;
-        const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
-        const vpTag = ann.viewportWidth ? ` @${ann.viewportWidth}px` : '';
-        return `${num++}. \`${ed.selector}\` (${tag}${classes})${vpTag}: "${ann.instruction}"`;
-      });
-      if (multiPage) {
-        sections.push(`Page \`${path}\`:\n${lines.join('\n')}`);
-      } else {
-        sections.push(lines.join('\n'));
+
+    // User annotations section
+    if (userAnns.length > 0) {
+      const userByPage = new Map();
+      for (const ann of userAnns) {
+        const path = ann.pagePath || '/';
+        if (!userByPage.has(path)) userByPage.set(path, []);
+        userByPage.get(path).push(ann);
+      }
+      for (const [path, anns] of userByPage) {
+        const lines = anns.map(ann => fmtLine(ann, num++));
+        if (multiPage) {
+          sections.push(`Page \`${path}\`:\n${lines.join('\n')}`);
+        } else {
+          sections.push(lines.join('\n'));
+        }
       }
     }
+
+    // Auto-detected section
+    if (autoAnns.length > 0) {
+      const autoLines = autoAnns.map(ann => fmtLine(ann, num++));
+      sections.push(`Auto-detected visual issues:\n${autoLines.join('\n')}`);
+    }
+
     const vpSummary = viewports.length > 1 && hasViewportInfo
       ? ` across multiple viewport sizes (${viewports.map(v => v ? v + 'px' : 'full').join(', ')})`
       : viewports[0] ? ` at ${viewports[0]}px viewport` : '';
-    prompt = `The user annotated ${annotations.length} elements in their web app preview${vpSummary}. Make all these changes:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.${vpSuffix}`;
+    const what = autoAnns.length > 0 && userAnns.length > 0
+      ? `The user annotated ${userAnns.length} element(s) and ${autoAnns.length} visual issue(s) were auto-detected`
+      : autoAnns.length > 0
+        ? `${autoAnns.length} visual issue(s) were auto-detected`
+        : `The user annotated ${userAnns.length} elements`;
+    prompt = `${what} in the web app preview${vpSummary}. Fix all these:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.${vpSuffix}`;
   }
 
   const VISUAL_TAB_PREFIX = '\ud83c\udfaf Visual';

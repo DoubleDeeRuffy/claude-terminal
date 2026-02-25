@@ -34,6 +34,20 @@
       "laptop": "Laptop",
       "desktop": "Desktop"
     },
+    "scan": {
+      "title": "Scan for visual problems",
+      "scanning": "Scanning...",
+      "noIssues": "No issues found",
+      "issuesFound": "{count} issue(s) found",
+      "dismiss": "Dismiss",
+      "customInstruction": "Customize the fix instruction...",
+      "types": {
+        "overflow": "Overflow",
+        "contrast": "Contrast",
+        "brokenImage": "Broken Image",
+        "zIndex": "Z-Index"
+      }
+    },
     "settings": {
       "previewEnabled": "In-app Preview",
       "previewEnabledDesc": "Embed a live preview of the dev server directly in the app (uses more memory)"

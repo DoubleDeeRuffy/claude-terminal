@@ -465,6 +465,36 @@ module.exports = createType({
 .wa-popover-ok { padding: 5px 12px; background: var(--accent); color: #fff; border: none; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
 .wa-popover-ok:hover { background: var(--accent-hover); }
 
+/* Auto-scan pins */
+.wa-pin-auto { background: var(--info); border-color: rgba(59,130,246,0.8); font-size: 9px; font-weight: 700; letter-spacing: -0.02em; }
+.wa-pin-auto:hover { transform: scale(1.2); }
+.wa-pin-auto[data-pin-type="overflow"]     { background: var(--warning); border-color: rgba(245,158,11,0.8); }
+.wa-pin-auto[data-pin-type="contrast"]     { background: #8b5cf6; border-color: rgba(139,92,246,0.8); }
+.wa-pin-auto[data-pin-type="broken-image"] { background: var(--danger); border-color: rgba(239,68,68,0.8); }
+.wa-pin-auto[data-pin-type="z-index"]      { background: #06b6d4; border-color: rgba(6,182,212,0.8); }
+.wa-pin-auto.wa-pin-other-viewport { opacity: 0.3; border-color: rgba(255,255,255,0.3); transform: scale(0.8); }
+
+/* Scan button */
+.wa-scan { position: relative; }
+.wa-scan.scanning { background: rgba(59,130,246,0.15); color: var(--info); }
+.wa-scan.scanning svg { animation: wa-spin 1s linear infinite; }
+.wa-scan.scan-found { background: rgba(59,130,246,0.15); color: var(--info); }
+.wa-scan.scan-clear { background: rgba(34,197,94,0.12); color: var(--success); }
+@keyframes wa-spin { to { transform: rotate(360deg); } }
+
+/* Scan badge */
+.wa-scan-count { position: absolute; top: -4px; right: -4px; min-width: 14px; height: 14px; border-radius: 7px; background: var(--info); color: #fff; font-size: 8px; font-weight: 700; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; }
+.wa-scan-count.visible { display: flex; }
+
+/* Auto-detect popover */
+.wa-pin-popover-auto { border-color: rgba(59,130,246,0.2); }
+.wa-scan-type-badge { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+.wa-scan-type-badge[data-type="overflow"]     { background: rgba(245,158,11,0.15); color: var(--warning); }
+.wa-scan-type-badge[data-type="contrast"]     { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+.wa-scan-type-badge[data-type="broken-image"] { background: rgba(239,68,68,0.15); color: var(--danger); }
+.wa-scan-type-badge[data-type="z-index"]      { background: rgba(6,182,212,0.15); color: #06b6d4; }
+.wa-scan-description { font-size: 11px; color: rgba(255,255,255,0.55); font-family: var(--wa-mono); line-height: 1.4; padding: 4px 0; }
+
 /* ════════════════════════════════════════════════════════
    EMPTY STATE
    ════════════════════════════════════════════════════════ */
