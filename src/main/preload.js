@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     resize: (params) => ipcRenderer.send('webapp-resize', params),
     detectFramework: (params) => ipcRenderer.invoke('webapp-detect-framework', params),
     getPort: (params) => ipcRenderer.invoke('webapp-get-port', params),
+    getAxeSource: () => ipcRenderer.invoke('webapp-get-axe-source'),
     onData: createListener('webapp-data'),
     onExit: createListener('webapp-exit'),
     onPortDetected: createListener('webapp-port-detected')

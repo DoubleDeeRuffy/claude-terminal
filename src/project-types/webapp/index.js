@@ -472,6 +472,11 @@ module.exports = createType({
 .wa-pin-auto[data-pin-type="contrast"]     { background: #8b5cf6; border-color: rgba(139,92,246,0.8); }
 .wa-pin-auto[data-pin-type="broken-image"] { background: var(--danger); border-color: rgba(239,68,68,0.8); }
 .wa-pin-auto[data-pin-type="z-index"]      { background: #06b6d4; border-color: rgba(6,182,212,0.8); }
+.wa-pin-auto[data-pin-type="aria"]         { background: #f472b6; border-color: rgba(244,114,182,0.8); }
+.wa-pin-auto[data-pin-type="alt-text"]     { background: #fb923c; border-color: rgba(251,146,60,0.8); }
+.wa-pin-auto[data-pin-type="keyboard"]     { background: #a78bfa; border-color: rgba(167,139,250,0.8); }
+.wa-pin-auto[data-pin-type="structure"]    { background: #2dd4bf; border-color: rgba(45,212,191,0.8); }
+.wa-pin-auto[data-pin-type="a11y"]         { background: #60a5fa; border-color: rgba(96,165,250,0.8); }
 .wa-pin-auto.wa-pin-other-viewport { opacity: 0.3; border-color: rgba(255,255,255,0.3); transform: scale(0.8); }
 
 /* Scan button */
@@ -493,6 +498,11 @@ module.exports = createType({
 .wa-scan-type-badge[data-type="contrast"]     { background: rgba(139,92,246,0.15); color: #8b5cf6; }
 .wa-scan-type-badge[data-type="broken-image"] { background: rgba(239,68,68,0.15); color: var(--danger); }
 .wa-scan-type-badge[data-type="z-index"]      { background: rgba(6,182,212,0.15); color: #06b6d4; }
+.wa-scan-type-badge[data-type="aria"]         { background: rgba(244,114,182,0.15); color: #f472b6; }
+.wa-scan-type-badge[data-type="alt-text"]     { background: rgba(251,146,60,0.15); color: #fb923c; }
+.wa-scan-type-badge[data-type="keyboard"]     { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.wa-scan-type-badge[data-type="structure"]    { background: rgba(45,212,191,0.15); color: #2dd4bf; }
+.wa-scan-type-badge[data-type="a11y"]         { background: rgba(96,165,250,0.15); color: #60a5fa; }
 .wa-scan-description { font-size: 11px; color: rgba(255,255,255,0.55); font-family: var(--wa-mono); line-height: 1.4; padding: 4px 0; }
 
 /* ── Ruler button ── */

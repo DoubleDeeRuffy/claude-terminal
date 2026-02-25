@@ -45,7 +45,12 @@
         "overflow": "Debordement",
         "contrast": "Contraste",
         "brokenImage": "Image cassee",
-        "zIndex": "Z-Index"
+        "zIndex": "Z-Index",
+        "aria": "ARIA",
+        "altText": "Texte alt",
+        "keyboard": "Clavier",
+        "structure": "Structure",
+        "a11y": "Accessibilite"
       }
     },
     "ruler": {

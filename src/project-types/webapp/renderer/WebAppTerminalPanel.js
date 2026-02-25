@@ -237,11 +237,37 @@ const KEY_LISTEN_SCRIPT = `(function() {
   });
 })();`;
 
+// ── axe-core source cache ───────────────────────────────────────────
+let _axeSource = null;
+async function _loadAxeSource() {
+  if (_axeSource) return _axeSource;
+  try {
+    _axeSource = await api.webapp.getAxeSource();
+  } catch (e) {
+    console.error('[Scan] Failed to load axe-core:', e);
+  }
+  return _axeSource;
+}
+
+// ── axe-core rule → issue type mapping ──────────────────────────────
+const AXE_TYPE_MAP = {
+  'color-contrast': 'contrast', 'color-contrast-enhanced': 'contrast',
+  'image-alt': 'alt-text', 'input-image-alt': 'alt-text', 'area-alt': 'alt-text',
+  'role-img-alt': 'alt-text', 'svg-img-alt': 'alt-text', 'object-alt': 'alt-text',
+};
+function _mapAxeType(ruleId) {
+  if (AXE_TYPE_MAP[ruleId]) return AXE_TYPE_MAP[ruleId];
+  if (ruleId.startsWith('aria')) return 'aria';
+  if (ruleId.includes('focus') || ruleId.includes('tabindex')) return 'keyboard';
+  if (ruleId.includes('heading') || ruleId.includes('landmark') || ruleId.includes('region') || ruleId.includes('document') || ruleId.includes('page')) return 'structure';
+  return 'a11y';
+}
+
 // ── Auto-scan injection script ──────────────────────────────────────
-function getScanInjectionScript() {
-  return `(function() {
+function getScanInjectionScript(hasAxe) {
+  return `(async function() {
   var results = [];
-  var MAX_RESULTS = 50;
+  var MAX_RESULTS = 100;
 
   function getSelector(el) {
     if (el.id) return '#' + el.id;
@@ -269,7 +295,7 @@ function getScanInjectionScript() {
     });
   }
 
-  // ── 1. OVERFLOW ──
+  // ── 1. OVERFLOW (custom — axe doesn't cover this) ──
   var all = document.querySelectorAll('*');
   for (var i = 0; i < all.length && results.length < MAX_RESULTS; i++) {
     var el = all[i];
@@ -293,81 +319,7 @@ function getScanInjectionScript() {
     }
   }
 
-  // ── 2. CONTRAST (WCAG AA) ──
-  function luminance(r, g, b) {
-    var a = [r, g, b].map(function(v) {
-      v /= 255;
-      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
-  }
-  function contrastRatio(l1, l2) {
-    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-  }
-  function parseColor(str) {
-    var m = str.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
-    return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
-  }
-
-  var textTags = document.querySelectorAll('p,span,h1,h2,h3,h4,h5,h6,a,li,td,th,label,button');
-  for (var i = 0; i < textTags.length && results.length < MAX_RESULTS; i++) {
-    var el = textTags[i];
-    var r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) continue;
-    var hasText = false;
-    for (var c = 0; c < el.childNodes.length; c++) {
-      if (el.childNodes[c].nodeType === 3 && el.childNodes[c].textContent.trim()) { hasText = true; break; }
-    }
-    if (!hasText) continue;
-
-    var st = window.getComputedStyle(el);
-    if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) < 0.1) continue;
-
-    var fg = parseColor(st.color);
-    if (!fg) continue;
-    var bg = null;
-    var p = el;
-    while (p) {
-      var pSt = window.getComputedStyle(p);
-      var pBg = parseColor(pSt.backgroundColor);
-      if (pBg && pSt.backgroundColor !== 'rgba(0, 0, 0, 0)' && pSt.backgroundColor.indexOf('0)') === -1) {
-        bg = pBg;
-        break;
-      }
-      p = p.parentElement;
-    }
-    if (!bg) bg = { r: 255, g: 255, b: 255 };
-
-    var fgL = luminance(fg.r, fg.g, fg.b);
-    var bgL = luminance(bg.r, bg.g, bg.b);
-    var ratio = contrastRatio(fgL, bgL);
-    var fs = parseFloat(st.fontSize);
-    var isBold = parseInt(st.fontWeight) >= 700 || st.fontWeight === 'bold';
-    var isLarge = fs >= 24 || (fs >= 18.66 && isBold);
-    var threshold = isLarge ? 3 : 4.5;
-
-    if (ratio < threshold) {
-      makeResult(el, 'contrast',
-        'Contrast ratio ' + ratio.toFixed(1) + ':1 (needs ' + threshold + ':1 for WCAG AA). ' +
-        'Text rgb(' + fg.r + ',' + fg.g + ',' + fg.b + ') on rgb(' + bg.r + ',' + bg.g + ',' + bg.b + ')'
-      );
-    }
-  }
-
-  // ── 3. BROKEN IMAGES ──
-  var imgs = document.querySelectorAll('img');
-  for (var i = 0; i < imgs.length && results.length < MAX_RESULTS; i++) {
-    var img = imgs[i];
-    var r = img.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) continue;
-    if (!img.src || img.src === '' || img.src === window.location.href) {
-      makeResult(img, 'broken-image', 'Image has no src attribute');
-    } else if (img.complete && img.naturalWidth === 0) {
-      makeResult(img, 'broken-image', 'Image failed to load: ' + img.src.substring(0, 80));
-    }
-  }
-
-  // ── 4. Z-INDEX OVERLAP ──
+  // ── 2. Z-INDEX OVERLAP (custom — axe doesn't cover this) ──
   var zEls = [];
   for (var i = 0; i < all.length; i++) {
     var el = all[i];
@@ -394,6 +346,64 @@ function getScanInjectionScript() {
       }
     }
   }
+
+  // ── 3. AXE-CORE (accessibility — contrast, alt-text, ARIA, keyboard, structure, etc.) ──
+  ${hasAxe ? `
+  try {
+    var axeConfig = {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'best-practice'] },
+      resultTypes: ['violations']
+    };
+    var axeResults = await window.axe.run(document, axeConfig);
+
+    // Map axe-core rule IDs to our issue type categories
+    var axeTypeMap = ${JSON.stringify(AXE_TYPE_MAP)};
+    function mapAxeType(ruleId) {
+      if (axeTypeMap[ruleId]) return axeTypeMap[ruleId];
+      if (ruleId.startsWith('aria')) return 'aria';
+      if (ruleId.indexOf('focus') !== -1 || ruleId.indexOf('tabindex') !== -1) return 'keyboard';
+      if (ruleId.indexOf('heading') !== -1 || ruleId.indexOf('landmark') !== -1 || ruleId.indexOf('region') !== -1) return 'structure';
+      return 'a11y';
+    }
+
+    var impactOrder = { critical: 0, serious: 1, moderate: 2, minor: 3 };
+    var sorted = (axeResults.violations || []).sort(function(a, b) {
+      return (impactOrder[a.impact] || 4) - (impactOrder[b.impact] || 4);
+    });
+
+    for (var v = 0; v < sorted.length && results.length < MAX_RESULTS; v++) {
+      var violation = sorted[v];
+      var type = mapAxeType(violation.id);
+      var impactTag = violation.impact ? '[' + violation.impact.toUpperCase() + '] ' : '';
+
+      for (var n = 0; n < violation.nodes.length && results.length < MAX_RESULTS; n++) {
+        var node = violation.nodes[n];
+        var selector = (node.target && node.target[0]) || '';
+        var el = null;
+        try { el = selector ? document.querySelector(selector) : null; } catch(e) {}
+
+        if (el) {
+          makeResult(el, type, impactTag + violation.help);
+        } else if (selector) {
+          // Element not found via querySelector, create result manually
+          var desc = impactTag + violation.help;
+          results.push({
+            type: type, description: desc,
+            tagName: (node.html || '').match(/<(\\w+)/)?.[1]?.toLowerCase() || '',
+            id: '', className: '', selector: selector,
+            text: (node.html || '').substring(0, 60),
+            rect: { x: 0, y: 0, width: 0, height: 0 },
+            scroll: { x: window.scrollX, y: window.scrollY }
+          });
+        }
+      }
+    }
+  } catch (axeErr) {
+    console.warn('[CT Scan] axe-core error:', axeErr.message);
+  }
+  ` : `
+  // axe-core not available — no accessibility checks
+  `}
 
   // Deduplicate
   var seen = {};
@@ -1350,7 +1360,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     pin.dataset.pinId = annotation.id;
     pin.dataset.pinType = annotation.issueType;
     pin.dataset.viewport = annotation.viewportWidth || 0;
-    const icons = { 'overflow': '\u2194', 'contrast': 'Aa', 'broken-image': '\u2298', 'z-index': 'Z' };
+    const icons = { 'overflow': '\u2194', 'contrast': 'Aa', 'broken-image': '\u2298', 'z-index': 'Z', 'aria': 'A', 'alt-text': '\u{1F5BC}', 'keyboard': '\u2328', 'structure': '\u00A7', 'a11y': '\u267F' };
     pin.textContent = icons[annotation.issueType] || '!';
     const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
     pin.style.top = vp.y + 'px';
@@ -1372,7 +1382,12 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       'overflow': t('webapp.scan.types.overflow'),
       'contrast': t('webapp.scan.types.contrast'),
       'broken-image': t('webapp.scan.types.brokenImage'),
-      'z-index': t('webapp.scan.types.zIndex')
+      'z-index': t('webapp.scan.types.zIndex'),
+      'aria': t('webapp.scan.types.aria'),
+      'alt-text': t('webapp.scan.types.altText'),
+      'keyboard': t('webapp.scan.types.keyboard'),
+      'structure': t('webapp.scan.types.structure'),
+      'a11y': t('webapp.scan.types.a11y')
     };
 
     const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1445,7 +1460,12 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       'overflow': (d) => `Fix overflow: ${d}. Ensure content fits within its container.`,
       'contrast': (d) => `Fix contrast: ${d}. Adjust text or background color to meet WCAG AA.`,
       'broken-image': (d) => `Fix broken image: ${d}. Verify the image path and ensure it loads.`,
-      'z-index': (d) => `Fix z-index issue: ${d}. Review stacking context.`
+      'z-index': (d) => `Fix z-index issue: ${d}. Review stacking context.`,
+      'aria': (d) => `Fix ARIA issue: ${d}. Ensure correct ARIA roles and attributes.`,
+      'alt-text': (d) => `Fix missing alt text: ${d}. Add a descriptive alt attribute.`,
+      'keyboard': (d) => `Fix keyboard accessibility: ${d}. Ensure element is focusable and operable via keyboard.`,
+      'structure': (d) => `Fix document structure: ${d}. Review heading hierarchy and landmark regions.`,
+      'a11y': (d) => `Fix accessibility issue: ${d}.`
     };
 
     for (const result of results) {
@@ -1805,7 +1825,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   };
 
   // ── Scan button wiring ──
-  scanBtn.onclick = () => {
+  scanBtn.onclick = async () => {
     if (scanActive) return;
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (!wv) return;
@@ -1813,15 +1833,22 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     scanActive = true;
     scanBtn.classList.add('scanning');
     try {
-      wv.executeJavaScript(getScanInjectionScript());
+      // Load and inject axe-core if available
+      const axeSrc = await _loadAxeSource();
+      if (axeSrc) {
+        try { await wv.executeJavaScript(axeSrc); } catch (e) {
+          console.warn('[Scan] Failed to inject axe-core:', e.message);
+        }
+      }
+      wv.executeJavaScript(getScanInjectionScript(!!axeSrc));
     } catch (e) {
       scanActive = false;
       scanBtn.classList.remove('scanning');
     }
-    // Timeout fallback
+    // Timeout fallback (15s for axe-core on large pages)
     setTimeout(() => {
       if (scanActive) { scanActive = false; scanBtn.classList.remove('scanning'); }
-    }, 5000);
+    }, 15000);
   };
 
   previewView._inspectHandlers = {
