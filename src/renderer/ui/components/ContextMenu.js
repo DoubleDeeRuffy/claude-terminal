@@ -89,10 +89,13 @@ function showContextMenu({ x, y, items, target }) {
 
   currentMenu = menu;
 
-  // Close handlers
-  document.addEventListener('click', handleClickOutside);
-  document.addEventListener('contextmenu', handleClickOutside);
-  document.addEventListener('keydown', handleEscape);
+  // Close handlers — deferred so the current contextmenu event finishes
+  // propagating before these listeners are active, preventing immediate dismissal
+  setTimeout(() => {
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('contextmenu', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+  }, 0);
 }
 
 /**
