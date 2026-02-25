@@ -30,6 +30,7 @@ const defaultSettings = {
   remoteEnabled: false, // Enable remote control via mobile PWA
   remotePort: 3712, // Port for the remote control WebSocket/HTTP server
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
+  tabRenameOnSlashCommand: false, // Rename terminal tab to slash command text when submitted
 };
 
 const settingsState = new State({ ...defaultSettings });

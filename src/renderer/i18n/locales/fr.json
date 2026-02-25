@@ -613,6 +613,9 @@
     "githubTokenInvalid": "Token invalide",
     "themesTitle": "Thème du terminal",
     "themesDesc": "Choisissez un thème pour personnaliser les couleurs de vos terminaux",
+    "terminalGroup": "Terminal",
+    "tabRenameOnSlashCommand": "Renommer l'onglet sur commande slash",
+    "tabRenameOnSlashCommandDesc": "Renomme automatiquement l'onglet terminal avec la dernière commande slash exécutée (ex. /gsd:verify-work 12)",
     "hooks": {
       "title": "Hooks intelligents",
       "enable": "Activer les hooks intelligents",
