@@ -116,7 +116,7 @@ class McpService {
       try {
         // On Windows, use taskkill to kill the process tree
         if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t'], { shell: true });
+          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t'], { windowsHide: true });
         } else {
           proc.kill('SIGTERM');
           // Force kill after timeout
@@ -141,7 +141,7 @@ class McpService {
     this.processes.forEach((proc, id) => {
       try {
         if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t'], { shell: true });
+          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t'], { windowsHide: true });
         } else {
           proc.kill('SIGKILL');
         }

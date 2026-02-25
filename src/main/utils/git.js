@@ -627,30 +627,17 @@ async function countLinesFromFilesystem(projectPath, extensions) {
     const isWin = process.platform === 'win32';
 
     if (isWin) {
+      // Build PowerShell script as a single -Command argument via execFile (no shell interpolation)
       const extList = extensions.map(e => `'${e}'`).join(', ');
-      const psCommand = `
-        $extensions = @(${extList});
-        $files = Get-ChildItem -Path "${projectPath.replace(/\\/g, '\\\\')}" -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $extensions -contains $_.Extension -and $_.FullName -notmatch 'node_modules|vendor|dist|build|cache|stream|\\.git' };
-        $totalLines = 0;
-        $totalFiles = 0;
-        $byExt = @{};
-        foreach ($file in $files) {
-          try {
-            $lines = (Get-Content $file.FullName -ErrorAction SilentlyContinue | Measure-Object -Line).Lines;
-            $totalLines += $lines;
-            $totalFiles++;
-            $ext = $file.Extension;
-            if (-not $byExt.ContainsKey($ext)) { $byExt[$ext] = @{files=0;lines=0} };
-            $byExt[$ext].files++;
-            $byExt[$ext].lines += $lines;
-          } catch {}
-        }
-        $result = @{total=$totalLines;files=$totalFiles;byExtension=@{}};
-        foreach ($key in $byExt.Keys) { $result.byExtension[$key] = $byExt[$key] };
-        $result | ConvertTo-Json -Compress
-      `.replace(/\n/g, ' ');
+      const psCommand = [
+        `$extensions = @(${extList});`,
+        `$files = Get-ChildItem -LiteralPath ${JSON.stringify(projectPath)} -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $extensions -contains $_.Extension -and $_.FullName -notmatch 'node_modules|vendor|dist|build|cache|stream|\\.git' };`,
+        '$totalLines = 0; $totalFiles = 0; $byExt = @{};',
+        'foreach ($file in $files) { try { $lines = (Get-Content $file.FullName -ErrorAction SilentlyContinue | Measure-Object -Line).Lines; $totalLines += $lines; $totalFiles++; $ext = $file.Extension; if (-not $byExt.ContainsKey($ext)) { $byExt[$ext] = @{files=0;lines=0} }; $byExt[$ext].files++; $byExt[$ext].lines += $lines; } catch {} }',
+        '$result = @{total=$totalLines;files=$totalFiles;byExtension=@{}}; foreach ($key in $byExt.Keys) { $result.byExtension[$key] = $byExt[$key] }; $result | ConvertTo-Json -Compress',
+      ].join(' ');
 
-      exec(`powershell -NoProfile -Command "${psCommand}"`, { encoding: 'utf8', maxBuffer: 1024 * 1024 * 10, timeout: 30000 }, (error, stdout) => {
+      execFile('powershell', ['-NoProfile', '-Command', psCommand], { encoding: 'utf8', maxBuffer: 1024 * 1024 * 10, timeout: 30000 }, (error, stdout) => {
         if (error || !stdout.trim()) {
           resolve({ total: 0, files: 0, byExtension: {} });
           return;
@@ -667,18 +654,43 @@ async function countLinesFromFilesystem(projectPath, extensions) {
         }
       });
     } else {
-      const cmd = `find "${projectPath}" -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" -o -name "*.vue" -o -name "*.py" -o -name "*.lua" -o -name "*.css" -o -name "*.scss" -o -name "*.html" -o -name "*.go" -o -name "*.rs" -o -name "*.java" \\) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/build/*" -not -path "*/vendor/*" | head -1000 | xargs wc -l 2>/dev/null | tail -1`;
+      // Use execFile with array args to avoid shell injection via projectPath
+      const nameArgs = extensions.flatMap(ext => ['-name', `*${ext}`]);
+      // Interleave -o between name patterns: -name "*.js" -o -name "*.ts" ...
+      const namePattern = nameArgs.reduce((acc, arg, i) => {
+        if (i > 0 && i % 2 === 0) acc.push('-o');
+        acc.push(arg);
+        return acc;
+      }, []);
 
-      exec(cmd, { encoding: 'utf8', maxBuffer: 1024 * 1024 * 10, timeout: 15000 }, (error, stdout) => {
+      const findArgs = [
+        projectPath, '-type', 'f',
+        '(', ...namePattern, ')',
+        '-not', '-path', '*/node_modules/*',
+        '-not', '-path', '*/.git/*',
+        '-not', '-path', '*/dist/*',
+        '-not', '-path', '*/build/*',
+        '-not', '-path', '*/vendor/*',
+      ];
+
+      execFile('find', findArgs, { encoding: 'utf8', maxBuffer: 1024 * 1024 * 10, timeout: 15000 }, (error, stdout) => {
         if (error || !stdout.trim()) {
           resolve({ total: 0, files: 0, byExtension: {} });
           return;
         }
-        const match = stdout.trim().match(/(\d+)/);
-        resolve({
-          total: match ? parseInt(match[1], 10) : 0,
-          files: 0,
-          byExtension: {}
+        // Count lines by reading file list from find output
+        const files = stdout.trim().split('\n').slice(0, 1000);
+        if (!files.length) { resolve({ total: 0, files: 0, byExtension: {} }); return; }
+        execFile('wc', ['-l', ...files], { encoding: 'utf8', maxBuffer: 1024 * 1024 * 10, timeout: 15000 }, (err, wcOut) => {
+          if (err || !wcOut.trim()) { resolve({ total: 0, files: 0, byExtension: {} }); return; }
+          const lines = wcOut.trim().split('\n');
+          const lastLine = lines[lines.length - 1];
+          const match = lastLine.match(/(\d+)/);
+          resolve({
+            total: match ? parseInt(match[1], 10) : 0,
+            files: files.length,
+            byExtension: {}
+          });
         });
       });
     }

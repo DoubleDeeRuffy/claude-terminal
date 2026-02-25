@@ -223,11 +223,30 @@ async function runHttpStep(config, vars, signal) {
 
 // ─── File step ────────────────────────────────────────────────────────────────
 
+/**
+ * Validate that a resolved path stays within the workflow's project directory.
+ * Prevents path traversal attacks (e.g. ../../etc/passwd).
+ */
+function assertPathWithinProject(filePath, vars) {
+  const ctx = vars.get('ctx') || {};
+  const projectDir = ctx.project;
+  if (!projectDir) return; // no project context — skip check (manual runs)
+  const resolved = path.resolve(filePath);
+  const base = path.resolve(projectDir);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    throw new Error(`Path "${filePath}" is outside the project directory`);
+  }
+}
+
 async function runFileStep(config, vars) {
   const action  = config.action || 'read';
   const p       = resolveVars(config.path || '', vars);
   const dest    = resolveVars(config.dest || '', vars);
   const content = resolveVars(config.content || '', vars);
+
+  // Validate paths stay within the project directory
+  if (p) assertPathWithinProject(p, vars);
+  if (dest) assertPathWithinProject(dest, vars);
 
   switch (action) {
     case 'read':

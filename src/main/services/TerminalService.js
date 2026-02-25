@@ -6,7 +6,7 @@
 const os = require('os');
 const fs = require('fs');
 const pty = require('node-pty');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 class TerminalService {
   constructor() {
@@ -185,9 +185,9 @@ class TerminalService {
    * @param {number} pid - Process ID
    */
   _forceKillWindows(pid) {
-    if (!pid) return;
+    if (!pid || typeof pid !== 'number') return;
     try {
-      execSync(`taskkill /PID ${pid} /T /F`, { timeout: 5000, windowsHide: true });
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 5000, windowsHide: true });
     } catch (_) {
       // Process may already be dead - that's fine
     }

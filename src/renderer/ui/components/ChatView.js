@@ -40,7 +40,7 @@ function ensureMarkedConfig() {
         return `<div class="chat-code-block"><div class="chat-code-header"><span class="chat-code-lang">${escapeHtml(lang || 'text')}</span><button class="chat-code-copy" title="${t('common.copy')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code>${highlighted}</code></pre></div>`;
       },
       codespan({ text }) {
-        return `<code class="chat-inline-code">${text}</code>`;
+        return `<code class="chat-inline-code">${escapeHtml(text)}</code>`;
       },
       table({ header, rows }) {
         const safeAlign = (a) => ['left', 'center', 'right'].includes(a) ? a : 'left';
@@ -60,6 +60,15 @@ function ensureMarkedConfig() {
     },
     breaks: true,
     gfm: true
+  });
+  // Disable raw HTML passthrough (prevents <script>, <img onerror=...>, etc.)
+  marked.use({
+    renderer: {
+      html() { return ''; }
+    },
+    tokenizer: {
+      html() { return undefined; }
+    }
   });
 }
 
