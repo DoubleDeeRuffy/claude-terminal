@@ -1118,6 +1118,28 @@ html, body {
   border-radius: var(--radius-xs);
 }
 
+/* ─── Code Block Language Label ────────────────────────────────────────── */
+
+.code-block-lang {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  user-select: none;
+}
+
+/* ─── Syntax Highlighting ──────────────────────────────────────────────── */
+
+.syn-kw  { color: #c586c0; }
+.syn-str { color: #ce9178; }
+.syn-cmt { color: #6a9955; font-style: italic; }
+.syn-num { color: #b5cea8; }
+.syn-fn  { color: #dcdcaa; }
+
 /* ─── Thinking Indicator ────────────────────────────────────────────────── */
 
 .thinking-indicator {

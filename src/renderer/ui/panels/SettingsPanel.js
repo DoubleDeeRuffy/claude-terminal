@@ -615,6 +615,21 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
           </div>
           <div class="settings-group">
+            <div class="settings-group-title">${t('settings.terminalGroup')}</div>
+            <div class="settings-card">
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.tabRenameOnSlashCommand')}</div>
+                  <div class="settings-toggle-desc">${t('settings.tabRenameOnSlashCommandDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="tab-rename-slash-toggle" ${settings.tabRenameOnSlashCommand ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="settings-group-title">${t('settings.hooks.title')}</div>
             <div class="settings-card">
             <div class="settings-toggle-row">
@@ -1076,6 +1091,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newReduceMotion = reduceMotionToggle ? reduceMotionToggle.checked : false;
     const aiCommitToggle = document.getElementById('ai-commit-toggle');
     const newAiCommitMessages = aiCommitToggle ? aiCommitToggle.checked : true;
+    const tabRenameSlashToggle = document.getElementById('tab-rename-slash-toggle');
+    const newTabRenameOnSlashCommand = tabRenameSlashToggle ? tabRenameSlashToggle.checked : false;
     const hooksToggle = document.getElementById('hooks-enabled-toggle');
     const newHooksEnabled = hooksToggle ? hooksToggle.checked : settings.hooksEnabled;
     const context1MToggle = document.getElementById('enable-1m-context-toggle');
@@ -1097,7 +1114,8 @@ async function renderSettingsTab(initialTab = 'general') {
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',
       hooksEnabled: newHooksEnabled,
       enable1MContext: newEnable1MContext,
-      showDotfiles: newShowDotfiles
+      showDotfiles: newShowDotfiles,
+      tabRenameOnSlashCommand: newTabRenameOnSlashCommand
     };
 
     container.querySelectorAll('.dynamic-setting-toggle').forEach(toggle => {

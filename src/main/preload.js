@@ -329,6 +329,16 @@ contextBridge.exposeInMainWorld('electron_api', {
     onUserMessage: createListener('remote:user-message'),
   },
 
+  // ==================== CLOUD RELAY ====================
+  cloud: {
+    connect: (params) => ipcRenderer.invoke('cloud:connect', params),
+    disconnect: () => ipcRenderer.invoke('cloud:disconnect'),
+    status: () => ipcRenderer.invoke('cloud:status'),
+    send: (data) => ipcRenderer.send('cloud:send', data),
+    onMessage: createListener('cloud:message'),
+    onStatusChanged: createListener('cloud:status-changed'),
+  },
+
   // ==================== USAGE ====================
   usage: {
     getData: () => ipcRenderer.invoke('get-usage-data'),

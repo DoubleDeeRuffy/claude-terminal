@@ -94,6 +94,48 @@ function buildHtml(settings) {
       </div>
     </div>
 
+    <div class="settings-group">
+      <div class="settings-group-title">${t('cloud.sectionTitle')}</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-label">
+            <div>${t('cloud.serverUrl')}</div>
+            <div class="settings-desc">${t('cloud.serverUrlDesc')}</div>
+          </div>
+          <input type="text" id="cloud-server-url" class="settings-input" value="${settings.cloudServerUrl || ''}" placeholder="${t('cloud.serverUrlPlaceholder')}">
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <div>${t('cloud.apiKey')}</div>
+            <div class="settings-desc">${t('cloud.apiKeyDesc')}</div>
+          </div>
+          <input type="password" id="cloud-api-key" class="settings-input" value="${settings.cloudApiKey || ''}" placeholder="${t('cloud.apiKeyPlaceholder')}">
+        </div>
+        <div class="settings-toggle-row">
+          <div class="settings-toggle-label">
+            <div>${t('cloud.autoConnect')}</div>
+            <div class="settings-toggle-desc">${t('cloud.autoConnectDesc')}</div>
+          </div>
+          <label class="settings-toggle">
+            <input type="checkbox" id="cloud-auto-connect" ${settings.cloudAutoConnect !== false ? 'checked' : ''}>
+            <span class="settings-toggle-slider"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <div>${t('cloud.status')}</div>
+          </div>
+          <div class="remote-status-row">
+            <span class="remote-status-badge" id="cloud-status-badge">
+              <span class="remote-status-dot"></span>
+              <span id="cloud-status-text">${t('cloud.disconnected')}</span>
+            </span>
+            <button class="btn-sm btn-primary" id="cloud-connect-btn">${t('cloud.connect')}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   `;
 }
 
@@ -207,6 +249,83 @@ function setupHandlers(context) {
     }
     if (_ctx.settingsState.get().remoteEnabled) refreshServerStatus();
   }, 10000);
+
+  // ── Cloud Relay ──
+  const cloudUrlInput = document.getElementById('cloud-server-url');
+  const cloudKeyInput = document.getElementById('cloud-api-key');
+  const cloudAutoToggle = document.getElementById('cloud-auto-connect');
+  const cloudConnectBtn = document.getElementById('cloud-connect-btn');
+  const cloudStatusBadge = document.getElementById('cloud-status-badge');
+  const cloudStatusText = document.getElementById('cloud-status-text');
+
+  function updateCloudStatusUI(connected) {
+    if (!cloudStatusBadge || !cloudStatusText || !cloudConnectBtn) return;
+    if (connected) {
+      cloudStatusBadge.classList.add('running');
+      cloudStatusBadge.classList.remove('stopped');
+      cloudStatusText.textContent = t('cloud.connected');
+      cloudConnectBtn.textContent = t('cloud.disconnect');
+    } else {
+      cloudStatusBadge.classList.remove('running');
+      cloudStatusBadge.classList.add('stopped');
+      cloudStatusText.textContent = t('cloud.disconnected');
+      cloudConnectBtn.textContent = t('cloud.connect');
+    }
+  }
+
+  if (cloudUrlInput) {
+    cloudUrlInput.addEventListener('change', () => {
+      _ctx.settingsState.setProp('cloudServerUrl', cloudUrlInput.value.trim());
+      _ctx.saveSettings();
+    });
+  }
+
+  if (cloudKeyInput) {
+    cloudKeyInput.addEventListener('change', () => {
+      _ctx.settingsState.setProp('cloudApiKey', cloudKeyInput.value.trim());
+      _ctx.saveSettings();
+    });
+  }
+
+  if (cloudAutoToggle) {
+    cloudAutoToggle.addEventListener('change', () => {
+      _ctx.settingsState.setProp('cloudAutoConnect', cloudAutoToggle.checked);
+      _ctx.saveSettings();
+    });
+  }
+
+  if (cloudConnectBtn) {
+    cloudConnectBtn.addEventListener('click', async () => {
+      cloudConnectBtn.disabled = true;
+      try {
+        const status = await window.electron_api.cloud.status();
+        if (status.connected) {
+          await window.electron_api.cloud.disconnect();
+          updateCloudStatusUI(false);
+        } else {
+          const url = cloudUrlInput?.value.trim();
+          const key = cloudKeyInput?.value.trim();
+          if (!url || !key) return;
+          await window.electron_api.cloud.connect({ serverUrl: url, apiKey: key });
+          cloudStatusText.textContent = t('cloud.connecting');
+        }
+      } finally {
+        cloudConnectBtn.disabled = false;
+      }
+    });
+  }
+
+  // Listen for status changes from main process
+  if (window.electron_api.cloud?.onStatusChanged) {
+    window.electron_api.cloud.onStatusChanged((status) => {
+      updateCloudStatusUI(status.connected);
+    });
+  }
+
+  // Check initial cloud status
+  window.electron_api.cloud.status().then(status => {
+    updateCloudStatusUI(status.connected);
+  }).catch(() => {});
 }
 
 async function _startPinPolling() {

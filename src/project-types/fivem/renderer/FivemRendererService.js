@@ -191,6 +191,12 @@ function disposeFivemTerminal(projectIndex) {
     termData.terminal.dispose();
     fivemTerminals.delete(projectIndex);
   }
+  // Clean up buffers to avoid stale data on restart
+  const errState = errorStates.get(projectIndex);
+  if (errState && errState.timeout) clearTimeout(errState.timeout);
+  logBuffers.delete(projectIndex);
+  lineAccumulators.delete(projectIndex);
+  errorStates.delete(projectIndex);
 }
 
 /**
@@ -416,11 +422,6 @@ function registerFivemListeners(onDataCallback, onExitCallback, onErrorCallback)
     if (state && state.collecting) {
       finalizeError(projectIndex, onErrorCallback);
     }
-
-    // Clear buffers on exit
-    logBuffers.delete(projectIndex);
-    lineAccumulators.delete(projectIndex);
-    errorStates.delete(projectIndex);
 
     const termData = fivemTerminals.get(projectIndex);
     if (termData) {

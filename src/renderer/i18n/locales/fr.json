@@ -352,7 +352,32 @@
     "claudeActivity": "Activité Claude",
     "sessions": "Sessions",
     "toolCalls": "Appels d'outils",
-    "toolErrors": "Erreurs"
+    "toolErrors": "Erreurs",
+    "insights": {
+      "title": "Aperçu du projet",
+      "commitActivity": "Activité des commits (30 jours)",
+      "timeVsCommits": "Temps & Commits",
+      "thisWeek": "Cette semaine",
+      "thisMonth": "Ce mois",
+      "time": "temps",
+      "commits": "commits",
+      "hourDistribution": "Heures de commit",
+      "topLanguages": "Langages",
+      "health": "Santé",
+      "hasCi": "CI",
+      "noCi": "Pas de CI",
+      "hasRemote": "Remote",
+      "noRemote": "Pas de remote",
+      "lastCommitDays": "{count}j inactif",
+      "lastCommitToday": "Actif aujourd'hui",
+      "ahead": "{count} en avance",
+      "behind": "{count} en retard",
+      "synced": "Synchronisé",
+      "noCommits": "Aucun commit",
+      "commitsOnDay": "{count} commit(s)",
+      "commitsAtHour": "{hour}h : {count} commit(s)",
+      "today": "aujourd'hui"
+    }
   },
   "customize": {
     "title": "Personnaliser l'apparence",
@@ -616,6 +641,9 @@
     "githubTokenInvalid": "Token invalide",
     "themesTitle": "Thème du terminal",
     "themesDesc": "Choisissez un thème pour personnaliser les couleurs de vos terminaux",
+    "terminalGroup": "Terminal",
+    "tabRenameOnSlashCommand": "Renommer l'onglet sur commande slash",
+    "tabRenameOnSlashCommandDesc": "Renomme automatiquement l'onglet terminal avec la dernière commande slash exécutée (ex. /gsd:verify-work 12)",
     "hooks": {
       "title": "Hooks intelligents",
       "enable": "Activer les hooks intelligents",
@@ -1084,5 +1112,22 @@
     "networkInterfaceAuto": "Auto (première disponible)",
     "startServer": "Démarrer",
     "stopServer": "Arrêter"
+  },
+  "cloud": {
+    "sectionTitle": "Cloud Relay",
+    "serverUrl": "URL du serveur",
+    "serverUrlPlaceholder": "https://cloud.example.com",
+    "serverUrlDesc": "Adresse de votre serveur cloud relay auto-hébergé",
+    "apiKey": "Clé API",
+    "apiKeyPlaceholder": "ctc_...",
+    "apiKeyDesc": "Générée par l'admin serveur avec ct-cloud user add",
+    "autoConnect": "Connexion automatique",
+    "autoConnectDesc": "Se connecter automatiquement au relay cloud au démarrage",
+    "connect": "Connecter",
+    "disconnect": "Déconnecter",
+    "status": "Statut",
+    "connected": "Connecté",
+    "disconnected": "Déconnecté",
+    "connecting": "Connexion..."
   }
 }
