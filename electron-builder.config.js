@@ -27,7 +27,8 @@ module.exports = {
   asarUnpack: [
     "node_modules/@anthropic-ai/claude-agent-sdk/**/*",
     "node_modules/node-pty/**/*",
-    "node_modules/keytar/**/*"
+    "node_modules/keytar/**/*",
+    "node_modules/better-sqlite3/**/*"
   ],
   extraResources: [
     {
@@ -36,8 +37,18 @@ module.exports = {
       filter: ["**/*"]
     },
     {
+      from: "resources/scripts",
+      to: "scripts",
+      filter: ["**/*"]
+    },
+    {
       from: "remote-ui",
       to: "remote-ui",
+      filter: ["**/*"]
+    },
+    {
+      from: "resources/mcp-servers",
+      to: "mcp-servers",
       filter: ["**/*"]
     }
   ],

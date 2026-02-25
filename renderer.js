@@ -95,7 +95,7 @@ const {
 const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
-const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel } = require('./src/renderer/ui/panels');
+const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel } = require('./src/renderer/ui/panels');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
 // These work with the existing HTML modal elements in index.html
@@ -225,6 +225,11 @@ const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn }
   });
 
   WorkflowPanel.init({ api, showToast, path, fs });
+
+  DatabasePanel.init({
+    api, showModal, closeModal, showToast,
+    projectsState, path, fs
+  });
 
   // Share notification fn with event bus consumer so hooks use the same logic
   setNotificationFn(showNotification);
@@ -1573,6 +1578,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     if (tabId === 'agents') SkillsAgentsPanel.loadAgents();
     if (tabId === 'mcp') McpPanel.loadMcps();
     if (tabId === 'workflows') WorkflowPanel.load();
+    if (tabId === 'database') DatabasePanel.loadPanel();
     if (tabId === 'git') {
       GitTabService.initGitTab();
       GitTabService.renderProjectsList();

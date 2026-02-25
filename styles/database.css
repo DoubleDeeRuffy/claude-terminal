@@ -1,0 +1,530 @@
+/* ==========================================================
+   Database Styles
+   - Database layout, connection cards, schema tree, query editor
+   - Results table, status badges, type badges, connection form
+   ========================================================== */
+
+/* ========== LAYOUT ========== */
+.database-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 24px;
+  gap: 16px;
+  overflow: hidden;
+}
+.database-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.database-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.database-header-left { display: flex; align-items: center; gap: 16px; }
+.database-header-right { display: flex; align-items: center; gap: 12px; }
+
+/* ========== SUB-TABS ========== */
+.database-sub-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.database-sub-tab {
+  padding: 6px 18px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.database-sub-tab:hover { color: var(--text-primary); }
+.database-sub-tab.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.database-sub-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ========== CONNECTION CARDS ========== */
+.database-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+.database-card:hover { border-color: var(--text-muted); }
+.database-card.selected {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.database-card.detected { border: 1px dashed var(--text-muted); }
+.database-card.detected:hover { border-color: var(--accent); border-style: dashed; }
+
+/* ========== CARD ELEMENTS ========== */
+.database-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.database-card-title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.database-card-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.database-card-actions { display: flex; gap: 6px; }
+
+/* ========== STATUS BADGES ========== */
+.database-status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.database-status-badge.connected { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+.database-status-badge.disconnected { background: var(--bg-tertiary); color: var(--text-muted); }
+.database-status-badge.connecting { background: rgba(59, 130, 246, 0.2); color: var(--info); }
+.database-status-badge.error { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+/* ========== TYPE BADGES ========== */
+.database-type-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.database-type-badge.sqlite { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.database-type-badge.mysql { background: rgba(217, 119, 6, 0.15); color: var(--accent-hover); }
+.database-type-badge.postgresql { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+.database-type-badge.mongodb { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+
+/* ========== SCHEMA TREE ========== */
+.database-schema-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+.database-schema-table { display: flex; flex-direction: column; }
+.database-schema-table-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: background 0.15s;
+  user-select: none;
+}
+.database-schema-table-header:hover { background: var(--bg-hover); }
+.database-schema-table-header svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.database-schema-table.expanded > .database-schema-table-header svg {
+  transform: rotate(90deg);
+}
+.database-schema-table-header .table-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.database-schema-table-header .table-count { font-size: var(--font-2xs); color: var(--text-muted); flex-shrink: 0; }
+.database-schema-column {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 34px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.database-schema-column:hover { background: var(--bg-hover); }
+.database-schema-column .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.database-schema-column .type {
+  font-family: 'Cascadia Code', monospace;
+  font-size: var(--font-2xs);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.database-schema-column .pk-icon { color: var(--warning); font-size: var(--font-2xs); font-weight: 700; flex-shrink: 0; }
+
+/* ========== QUERY EDITOR ========== */
+.database-query-editor {
+  width: 100%;
+  min-height: 120px;
+  max-height: 300px;
+  resize: vertical;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-family: 'Cascadia Code', monospace;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.15s;
+  tab-size: 2;
+}
+.database-query-editor:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.database-query-editor::placeholder { color: var(--text-muted); }
+.database-query-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+.database-query-run-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.database-query-run-btn:hover { background: var(--accent-hover); }
+.database-query-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.database-query-run-btn svg { width: 14px; height: 14px; }
+
+/* ========== RESULTS TABLE ========== */
+.database-results-wrapper {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+.database-results-table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
+.database-results-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  user-select: none;
+}
+.database-results-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(45, 45, 45, 0.5);
+  color: var(--text-primary);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Cascadia Code', monospace;
+  font-size: var(--font-2xs);
+}
+.database-results-table tbody tr:hover { background: var(--bg-hover); }
+.database-results-table td.null-value { color: var(--text-muted); font-style: italic; }
+
+/* ========== RESULTS STATUS BAR ========== */
+.database-results-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: var(--font-2xs);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  border-radius: 0 0 var(--radius) var(--radius);
+  flex-shrink: 0;
+}
+.database-results-status .row-count { font-weight: 600; color: var(--text-secondary); }
+.database-results-status .exec-time { color: var(--text-muted); }
+
+/* ========== MCP BADGE ========== */
+.database-mcp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ========== EMPTY STATE ========== */
+.database-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  gap: 12px;
+}
+.database-empty-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  animation: emptyStateFloat 3s ease-in-out infinite;
+}
+.database-empty-icon svg { width: 100%; height: 100%; }
+.database-empty-text {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 320px;
+}
+
+/* ========== CONNECTION FORM ========== */
+.database-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.database-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.database-form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.database-form-label .required {
+  font-size: var(--font-2xs);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.database-form-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.database-form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.database-form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.database-form-input.monospace {
+  font-family: 'Cascadia Code', monospace;
+}
+
+.database-form-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+.database-form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* Form layout helpers */
+.database-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.database-form-grow { flex: 1; min-width: 0; }
+.database-form-grow-2 { flex: 2; min-width: 0; }
+
+.database-form-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.database-form-input-row .database-form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Browse button */
+.database-form-browse-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.database-form-browse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.database-form-browse-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Test connection section */
+.database-form-test-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  margin-top: 4px;
+}
+
+.database-form-test-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.database-form-test-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.database-form-test-btn.testing {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.database-form-test-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.database-form-test-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.database-form-test-result {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.database-form-test-result.success {
+  color: var(--success);
+}
+
+.database-form-test-result.error {
+  color: var(--danger);
+}

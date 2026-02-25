@@ -11,6 +11,7 @@ const fivemState = require('./fivem.state');
 const gitState = require('./git.state');
 const settingsState = require('./settings.state');
 const timeTrackingState = require('./timeTracking.state');
+const databaseState = require('./database.state');
 
 // Quick picker state (simple, doesn't need a module)
 const quickPickerState = new State({
@@ -74,7 +75,8 @@ function getAppState() {
     quickPicker: quickPickerState.get(),
     drag: dragState.get(),
     contextMenu: contextMenuState.get(),
-    skillsAgents: skillsAgentsState.get()
+    skillsAgents: skillsAgentsState.get(),
+    database: databaseState.databaseState.get()
   };
 }
 
@@ -104,6 +106,9 @@ module.exports = {
 
   // Time Tracking
   ...timeTrackingState,
+
+  // Database
+  ...databaseState,
 
   // Simple states
   quickPickerState,

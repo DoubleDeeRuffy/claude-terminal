@@ -379,6 +379,22 @@ contextBridge.exposeInMainWorld('electron_api', {
     onWillQuit: createListener('app-will-quit')
   },
 
+  // ==================== DATABASE ====================
+  database: {
+    testConnection:  (config)  => ipcRenderer.invoke('database-test-connection', config),
+    connect:         (params)  => ipcRenderer.invoke('database-connect', params),
+    disconnect:      (params)  => ipcRenderer.invoke('database-disconnect', params),
+    getSchema:       (params)  => ipcRenderer.invoke('database-get-schema', params),
+    executeQuery:    (params)  => ipcRenderer.invoke('database-execute-query', params),
+    detect:          (params)  => ipcRenderer.invoke('database-detect', params),
+    saveConnections: (params)  => ipcRenderer.invoke('database-save-connections', params),
+    loadConnections: ()        => ipcRenderer.invoke('database-load-connections'),
+    provisionMcp:    (params)  => ipcRenderer.invoke('database-provision-mcp', params),
+    deprovisionMcp:  (params)  => ipcRenderer.invoke('database-deprovision-mcp', params),
+    getCredential:   (params)  => ipcRenderer.invoke('database-get-credential', params),
+    setCredential:   (params)  => ipcRenderer.invoke('database-set-credential', params),
+  },
+
   // ==================== WORKFLOW AUTOMATION ====================
   workflow: {
     // CRUD

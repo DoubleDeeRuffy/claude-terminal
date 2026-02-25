@@ -12,6 +12,7 @@ const PluginsPanel = require('./PluginsPanel');
 const MarketplacePanel = require('./MarketplacePanel');
 const McpPanel = require('./McpPanel');
 const WorkflowPanel = require('./WorkflowPanel');
+const DatabasePanel = require('./DatabasePanel');
 
 module.exports = {
   MemoryEditor,
@@ -22,5 +23,6 @@ module.exports = {
   PluginsPanel,
   MarketplacePanel,
   McpPanel,
-  WorkflowPanel
+  WorkflowPanel,
+  DatabasePanel
 };

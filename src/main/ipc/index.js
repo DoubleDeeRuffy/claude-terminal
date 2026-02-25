@@ -24,6 +24,7 @@ const { registerMinecraftHandlers } = require('../../project-types/minecraft/mai
 const { registerRemoteHandlers } = require('./remote.ipc');
 const { registerWorkflowHandlers } = require('./workflow.ipc');
 const { registerCloudHandlers, setCloudMainWindow } = require('./cloud.ipc');
+const { registerDatabaseHandlers } = require('./database.ipc');
 
 /**
  * Register all IPC handlers
@@ -56,6 +57,7 @@ function registerAllHandlers(mainWindow) {
   registerRemoteHandlers();
   registerWorkflowHandlers(mainWindow);
   registerCloudHandlers();
+  registerDatabaseHandlers();
 }
 
 module.exports = {
