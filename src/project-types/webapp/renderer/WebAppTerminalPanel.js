@@ -1755,7 +1755,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   function handleScroll(scroll) {
     currentScroll = { x: scroll.scrollX, y: scroll.scrollY };
     const page = pageAnnotations.get(currentPagePath);
-    if (page && page.annotations.length > 0) {
+    const hasAnyPins = (page && page.annotations.length > 0) || autoAnnotations.length > 0 || rulerAnnotations.length > 0;
+    if (hasAnyPins) {
       repositionAllPins();
     }
   }
