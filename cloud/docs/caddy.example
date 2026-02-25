@@ -1,0 +1,6 @@
+# Claude Terminal Cloud — Caddy reverse proxy example
+# Place in /etc/caddy/Caddyfile or use caddy run --config
+
+cloud.example.com {
+    reverse_proxy localhost:3800
+}

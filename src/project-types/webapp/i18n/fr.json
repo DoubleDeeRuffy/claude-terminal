@@ -27,6 +27,35 @@
     "sendToClaude": "Envoyer a Claude",
     "sendAll": "Envoyer tout ({count})",
     "deletePin": "Supprimer",
+    "responsive": {
+      "full": "Pleine largeur",
+      "mobile": "Mobile",
+      "tablet": "Tablette",
+      "laptop": "Portable",
+      "desktop": "Bureau"
+    },
+    "scan": {
+      "title": "Scanner les problemes visuels",
+      "scanning": "Analyse...",
+      "noIssues": "Aucun probleme detecte",
+      "issuesFound": "{count} probleme(s) detecte(s)",
+      "dismiss": "Ignorer",
+      "customInstruction": "Personnaliser l'instruction de correction...",
+      "types": {
+        "overflow": "Debordement",
+        "contrast": "Contraste",
+        "brokenImage": "Image cassee",
+        "zIndex": "Z-Index"
+      }
+    },
+    "ruler": {
+      "title": "Mesurer les espacements",
+      "pinPlaceholder": "Quel espacement modifier ?",
+      "margin": "Marge",
+      "border": "Bordure",
+      "padding": "Remplissage",
+      "content": "Contenu"
+    },
     "settings": {
       "previewEnabled": "Preview integre",
       "previewEnabledDesc": "Afficher un apercu live du serveur dev dans l'app (utilise plus de memoire)"

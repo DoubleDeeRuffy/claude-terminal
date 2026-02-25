@@ -6,7 +6,7 @@
 // Use preload API instead of direct ipcRenderer
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
-const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getFolder, getProject, countProjectsRecursive } = require('../state');
+const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive } = require('../state');
 const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
@@ -414,9 +414,10 @@ async function getPullRequests(remoteUrl) {
  * @returns {Promise<Object>}
  */
 async function loadDashboardData(projectPath) {
-  const [gitInfo, stats] = await Promise.all([
+  const [gitInfo, stats, commitHistory30d] = await Promise.all([
     getGitInfoFull(projectPath),
-    getProjectStats(projectPath)
+    getProjectStats(projectPath),
+    api.git.commitHistory({ projectPath, skip: 0, limit: 200 }).catch(() => [])
   ]);
 
   // Detect project type
@@ -434,7 +435,7 @@ async function loadDashboardData(projectPath) {
     // No git remote, skip GitHub data
   }
 
-  return { gitInfo, stats, workflowRuns, pullRequests, projectType };
+  return { gitInfo, stats, workflowRuns, pullRequests, projectType, commitHistory30d };
 }
 
 /**
@@ -843,6 +844,289 @@ function buildClaudeActivityHtml() {
   `;
 }
 
+// ========== PROJECT INSIGHTS ==========
+
+const EXT_COLORS = {
+  '.ts': '#3178C6', '.tsx': '#3178C6', '.js': '#f1e05a', '.jsx': '#f1e05a',
+  '.py': '#3776AB', '.css': '#563d7c', '.scss': '#c6538c', '.html': '#e34c26',
+  '.vue': '#42B883', '.svelte': '#FF3E00', '.go': '#00ADD8', '.rs': '#DEA584',
+  '.java': '#ED8B00', '.lua': '#000080', '.json': '#6d6d6d', '.md': '#083fa1',
+  '.rb': '#CC342D', '.php': '#777BB4', '.c': '#555555', '.cpp': '#00599C',
+  '.h': '#555555', '.swift': '#F05138', '.kt': '#A97BFF', '.sql': '#e38c00'
+};
+
+/**
+ * Build 30-day commit heatmap
+ * @param {Array} commits - Commit history array with isoDate field
+ * @returns {string}
+ */
+function buildInsightsHeatmapHtml(commits) {
+  if (!commits || commits.length === 0) return '';
+
+  const now = new Date();
+  const dayMs = 86400000;
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  // Build map of day offset → count (0 = today, 29 = 30 days ago)
+  const dayCounts = new Array(30).fill(0);
+  for (const c of commits) {
+    const d = new Date(c.isoDate || c.date);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const daysAgo = Math.floor((todayStart - dayStart) / dayMs);
+    if (daysAgo >= 0 && daysAgo < 30) dayCounts[29 - daysAgo]++;
+  }
+
+  const max = Math.max(...dayCounts, 1);
+
+  const barsHtml = dayCounts.map((count, i) => {
+    const px = count > 0 ? Math.max(3, Math.round((count / max) * 56)) : 0;
+    const daysAgo = 29 - i;
+    const d = new Date(todayStart - daysAgo * dayMs);
+    const label = `${d.getDate()}/${d.getMonth() + 1}: ${t('dashboard.insights.commitsOnDay', { count })}`;
+    return `<div class="heatmap-bar${count === 0 ? ' empty' : ''}" data-bar-height="${px}px" title="${label}" style="height: 0"></div>`;
+  }).join('');
+
+  return `
+    <div class="insights-heatmap">
+      <div class="insights-sub-label">${t('dashboard.insights.commitActivity')}</div>
+      <div class="heatmap-bars">${barsHtml}</div>
+      <div class="heatmap-labels"><span>30d</span><span>${t('dashboard.insights.today')}</span></div>
+    </div>
+  `;
+}
+
+/**
+ * Build time vs commits correlation cards
+ * @param {string} projectId
+ * @param {Array} commits
+ * @returns {string}
+ */
+function buildInsightsTimeVsCommitsHtml(projectId, commits) {
+  if (!commits) return '';
+
+  const now = new Date();
+  const dayMs = 86400000;
+
+  // Week boundaries (Monday to Sunday)
+  const dayOfWeek = now.getDay() || 7; // 1=Mon..7=Sun
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek + 1).getTime();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+  // Count commits
+  let weekCommits = 0, monthCommits = 0;
+  for (const c of commits) {
+    const ts = new Date(c.isoDate || c.date).getTime();
+    if (ts >= weekStart) weekCommits++;
+    if (ts >= monthStart) monthCommits++;
+  }
+
+  // Time from sessions
+  const sessions = getProjectSessions(projectId) || [];
+  let weekTime = 0, monthTime = 0;
+  for (const s of sessions) {
+    const st = new Date(s.startTime).getTime();
+    const dur = s.duration || 0;
+    if (st >= weekStart) weekTime += dur;
+    if (st >= monthStart) monthTime += dur;
+  }
+
+  const clockSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/></svg>';
+  const commitSvg = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12c0-2.76-2.24-5-5-5s-5 2.24-5 5 2.24 5 5 5 5-2.24 5-5zm-5 3c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3zM2 13h4v-2H2v2zm16 0h4v-2h-4v2z"/></svg>';
+
+  return `
+    <div class="insights-time-commits">
+      <div class="insights-period-card">
+        <div class="insights-period-label">${t('dashboard.insights.thisWeek')}</div>
+        <div class="insights-period-row">
+          <span class="insights-metric">${clockSvg} <strong>${formatDuration(weekTime)}</strong></span>
+          <span class="insights-metric">${commitSvg} <strong>${weekCommits}</strong></span>
+        </div>
+      </div>
+      <div class="insights-period-card">
+        <div class="insights-period-label">${t('dashboard.insights.thisMonth')}</div>
+        <div class="insights-period-row">
+          <span class="insights-metric">${clockSvg} <strong>${formatDuration(monthTime)}</strong></span>
+          <span class="insights-metric">${commitSvg} <strong>${monthCommits}</strong></span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Build hour distribution chart (24h)
+ * @param {Array} commits
+ * @returns {string}
+ */
+function buildInsightsHourDistributionHtml(commits) {
+  if (!commits || commits.length === 0) return '';
+
+  const hourCounts = new Array(24).fill(0);
+  for (const c of commits) {
+    const h = new Date(c.isoDate || c.date).getHours();
+    hourCounts[h]++;
+  }
+
+  const max = Math.max(...hourCounts, 1);
+
+  const barsHtml = hourCounts.map((count, h) => {
+    const px = count > 0 ? Math.max(3, Math.round((count / max) * 46)) : 0;
+    const title = t('dashboard.insights.commitsAtHour', { hour: h, count });
+    return `
+      <div class="hour-bar-col" title="${title}">
+        <div class="hour-bar${count === 0 ? ' empty' : ''}" data-bar-height="${px}px" style="height: 0"></div>
+        <span class="hour-label">${h}</span>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="insights-hour-dist">
+      <div class="insights-sub-label">${t('dashboard.insights.hourDistribution')}</div>
+      <div class="hour-bars">${barsHtml}</div>
+    </div>
+  `;
+}
+
+/**
+ * Build stacked language bar
+ * @param {Object} stats - { byExtension }
+ * @returns {string}
+ */
+function buildInsightsLanguagesHtml(stats) {
+  if (!stats || !stats.byExtension || Object.keys(stats.byExtension).length === 0) return '';
+
+  const sorted = Object.entries(stats.byExtension)
+    .sort((a, b) => b[1].lines - a[1].lines)
+    .slice(0, 6);
+
+  const totalLines = sorted.reduce((sum, [, v]) => sum + v.lines, 0);
+  if (totalLines === 0) return '';
+
+  const segmentsHtml = sorted.map(([ext, data]) => {
+    const pct = (data.lines / totalLines * 100).toFixed(1);
+    const color = EXT_COLORS[ext] || 'var(--accent)';
+    return `<div class="lang-segment" data-bar-width="${pct}%" style="width: 0; background: ${color}" title="${ext} ${pct}%"></div>`;
+  }).join('');
+
+  const legendHtml = sorted.map(([ext, data]) => {
+    const pct = (data.lines / totalLines * 100).toFixed(0);
+    const color = EXT_COLORS[ext] || 'var(--accent)';
+    return `<span class="lang-legend-item"><span class="lang-dot" style="background: ${color}"></span>${ext} ${pct}%</span>`;
+  }).join('');
+
+  return `
+    <div class="insights-languages">
+      <div class="insights-sub-label">${t('dashboard.insights.topLanguages')}</div>
+      <div class="lang-stacked-bar">${segmentsHtml}</div>
+      <div class="lang-legend">${legendHtml}</div>
+    </div>
+  `;
+}
+
+/**
+ * Build project health badges
+ * @param {Object} gitInfo
+ * @param {Object} workflowRuns
+ * @param {Array} commits
+ * @returns {string}
+ */
+function buildInsightsHealthHtml(gitInfo, workflowRuns, commits) {
+  const badges = [];
+
+  // CI status
+  const hasCi = workflowRuns?.runs?.length > 0;
+  badges.push(`<span class="health-badge ${hasCi ? 'good' : 'neutral'}">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17l5.59-5.59L17 10l-7 7z"/></svg>
+    ${hasCi ? t('dashboard.insights.hasCi') : t('dashboard.insights.noCi')}
+  </span>`);
+
+  // Remote
+  const hasRemote = !!gitInfo.remoteUrl;
+  badges.push(`<span class="health-badge ${hasRemote ? 'good' : 'neutral'}">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+    ${hasRemote ? t('dashboard.insights.hasRemote') : t('dashboard.insights.noRemote')}
+  </span>`);
+
+  // Days since last commit
+  if (commits && commits.length > 0) {
+    const lastCommitDate = new Date(commits[0].isoDate || commits[0].date);
+    const daysAgo = Math.floor((Date.now() - lastCommitDate.getTime()) / 86400000);
+    if (daysAgo === 0) {
+      badges.push(`<span class="health-badge good">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+        ${t('dashboard.insights.lastCommitToday')}
+      </span>`);
+    } else {
+      const cls = daysAgo <= 3 ? 'info' : daysAgo <= 7 ? 'warn' : 'danger';
+      badges.push(`<span class="health-badge ${cls}">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/></svg>
+        ${t('dashboard.insights.lastCommitDays', { count: daysAgo })}
+      </span>`);
+    }
+  }
+
+  // Ahead/Behind
+  if (gitInfo.aheadBehind) {
+    const { ahead, behind } = gitInfo.aheadBehind;
+    if (ahead > 0) {
+      badges.push(`<span class="health-badge info">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>
+        ${t('dashboard.insights.ahead', { count: ahead })}
+      </span>`);
+    }
+    if (behind > 0) {
+      badges.push(`<span class="health-badge warn">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>
+        ${t('dashboard.insights.behind', { count: behind })}
+      </span>`);
+    }
+    if (ahead === 0 && behind === 0 && gitInfo.remoteUrl) {
+      badges.push(`<span class="health-badge good">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+        ${t('dashboard.insights.synced')}
+      </span>`);
+    }
+  }
+
+  if (badges.length === 0) return '';
+
+  return `
+    <div class="insights-health">
+      ${badges.join('')}
+    </div>
+  `;
+}
+
+/**
+ * Build complete Project Insights section
+ * @param {Object} data - Dashboard data
+ * @param {string} projectId
+ * @returns {string}
+ */
+function buildProjectInsightsHtml(data, projectId) {
+  const { gitInfo, stats, workflowRuns, commitHistory30d } = data;
+  if (!gitInfo?.isGitRepo && (!stats?.files || stats.files === 0)) return '';
+
+  const isGit = gitInfo?.isGitRepo;
+  const content = [
+    isGit ? buildInsightsHeatmapHtml(commitHistory30d) : '',
+    isGit ? buildInsightsTimeVsCommitsHtml(projectId, commitHistory30d) : '',
+    isGit ? buildInsightsHourDistributionHtml(commitHistory30d) : '',
+    buildInsightsLanguagesHtml(stats),
+    isGit ? buildInsightsHealthHtml(gitInfo, workflowRuns, commitHistory30d) : ''
+  ].filter(Boolean).join('');
+
+  if (!content) return '';
+
+  return `
+    <div class="dashboard-section insights-section" data-animate="4">
+      <h3><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg> ${t('dashboard.insights.title')}</h3>
+      ${content}
+    </div>
+  `;
+}
+
 /**
  * Build contributors section HTML
  * @param {Array} contributors
@@ -1038,7 +1322,7 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     onCopyPath
   } = options;
 
-  const { gitInfo, stats, workflowRuns, pullRequests } = data;
+  const { gitInfo, stats, workflowRuns, pullRequests, commitHistory30d } = data;
   const typeHandler = registry.get(project.type);
   const dashboardBadge = typeHandler.getDashboardBadge(project);
   const gitOps = getGitOperation(project.id);
@@ -1133,6 +1417,8 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
         ${gitInfo.isGitRepo ? buildContributorsHtml(gitInfo.contributors) : ''}
       </div>
     </div>
+
+    ${buildProjectInsightsHtml(data, project.id)}
   `;
 
   // Attach click handlers for workflow runs
@@ -1272,6 +1558,15 @@ function animateDashboardIn(container) {
       bar.style.width = bar.dataset.barWidth;
     });
   }, 300);
+
+  // Animate vertical bars (heatmap, hour distribution)
+  const vBars = container.querySelectorAll('[data-bar-height]');
+  setTimeout(() => {
+    vBars.forEach(bar => {
+      bar.style.transition = 'height 500ms cubic-bezier(0.22, 1, 0.36, 1)';
+      bar.style.height = bar.dataset.barHeight;
+    });
+  }, 400);
 }
 
 /**

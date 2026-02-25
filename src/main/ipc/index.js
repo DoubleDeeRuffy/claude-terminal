@@ -23,6 +23,7 @@ const { registerHooksHandlers } = require('./hooks.ipc');
 const { registerMinecraftHandlers } = require('../../project-types/minecraft/main/minecraft.ipc');
 const { registerRemoteHandlers } = require('./remote.ipc');
 const { registerWorkflowHandlers } = require('./workflow.ipc');
+const { registerCloudHandlers, setCloudMainWindow } = require('./cloud.ipc');
 
 /**
  * Register all IPC handlers
@@ -31,6 +32,7 @@ const { registerWorkflowHandlers } = require('./workflow.ipc');
 function registerAllHandlers(mainWindow) {
   // Set main window references where needed
   setDialogMainWindow(mainWindow);
+  setCloudMainWindow(mainWindow);
 
   // Register all handlers
   registerTerminalHandlers();
@@ -53,6 +55,7 @@ function registerAllHandlers(mainWindow) {
   registerMinecraftHandlers();
   registerRemoteHandlers();
   registerWorkflowHandlers(mainWindow);
+  registerCloudHandlers();
 }
 
 module.exports = {
