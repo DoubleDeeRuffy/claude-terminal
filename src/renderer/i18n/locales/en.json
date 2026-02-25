@@ -572,6 +572,9 @@
     "githubTokenInvalid": "Invalid token",
     "themesTitle": "Terminal theme",
     "themesDesc": "Choose a theme to customize your terminal colors",
+    "terminalGroup": "Terminal",
+    "tabRenameOnSlashCommand": "Rename tab on slash command",
+    "tabRenameOnSlashCommandDesc": "Automatically rename the terminal tab to the last slash command executed (e.g. /gsd:verify-work 12)",
     "hooks": {
       "title": "Smart Hooks",
       "enable": "Enable Smart Hooks",
