@@ -286,7 +286,32 @@
     "claudeActivity": "Claude Activity",
     "sessions": "Sessions",
     "toolCalls": "Tool calls",
-    "toolErrors": "Errors"
+    "toolErrors": "Errors",
+    "insights": {
+      "title": "Project Insights",
+      "commitActivity": "Commit activity (30 days)",
+      "timeVsCommits": "Time & Commits",
+      "thisWeek": "This week",
+      "thisMonth": "This month",
+      "time": "time",
+      "commits": "commits",
+      "hourDistribution": "Commit hours",
+      "topLanguages": "Languages",
+      "health": "Health",
+      "hasCi": "CI",
+      "noCi": "No CI",
+      "hasRemote": "Remote",
+      "noRemote": "No remote",
+      "lastCommitDays": "{count}d idle",
+      "lastCommitToday": "Active today",
+      "ahead": "{count} ahead",
+      "behind": "{count} behind",
+      "synced": "Synced",
+      "noCommits": "No commits",
+      "commitsOnDay": "{count} commit(s)",
+      "commitsAtHour": "{hour}h: {count} commit(s)",
+      "today": "today"
+    }
   },
   "customize": {
     "title": "Customize appearance",

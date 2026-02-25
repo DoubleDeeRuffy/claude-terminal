@@ -352,7 +352,32 @@
     "claudeActivity": "Activité Claude",
     "sessions": "Sessions",
     "toolCalls": "Appels d'outils",
-    "toolErrors": "Erreurs"
+    "toolErrors": "Erreurs",
+    "insights": {
+      "title": "Aperçu du projet",
+      "commitActivity": "Activité des commits (30 jours)",
+      "timeVsCommits": "Temps & Commits",
+      "thisWeek": "Cette semaine",
+      "thisMonth": "Ce mois",
+      "time": "temps",
+      "commits": "commits",
+      "hourDistribution": "Heures de commit",
+      "topLanguages": "Langages",
+      "health": "Santé",
+      "hasCi": "CI",
+      "noCi": "Pas de CI",
+      "hasRemote": "Remote",
+      "noRemote": "Pas de remote",
+      "lastCommitDays": "{count}j inactif",
+      "lastCommitToday": "Actif aujourd'hui",
+      "ahead": "{count} en avance",
+      "behind": "{count} en retard",
+      "synced": "Synchronisé",
+      "noCommits": "Aucun commit",
+      "commitsOnDay": "{count} commit(s)",
+      "commitsAtHour": "{hour}h : {count} commit(s)",
+      "today": "aujourd'hui"
+    }
   },
   "customize": {
     "title": "Personnaliser l'apparence",
