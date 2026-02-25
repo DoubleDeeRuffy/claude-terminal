@@ -1,0 +1,86 @@
+name: claude-terminal
+base: core22
+version: '0.9.6'
+summary: Manage Claude Code projects with terminal and AI chat
+description: |
+  Claude Terminal is a desktop application for developers who use Claude Code.
+  It provides a unified workspace to manage multiple projects, run terminals,
+  chat with Claude via the Agent SDK, and handle git operations — all in one place.
+
+  Features:
+  - Multi-project management with folder hierarchy
+  - Integrated terminal (xterm.js with WebGL rendering)
+  - Claude AI chat with Agent SDK streaming support
+  - Git panel with staging, commits, inline diff, stash and worktrees
+  - Time tracking with per-project statistics and charts
+  - Skills and agents marketplace
+  - MCP server management
+  - Remote control via WebSocket with QR code authentication
+  - French and English interface
+
+grade: stable
+confinement: classic
+compression: lzo
+
+architectures:
+  - build-on: amd64
+
+apps:
+  claude-terminal:
+    command: bin/claude-terminal
+    desktop: usr/share/applications/claude-terminal.desktop
+    environment:
+      TMPDIR: $XDG_RUNTIME_DIR
+      PATH: $SNAP/bin:$SNAP/usr/bin:$PATH
+
+parts:
+  claude-terminal:
+    plugin: nil
+    source: .
+    build-snaps:
+      - node/20/stable
+    build-packages:
+      - python3
+      - make
+      - g++
+    override-build: |
+      # Install dependencies
+      npm ci
+      # Build renderer bundle
+      npm run build:renderer
+      # Build Linux unpacked dir
+      npx electron-builder --linux dir --config electron-builder.config.js
+      # Install to snap
+      cp -r dist/linux-unpacked $SNAPCRAFT_PART_INSTALL/app
+      mkdir -p $SNAPCRAFT_PART_INSTALL/bin
+      cat > $SNAPCRAFT_PART_INSTALL/bin/claude-terminal << 'EOF'
+      #!/bin/bash
+      exec "$SNAP/app/claude-terminal" "$@"
+      EOF
+      chmod +x $SNAPCRAFT_PART_INSTALL/bin/claude-terminal
+      # Desktop file
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/share/applications
+      cat > $SNAPCRAFT_PART_INSTALL/usr/share/applications/claude-terminal.desktop << 'EOF'
+      [Desktop Entry]
+      Name=Claude Terminal
+      Comment=Manage Claude Code projects with terminal and AI chat
+      Exec=claude-terminal %U
+      Icon=${SNAP}/app/resources/app/assets/icon.png
+      Terminal=false
+      Type=Application
+      Categories=Development;IDE;
+      StartupWMClass=claude-terminal
+      EOF
+      # Icon
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps
+      cp assets/icon.png $SNAPCRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/claude-terminal.png
+    stage-packages:
+      - libnspr4
+      - libnss3
+      - libatk1.0-0
+      - libatk-bridge2.0-0
+      - libcups2
+      - libdrm2
+      - libgtk-3-0
+      - libgbm1
+      - libasound2
