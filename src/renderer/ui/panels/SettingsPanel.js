@@ -435,16 +435,6 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             <div class="settings-toggle-row">
               <div class="settings-toggle-label">
-                <div>${t('settings.restoreTerminalSessions')}</div>
-                <div class="settings-toggle-desc">${t('settings.restoreTerminalSessionsDesc')}</div>
-              </div>
-              <label class="settings-toggle">
-                <input type="checkbox" id="restore-sessions-toggle" ${settings.restoreTerminalSessions !== false ? 'checked' : ''}>
-                <span class="settings-toggle-slider"></span>
-              </label>
-            </div>
-            <div class="settings-toggle-row">
-              <div class="settings-toggle-label">
                 <div>${t('settings.reduceMotion')}</div>
                 <div class="settings-toggle-desc">${t('settings.reduceMotionDesc')}</div>
               </div>
@@ -607,6 +597,16 @@ async function renderSettingsTab(initialTab = 'general') {
                 <div class="execution-mode-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
               </div>
             </div>
+            </div>
+            <div class="settings-toggle-row" style="margin-top: 12px;">
+              <div class="settings-toggle-label">
+                <div>${t('settings.restoreTerminalSessions')}</div>
+                <div class="settings-toggle-desc">${t('settings.restoreTerminalSessionsDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="restore-sessions-toggle" ${settings.restoreTerminalSessions !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
             </div>
           </div>
           <div class="settings-group">

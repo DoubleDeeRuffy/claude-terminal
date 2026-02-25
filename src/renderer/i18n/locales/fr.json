@@ -619,8 +619,8 @@
       "description": "Infos en temps réel de Claude Code (suivi du temps, notifications, stats du dashboard)"
     },
     "advanced": "Avancé",
-    "restoreTerminalSessions": "Restaurer les sessions terminal",
-    "restoreTerminalSessionsDesc": "Rouvrir les onglets de terminal de la session précédente au démarrage de l'application",
+    "restoreTerminalSessions": "Mémoriser les derniers états des terminaux",
+    "restoreTerminalSessionsDesc": "Restaurer les onglets de terminal et les sessions Claude de la session précédente au démarrage",
     "enable1MContext": "Contexte 1M tokens",
     "enable1MContextDesc": "Activer la fenêtre de contexte de 1 million de tokens pour Opus et Sonnet (API uniquement, beta)"
   },
