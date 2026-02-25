@@ -1440,7 +1440,7 @@ async function createTerminal(project, options = {}) {
 
   // Resume failure watchdog — detects stale session IDs
   if (resumeSessionId) {
-    const RESUME_WATCHDOG_MS = 5000;
+    const RESUME_WATCHDOG_MS = 20000;
     let resumeDataReceived = false;
     const checkDataInterval = setInterval(() => {
       const td = getTerminal(id);
