@@ -495,6 +495,39 @@ module.exports = createType({
 .wa-scan-type-badge[data-type="z-index"]      { background: rgba(6,182,212,0.15); color: #06b6d4; }
 .wa-scan-description { font-size: 11px; color: rgba(255,255,255,0.55); font-family: var(--wa-mono); line-height: 1.4; padding: 4px 0; }
 
+/* ── Ruler button ── */
+.wa-ruler { position: relative; }
+.wa-ruler.active { background: rgba(236,72,153,0.15); color: #ec4899; }
+.ruler-mode .webapp-preview-webview { cursor: crosshair; }
+
+/* Ruler badge */
+.wa-ruler-count { position: absolute; top: -4px; right: -4px; min-width: 14px; height: 14px; border-radius: 7px; background: #ec4899; color: #fff; font-size: 8px; font-weight: 700; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; }
+.wa-ruler-count.visible { display: flex; }
+
+/* Ruler pins */
+.wa-pin-ruler { background: #ec4899; border-color: rgba(236,72,153,0.8); font-size: 11px; }
+.wa-pin-ruler:hover { transform: scale(1.2); }
+.wa-pin-ruler.wa-pin-other-viewport { opacity: 0.3; border-color: rgba(255,255,255,0.3); transform: scale(0.8); }
+
+/* Ruler popover */
+.wa-pin-popover-ruler { border-color: rgba(236,72,153,0.25); }
+.wa-pin-popover-ruler .wa-popover-selector { color: #ec4899; }
+.wa-pin-popover-ruler .wa-popover-ok { background: #ec4899; }
+.wa-pin-popover-ruler .wa-popover-ok:hover { background: #f472b6; }
+.wa-pin-popover-ruler .wa-popover-input:focus { border-color: rgba(236,72,153,0.4); }
+
+/* Ruler dimension display */
+.wa-ruler-dim { font-family: var(--wa-mono); font-size: 10px; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+
+/* Ruler box model mini display */
+.wa-ruler-boxmodel-mini { background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; }
+.wa-ruler-row { display: flex; align-items: center; gap: 6px; font-family: var(--wa-mono); font-size: 10px; }
+.wa-ruler-label { width: 44px; font-weight: 700; text-transform: uppercase; font-size: 8.5px; letter-spacing: 0.05em; flex-shrink: 0; }
+.wa-ruler-row.margin .wa-ruler-label  { color: #fb923c; }
+.wa-ruler-row.border .wa-ruler-label  { color: #facc15; }
+.wa-ruler-row.padding .wa-ruler-label { color: #4ade80; }
+.wa-ruler-val { color: rgba(255,255,255,0.5); min-width: 32px; text-align: right; }
+
 /* ════════════════════════════════════════════════════════
    EMPTY STATE
    ════════════════════════════════════════════════════════ */

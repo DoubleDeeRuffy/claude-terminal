@@ -75,6 +75,9 @@ const ICON_RESPONSIVE_DESKTOP = `<svg viewBox="0 0 12 12" fill="none" stroke="cu
 // Auto-scan icon
 const ICON_SCAN = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 3V1h2M9 1h2v2M11 9v2H9M3 11H1V9" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 6h5" stroke-linecap="round"/></svg>`;
 
+// Ruler / spacing measurement icon
+const ICON_RULER = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" width="11" height="11"><path d="M1.5 10.5l9-9" stroke-linecap="round"/><path d="M3.5 10V8.5M5.5 9V7.5M7.5 7V5.5" stroke-linecap="round"/><path d="M1 10.5h2.5V8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 // ── Inspect inject/uninject scripts ──────────────────────────────────
 function getInspectInjectScript() {
   const hex = getSetting('accentColor') || '#d97706';
@@ -221,14 +224,15 @@ const SCROLL_UNLISTEN_SCRIPT = `(function() {
   window.__CT_SCROLL_ACTIVE__ = false;
 })();`;
 
-// Lightweight key listener: forwards "I" keydown to host via console.log when inspect is not active
+// Lightweight key listener: forwards "I" and "R" keydown to host via console.log when inspect/ruler is not active
 const KEY_LISTEN_SCRIPT = `(function() {
   if (window.__CT_KEY_ACTIVE__) return;
   window.__CT_KEY_ACTIVE__ = true;
   document.addEventListener('keydown', function(e) {
-    if (window.__CT_INSPECT_ACTIVE__) return;
-    if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      console.log('__CT_INSPECT_TOGGLE__');
+    if (window.__CT_INSPECT_ACTIVE__ || window.__CT_RULER_ACTIVE__) return;
+    if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 'i' || e.key === 'I') console.log('__CT_INSPECT_TOGGLE__');
+      if (e.key === 'r' || e.key === 'R') console.log('__CT_RULER_TOGGLE__');
     }
   });
 })();`;
@@ -403,6 +407,277 @@ function getScanInjectionScript() {
 })()`;
 }
 
+// ── Ruler inject/uninject scripts ──────────────────────────────────
+function getRulerInjectScript() {
+  return `(function() {
+  if (window.__CT_RULER_ACTIVE__) return;
+  window.__CT_RULER_ACTIVE__ = true;
+  var ac = new AbortController();
+  window.__CT_RULER_AC__ = ac;
+  var s = ac.signal;
+
+  // Kill standalone scroll listener
+  if (window.__CT_SCROLL_AC__) { window.__CT_SCROLL_AC__.abort(); delete window.__CT_SCROLL_AC__; window.__CT_SCROLL_ACTIVE__ = false; }
+
+  // Overlay elements
+  var boxmodel = document.createElement('div');
+  boxmodel.id = '__ct_ruler_boxmodel__';
+  Object.assign(boxmodel.style, { position:'fixed', zIndex:'2147483646', pointerEvents:'none', display:'none', top:'0', left:'0' });
+  boxmodel.innerHTML = '<div id="__ct_rm__" style="position:absolute;background:rgba(251,146,60,0.3)"></div><div id="__ct_rb__" style="position:absolute;background:rgba(250,204,21,0.35)"></div><div id="__ct_rp__" style="position:absolute;background:rgba(74,222,128,0.35)"></div><div id="__ct_rc__" style="position:absolute;background:rgba(96,165,250,0.25)"></div>';
+  document.body.appendChild(boxmodel);
+
+  var dimLabel = document.createElement('div');
+  dimLabel.id = '__ct_ruler_dim__';
+  Object.assign(dimLabel.style, { position:'fixed', zIndex:'2147483647', pointerEvents:'none', background:'rgba(0,0,0,0.8)', color:'#fff', fontSize:'10px', fontFamily:'monospace', padding:'2px 6px', borderRadius:'3px', whiteSpace:'nowrap', display:'none', top:'0', left:'0' });
+  document.body.appendChild(dimLabel);
+
+  var linesSvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  linesSvg.id = '__ct_ruler_lines__';
+  linesSvg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  Object.assign(linesSvg.style, { position:'fixed', inset:'0', width:'100%', height:'100%', zIndex:'2147483645', pointerEvents:'none', display:'none' });
+  document.body.appendChild(linesSvg);
+
+  var guidesSvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  guidesSvg.id = '__ct_ruler_guides__';
+  guidesSvg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  Object.assign(guidesSvg.style, { position:'fixed', inset:'0', width:'100%', height:'100%', zIndex:'2147483644', pointerEvents:'none', display:'none' });
+  document.body.appendChild(guidesSvg);
+
+  var lockedEl = null;
+  var lastHover = null;
+
+  function getSpacing(el) {
+    var cs = window.getComputedStyle(el);
+    return {
+      margin:  { top: parseFloat(cs.marginTop)||0,  right: parseFloat(cs.marginRight)||0,  bottom: parseFloat(cs.marginBottom)||0,  left: parseFloat(cs.marginLeft)||0 },
+      border:  { top: parseFloat(cs.borderTopWidth)||0, right: parseFloat(cs.borderRightWidth)||0, bottom: parseFloat(cs.borderBottomWidth)||0, left: parseFloat(cs.borderLeftWidth)||0 },
+      padding: { top: parseFloat(cs.paddingTop)||0, right: parseFloat(cs.paddingRight)||0, bottom: parseFloat(cs.paddingBottom)||0, left: parseFloat(cs.paddingLeft)||0 }
+    };
+  }
+
+  function drawBoxModel(el) {
+    var r = el.getBoundingClientRect();
+    var sp = getSpacing(el);
+    var m = sp.margin, b = sp.border, p = sp.padding;
+
+    // Margin layer (outermost)
+    var mEl = document.getElementById('__ct_rm__');
+    Object.assign(mEl.style, { top:(r.top-m.top)+'px', left:(r.left-m.left)+'px', width:(r.width+m.left+m.right)+'px', height:(r.height+m.top+m.bottom)+'px' });
+
+    // Border layer
+    var bEl = document.getElementById('__ct_rb__');
+    Object.assign(bEl.style, { top:r.top+'px', left:r.left+'px', width:r.width+'px', height:r.height+'px' });
+
+    // Padding layer
+    var pEl = document.getElementById('__ct_rp__');
+    Object.assign(pEl.style, { top:(r.top+b.top)+'px', left:(r.left+b.left)+'px', width:(r.width-b.left-b.right)+'px', height:(r.height-b.top-b.bottom)+'px' });
+
+    // Content layer (innermost)
+    var cEl = document.getElementById('__ct_rc__');
+    Object.assign(cEl.style, { top:(r.top+b.top+p.top)+'px', left:(r.left+b.left+p.left)+'px', width:(r.width-b.left-b.right-p.left-p.right)+'px', height:(r.height-b.top-b.bottom-p.top-p.bottom)+'px' });
+
+    boxmodel.style.display = 'block';
+
+    // Dimension label
+    var w = Math.round(r.width), h = Math.round(r.height);
+    dimLabel.textContent = w + ' \\u00d7 ' + h;
+    var lt = r.left, tt = r.bottom + 4;
+    if (tt + 18 > window.innerHeight) tt = r.top - 18;
+    dimLabel.style.left = Math.max(0,lt) + 'px';
+    dimLabel.style.top = tt + 'px';
+    dimLabel.style.display = 'block';
+  }
+
+  function makeSvgLine(x1,y1,x2,y2,color,dashed) {
+    var line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',x1); line.setAttribute('y1',y1);
+    line.setAttribute('x2',x2); line.setAttribute('y2',y2);
+    line.setAttribute('stroke',color);
+    line.setAttribute('stroke-width','1');
+    if (dashed) line.setAttribute('stroke-dasharray','4,3');
+    return line;
+  }
+
+  function makeSvgText(x,y,text,color) {
+    var t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',x); t.setAttribute('y',y);
+    t.setAttribute('fill',color);
+    t.setAttribute('font-size','10');
+    t.setAttribute('font-family','monospace');
+    t.textContent = text;
+    return t;
+  }
+
+  function drawMeasurementLines(rA, rB) {
+    linesSvg.innerHTML = '';
+    linesSvg.style.display = 'block';
+    var color = '#ec4899';
+
+    // Vertical distance
+    var xMid = Math.round((Math.max(rA.left,rB.left)+Math.min(rA.right,rB.right))/2);
+    if (rA.bottom <= rB.top) {
+      linesSvg.appendChild(makeSvgLine(xMid,rA.bottom,xMid,rB.top,color,true));
+      var dist = Math.round(rB.top - rA.bottom);
+      linesSvg.appendChild(makeSvgText(xMid+4, (rA.bottom+rB.top)/2+3, dist+'px', color));
+    } else if (rB.bottom <= rA.top) {
+      linesSvg.appendChild(makeSvgLine(xMid,rB.bottom,xMid,rA.top,color,true));
+      var dist = Math.round(rA.top - rB.bottom);
+      linesSvg.appendChild(makeSvgText(xMid+4, (rB.bottom+rA.top)/2+3, dist+'px', color));
+    }
+
+    // Horizontal distance
+    var yMid = Math.round((Math.max(rA.top,rB.top)+Math.min(rA.bottom,rB.bottom))/2);
+    if (rA.right <= rB.left) {
+      linesSvg.appendChild(makeSvgLine(rA.right,yMid,rB.left,yMid,color,true));
+      var dist = Math.round(rB.left - rA.right);
+      linesSvg.appendChild(makeSvgText((rA.right+rB.left)/2-10, yMid-4, dist+'px', color));
+    } else if (rB.right <= rA.left) {
+      linesSvg.appendChild(makeSvgLine(rB.right,yMid,rA.left,yMid,color,true));
+      var dist = Math.round(rA.left - rB.right);
+      linesSvg.appendChild(makeSvgText((rB.right+rA.left)/2-10, yMid-4, dist+'px', color));
+    }
+  }
+
+  function drawAlignmentGuides(rA, rB) {
+    guidesSvg.innerHTML = '';
+    guidesSvg.style.display = 'block';
+    var color = 'rgba(6,182,212,0.6)';
+    var W = window.innerWidth, H = window.innerHeight;
+    var tol = 1;
+
+    // Top edge alignment
+    if (Math.abs(rA.top - rB.top) <= tol) guidesSvg.appendChild(makeSvgLine(0,rA.top,W,rA.top,color,true));
+    // Bottom edge alignment
+    if (Math.abs(rA.bottom - rB.bottom) <= tol) guidesSvg.appendChild(makeSvgLine(0,rA.bottom,W,rA.bottom,color,true));
+    // Left edge alignment
+    if (Math.abs(rA.left - rB.left) <= tol) guidesSvg.appendChild(makeSvgLine(rA.left,0,rA.left,H,color,true));
+    // Right edge alignment
+    if (Math.abs(rA.right - rB.right) <= tol) guidesSvg.appendChild(makeSvgLine(rA.right,0,rA.right,H,color,true));
+    // Vertical center alignment
+    var cxA = (rA.left+rA.right)/2, cxB = (rB.left+rB.right)/2;
+    if (Math.abs(cxA - cxB) <= tol) guidesSvg.appendChild(makeSvgLine(cxA,0,cxA,H,color,true));
+    // Horizontal center alignment
+    var cyA = (rA.top+rA.bottom)/2, cyB = (rB.top+rB.bottom)/2;
+    if (Math.abs(cyA - cyB) <= tol) guidesSvg.appendChild(makeSvgLine(0,cyA,W,cyA,color,true));
+  }
+
+  function clearOverlays() {
+    boxmodel.style.display = 'none';
+    dimLabel.style.display = 'none';
+    linesSvg.style.display = 'none';
+    linesSvg.innerHTML = '';
+    guidesSvg.style.display = 'none';
+    guidesSvg.innerHTML = '';
+  }
+
+  function getSelector(el) {
+    if (el.id) return '#' + el.id;
+    var s = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      var c = el.className.trim().split(/\\s+/).filter(Boolean);
+      if (c.length) s += '.' + c.join('.');
+    }
+    return s;
+  }
+
+  // Scroll reporting
+  var scrollThrottle = null;
+  window.addEventListener('scroll', function() {
+    if (scrollThrottle) return;
+    scrollThrottle = setTimeout(function() {
+      scrollThrottle = null;
+      console.log('__CT_RULER_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+    }, 16);
+  }, { capture: true, signal: s });
+  console.log('__CT_RULER_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+
+  // Block clicks/navigation
+  function blockEvent(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
+  document.addEventListener('click', blockEvent, { capture: true, signal: s });
+  document.addEventListener('auxclick', blockEvent, { capture: true, signal: s });
+  document.addEventListener('submit', blockEvent, { capture: true, signal: s });
+  document.addEventListener('pointerup', blockEvent, { capture: true, signal: s });
+  document.addEventListener('mouseup', blockEvent, { capture: true, signal: s });
+
+  // Hover
+  document.addEventListener('mousemove', function(e) {
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === boxmodel || el === dimLabel || el.closest('#__ct_ruler_boxmodel__')) return;
+    if (el === lastHover) return;
+    lastHover = el;
+
+    if (lockedEl) {
+      // Show distance between locked and hovered element
+      var rA = lockedEl.getBoundingClientRect();
+      var rB = el.getBoundingClientRect();
+      drawMeasurementLines(rA, rB);
+      drawAlignmentGuides(rA, rB);
+      // Also show box model on hovered element
+      drawBoxModel(el);
+    } else {
+      drawBoxModel(el);
+      // Clear measurement lines when not locked
+      linesSvg.style.display = 'none';
+      linesSvg.innerHTML = '';
+      guidesSvg.style.display = 'none';
+      guidesSvg.innerHTML = '';
+    }
+  }, { signal: s });
+
+  // Click: lock/unlock + send data
+  document.addEventListener('mousedown', function(e) {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === boxmodel || el === dimLabel || el.closest('#__ct_ruler_boxmodel__')) return;
+
+    if (lockedEl === el) {
+      // Unlock
+      lockedEl = null;
+      clearOverlays();
+      lastHover = null;
+      return;
+    }
+
+    lockedEl = el;
+    var r = el.getBoundingClientRect();
+    var sp = getSpacing(el);
+    var cs = window.getComputedStyle(el);
+    console.log('__CT_RULER_CLICK__:' + JSON.stringify({
+      selector: getSelector(el),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      scroll: { x: window.scrollX, y: window.scrollY },
+      spacing: sp,
+      computedWidth: cs.width,
+      computedHeight: cs.height
+    }));
+  }, { capture: true, signal: s });
+
+  // Keys
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      if (lockedEl) {
+        lockedEl = null;
+        clearOverlays();
+        lastHover = null;
+      } else {
+        console.log('__CT_RULER_CANCEL__');
+      }
+    }
+    if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      console.log('__CT_RULER_TOGGLE__');
+    }
+  }, { signal: s });
+})();`;
+}
+
+const RULER_UNINJECT_SCRIPT = `(function() {
+  if (window.__CT_RULER_AC__) { window.__CT_RULER_AC__.abort(); delete window.__CT_RULER_AC__; }
+  ['__ct_ruler_boxmodel__','__ct_ruler_dim__','__ct_ruler_lines__','__ct_ruler_guides__'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.remove();
+  });
+  window.__CT_RULER_ACTIVE__ = false;
+})();`;
+
 function getViewSwitcherHtml() {
   const previewEnabled = isPreviewEnabled();
   return `
@@ -443,8 +718,10 @@ function getViewSwitcherHtml() {
  * Detach the webview from DOM (removes the native surface entirely).
  */
 function detachWebview(previewView) {
-  if (previewView._inspectHandlers?.isActive()) {
-    previewView._inspectHandlers.deactivate();
+  if (previewView._inspectHandlers) {
+    if (previewView._inspectHandlers.isActive()) {
+      previewView._inspectHandlers.deactivate();
+    }
   }
   const webview = previewView.querySelector('.webapp-preview-webview');
   if (!webview) return;
@@ -491,10 +768,11 @@ function wireWebviewEvents(previewView, webview) {
     } catch (err) {}
     // Switch pins to the new page
     previewView._inspectHandlers?.switchPage?.(newPath);
-    // Re-inject inspect script after navigation if active
+    // Re-inject scripts after navigation if active
     setTimeout(() => {
       try { webview.executeJavaScript(KEY_LISTEN_SCRIPT); } catch (e) {}
       if (previewView._inspectHandlers?.isActive()) {
+        // Determine which mode is active and re-inject appropriately
         try { webview.executeJavaScript(getInspectInjectScript()); } catch (e) {}
       }
     }, 300);
@@ -539,6 +817,28 @@ function wireWebviewEvents(previewView, webview) {
           const data = JSON.parse(e.message.slice('__CT_SCAN__:'.length));
           previewView._inspectHandlers?.handleScanResults(data);
         } catch (err) {}
+        return;
+      }
+      if (e.message.startsWith('__CT_RULER_CLICK__:')) {
+        try {
+          const data = JSON.parse(e.message.slice('__CT_RULER_CLICK__:'.length));
+          previewView._inspectHandlers?.handleRulerClick(data);
+        } catch (err) {}
+        return;
+      }
+      if (e.message.startsWith('__CT_RULER_SCROLL__:')) {
+        try {
+          const scroll = JSON.parse(e.message.slice('__CT_RULER_SCROLL__:'.length));
+          previewView._inspectHandlers?.handleScroll(scroll);
+        } catch (err) {}
+        return;
+      }
+      if (e.message === '__CT_RULER_CANCEL__') {
+        previewView._inspectHandlers?.handleRulerEscape();
+        return;
+      }
+      if (e.message === '__CT_RULER_TOGGLE__') {
+        previewView._inspectHandlers?.toggleRuler();
         return;
       }
     }
@@ -692,6 +992,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
           <button class="wa-responsive-btn" data-width="1440" title="${t('webapp.responsive.desktop')} (1440px)">${ICON_RESPONSIVE_DESKTOP}<span class="wa-responsive-label">1440</span></button>
         </div>
         <button class="wa-browser-btn wa-scan" title="${t('webapp.scan.title')}">${ICON_SCAN}<span class="wa-scan-count"></span></button>
+        <button class="wa-browser-btn wa-ruler" title="${t('webapp.ruler.title')} (R)">${ICON_RULER}<span class="wa-ruler-count"></span></button>
         <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')} (I)">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
         <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
@@ -730,11 +1031,19 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   let nextAutoPinId = 1000;
   let scanActive = false;
 
+  // Ruler state (transient)
+  let rulerActive = false;
+  let rulerLockedElement = null;
+  let rulerAnnotations = [];
+  let nextRulerPinId = 2000;
+
   const inspectBtn = previewView.querySelector('.wa-inspect');
   const badgeEl = previewView.querySelector('.wa-inspect-count');
   const sendAllBtn = previewView.querySelector('.wa-send-all');
   const scanBtn = previewView.querySelector('.wa-scan');
   const scanBadge = previewView.querySelector('.wa-scan-count');
+  const rulerBtn = previewView.querySelector('.wa-ruler');
+  const rulerBadge = previewView.querySelector('.wa-ruler-count');
   const overlay = previewView.querySelector('.wa-pins-overlay');
 
   /** Get annotations for the current page */
@@ -752,7 +1061,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     return total;
   }
 
-  /** Get all annotations flattened with their page path (user + auto-detected) */
+  /** Get all annotations flattened with their page path (user + auto-detected + ruler) */
   function getAllAnnotations() {
     const all = [];
     for (const [path, page] of pageAnnotations) {
@@ -761,12 +1070,15 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     for (const ann of autoAnnotations) {
       all.push({ ...ann, pagePath: currentPagePath, isAutoDetected: true });
     }
+    for (const ann of rulerAnnotations) {
+      all.push({ ...ann, pagePath: currentPagePath, isRulerAnnotation: true });
+    }
     return all;
   }
 
   function updateBadge() {
     const userCount = getTotalCount();
-    const totalCount = userCount + autoAnnotations.length;
+    const totalCount = userCount + autoAnnotations.length + rulerAnnotations.length;
     if (userCount > 0) {
       badgeEl.textContent = userCount;
       badgeEl.classList.add('visible');
@@ -778,6 +1090,17 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       sendAllBtn.classList.add('visible');
     } else {
       sendAllBtn.classList.remove('visible');
+    }
+  }
+
+  function updateRulerBadge() {
+    const count = rulerAnnotations.length;
+    if (count > 0) {
+      rulerBadge.textContent = count;
+      rulerBadge.classList.add('visible');
+    } else {
+      rulerBadge.textContent = '';
+      rulerBadge.classList.remove('visible');
     }
   }
 
@@ -819,6 +1142,15 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     // Also reposition auto-detected pins
     for (const ann of autoAnnotations) {
       const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const abs = ann.elementData.absRect;
+      const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+      pinEl.style.top = vp.y + 'px';
+      pinEl.style.left = vp.x + 'px';
+    }
+    // Also reposition ruler pins
+    for (const ann of rulerAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-ruler[data-pin-id="${ann.id}"]`);
       if (!pinEl) continue;
       const abs = ann.elementData.absRect;
       const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
@@ -983,7 +1315,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     nextPinId = 1;
     currentScroll = { x: 0, y: 0 };
     clearAutoAnnotations();
-    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-popover').forEach(el => el.remove());
+    clearRulerAnnotations();
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler, .wa-pin-popover').forEach(el => el.remove());
     updateBadge();
   }
 
@@ -1156,7 +1489,205 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     setTimeout(() => scanBtn?.classList.remove('scan-found'), 2000);
   }
 
+  // ── Ruler pin functions ──────────────────────────────────────────
+
+  function clearRulerAnnotations() {
+    rulerAnnotations = [];
+    nextRulerPinId = 2000;
+    rulerLockedElement = null;
+    overlay.querySelectorAll('.wa-pin-ruler').forEach(el => el.remove());
+    updateRulerBadge();
+  }
+
+  function addRulerPin(annotation) {
+    const abs = annotation.elementData.absRect;
+    const pin = document.createElement('div');
+    pin.className = 'wa-pin wa-pin-ruler';
+    pin.dataset.pinId = annotation.id;
+    pin.dataset.viewport = annotation.viewportWidth || 0;
+    pin.textContent = '\ud83d\udccf';
+    const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+    pin.style.top = vp.y + 'px';
+    pin.style.left = vp.x + 'px';
+    pin.onclick = (e) => {
+      e.stopPropagation();
+      showRulerPopover(annotation);
+    };
+    overlay.appendChild(pin);
+  }
+
+  function showRulerPopover(annotation) {
+    closePopover();
+    const ed = annotation.elementData;
+    const sp = annotation.spacing;
+    const pop = document.createElement('div');
+    pop.className = 'wa-pin-popover wa-pin-popover-ruler';
+
+    const fmtVal = (v) => Math.round(v) + 'px';
+    const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    pop.innerHTML = `
+      <div class="wa-popover-header">
+        <span class="wa-popover-selector">${escAttr(ed.selector)}</span>
+        <span class="wa-ruler-dim">${annotation.computedWidth} \u00d7 ${annotation.computedHeight}</span>
+        <button class="wa-popover-close" title="Close">&times;</button>
+      </div>
+      <div class="wa-ruler-boxmodel-mini">
+        <div class="wa-ruler-row margin"><span class="wa-ruler-label">${t('webapp.ruler.margin')}</span><span class="wa-ruler-val">${fmtVal(sp.margin.top)}</span><span class="wa-ruler-val">${fmtVal(sp.margin.right)}</span><span class="wa-ruler-val">${fmtVal(sp.margin.bottom)}</span><span class="wa-ruler-val">${fmtVal(sp.margin.left)}</span></div>
+        <div class="wa-ruler-row border"><span class="wa-ruler-label">${t('webapp.ruler.border')}</span><span class="wa-ruler-val">${fmtVal(sp.border.top)}</span><span class="wa-ruler-val">${fmtVal(sp.border.right)}</span><span class="wa-ruler-val">${fmtVal(sp.border.bottom)}</span><span class="wa-ruler-val">${fmtVal(sp.border.left)}</span></div>
+        <div class="wa-ruler-row padding"><span class="wa-ruler-label">${t('webapp.ruler.padding')}</span><span class="wa-ruler-val">${fmtVal(sp.padding.top)}</span><span class="wa-ruler-val">${fmtVal(sp.padding.right)}</span><span class="wa-ruler-val">${fmtVal(sp.padding.bottom)}</span><span class="wa-ruler-val">${fmtVal(sp.padding.left)}</span></div>
+      </div>
+      <textarea class="wa-popover-input" rows="1" placeholder="${t('webapp.ruler.pinPlaceholder')}">${escAttr(annotation.instruction || '')}</textarea>
+      <div class="wa-popover-actions">
+        ${annotation._saved ? `<button class="wa-popover-delete">${t('webapp.deletePin')}</button>` : ''}
+        <button class="wa-popover-ok">${annotation._saved ? 'Update' : 'OK'}</button>
+      </div>
+    `;
+
+    const absRect = ed.absRect || ed.rect;
+    pop._absRect = absRect;
+    const popW = 300, popH = 180;
+    const overlayW = overlay.offsetWidth || 400;
+    const vpPos = absToViewport(absRect.x, absRect.y);
+    let top = vpPos.y - popH - 8;
+    let left = vpPos.x;
+    if (top < 4) top = vpPos.y + absRect.height + 8;
+    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
+    if (left < 4) left = 4;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+    overlay.appendChild(pop);
+
+    const textarea = pop.querySelector('.wa-popover-input');
+    const okBtn = pop.querySelector('.wa-popover-ok');
+    const closeBtn = pop.querySelector('.wa-popover-close');
+    const delBtn = pop.querySelector('.wa-popover-delete');
+
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    });
+
+    closeBtn.onclick = () => {
+      closePopover();
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && rulerActive) {
+        try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+      }
+    };
+
+    if (delBtn) {
+      delBtn.onclick = () => {
+        rulerAnnotations = rulerAnnotations.filter(a => a.id !== annotation.id);
+        overlay.querySelector(`.wa-pin-ruler[data-pin-id="${annotation.id}"]`)?.remove();
+        closePopover();
+        updateRulerBadge();
+        updateBadge();
+        const wv = previewView.querySelector('.webapp-preview-webview');
+        if (wv && rulerActive) {
+          try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+        }
+      };
+    }
+
+    okBtn.onclick = () => {
+      const val = textarea.value.trim();
+      if (!val) return;
+      closePopover();
+      if (annotation._saved) {
+        annotation.instruction = val;
+      } else {
+        annotation.instruction = val;
+        annotation._saved = true;
+        rulerAnnotations.push(annotation);
+        addRulerPin(annotation);
+        updateRulerBadge();
+        updateBadge();
+      }
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && rulerActive) {
+        try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+      }
+    };
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); okBtn.onclick(); }
+      if (e.key === 'Escape') {
+        closePopover();
+        const wv = previewView.querySelector('.webapp-preview-webview');
+        if (wv && rulerActive) {
+          try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+        }
+      }
+    });
+    setTimeout(() => textarea.focus(), 50);
+  }
+
+  function handleRulerClick(data) {
+    const scroll = data.scroll || { x: 0, y: 0 };
+    const absRect = {
+      x: data.rect.x + scroll.x, y: data.rect.y + scroll.y,
+      width: data.rect.width, height: data.rect.height
+    };
+    rulerLockedElement = {
+      selector: data.selector,
+      rect: data.rect,
+      absRect,
+      capturedAtViewport: currentBreakpoint || 0
+    };
+
+    // Uninject ruler for popover interaction, keep scroll
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(RULER_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
+    }
+
+    const ann = {
+      id: nextRulerPinId++,
+      elementData: { selector: data.selector, rect: data.rect, absRect, capturedAtViewport: currentBreakpoint || 0 },
+      spacing: data.spacing,
+      computedWidth: data.computedWidth,
+      computedHeight: data.computedHeight,
+      instruction: '',
+      viewportWidth: currentBreakpoint || 0,
+      isRulerAnnotation: true,
+      _saved: false
+    };
+    showRulerPopover(ann);
+  }
+
+  function handleRulerEscape() {
+    deactivateRuler();
+  }
+
+  function activateRuler() {
+    // Mutual exclusion: deactivate inspect if active
+    if (inspectActive) deactivateInspect();
+    rulerActive = true;
+    rulerBtn.classList.add('active');
+    previewView.classList.add('ruler-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+    }
+  }
+
+  function deactivateRuler() {
+    rulerActive = false;
+    rulerLockedElement = null;
+    rulerBtn.classList.remove('active');
+    previewView.classList.remove('ruler-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(RULER_UNINJECT_SCRIPT); } catch (e) {}
+    }
+    closePopover();
+  }
+
   function activateInspect() {
+    // Mutual exclusion: deactivate ruler if active
+    if (rulerActive) deactivateRuler();
     inspectActive = true;
     inspectBtn.classList.add('active');
     previewView.classList.add('inspect-mode');
@@ -1186,9 +1717,11 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     inspectActive = false;
     inspectBtn.classList.remove('active');
     previewView.classList.remove('inspect-mode');
+    if (rulerActive) deactivateRuler();
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (wv) {
       try { wv.executeJavaScript(INSPECT_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(RULER_UNINJECT_SCRIPT); } catch (e) {}
       try { wv.executeJavaScript(SCROLL_UNLISTEN_SCRIPT); } catch (e) {}
     }
     closePopover();
@@ -1250,9 +1783,10 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const oldPage = pageAnnotations.get(currentPagePath);
     if (oldPage) oldPage.scroll = { ...currentScroll };
 
-    // Remove pin DOM of old page + auto-pins (transient per-page)
-    overlay.querySelectorAll('.wa-pin, .wa-pin-auto').forEach(el => el.remove());
+    // Remove pin DOM of old page + auto-pins + ruler pins (transient per-page)
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler').forEach(el => el.remove());
     clearAutoAnnotations();
+    clearRulerAnnotations();
 
     // Switch
     currentPagePath = newPath;
@@ -1271,6 +1805,14 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       deactivateInspect();
     } else {
       activateInspect();
+    }
+  };
+
+  rulerBtn.onclick = () => {
+    if (rulerActive) {
+      deactivateRuler();
+    } else {
+      activateRuler();
     }
   };
 
@@ -1307,25 +1849,36 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     handleEscape: handleEscapeFromWebview,
     handleScroll,
     handleScanResults,
+    handleRulerClick,
+    handleRulerEscape,
+    toggleRuler: () => { rulerActive ? deactivateRuler() : activateRuler(); },
     toggle: () => { inspectActive ? deactivateInspect() : activateInspect(); },
-    isActive: () => inspectActive,
-    hasPins: () => getTotalCount() > 0 || autoAnnotations.length > 0,
+    isActive: () => inspectActive || rulerActive,
+    hasPins: () => getTotalCount() > 0 || autoAnnotations.length > 0 || rulerAnnotations.length > 0,
     switchPage: switchToPage
   };
 
-  // ── Keyboard shortcut: "I" to toggle inspect ──
+  // ── Keyboard shortcuts: "I" to toggle inspect, "R" to toggle ruler ──
   const shortcutHandler = (e) => {
     // Only act when preview tab is visible and no input is focused
     if (!previewView.classList.contains('wa-view-active')) return;
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === 'i' || e.key === 'I') {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
       e.preventDefault();
       if (inspectActive) {
         deactivateInspect();
       } else {
         activateInspect();
+      }
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault();
+      if (rulerActive) {
+        deactivateRuler();
+      } else {
+        activateRuler();
       }
     }
   };
@@ -1395,7 +1948,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
   function invalidatePinsAfterResize() {
     const page = getPageAnns();
-    const allAnns = [...(page ? page.annotations : []), ...autoAnnotations];
+    const allAnns = [...(page ? page.annotations : []), ...autoAnnotations, ...rulerAnnotations];
     if (allAnns.length === 0) return;
 
     const wv = previewView.querySelector('.webapp-preview-webview');
@@ -1444,6 +1997,14 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     // Also update auto-detected pins
     for (const ann of autoAnnotations) {
       const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const annVp = ann.viewportWidth || 0;
+      const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
+      pinEl.classList.toggle('wa-pin-other-viewport', !matchesCurrent);
+    }
+    // Also update ruler pins
+    for (const ann of rulerAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-ruler[data-pin-id="${ann.id}"]`);
       if (!pinEl) continue;
       const annVp = ann.viewportWidth || 0;
       const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
@@ -1560,9 +2121,10 @@ function sendAllFeedback(previewView, annotations, deps) {
   const project = previewView._project;
   if (!project || annotations.length === 0) return;
 
-  // Separate user vs auto-detected annotations
-  const userAnns = annotations.filter(a => !a.isAutoDetected);
+  // Separate user vs auto-detected vs ruler annotations
+  const userAnns = annotations.filter(a => !a.isAutoDetected && !a.isRulerAnnotation);
   const autoAnns = annotations.filter(a => a.isAutoDetected);
+  const rulerAnns = annotations.filter(a => a.isRulerAnnotation);
 
   // Detect viewport info across all annotations
   const viewports = [...new Set(annotations.map(a => a.viewportWidth || 0))];
@@ -1576,18 +2138,23 @@ function sendAllFeedback(previewView, annotations, deps) {
   // Helper to format a single annotation line
   const fmtLine = (ann, num) => {
     const ed = ann.elementData;
-    const tag = `<${ed.tagName}>`;
+    const tag = ed.tagName ? `<${ed.tagName}>` : '';
     const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
     const vpTag = ann.viewportWidth ? ` @${ann.viewportWidth}px` : '';
     const autoTag = ann.isAutoDetected ? ` [${(ann.issueType || 'auto').toUpperCase()}]` : '';
-    return `${num}. ${autoTag}\`${ed.selector}\` (${tag}${classes})${vpTag}: "${ann.instruction}"`;
+    const rulerTag = ann.isRulerAnnotation ? ' [SPACING]' : '';
+    const spacingInfo = ann.spacing ? ` (margin: ${Math.round(ann.spacing.margin.top)}/${Math.round(ann.spacing.margin.right)}/${Math.round(ann.spacing.margin.bottom)}/${Math.round(ann.spacing.margin.left)}, padding: ${Math.round(ann.spacing.padding.top)}/${Math.round(ann.spacing.padding.right)}/${Math.round(ann.spacing.padding.bottom)}/${Math.round(ann.spacing.padding.left)}, size: ${ann.computedWidth} × ${ann.computedHeight})` : '';
+    return `${num}. ${autoTag}${rulerTag}\`${ed.selector}\` ${tag ? `(${tag}${classes})` : ''}${vpTag}${spacingInfo}: "${ann.instruction}"`;
   };
 
   if (annotations.length === 1) {
     const ann = annotations[0];
     const ed = ann.elementData;
     const vpHint = ann.viewportWidth ? ` (at viewport: ${ann.viewportWidth}px)` : '';
-    if (ann.isAutoDetected) {
+    if (ann.isRulerAnnotation) {
+      const sp = ann.spacing;
+      prompt = `The user measured spacing on an element in the web app preview${vpHint} and wants a change:\n\n[SPACING] "${ann.instruction}"\n\nElement: \`${ed.selector}\` (size: ${ann.computedWidth} × ${ann.computedHeight}, margin: ${Math.round(sp.margin.top)}/${Math.round(sp.margin.right)}/${Math.round(sp.margin.bottom)}/${Math.round(sp.margin.left)}, padding: ${Math.round(sp.padding.top)}/${Math.round(sp.padding.right)}/${Math.round(sp.padding.bottom)}/${Math.round(sp.padding.left)})\n\nFind this element in the project source code and make the requested spacing change.${vpSuffix}`;
+    } else if (ann.isAutoDetected) {
       prompt = `An auto-detected visual issue was found in the web app preview${vpHint}:\n\n[${(ann.issueType || '').toUpperCase()}] "${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})\n\nFind this element in the project source code and fix the issue.${vpSuffix}`;
     } else {
       prompt = `The user selected an element in their web app preview${vpHint} and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})\n\nFind this element in the project source code and make the requested change directly.${vpSuffix}`;
@@ -1629,14 +2196,20 @@ function sendAllFeedback(previewView, annotations, deps) {
       sections.push(`Auto-detected visual issues:\n${autoLines.join('\n')}`);
     }
 
+    // Ruler/spacing section
+    if (rulerAnns.length > 0) {
+      const rulerLines = rulerAnns.map(ann => fmtLine(ann, num++));
+      sections.push(`Spacing/measurement fixes:\n${rulerLines.join('\n')}`);
+    }
+
     const vpSummary = viewports.length > 1 && hasViewportInfo
       ? ` across multiple viewport sizes (${viewports.map(v => v ? v + 'px' : 'full').join(', ')})`
       : viewports[0] ? ` at ${viewports[0]}px viewport` : '';
-    const what = autoAnns.length > 0 && userAnns.length > 0
-      ? `The user annotated ${userAnns.length} element(s) and ${autoAnns.length} visual issue(s) were auto-detected`
-      : autoAnns.length > 0
-        ? `${autoAnns.length} visual issue(s) were auto-detected`
-        : `The user annotated ${userAnns.length} elements`;
+    const parts = [];
+    if (userAnns.length > 0) parts.push(`${userAnns.length} element(s) annotated`);
+    if (autoAnns.length > 0) parts.push(`${autoAnns.length} visual issue(s) auto-detected`);
+    if (rulerAnns.length > 0) parts.push(`${rulerAnns.length} spacing fix(es) measured`);
+    const what = parts.join(', ');
     prompt = `${what} in the web app preview${vpSummary}. Fix all these:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.${vpSuffix}`;
   }
 

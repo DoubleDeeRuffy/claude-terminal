@@ -48,6 +48,14 @@
         "zIndex": "Z-Index"
       }
     },
+    "ruler": {
+      "title": "Mesurer les espacements",
+      "pinPlaceholder": "Quel espacement modifier ?",
+      "margin": "Marge",
+      "border": "Bordure",
+      "padding": "Remplissage",
+      "content": "Contenu"
+    },
     "settings": {
       "previewEnabled": "Preview integre",
       "previewEnabledDesc": "Afficher un apercu live du serveur dev dans l'app (utilise plus de memoire)"
