@@ -1,0 +1,11 @@
+services:
+  cloud:
+    build: .
+    container_name: ct-cloud
+    ports:
+      - "${PORT:-3800}:3800"
+    volumes:
+      - ./data:/app/data
+      - ${CLAUDE_CREDENTIALS_PATH:-~/.claude}:/home/node/.claude:ro
+    env_file: .env
+    restart: unless-stopped
