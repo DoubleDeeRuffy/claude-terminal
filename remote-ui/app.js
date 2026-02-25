@@ -176,6 +176,10 @@ const conn = {
   state: 'auth',
   retryCount: 0,
   retryTimer: null,
+  // Cloud relay mode: 'lan' (default, same network) or 'relay' (via cloud server)
+  mode: localStorage.getItem('remote_conn_mode') || 'lan',
+  cloudUrl: localStorage.getItem('remote_cloud_url') || '',
+  cloudApiKey: localStorage.getItem('remote_cloud_api_key') || '',
 };
 
 function connSetState(s) {
@@ -213,7 +217,24 @@ function init() {
   _setupChatDelegation();
   _setupMentionChipsDelegation();
 
-  if (conn.token) {
+  // Check for relay mode params in URL: ?mode=relay&url=...&key=...
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('mode') === 'relay' && urlParams.get('url') && urlParams.get('key')) {
+    conn.mode = 'relay';
+    conn.cloudUrl = urlParams.get('url');
+    conn.cloudApiKey = urlParams.get('key');
+    localStorage.setItem('remote_conn_mode', 'relay');
+    localStorage.setItem('remote_cloud_url', conn.cloudUrl);
+    localStorage.setItem('remote_cloud_api_key', conn.cloudApiKey);
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+
+  if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
+    // Relay mode: skip PIN, connect directly
+    _showMain();
+    _openWS();
+  } else if (conn.token) {
     _showMain();
     _openWS();
   } else {
@@ -307,14 +328,26 @@ function _openWS() {
   if (conn.ws && conn.ws.readyState === WebSocket.OPEN) return;
   // Close stale connecting/closing socket before creating a new one
   if (conn.ws) { try { conn.ws.close(); } catch (e) {} conn.ws = null; }
-  if (!conn.token) { _showAuth(); return; }
   if (conn.retryTimer) { clearTimeout(conn.retryTimer); conn.retryTimer = null; }
 
-  connSetState('connecting');
+  // Relay mode: connect to cloud server directly with API key
+  if (conn.mode === 'relay') {
+    if (!conn.cloudUrl || !conn.cloudApiKey) { _showAuth(); return; }
+    connSetState('connecting');
+    const base = conn.cloudUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:').replace(/\/$/, '');
+    const wsUrl = `${base}/relay?role=mobile&token=${encodeURIComponent(conn.cloudApiKey)}`;
+    const ws = new WebSocket(wsUrl);
+    conn.ws = ws;
+  } else {
+    // LAN mode: standard local WS with session token
+    if (!conn.token) { _showAuth(); return; }
+    connSetState('connecting');
+    const wsUrl = `ws://${window.location.host}/ws?token=${conn.token}`;
+    const ws = new WebSocket(wsUrl);
+    conn.ws = ws;
+  }
 
-  const wsUrl = `ws://${window.location.host}/ws?token=${conn.token}`;
-  const ws = new WebSocket(wsUrl);
-  conn.ws = ws;
+  const ws = conn.ws;
 
   ws.onopen = () => {
     conn.retryCount = 0;
@@ -330,25 +363,54 @@ function _openWS() {
 
   ws.onclose = (e) => {
     conn.ws = null;
-    if (e.code === 4401) {
-      conn.token = null;
-      localStorage.removeItem('remote_session_token');
+    // Auth failure
+    if (e.code === 4401 || e.code === 4003) {
+      if (conn.mode === 'relay') {
+        conn.cloudApiKey = '';
+        localStorage.removeItem('remote_cloud_api_key');
+      } else {
+        conn.token = null;
+        localStorage.removeItem('remote_session_token');
+      }
       connSetState('auth');
       _showAuth();
       return;
     }
-    if (conn.token && conn.state !== 'auth') _scheduleReconnect();
+    // Too many mobiles
+    if (e.code === 4002) {
+      const labelEl = $('status-label');
+      if (labelEl) labelEl.textContent = _isFr ? 'Trop de mobiles connectés' : 'Too many mobile connections';
+      return;
+    }
+    if (conn.state !== 'auth') _scheduleReconnect();
   };
 
   ws.onerror = () => {};
 }
 
 function _scheduleReconnect() {
-  if (!conn.token) return;
+  if (conn.mode === 'relay') {
+    if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  } else {
+    if (!conn.token) return;
+  }
   const delay = Math.min(1000 * Math.pow(2, conn.retryCount), 30000);
   conn.retryCount++;
   connSetState('reconnecting');
   conn.retryTimer = setTimeout(() => { conn.retryTimer = null; _openWS(); }, delay);
+}
+
+function _onDesktopOffline() {
+  const labelEl = $('status-label');
+  if (labelEl) labelEl.textContent = _isFr ? 'PC hors ligne' : 'Desktop offline';
+  const dot = $('connection-dot');
+  if (dot) { dot.classList.add('disconnected'); dot.classList.remove('reconnecting'); }
+}
+
+function _onRelayKicked() {
+  conn.ws = null;
+  connSetState('auth');
+  _showAuth();
 }
 
 function wsSend(type, data) {
@@ -390,6 +452,10 @@ function handleMessage({ type, data }) {
     case 'mention:file-list':    onFileList(data); break;
     case 'settings:updated':     break; // ack, nothing to do
     case 'pong': break;
+    // Relay-specific events
+    case 'relay:desktop-online':  connSetState('connected'); break;
+    case 'relay:desktop-offline': _onDesktopOffline(); break;
+    case 'relay:kicked':          _onRelayKicked(); break;
   }
 }
 

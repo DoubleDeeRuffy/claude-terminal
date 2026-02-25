@@ -1081,5 +1081,22 @@
     "networkInterfaceAuto": "Auto (première disponible)",
     "startServer": "Démarrer",
     "stopServer": "Arrêter"
+  },
+  "cloud": {
+    "sectionTitle": "Cloud Relay",
+    "serverUrl": "URL du serveur",
+    "serverUrlPlaceholder": "https://cloud.example.com",
+    "serverUrlDesc": "Adresse de votre serveur cloud relay auto-hébergé",
+    "apiKey": "Clé API",
+    "apiKeyPlaceholder": "ctc_...",
+    "apiKeyDesc": "Générée par l'admin serveur avec ct-cloud user add",
+    "autoConnect": "Connexion automatique",
+    "autoConnectDesc": "Se connecter automatiquement au relay cloud au démarrage",
+    "connect": "Connecter",
+    "disconnect": "Déconnecter",
+    "status": "Statut",
+    "connected": "Connecté",
+    "disconnected": "Déconnecté",
+    "connecting": "Connexion..."
   }
 }
