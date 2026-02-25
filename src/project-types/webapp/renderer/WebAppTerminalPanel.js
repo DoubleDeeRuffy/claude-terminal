@@ -1322,16 +1322,19 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
   /** Remove pin DOM elements (keep data in memory) */
   function hidePins() {
-    overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler, .wa-pin-popover').forEach(el => el.remove());
   }
 
   /** Re-create pin DOM elements for the current page from stored data */
   function showPins() {
     // Clear existing pin DOM first to avoid duplicates
-    overlay.querySelectorAll('.wa-pin').forEach(el => el.remove());
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler').forEach(el => el.remove());
     const page = pageAnnotations.get(currentPagePath);
-    if (!page) return;
-    for (const ann of page.annotations) addPin(ann);
+    if (page) {
+      for (const ann of page.annotations) addPin(ann);
+    }
+    for (const ann of autoAnnotations) addAutoPin(ann);
+    for (const ann of rulerAnnotations) addRulerPin(ann);
     // Dim pins from other viewports if responsive checker is active
     if (previewView._updatePinViewportStyles) previewView._updatePinViewportStyles();
   }
@@ -1939,6 +1942,9 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
         responsiveIndicator.classList.add('visible');
       }
     }
+
+    // Close popover (its absRect becomes stale after reflow)
+    closePopover();
 
     // Pins need repositioning after content reflows
     setTimeout(() => {
