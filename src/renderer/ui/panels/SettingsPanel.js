@@ -505,6 +505,21 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
           </div>
           <div class="settings-group">
+            <div class="settings-group-title">${t('settings.explorerGroup')}</div>
+            <div class="settings-card">
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.showDotfiles')}</div>
+                  <div class="settings-toggle-desc">${t('settings.showDotfilesDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="show-dotfiles-toggle" ${settings.showDotfiles !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="settings-group-title">${t('settings.quickActionPresets')}</div>
             <div class="settings-card">
             <div class="settings-desc" style="margin-bottom: 10px; padding: 8px 16px 0;">${t('settings.quickActionPresetsDesc')}</div>
@@ -1065,6 +1080,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newHooksEnabled = hooksToggle ? hooksToggle.checked : settings.hooksEnabled;
     const context1MToggle = document.getElementById('enable-1m-context-toggle');
     const newEnable1MContext = context1MToggle ? context1MToggle.checked : settings.enable1MContext || false;
+    const showDotfilesToggle = document.getElementById('show-dotfiles-toggle');
+    const newShowDotfiles = showDotfilesToggle ? showDotfilesToggle.checked : true;
 
     const editorDropdown = document.getElementById('editor-dropdown');
     const newSettings = {
@@ -1079,7 +1096,8 @@ async function renderSettingsTab(initialTab = 'general') {
       aiCommitMessages: newAiCommitMessages,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',
       hooksEnabled: newHooksEnabled,
-      enable1MContext: newEnable1MContext
+      enable1MContext: newEnable1MContext,
+      showDotfiles: newShowDotfiles
     };
 
     container.querySelectorAll('.dynamic-setting-toggle').forEach(toggle => {

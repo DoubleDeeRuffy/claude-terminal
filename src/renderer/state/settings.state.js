@@ -30,6 +30,7 @@ const defaultSettings = {
   remoteEnabled: false, // Enable remote control via mobile PWA
   remotePort: 3712, // Port for the remote control WebSocket/HTTP server
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
+  showDotfiles: true, // true = show dotfiles in file explorer (default), false = hide them
 };
 
 const settingsState = new State({ ...defaultSettings });
