@@ -1160,19 +1160,26 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     // Reposition popover if open
     const pop = overlay.querySelector('.wa-pin-popover');
     if (pop && pop._absRect) {
-      const popW = 280;
-      const popH = pop.offsetHeight || 120;
-      const overlayW = overlay.offsetWidth || 400;
-      const abs = pop._absRect;
-      const vpPos = absToViewport(abs.x, abs.y);
-      let top = vpPos.y - popH - 8;
-      let left = vpPos.x;
-      if (top < 4) top = vpPos.y + abs.height + 8;
-      if (left + popW > overlayW - 4) left = overlayW - popW - 4;
-      if (left < 4) left = 4;
-      pop.style.top = top + 'px';
-      pop.style.left = left + 'px';
+      const preferredW = pop.classList.contains('wa-pin-popover-ruler') ? 300 : 280;
+      positionPopover(pop, pop._absRect, preferredW);
     }
+  }
+
+  /** Position a popover element relative to an absRect, adapting to overlay size */
+  function positionPopover(pop, absRect, preferredW) {
+    const overlayW = overlay.offsetWidth || 400;
+    const popW = Math.min(preferredW, overlayW - 8);
+    pop.style.width = popW + 'px';
+    const vpPos = absToViewport(absRect.x, absRect.y);
+    // Use actual height if rendered, otherwise estimate
+    const popH = pop.offsetHeight || 120;
+    let top = vpPos.y - popH - 8;
+    let left = vpPos.x;
+    if (top < 4) top = vpPos.y + absRect.height + 8;
+    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
+    if (left < 4) left = 4;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
   }
 
   function showPopover(elementData, existingAnnotation) {
@@ -1197,20 +1204,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const absRect = elementData.absRect || elementData.rect;
     pop._absRect = absRect;
 
-    // Position above the element using viewport-relative coords
-    const overlayW = overlay.offsetWidth || 400;
-    const popW = 280;
-    const popH = 120; // estimate
-    const vpPos = absToViewport(absRect.x, absRect.y);
-    let top = vpPos.y - popH - 8;
-    let left = vpPos.x;
-    if (top < 4) top = vpPos.y + absRect.height + 8;
-    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
-    if (left < 4) left = 4;
-    pop.style.top = top + 'px';
-    pop.style.left = left + 'px';
-
     overlay.appendChild(pop);
+    positionPopover(pop, absRect, 280);
 
     const textarea = pop.querySelector('.wa-popover-input');
     const okBtn = pop.querySelector('.wa-popover-ok');
@@ -1397,17 +1392,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
     const absRect = ed.absRect || ed.rect;
     pop._absRect = absRect;
-    const popW = 280, popH = 140;
-    const overlayW = overlay.offsetWidth || 400;
-    const vpPos = absToViewport(absRect.x, absRect.y);
-    let top = vpPos.y - popH - 8;
-    let left = vpPos.x;
-    if (top < 4) top = vpPos.y + absRect.height + 8;
-    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
-    if (left < 4) left = 4;
-    pop.style.top = top + 'px';
-    pop.style.left = left + 'px';
     overlay.appendChild(pop);
+    positionPopover(pop, absRect, 280);
 
     const textarea = pop.querySelector('.wa-popover-input');
     const okBtn = pop.querySelector('.wa-popover-ok');
@@ -1549,17 +1535,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
     const absRect = ed.absRect || ed.rect;
     pop._absRect = absRect;
-    const popW = 300, popH = 180;
-    const overlayW = overlay.offsetWidth || 400;
-    const vpPos = absToViewport(absRect.x, absRect.y);
-    let top = vpPos.y - popH - 8;
-    let left = vpPos.x;
-    if (top < 4) top = vpPos.y + absRect.height + 8;
-    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
-    if (left < 4) left = 4;
-    pop.style.top = top + 'px';
-    pop.style.left = left + 'px';
     overlay.appendChild(pop);
+    positionPopover(pop, absRect, 300);
 
     const textarea = pop.querySelector('.wa-popover-input');
     const okBtn = pop.querySelector('.wa-popover-ok');
