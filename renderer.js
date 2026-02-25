@@ -1423,6 +1423,18 @@ if (btnToggleExplorer) {
   btnToggleExplorer.onclick = () => FileExplorer.toggle();
 }
 
+// Wire "+" new terminal button
+const btnNewTerminal = document.getElementById('btn-new-terminal');
+if (btnNewTerminal) {
+  btnNewTerminal.onclick = () => {
+    const selectedFilter = projectsState.get().selectedProjectFilter;
+    const projects = projectsState.get().projects;
+    if (selectedFilter !== null && projects[selectedFilter]) {
+      createTerminalForProject(projects[selectedFilter]);
+    }
+  };
+}
+
 // Subscribe to project selection changes for FileExplorer
 projectsState.subscribe(() => {
   const state = projectsState.get();
