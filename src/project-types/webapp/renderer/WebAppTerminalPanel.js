@@ -65,6 +65,19 @@ const ICON_RELOAD  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor"
 const ICON_OPEN    = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M8 2h2v2M10 2L6 6M5 3H2v7h7V7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON_INSPECT = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 1l4.2 10 1.5-3.8L10.5 5.7z" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 7l4 4" stroke-linecap="round"/></svg>`;
 
+// Responsive breakpoint icons
+const ICON_RESPONSIVE_FULL    = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON_RESPONSIVE_MOBILE  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="3" y="1" width="6" height="10" rx="1.2"/><path d="M5.5 9.5h1" stroke-linecap="round"/></svg>`;
+const ICON_RESPONSIVE_TABLET  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="2" y="1.5" width="8" height="9" rx="1.2"/><path d="M5.5 9h1" stroke-linecap="round"/></svg>`;
+const ICON_RESPONSIVE_LAPTOP  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="2" y="2" width="8" height="6" rx="1"/><path d="M1 10h10" stroke-linecap="round"/></svg>`;
+const ICON_RESPONSIVE_DESKTOP = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="1" y="1.5" width="10" height="7" rx="1"/><path d="M4 10.5h4M6 8.5v2" stroke-linecap="round"/></svg>`;
+
+// Auto-scan icon
+const ICON_SCAN = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 3V1h2M9 1h2v2M11 9v2H9M3 11H1V9" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 6h5" stroke-linecap="round"/></svg>`;
+
+// Ruler / spacing measurement icon
+const ICON_RULER = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" width="11" height="11"><path d="M1.5 10.5l9-9" stroke-linecap="round"/><path d="M3.5 10V8.5M5.5 9V7.5M7.5 7V5.5" stroke-linecap="round"/><path d="M1 10.5h2.5V8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 // ── Inspect inject/uninject scripts ──────────────────────────────────
 function getInspectInjectScript() {
   const hex = getSetting('accentColor') || '#d97706';
@@ -211,16 +224,458 @@ const SCROLL_UNLISTEN_SCRIPT = `(function() {
   window.__CT_SCROLL_ACTIVE__ = false;
 })();`;
 
-// Lightweight key listener: forwards "I" keydown to host via console.log when inspect is not active
+// Lightweight key listener: forwards "I" and "R" keydown to host via console.log when inspect/ruler is not active
 const KEY_LISTEN_SCRIPT = `(function() {
   if (window.__CT_KEY_ACTIVE__) return;
   window.__CT_KEY_ACTIVE__ = true;
   document.addEventListener('keydown', function(e) {
-    if (window.__CT_INSPECT_ACTIVE__) return;
-    if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      console.log('__CT_INSPECT_TOGGLE__');
+    if (window.__CT_INSPECT_ACTIVE__ || window.__CT_RULER_ACTIVE__) return;
+    if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 'i' || e.key === 'I') console.log('__CT_INSPECT_TOGGLE__');
+      if (e.key === 'r' || e.key === 'R') console.log('__CT_RULER_TOGGLE__');
     }
   });
+})();`;
+
+// ── Auto-scan injection script ──────────────────────────────────────
+function getScanInjectionScript() {
+  return `(function() {
+  var results = [];
+  var MAX_RESULTS = 50;
+
+  function getSelector(el) {
+    if (el.id) return '#' + el.id;
+    var s = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      var c = el.className.trim().split(/\\s+/).filter(Boolean);
+      if (c.length) s += '.' + c.join('.');
+    }
+    return s;
+  }
+
+  function makeResult(el, type, description) {
+    if (results.length >= MAX_RESULTS) return;
+    var r = el.getBoundingClientRect();
+    results.push({
+      type: type,
+      description: description,
+      tagName: el.tagName.toLowerCase(),
+      id: el.id || '',
+      className: (typeof el.className === 'string' ? el.className : ''),
+      selector: getSelector(el),
+      text: (el.textContent || '').trim().substring(0, 60),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      scroll: { x: window.scrollX, y: window.scrollY }
+    });
+  }
+
+  // ── 1. OVERFLOW ──
+  var all = document.querySelectorAll('*');
+  for (var i = 0; i < all.length && results.length < MAX_RESULTS; i++) {
+    var el = all[i];
+    if (el.tagName === 'HTML' || el.tagName === 'BODY') continue;
+    var r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (el.clientWidth > 0 && el.clientHeight > 0) {
+      var overX = el.scrollWidth - el.clientWidth;
+      var overY = el.scrollHeight - el.clientHeight;
+      if (overX > 5 || overY > 5) {
+        var st = window.getComputedStyle(el);
+        var ovf = st.overflow + ' ' + st.overflowX + ' ' + st.overflowY;
+        if (ovf.indexOf('hidden') === -1 && ovf.indexOf('scroll') === -1 && ovf.indexOf('auto') === -1) {
+          var desc = 'Content overflows by ' +
+            (overX > 5 ? overX + 'px horizontally' : '') +
+            (overX > 5 && overY > 5 ? ' and ' : '') +
+            (overY > 5 ? overY + 'px vertically' : '');
+          makeResult(el, 'overflow', desc);
+        }
+      }
+    }
+  }
+
+  // ── 2. CONTRAST (WCAG AA) ──
+  function luminance(r, g, b) {
+    var a = [r, g, b].map(function(v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+  }
+  function contrastRatio(l1, l2) {
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  }
+  function parseColor(str) {
+    var m = str.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
+    return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
+  }
+
+  var textTags = document.querySelectorAll('p,span,h1,h2,h3,h4,h5,h6,a,li,td,th,label,button');
+  for (var i = 0; i < textTags.length && results.length < MAX_RESULTS; i++) {
+    var el = textTags[i];
+    var r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    var hasText = false;
+    for (var c = 0; c < el.childNodes.length; c++) {
+      if (el.childNodes[c].nodeType === 3 && el.childNodes[c].textContent.trim()) { hasText = true; break; }
+    }
+    if (!hasText) continue;
+
+    var st = window.getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.display === 'none' || parseFloat(st.opacity) < 0.1) continue;
+
+    var fg = parseColor(st.color);
+    if (!fg) continue;
+    var bg = null;
+    var p = el;
+    while (p) {
+      var pSt = window.getComputedStyle(p);
+      var pBg = parseColor(pSt.backgroundColor);
+      if (pBg && pSt.backgroundColor !== 'rgba(0, 0, 0, 0)' && pSt.backgroundColor.indexOf('0)') === -1) {
+        bg = pBg;
+        break;
+      }
+      p = p.parentElement;
+    }
+    if (!bg) bg = { r: 255, g: 255, b: 255 };
+
+    var fgL = luminance(fg.r, fg.g, fg.b);
+    var bgL = luminance(bg.r, bg.g, bg.b);
+    var ratio = contrastRatio(fgL, bgL);
+    var fs = parseFloat(st.fontSize);
+    var isBold = parseInt(st.fontWeight) >= 700 || st.fontWeight === 'bold';
+    var isLarge = fs >= 24 || (fs >= 18.66 && isBold);
+    var threshold = isLarge ? 3 : 4.5;
+
+    if (ratio < threshold) {
+      makeResult(el, 'contrast',
+        'Contrast ratio ' + ratio.toFixed(1) + ':1 (needs ' + threshold + ':1 for WCAG AA). ' +
+        'Text rgb(' + fg.r + ',' + fg.g + ',' + fg.b + ') on rgb(' + bg.r + ',' + bg.g + ',' + bg.b + ')'
+      );
+    }
+  }
+
+  // ── 3. BROKEN IMAGES ──
+  var imgs = document.querySelectorAll('img');
+  for (var i = 0; i < imgs.length && results.length < MAX_RESULTS; i++) {
+    var img = imgs[i];
+    var r = img.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (!img.src || img.src === '' || img.src === window.location.href) {
+      makeResult(img, 'broken-image', 'Image has no src attribute');
+    } else if (img.complete && img.naturalWidth === 0) {
+      makeResult(img, 'broken-image', 'Image failed to load: ' + img.src.substring(0, 80));
+    }
+  }
+
+  // ── 4. Z-INDEX OVERLAP ──
+  var zEls = [];
+  for (var i = 0; i < all.length; i++) {
+    var el = all[i];
+    var st = window.getComputedStyle(el);
+    var z = parseInt(st.zIndex);
+    if (!isNaN(z) && z > 0 && st.position !== 'static') {
+      var r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) zEls.push({ el: el, z: z, rect: r });
+    }
+  }
+  for (var i = 0; i < zEls.length && results.length < MAX_RESULTS; i++) {
+    for (var j = i + 1; j < zEls.length; j++) {
+      var a = zEls[i], b = zEls[j];
+      if (a.z === b.z) continue;
+      if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      var overlap = !(a.rect.right < b.rect.left || b.rect.right < a.rect.left ||
+                      a.rect.bottom < b.rect.top || b.rect.bottom < a.rect.top);
+      if (overlap) {
+        var hi = a.z > b.z ? a : b;
+        var lo = a.z > b.z ? b : a;
+        makeResult(hi.el, 'z-index',
+          'z-index: ' + hi.z + ' overlaps with ' + getSelector(lo.el) + ' (z-index: ' + lo.z + ')'
+        );
+      }
+    }
+  }
+
+  // Deduplicate
+  var seen = {};
+  var unique = [];
+  for (var i = 0; i < results.length; i++) {
+    var key = results[i].type + '|' + results[i].selector;
+    if (!seen[key]) { seen[key] = true; unique.push(results[i]); }
+  }
+
+  console.log('__CT_SCAN__:' + JSON.stringify(unique));
+})()`;
+}
+
+// ── Ruler inject/uninject scripts ──────────────────────────────────
+function getRulerInjectScript() {
+  return `(function() {
+  if (window.__CT_RULER_ACTIVE__) return;
+  window.__CT_RULER_ACTIVE__ = true;
+  var ac = new AbortController();
+  window.__CT_RULER_AC__ = ac;
+  var s = ac.signal;
+
+  // Kill standalone scroll listener
+  if (window.__CT_SCROLL_AC__) { window.__CT_SCROLL_AC__.abort(); delete window.__CT_SCROLL_AC__; window.__CT_SCROLL_ACTIVE__ = false; }
+
+  // Overlay elements
+  var boxmodel = document.createElement('div');
+  boxmodel.id = '__ct_ruler_boxmodel__';
+  Object.assign(boxmodel.style, { position:'fixed', zIndex:'2147483646', pointerEvents:'none', display:'none', top:'0', left:'0' });
+  boxmodel.innerHTML = '<div id="__ct_rm__" style="position:absolute;background:rgba(251,146,60,0.3)"></div><div id="__ct_rb__" style="position:absolute;background:rgba(250,204,21,0.35)"></div><div id="__ct_rp__" style="position:absolute;background:rgba(74,222,128,0.35)"></div><div id="__ct_rc__" style="position:absolute;background:rgba(96,165,250,0.25)"></div>';
+  document.body.appendChild(boxmodel);
+
+  var dimLabel = document.createElement('div');
+  dimLabel.id = '__ct_ruler_dim__';
+  Object.assign(dimLabel.style, { position:'fixed', zIndex:'2147483647', pointerEvents:'none', background:'rgba(0,0,0,0.8)', color:'#fff', fontSize:'10px', fontFamily:'monospace', padding:'2px 6px', borderRadius:'3px', whiteSpace:'nowrap', display:'none', top:'0', left:'0' });
+  document.body.appendChild(dimLabel);
+
+  var linesSvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  linesSvg.id = '__ct_ruler_lines__';
+  linesSvg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  Object.assign(linesSvg.style, { position:'fixed', inset:'0', width:'100%', height:'100%', zIndex:'2147483645', pointerEvents:'none', display:'none' });
+  document.body.appendChild(linesSvg);
+
+  var guidesSvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  guidesSvg.id = '__ct_ruler_guides__';
+  guidesSvg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  Object.assign(guidesSvg.style, { position:'fixed', inset:'0', width:'100%', height:'100%', zIndex:'2147483644', pointerEvents:'none', display:'none' });
+  document.body.appendChild(guidesSvg);
+
+  var lockedEl = null;
+  var lastHover = null;
+
+  function getSpacing(el) {
+    var cs = window.getComputedStyle(el);
+    return {
+      margin:  { top: parseFloat(cs.marginTop)||0,  right: parseFloat(cs.marginRight)||0,  bottom: parseFloat(cs.marginBottom)||0,  left: parseFloat(cs.marginLeft)||0 },
+      border:  { top: parseFloat(cs.borderTopWidth)||0, right: parseFloat(cs.borderRightWidth)||0, bottom: parseFloat(cs.borderBottomWidth)||0, left: parseFloat(cs.borderLeftWidth)||0 },
+      padding: { top: parseFloat(cs.paddingTop)||0, right: parseFloat(cs.paddingRight)||0, bottom: parseFloat(cs.paddingBottom)||0, left: parseFloat(cs.paddingLeft)||0 }
+    };
+  }
+
+  function drawBoxModel(el) {
+    var r = el.getBoundingClientRect();
+    var sp = getSpacing(el);
+    var m = sp.margin, b = sp.border, p = sp.padding;
+
+    // Margin layer (outermost)
+    var mEl = document.getElementById('__ct_rm__');
+    Object.assign(mEl.style, { top:(r.top-m.top)+'px', left:(r.left-m.left)+'px', width:(r.width+m.left+m.right)+'px', height:(r.height+m.top+m.bottom)+'px' });
+
+    // Border layer
+    var bEl = document.getElementById('__ct_rb__');
+    Object.assign(bEl.style, { top:r.top+'px', left:r.left+'px', width:r.width+'px', height:r.height+'px' });
+
+    // Padding layer
+    var pEl = document.getElementById('__ct_rp__');
+    Object.assign(pEl.style, { top:(r.top+b.top)+'px', left:(r.left+b.left)+'px', width:(r.width-b.left-b.right)+'px', height:(r.height-b.top-b.bottom)+'px' });
+
+    // Content layer (innermost)
+    var cEl = document.getElementById('__ct_rc__');
+    Object.assign(cEl.style, { top:(r.top+b.top+p.top)+'px', left:(r.left+b.left+p.left)+'px', width:(r.width-b.left-b.right-p.left-p.right)+'px', height:(r.height-b.top-b.bottom-p.top-p.bottom)+'px' });
+
+    boxmodel.style.display = 'block';
+
+    // Dimension label
+    var w = Math.round(r.width), h = Math.round(r.height);
+    dimLabel.textContent = w + ' \\u00d7 ' + h;
+    var lt = r.left, tt = r.bottom + 4;
+    if (tt + 18 > window.innerHeight) tt = r.top - 18;
+    dimLabel.style.left = Math.max(0,lt) + 'px';
+    dimLabel.style.top = tt + 'px';
+    dimLabel.style.display = 'block';
+  }
+
+  function makeSvgLine(x1,y1,x2,y2,color,dashed) {
+    var line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',x1); line.setAttribute('y1',y1);
+    line.setAttribute('x2',x2); line.setAttribute('y2',y2);
+    line.setAttribute('stroke',color);
+    line.setAttribute('stroke-width','1');
+    if (dashed) line.setAttribute('stroke-dasharray','4,3');
+    return line;
+  }
+
+  function makeSvgText(x,y,text,color) {
+    var t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',x); t.setAttribute('y',y);
+    t.setAttribute('fill',color);
+    t.setAttribute('font-size','10');
+    t.setAttribute('font-family','monospace');
+    t.textContent = text;
+    return t;
+  }
+
+  function drawMeasurementLines(rA, rB) {
+    linesSvg.innerHTML = '';
+    linesSvg.style.display = 'block';
+    var color = '#ec4899';
+
+    // Vertical distance
+    var xMid = Math.round((Math.max(rA.left,rB.left)+Math.min(rA.right,rB.right))/2);
+    if (rA.bottom <= rB.top) {
+      linesSvg.appendChild(makeSvgLine(xMid,rA.bottom,xMid,rB.top,color,true));
+      var dist = Math.round(rB.top - rA.bottom);
+      linesSvg.appendChild(makeSvgText(xMid+4, (rA.bottom+rB.top)/2+3, dist+'px', color));
+    } else if (rB.bottom <= rA.top) {
+      linesSvg.appendChild(makeSvgLine(xMid,rB.bottom,xMid,rA.top,color,true));
+      var dist = Math.round(rA.top - rB.bottom);
+      linesSvg.appendChild(makeSvgText(xMid+4, (rB.bottom+rA.top)/2+3, dist+'px', color));
+    }
+
+    // Horizontal distance
+    var yMid = Math.round((Math.max(rA.top,rB.top)+Math.min(rA.bottom,rB.bottom))/2);
+    if (rA.right <= rB.left) {
+      linesSvg.appendChild(makeSvgLine(rA.right,yMid,rB.left,yMid,color,true));
+      var dist = Math.round(rB.left - rA.right);
+      linesSvg.appendChild(makeSvgText((rA.right+rB.left)/2-10, yMid-4, dist+'px', color));
+    } else if (rB.right <= rA.left) {
+      linesSvg.appendChild(makeSvgLine(rB.right,yMid,rA.left,yMid,color,true));
+      var dist = Math.round(rA.left - rB.right);
+      linesSvg.appendChild(makeSvgText((rB.right+rA.left)/2-10, yMid-4, dist+'px', color));
+    }
+  }
+
+  function drawAlignmentGuides(rA, rB) {
+    guidesSvg.innerHTML = '';
+    guidesSvg.style.display = 'block';
+    var color = 'rgba(6,182,212,0.6)';
+    var W = window.innerWidth, H = window.innerHeight;
+    var tol = 1;
+
+    // Top edge alignment
+    if (Math.abs(rA.top - rB.top) <= tol) guidesSvg.appendChild(makeSvgLine(0,rA.top,W,rA.top,color,true));
+    // Bottom edge alignment
+    if (Math.abs(rA.bottom - rB.bottom) <= tol) guidesSvg.appendChild(makeSvgLine(0,rA.bottom,W,rA.bottom,color,true));
+    // Left edge alignment
+    if (Math.abs(rA.left - rB.left) <= tol) guidesSvg.appendChild(makeSvgLine(rA.left,0,rA.left,H,color,true));
+    // Right edge alignment
+    if (Math.abs(rA.right - rB.right) <= tol) guidesSvg.appendChild(makeSvgLine(rA.right,0,rA.right,H,color,true));
+    // Vertical center alignment
+    var cxA = (rA.left+rA.right)/2, cxB = (rB.left+rB.right)/2;
+    if (Math.abs(cxA - cxB) <= tol) guidesSvg.appendChild(makeSvgLine(cxA,0,cxA,H,color,true));
+    // Horizontal center alignment
+    var cyA = (rA.top+rA.bottom)/2, cyB = (rB.top+rB.bottom)/2;
+    if (Math.abs(cyA - cyB) <= tol) guidesSvg.appendChild(makeSvgLine(0,cyA,W,cyA,color,true));
+  }
+
+  function clearOverlays() {
+    boxmodel.style.display = 'none';
+    dimLabel.style.display = 'none';
+    linesSvg.style.display = 'none';
+    linesSvg.innerHTML = '';
+    guidesSvg.style.display = 'none';
+    guidesSvg.innerHTML = '';
+  }
+
+  function getSelector(el) {
+    if (el.id) return '#' + el.id;
+    var s = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      var c = el.className.trim().split(/\\s+/).filter(Boolean);
+      if (c.length) s += '.' + c.join('.');
+    }
+    return s;
+  }
+
+  // Scroll reporting
+  var scrollThrottle = null;
+  window.addEventListener('scroll', function() {
+    if (scrollThrottle) return;
+    scrollThrottle = setTimeout(function() {
+      scrollThrottle = null;
+      console.log('__CT_RULER_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+    }, 16);
+  }, { capture: true, signal: s });
+  console.log('__CT_RULER_SCROLL__:' + JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY }));
+
+  // Block clicks/navigation
+  function blockEvent(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
+  document.addEventListener('click', blockEvent, { capture: true, signal: s });
+  document.addEventListener('auxclick', blockEvent, { capture: true, signal: s });
+  document.addEventListener('submit', blockEvent, { capture: true, signal: s });
+  document.addEventListener('pointerup', blockEvent, { capture: true, signal: s });
+  document.addEventListener('mouseup', blockEvent, { capture: true, signal: s });
+
+  // Hover
+  document.addEventListener('mousemove', function(e) {
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === boxmodel || el === dimLabel || el.closest('#__ct_ruler_boxmodel__')) return;
+    if (el === lastHover) return;
+    lastHover = el;
+
+    if (lockedEl) {
+      // Show distance between locked and hovered element
+      var rA = lockedEl.getBoundingClientRect();
+      var rB = el.getBoundingClientRect();
+      drawMeasurementLines(rA, rB);
+      drawAlignmentGuides(rA, rB);
+      // Also show box model on hovered element
+      drawBoxModel(el);
+    } else {
+      drawBoxModel(el);
+      // Clear measurement lines when not locked
+      linesSvg.style.display = 'none';
+      linesSvg.innerHTML = '';
+      guidesSvg.style.display = 'none';
+      guidesSvg.innerHTML = '';
+    }
+  }, { signal: s });
+
+  // Click: lock/unlock + send data
+  document.addEventListener('mousedown', function(e) {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === boxmodel || el === dimLabel || el.closest('#__ct_ruler_boxmodel__')) return;
+
+    if (lockedEl === el) {
+      // Unlock
+      lockedEl = null;
+      clearOverlays();
+      lastHover = null;
+      return;
+    }
+
+    lockedEl = el;
+    var r = el.getBoundingClientRect();
+    var sp = getSpacing(el);
+    var cs = window.getComputedStyle(el);
+    console.log('__CT_RULER_CLICK__:' + JSON.stringify({
+      selector: getSelector(el),
+      rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      scroll: { x: window.scrollX, y: window.scrollY },
+      spacing: sp,
+      computedWidth: cs.width,
+      computedHeight: cs.height
+    }));
+  }, { capture: true, signal: s });
+
+  // Keys
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      if (lockedEl) {
+        lockedEl = null;
+        clearOverlays();
+        lastHover = null;
+      } else {
+        console.log('__CT_RULER_CANCEL__');
+      }
+    }
+    if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      console.log('__CT_RULER_TOGGLE__');
+    }
+  }, { signal: s });
+})();`;
+}
+
+const RULER_UNINJECT_SCRIPT = `(function() {
+  if (window.__CT_RULER_AC__) { window.__CT_RULER_AC__.abort(); delete window.__CT_RULER_AC__; }
+  ['__ct_ruler_boxmodel__','__ct_ruler_dim__','__ct_ruler_lines__','__ct_ruler_guides__'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.remove();
+  });
+  window.__CT_RULER_ACTIVE__ = false;
 })();`;
 
 function getViewSwitcherHtml() {
@@ -263,8 +718,10 @@ function getViewSwitcherHtml() {
  * Detach the webview from DOM (removes the native surface entirely).
  */
 function detachWebview(previewView) {
-  if (previewView._inspectHandlers?.isActive()) {
-    previewView._inspectHandlers.deactivate();
+  if (previewView._inspectHandlers) {
+    if (previewView._inspectHandlers.isActive()) {
+      previewView._inspectHandlers.deactivate();
+    }
   }
   const webview = previewView.querySelector('.webapp-preview-webview');
   if (!webview) return;
@@ -283,13 +740,13 @@ function detachWebview(previewView) {
 function attachWebview(previewView) {
   const savedUrl = detachedWebviews.get(previewView);
   if (!savedUrl || savedUrl === 'about:blank') return;
-  const viewport = previewView.querySelector('.wa-browser-viewport');
-  if (!viewport) return;
+  const frame = previewView.querySelector('.wa-responsive-frame') || previewView.querySelector('.wa-browser-viewport');
+  if (!frame) return;
   const webview = document.createElement('webview');
   webview.className = 'webapp-preview-webview';
   webview.setAttribute('src', savedUrl);
   webview.setAttribute('disableblinkfeatures', 'Auxclick');
-  viewport.insertBefore(webview, viewport.firstChild);
+  frame.insertBefore(webview, frame.firstChild);
   wireWebviewEvents(previewView, webview);
   detachedWebviews.delete(previewView);
 }
@@ -311,10 +768,11 @@ function wireWebviewEvents(previewView, webview) {
     } catch (err) {}
     // Switch pins to the new page
     previewView._inspectHandlers?.switchPage?.(newPath);
-    // Re-inject inspect script after navigation if active
+    // Re-inject scripts after navigation if active
     setTimeout(() => {
       try { webview.executeJavaScript(KEY_LISTEN_SCRIPT); } catch (e) {}
       if (previewView._inspectHandlers?.isActive()) {
+        // Determine which mode is active and re-inject appropriately
         try { webview.executeJavaScript(getInspectInjectScript()); } catch (e) {}
       }
     }, 300);
@@ -352,6 +810,35 @@ function wireWebviewEvents(previewView, webview) {
       }
       if (e.message === '__CT_INSPECT_TOGGLE__') {
         previewView._inspectHandlers?.toggle();
+        return;
+      }
+      if (e.message.startsWith('__CT_SCAN__:')) {
+        try {
+          const data = JSON.parse(e.message.slice('__CT_SCAN__:'.length));
+          previewView._inspectHandlers?.handleScanResults(data);
+        } catch (err) {}
+        return;
+      }
+      if (e.message.startsWith('__CT_RULER_CLICK__:')) {
+        try {
+          const data = JSON.parse(e.message.slice('__CT_RULER_CLICK__:'.length));
+          previewView._inspectHandlers?.handleRulerClick(data);
+        } catch (err) {}
+        return;
+      }
+      if (e.message.startsWith('__CT_RULER_SCROLL__:')) {
+        try {
+          const scroll = JSON.parse(e.message.slice('__CT_RULER_SCROLL__:'.length));
+          previewView._inspectHandlers?.handleScroll(scroll);
+        } catch (err) {}
+        return;
+      }
+      if (e.message === '__CT_RULER_CANCEL__') {
+        previewView._inspectHandlers?.handleRulerEscape();
+        return;
+      }
+      if (e.message === '__CT_RULER_TOGGLE__') {
+        previewView._inspectHandlers?.toggleRuler();
         return;
       }
     }
@@ -496,14 +983,27 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
         <div class="wa-address-bar">
           <span class="wa-addr-scheme">http://</span><span class="wa-addr-host">localhost</span><span class="wa-addr-port">:${port}</span><span class="wa-addr-path"></span>
         </div>
+        <div class="wa-responsive-group">
+          <button class="wa-responsive-btn active" data-width="0" title="${t('webapp.responsive.full')}">${ICON_RESPONSIVE_FULL}</button>
+          <div class="wa-responsive-sep"></div>
+          <button class="wa-responsive-btn" data-width="375" title="${t('webapp.responsive.mobile')} (375px)">${ICON_RESPONSIVE_MOBILE}<span class="wa-responsive-label">375</span></button>
+          <button class="wa-responsive-btn" data-width="768" title="${t('webapp.responsive.tablet')} (768px)">${ICON_RESPONSIVE_TABLET}<span class="wa-responsive-label">768</span></button>
+          <button class="wa-responsive-btn" data-width="1024" title="${t('webapp.responsive.laptop')} (1024px)">${ICON_RESPONSIVE_LAPTOP}<span class="wa-responsive-label">1024</span></button>
+          <button class="wa-responsive-btn" data-width="1440" title="${t('webapp.responsive.desktop')} (1440px)">${ICON_RESPONSIVE_DESKTOP}<span class="wa-responsive-label">1440</span></button>
+        </div>
+        <button class="wa-browser-btn wa-scan" title="${t('webapp.scan.title')}">${ICON_SCAN}<span class="wa-scan-count"></span></button>
+        <button class="wa-browser-btn wa-ruler" title="${t('webapp.ruler.title')} (R)">${ICON_RULER}<span class="wa-ruler-count"></span></button>
         <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')} (I)">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
         <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
       </div>
       <div class="wa-browser-viewport">
-        <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
-        <div class="wa-pins-overlay"></div>
+        <div class="wa-responsive-frame">
+          <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
+          <div class="wa-pins-overlay"></div>
+        </div>
       </div>
+      <div class="wa-responsive-indicator"></div>
     </div>
   `;
 
@@ -526,9 +1026,24 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   // Track webview scroll position for pin offset calculation
   let currentScroll = { x: 0, y: 0 };
 
+  // Auto-scan state (transient, cleared on re-scan/navigation)
+  let autoAnnotations = [];
+  let nextAutoPinId = 1000;
+  let scanActive = false;
+
+  // Ruler state (transient)
+  let rulerActive = false;
+  let rulerLockedElement = null;
+  let rulerAnnotations = [];
+  let nextRulerPinId = 2000;
+
   const inspectBtn = previewView.querySelector('.wa-inspect');
   const badgeEl = previewView.querySelector('.wa-inspect-count');
   const sendAllBtn = previewView.querySelector('.wa-send-all');
+  const scanBtn = previewView.querySelector('.wa-scan');
+  const scanBadge = previewView.querySelector('.wa-scan-count');
+  const rulerBtn = previewView.querySelector('.wa-ruler');
+  const rulerBadge = previewView.querySelector('.wa-ruler-count');
   const overlay = previewView.querySelector('.wa-pins-overlay');
 
   /** Get annotations for the current page */
@@ -546,25 +1061,57 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     return total;
   }
 
-  /** Get all annotations flattened with their page path */
+  /** Get all annotations flattened with their page path (user + auto-detected + ruler) */
   function getAllAnnotations() {
     const all = [];
     for (const [path, page] of pageAnnotations) {
       for (const ann of page.annotations) all.push({ ...ann, pagePath: path });
     }
+    for (const ann of autoAnnotations) {
+      all.push({ ...ann, pagePath: currentPagePath, isAutoDetected: true });
+    }
+    for (const ann of rulerAnnotations) {
+      all.push({ ...ann, pagePath: currentPagePath, isRulerAnnotation: true });
+    }
     return all;
   }
 
   function updateBadge() {
-    const count = getTotalCount();
-    if (count > 0) {
-      badgeEl.textContent = count;
+    const userCount = getTotalCount();
+    const totalCount = userCount + autoAnnotations.length + rulerAnnotations.length;
+    if (userCount > 0) {
+      badgeEl.textContent = userCount;
       badgeEl.classList.add('visible');
-      sendAllBtn.textContent = `${t('webapp.sendAll').replace('{count}', count)}`;
-      sendAllBtn.classList.add('visible');
     } else {
       badgeEl.classList.remove('visible');
+    }
+    if (totalCount > 0) {
+      sendAllBtn.textContent = `${t('webapp.sendAll').replace('{count}', totalCount)}`;
+      sendAllBtn.classList.add('visible');
+    } else {
       sendAllBtn.classList.remove('visible');
+    }
+  }
+
+  function updateRulerBadge() {
+    const count = rulerAnnotations.length;
+    if (count > 0) {
+      rulerBadge.textContent = count;
+      rulerBadge.classList.add('visible');
+    } else {
+      rulerBadge.textContent = '';
+      rulerBadge.classList.remove('visible');
+    }
+  }
+
+  function updateScanBadge() {
+    const count = autoAnnotations.length;
+    if (count > 0) {
+      scanBadge.textContent = count;
+      scanBadge.classList.add('visible');
+    } else {
+      scanBadge.textContent = '';
+      scanBadge.classList.remove('visible');
     }
   }
 
@@ -592,22 +1139,47 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       pinEl.style.top = vp.y + 'px';
       pinEl.style.left = vp.x + 'px';
     }
+    // Also reposition auto-detected pins
+    for (const ann of autoAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const abs = ann.elementData.absRect;
+      const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+      pinEl.style.top = vp.y + 'px';
+      pinEl.style.left = vp.x + 'px';
+    }
+    // Also reposition ruler pins
+    for (const ann of rulerAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-ruler[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const abs = ann.elementData.absRect;
+      const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+      pinEl.style.top = vp.y + 'px';
+      pinEl.style.left = vp.x + 'px';
+    }
     // Reposition popover if open
     const pop = overlay.querySelector('.wa-pin-popover');
     if (pop && pop._absRect) {
-      const popW = 280;
-      const popH = pop.offsetHeight || 120;
-      const overlayW = overlay.offsetWidth || 400;
-      const abs = pop._absRect;
-      const vpPos = absToViewport(abs.x, abs.y);
-      let top = vpPos.y - popH - 8;
-      let left = vpPos.x;
-      if (top < 4) top = vpPos.y + abs.height + 8;
-      if (left + popW > overlayW - 4) left = overlayW - popW - 4;
-      if (left < 4) left = 4;
-      pop.style.top = top + 'px';
-      pop.style.left = left + 'px';
+      const preferredW = pop.classList.contains('wa-pin-popover-ruler') ? 300 : 280;
+      positionPopover(pop, pop._absRect, preferredW);
     }
+  }
+
+  /** Position a popover element relative to an absRect, adapting to overlay size */
+  function positionPopover(pop, absRect, preferredW) {
+    const overlayW = overlay.offsetWidth || 400;
+    const popW = Math.min(preferredW, overlayW - 8);
+    pop.style.width = popW + 'px';
+    const vpPos = absToViewport(absRect.x, absRect.y);
+    // Use actual height if rendered, otherwise estimate
+    const popH = pop.offsetHeight || 120;
+    let top = vpPos.y - popH - 8;
+    let left = vpPos.x;
+    if (top < 4) top = vpPos.y + absRect.height + 8;
+    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
+    if (left < 4) left = 4;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
   }
 
   function showPopover(elementData, existingAnnotation) {
@@ -632,20 +1204,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const absRect = elementData.absRect || elementData.rect;
     pop._absRect = absRect;
 
-    // Position above the element using viewport-relative coords
-    const overlayW = overlay.offsetWidth || 400;
-    const popW = 280;
-    const popH = 120; // estimate
-    const vpPos = absToViewport(absRect.x, absRect.y);
-    let top = vpPos.y - popH - 8;
-    let left = vpPos.x;
-    if (top < 4) top = vpPos.y + absRect.height + 8;
-    if (left + popW > overlayW - 4) left = overlayW - popW - 4;
-    if (left < 4) left = 4;
-    pop.style.top = top + 'px';
-    pop.style.left = left + 'px';
-
     overlay.appendChild(pop);
+    positionPopover(pop, absRect, 280);
 
     const textarea = pop.querySelector('.wa-popover-input');
     const okBtn = pop.querySelector('.wa-popover-ok');
@@ -674,7 +1234,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       if (existingAnnotation) {
         existingAnnotation.instruction = instruction;
       } else {
-        const ann = { id: nextPinId++, elementData, instruction };
+        const ann = { id: nextPinId++, elementData, instruction, viewportWidth: currentBreakpoint || 0 };
         getPageAnns().annotations.push(ann);
         addPin(ann);
         updateBadge();
@@ -722,6 +1282,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const pin = document.createElement('div');
     pin.className = 'wa-pin';
     pin.dataset.pinId = annotation.id;
+    pin.dataset.viewport = annotation.viewportWidth || 0;
     pin.textContent = annotation.id;
     const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
     pin.style.top = vp.y + 'px';
@@ -748,25 +1309,365 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     pageAnnotations.clear();
     nextPinId = 1;
     currentScroll = { x: 0, y: 0 };
-    overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
+    clearAutoAnnotations();
+    clearRulerAnnotations();
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler, .wa-pin-popover').forEach(el => el.remove());
     updateBadge();
   }
 
   /** Remove pin DOM elements (keep data in memory) */
   function hidePins() {
-    overlay.querySelectorAll('.wa-pin, .wa-pin-popover').forEach(el => el.remove());
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler, .wa-pin-popover').forEach(el => el.remove());
   }
 
   /** Re-create pin DOM elements for the current page from stored data */
   function showPins() {
     // Clear existing pin DOM first to avoid duplicates
-    overlay.querySelectorAll('.wa-pin').forEach(el => el.remove());
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler').forEach(el => el.remove());
     const page = pageAnnotations.get(currentPagePath);
-    if (!page) return;
-    for (const ann of page.annotations) addPin(ann);
+    if (page) {
+      for (const ann of page.annotations) addPin(ann);
+    }
+    for (const ann of autoAnnotations) addAutoPin(ann);
+    for (const ann of rulerAnnotations) addRulerPin(ann);
+    // Dim pins from other viewports if responsive checker is active
+    if (previewView._updatePinViewportStyles) previewView._updatePinViewportStyles();
+  }
+
+  // ── Auto-scan pin functions ──────────────────────────────────────────
+
+  function clearAutoAnnotations() {
+    autoAnnotations = [];
+    nextAutoPinId = 1000;
+    overlay.querySelectorAll('.wa-pin-auto').forEach(el => el.remove());
+    updateScanBadge();
+  }
+
+  function addAutoPin(annotation) {
+    const abs = annotation.elementData.absRect;
+    const pin = document.createElement('div');
+    pin.className = 'wa-pin wa-pin-auto';
+    pin.dataset.pinId = annotation.id;
+    pin.dataset.pinType = annotation.issueType;
+    pin.dataset.viewport = annotation.viewportWidth || 0;
+    const icons = { 'overflow': '\u2194', 'contrast': 'Aa', 'broken-image': '\u2298', 'z-index': 'Z' };
+    pin.textContent = icons[annotation.issueType] || '!';
+    const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+    pin.style.top = vp.y + 'px';
+    pin.style.left = vp.x + 'px';
+    pin.onclick = (e) => {
+      e.stopPropagation();
+      showAutoPopover(annotation);
+    };
+    overlay.appendChild(pin);
+  }
+
+  function showAutoPopover(annotation) {
+    closePopover();
+    const ed = annotation.elementData;
+    const pop = document.createElement('div');
+    pop.className = 'wa-pin-popover wa-pin-popover-auto';
+
+    const typeLabels = {
+      'overflow': t('webapp.scan.types.overflow'),
+      'contrast': t('webapp.scan.types.contrast'),
+      'broken-image': t('webapp.scan.types.brokenImage'),
+      'z-index': t('webapp.scan.types.zIndex')
+    };
+
+    const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    pop.innerHTML = `
+      <div class="wa-popover-header">
+        <span class="wa-scan-type-badge" data-type="${annotation.issueType}">${typeLabels[annotation.issueType] || annotation.issueType}</span>
+        <span class="wa-popover-selector">${escAttr(ed.selector)}</span>
+        <button class="wa-popover-close" title="Close">&times;</button>
+      </div>
+      <div class="wa-scan-description">${escAttr(annotation.description)}</div>
+      <textarea class="wa-popover-input" rows="1" placeholder="${t('webapp.scan.customInstruction')}">${escAttr(annotation.instruction)}</textarea>
+      <div class="wa-popover-actions">
+        <button class="wa-popover-delete">${t('webapp.scan.dismiss')}</button>
+        <button class="wa-popover-ok">${annotation._customized ? 'Update' : 'OK'}</button>
+      </div>
+    `;
+
+    const absRect = ed.absRect || ed.rect;
+    pop._absRect = absRect;
+    overlay.appendChild(pop);
+    positionPopover(pop, absRect, 280);
+
+    const textarea = pop.querySelector('.wa-popover-input');
+    const okBtn = pop.querySelector('.wa-popover-ok');
+    const closeBtn = pop.querySelector('.wa-popover-close');
+    const delBtn = pop.querySelector('.wa-popover-delete');
+
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    });
+
+    closeBtn.onclick = () => closePopover();
+    delBtn.onclick = () => {
+      autoAnnotations = autoAnnotations.filter(a => a.id !== annotation.id);
+      overlay.querySelector(`.wa-pin-auto[data-pin-id="${annotation.id}"]`)?.remove();
+      closePopover();
+      updateScanBadge();
+      updateBadge();
+    };
+    okBtn.onclick = () => {
+      const val = textarea.value.trim();
+      if (val) { annotation.instruction = val; annotation._customized = true; }
+      closePopover();
+    };
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); okBtn.onclick(); }
+      if (e.key === 'Escape') closePopover();
+    });
+    setTimeout(() => textarea.focus(), 50);
+  }
+
+  function handleScanResults(results) {
+    scanActive = false;
+    scanBtn?.classList.remove('scanning');
+
+    if (!results || results.length === 0) {
+      scanBtn?.classList.add('scan-clear');
+      setTimeout(() => scanBtn?.classList.remove('scan-clear'), 2000);
+      return;
+    }
+
+    // Ensure scroll listener for pin positioning
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
+    }
+
+    const instructions = {
+      'overflow': (d) => `Fix overflow: ${d}. Ensure content fits within its container.`,
+      'contrast': (d) => `Fix contrast: ${d}. Adjust text or background color to meet WCAG AA.`,
+      'broken-image': (d) => `Fix broken image: ${d}. Verify the image path and ensure it loads.`,
+      'z-index': (d) => `Fix z-index issue: ${d}. Review stacking context.`
+    };
+
+    for (const result of results) {
+      const scroll = result.scroll || { x: 0, y: 0 };
+      const absRect = {
+        x: result.rect.x + scroll.x, y: result.rect.y + scroll.y,
+        width: result.rect.width, height: result.rect.height
+      };
+      const ann = {
+        id: nextAutoPinId++,
+        issueType: result.type,
+        description: result.description,
+        elementData: {
+          tagName: result.tagName, id: result.id, className: result.className,
+          selector: result.selector, text: result.text,
+          rect: result.rect, absRect,
+          capturedAtViewport: currentBreakpoint || 0
+        },
+        instruction: (instructions[result.type] || ((d) => d))(result.description),
+        viewportWidth: currentBreakpoint || 0,
+        isAutoDetected: true
+      };
+      autoAnnotations.push(ann);
+      addAutoPin(ann);
+    }
+
+    updateScanBadge();
+    updateBadge();
+    scanBtn?.classList.add('scan-found');
+    setTimeout(() => scanBtn?.classList.remove('scan-found'), 2000);
+  }
+
+  // ── Ruler pin functions ──────────────────────────────────────────
+
+  function clearRulerAnnotations() {
+    rulerAnnotations = [];
+    nextRulerPinId = 2000;
+    rulerLockedElement = null;
+    overlay.querySelectorAll('.wa-pin-ruler').forEach(el => el.remove());
+    updateRulerBadge();
+  }
+
+  function addRulerPin(annotation) {
+    const abs = annotation.elementData.absRect;
+    const pin = document.createElement('div');
+    pin.className = 'wa-pin wa-pin-ruler';
+    pin.dataset.pinId = annotation.id;
+    pin.dataset.viewport = annotation.viewportWidth || 0;
+    pin.textContent = '\ud83d\udccf';
+    const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
+    pin.style.top = vp.y + 'px';
+    pin.style.left = vp.x + 'px';
+    pin.onclick = (e) => {
+      e.stopPropagation();
+      showRulerPopover(annotation);
+    };
+    overlay.appendChild(pin);
+  }
+
+  function showRulerPopover(annotation) {
+    closePopover();
+    const ed = annotation.elementData;
+    const sp = annotation.spacing;
+    const pop = document.createElement('div');
+    pop.className = 'wa-pin-popover wa-pin-popover-ruler';
+
+    const fmtVal = (v) => Math.round(v) + 'px';
+    const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    pop.innerHTML = `
+      <div class="wa-popover-header">
+        <span class="wa-popover-selector">${escAttr(ed.selector)}</span>
+        <span class="wa-ruler-dim">${annotation.computedWidth} \u00d7 ${annotation.computedHeight}</span>
+        <button class="wa-popover-close" title="Close">&times;</button>
+      </div>
+      <div class="wa-ruler-boxmodel-mini">
+        <div class="wa-ruler-row margin"><span class="wa-ruler-label">${t('webapp.ruler.margin')}</span><span class="wa-ruler-val">${fmtVal(sp.margin.top)}</span><span class="wa-ruler-val">${fmtVal(sp.margin.right)}</span><span class="wa-ruler-val">${fmtVal(sp.margin.bottom)}</span><span class="wa-ruler-val">${fmtVal(sp.margin.left)}</span></div>
+        <div class="wa-ruler-row border"><span class="wa-ruler-label">${t('webapp.ruler.border')}</span><span class="wa-ruler-val">${fmtVal(sp.border.top)}</span><span class="wa-ruler-val">${fmtVal(sp.border.right)}</span><span class="wa-ruler-val">${fmtVal(sp.border.bottom)}</span><span class="wa-ruler-val">${fmtVal(sp.border.left)}</span></div>
+        <div class="wa-ruler-row padding"><span class="wa-ruler-label">${t('webapp.ruler.padding')}</span><span class="wa-ruler-val">${fmtVal(sp.padding.top)}</span><span class="wa-ruler-val">${fmtVal(sp.padding.right)}</span><span class="wa-ruler-val">${fmtVal(sp.padding.bottom)}</span><span class="wa-ruler-val">${fmtVal(sp.padding.left)}</span></div>
+      </div>
+      <textarea class="wa-popover-input" rows="1" placeholder="${t('webapp.ruler.pinPlaceholder')}">${escAttr(annotation.instruction || '')}</textarea>
+      <div class="wa-popover-actions">
+        ${annotation._saved ? `<button class="wa-popover-delete">${t('webapp.deletePin')}</button>` : ''}
+        <button class="wa-popover-ok">${annotation._saved ? 'Update' : 'OK'}</button>
+      </div>
+    `;
+
+    const absRect = ed.absRect || ed.rect;
+    pop._absRect = absRect;
+    overlay.appendChild(pop);
+    positionPopover(pop, absRect, 300);
+
+    const textarea = pop.querySelector('.wa-popover-input');
+    const okBtn = pop.querySelector('.wa-popover-ok');
+    const closeBtn = pop.querySelector('.wa-popover-close');
+    const delBtn = pop.querySelector('.wa-popover-delete');
+
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    });
+
+    closeBtn.onclick = () => {
+      closePopover();
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && rulerActive) {
+        try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+      }
+    };
+
+    if (delBtn) {
+      delBtn.onclick = () => {
+        rulerAnnotations = rulerAnnotations.filter(a => a.id !== annotation.id);
+        overlay.querySelector(`.wa-pin-ruler[data-pin-id="${annotation.id}"]`)?.remove();
+        closePopover();
+        updateRulerBadge();
+        updateBadge();
+        const wv = previewView.querySelector('.webapp-preview-webview');
+        if (wv && rulerActive) {
+          try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+        }
+      };
+    }
+
+    okBtn.onclick = () => {
+      const val = textarea.value.trim();
+      if (!val) return;
+      closePopover();
+      if (annotation._saved) {
+        annotation.instruction = val;
+      } else {
+        annotation.instruction = val;
+        annotation._saved = true;
+        rulerAnnotations.push(annotation);
+        addRulerPin(annotation);
+        updateRulerBadge();
+        updateBadge();
+      }
+      const wv = previewView.querySelector('.webapp-preview-webview');
+      if (wv && rulerActive) {
+        try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+      }
+    };
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); okBtn.onclick(); }
+      if (e.key === 'Escape') {
+        closePopover();
+        const wv = previewView.querySelector('.webapp-preview-webview');
+        if (wv && rulerActive) {
+          try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+        }
+      }
+    });
+    setTimeout(() => textarea.focus(), 50);
+  }
+
+  function handleRulerClick(data) {
+    const scroll = data.scroll || { x: 0, y: 0 };
+    const absRect = {
+      x: data.rect.x + scroll.x, y: data.rect.y + scroll.y,
+      width: data.rect.width, height: data.rect.height
+    };
+    rulerLockedElement = {
+      selector: data.selector,
+      rect: data.rect,
+      absRect,
+      capturedAtViewport: currentBreakpoint || 0
+    };
+
+    // Uninject ruler for popover interaction, keep scroll
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(RULER_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(SCROLL_LISTEN_SCRIPT); } catch (e) {}
+    }
+
+    const ann = {
+      id: nextRulerPinId++,
+      elementData: { selector: data.selector, rect: data.rect, absRect, capturedAtViewport: currentBreakpoint || 0 },
+      spacing: data.spacing,
+      computedWidth: data.computedWidth,
+      computedHeight: data.computedHeight,
+      instruction: '',
+      viewportWidth: currentBreakpoint || 0,
+      isRulerAnnotation: true,
+      _saved: false
+    };
+    showRulerPopover(ann);
+  }
+
+  function handleRulerEscape() {
+    deactivateRuler();
+  }
+
+  function activateRuler() {
+    // Mutual exclusion: deactivate inspect if active
+    if (inspectActive) deactivateInspect();
+    rulerActive = true;
+    rulerBtn.classList.add('active');
+    previewView.classList.add('ruler-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(getRulerInjectScript()); } catch (e) {}
+    }
+  }
+
+  function deactivateRuler() {
+    rulerActive = false;
+    rulerLockedElement = null;
+    rulerBtn.classList.remove('active');
+    previewView.classList.remove('ruler-mode');
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (wv) {
+      try { wv.executeJavaScript(RULER_UNINJECT_SCRIPT); } catch (e) {}
+    }
+    closePopover();
   }
 
   function activateInspect() {
+    // Mutual exclusion: deactivate ruler if active
+    if (rulerActive) deactivateRuler();
     inspectActive = true;
     inspectBtn.classList.add('active');
     previewView.classList.add('inspect-mode');
@@ -796,9 +1697,11 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     inspectActive = false;
     inspectBtn.classList.remove('active');
     previewView.classList.remove('inspect-mode');
+    if (rulerActive) deactivateRuler();
     const wv = previewView.querySelector('.webapp-preview-webview');
     if (wv) {
       try { wv.executeJavaScript(INSPECT_UNINJECT_SCRIPT); } catch (e) {}
+      try { wv.executeJavaScript(RULER_UNINJECT_SCRIPT); } catch (e) {}
       try { wv.executeJavaScript(SCROLL_UNLISTEN_SCRIPT); } catch (e) {}
     }
     closePopover();
@@ -815,6 +1718,9 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       height: elementData.rect.height
     };
 
+    // Tag capture with current responsive breakpoint
+    elementData.capturedAtViewport = currentBreakpoint || 0;
+
     // Uninject inspect overlay for popover interaction
     // but keep scroll listener active for pin repositioning
     const wv = previewView.querySelector('.webapp-preview-webview');
@@ -829,7 +1735,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   function handleScroll(scroll) {
     currentScroll = { x: scroll.scrollX, y: scroll.scrollY };
     const page = pageAnnotations.get(currentPagePath);
-    if (page && page.annotations.length > 0) {
+    const hasAnyPins = (page && page.annotations.length > 0) || autoAnnotations.length > 0 || rulerAnnotations.length > 0;
+    if (hasAnyPins) {
       repositionAllPins();
     }
   }
@@ -857,8 +1764,10 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const oldPage = pageAnnotations.get(currentPagePath);
     if (oldPage) oldPage.scroll = { ...currentScroll };
 
-    // Remove pin DOM of old page
-    overlay.querySelectorAll('.wa-pin').forEach(el => el.remove());
+    // Remove pin DOM of old page + auto-pins + ruler pins (transient per-page)
+    overlay.querySelectorAll('.wa-pin, .wa-pin-auto, .wa-pin-ruler').forEach(el => el.remove());
+    clearAutoAnnotations();
+    clearRulerAnnotations();
 
     // Switch
     currentPagePath = newPath;
@@ -880,10 +1789,39 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     }
   };
 
+  rulerBtn.onclick = () => {
+    if (rulerActive) {
+      deactivateRuler();
+    } else {
+      activateRuler();
+    }
+  };
+
   sendAllBtn.onclick = () => {
-    if (getTotalCount() === 0) return;
-    sendAllFeedback(previewView, getAllAnnotations(), deps);
+    const all = getAllAnnotations();
+    if (all.length === 0) return;
+    sendAllFeedback(previewView, all, deps);
     deactivateAndClear();
+  };
+
+  // ── Scan button wiring ──
+  scanBtn.onclick = () => {
+    if (scanActive) return;
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (!wv) return;
+    clearAutoAnnotations();
+    scanActive = true;
+    scanBtn.classList.add('scanning');
+    try {
+      wv.executeJavaScript(getScanInjectionScript());
+    } catch (e) {
+      scanActive = false;
+      scanBtn.classList.remove('scanning');
+    }
+    // Timeout fallback
+    setTimeout(() => {
+      if (scanActive) { scanActive = false; scanBtn.classList.remove('scanning'); }
+    }, 5000);
   };
 
   previewView._inspectHandlers = {
@@ -891,25 +1829,37 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     deactivate: deactivateAndClear,
     handleEscape: handleEscapeFromWebview,
     handleScroll,
+    handleScanResults,
+    handleRulerClick,
+    handleRulerEscape,
+    toggleRuler: () => { rulerActive ? deactivateRuler() : activateRuler(); },
     toggle: () => { inspectActive ? deactivateInspect() : activateInspect(); },
-    isActive: () => inspectActive,
-    hasPins: () => getTotalCount() > 0,
+    isActive: () => inspectActive || rulerActive,
+    hasPins: () => getTotalCount() > 0 || autoAnnotations.length > 0 || rulerAnnotations.length > 0,
     switchPage: switchToPage
   };
 
-  // ── Keyboard shortcut: "I" to toggle inspect ──
+  // ── Keyboard shortcuts: "I" to toggle inspect, "R" to toggle ruler ──
   const shortcutHandler = (e) => {
     // Only act when preview tab is visible and no input is focused
     if (!previewView.classList.contains('wa-view-active')) return;
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === 'i' || e.key === 'I') {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
       e.preventDefault();
       if (inspectActive) {
         deactivateInspect();
       } else {
         activateInspect();
+      }
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault();
+      if (rulerActive) {
+        deactivateRuler();
+      } else {
+        activateRuler();
       }
     }
   };
@@ -934,6 +1884,125 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const wv = previewView.querySelector('.webapp-preview-webview');
     api.dialog.openExternal(wv ? wv.getURL() : url);
   };
+
+  // ── Responsive breakpoint buttons ──
+  let currentBreakpoint = 0; // 0 = full width
+  const responsiveGroup = previewView.querySelector('.wa-responsive-group');
+  const responsiveFrame = previewView.querySelector('.wa-responsive-frame');
+  const responsiveIndicator = previewView.querySelector('.wa-responsive-indicator');
+  const viewportEl = previewView.querySelector('.wa-browser-viewport');
+
+  function applyBreakpoint(width) {
+    currentBreakpoint = width;
+
+    // Update active button
+    responsiveGroup.querySelectorAll('.wa-responsive-btn').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.width) === width);
+    });
+
+    if (width === 0) {
+      // Full mode
+      responsiveFrame.style.maxWidth = '';
+      responsiveFrame.classList.remove('constrained');
+      if (viewportEl) viewportEl.classList.remove('responsive-active');
+      if (responsiveIndicator) {
+        responsiveIndicator.classList.remove('visible');
+        responsiveIndicator.textContent = '';
+      }
+    } else {
+      // Constrained mode
+      responsiveFrame.style.maxWidth = width + 'px';
+      responsiveFrame.classList.add('constrained');
+      if (viewportEl) viewportEl.classList.add('responsive-active');
+      if (responsiveIndicator) {
+        responsiveIndicator.textContent = width + 'px';
+        responsiveIndicator.classList.add('visible');
+      }
+    }
+
+    // Close popover (its absRect becomes stale after reflow)
+    closePopover();
+
+    // Pins need repositioning after content reflows
+    setTimeout(() => {
+      invalidatePinsAfterResize();
+      updatePinViewportStyles();
+    }, 300);
+  }
+
+  function invalidatePinsAfterResize() {
+    const page = getPageAnns();
+    const allAnns = [...(page ? page.annotations : []), ...autoAnnotations, ...rulerAnnotations];
+    if (allAnns.length === 0) return;
+
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (!wv) return;
+
+    const selectors = [...new Set(allAnns.map(a => a.elementData.selector))];
+    const queryScript = `(function() {
+      var results = {};
+      var selectors = ${JSON.stringify(selectors)};
+      for (var i = 0; i < selectors.length; i++) {
+        try {
+          var el = document.querySelector(selectors[i]);
+          if (el) {
+            var r = el.getBoundingClientRect();
+            results[selectors[i]] = { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+          }
+        } catch(e) {}
+      }
+      return JSON.stringify(results);
+    })()`;
+
+    try {
+      wv.executeJavaScript(queryScript).then(resultStr => {
+        try {
+          const results = JSON.parse(resultStr);
+          for (const ann of allAnns) {
+            const newRect = results[ann.elementData.selector];
+            if (newRect) ann.elementData.absRect = newRect;
+          }
+          repositionAllPins();
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function updatePinViewportStyles() {
+    const page = getPageAnns();
+    if (!page) return;
+    for (const ann of page.annotations) {
+      const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const annVp = ann.viewportWidth || 0;
+      const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
+      pinEl.classList.toggle('wa-pin-other-viewport', !matchesCurrent);
+    }
+    // Also update auto-detected pins
+    for (const ann of autoAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const annVp = ann.viewportWidth || 0;
+      const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
+      pinEl.classList.toggle('wa-pin-other-viewport', !matchesCurrent);
+    }
+    // Also update ruler pins
+    for (const ann of rulerAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-ruler[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const annVp = ann.viewportWidth || 0;
+      const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
+      pinEl.classList.toggle('wa-pin-other-viewport', !matchesCurrent);
+    }
+  }
+
+  responsiveGroup.querySelectorAll('.wa-responsive-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyBreakpoint(parseInt(btn.dataset.width)));
+  });
+
+  // Expose for annotation tagging
+  previewView._getCurrentBreakpoint = () => currentBreakpoint;
+  previewView._updatePinViewportStyles = updatePinViewportStyles;
 }
 
 async function renderInfoView(wrapper, projectIndex, project, deps) {
@@ -1036,39 +2105,96 @@ function sendAllFeedback(previewView, annotations, deps) {
   const project = previewView._project;
   if (!project || annotations.length === 0) return;
 
-  // Group annotations by page path
-  const byPage = new Map();
-  for (const ann of annotations) {
-    const path = ann.pagePath || '/';
-    if (!byPage.has(path)) byPage.set(path, []);
-    byPage.get(path).push(ann);
-  }
+  // Separate user vs auto-detected vs ruler annotations
+  const userAnns = annotations.filter(a => !a.isAutoDetected && !a.isRulerAnnotation);
+  const autoAnns = annotations.filter(a => a.isAutoDetected);
+  const rulerAnns = annotations.filter(a => a.isRulerAnnotation);
+
+  // Detect viewport info across all annotations
+  const viewports = [...new Set(annotations.map(a => a.viewportWidth || 0))];
+  const hasViewportInfo = viewports.some(v => v > 0);
+  const vpSuffix = hasViewportInfo
+    ? '\n\nFor viewport-specific issues, ensure the fixes work correctly at the specified breakpoints using responsive CSS (media queries).'
+    : '';
 
   let prompt;
-  const multiPage = byPage.size > 1;
+
+  // Helper to format a single annotation line
+  const fmtLine = (ann, num) => {
+    const ed = ann.elementData;
+    const tag = ed.tagName ? `<${ed.tagName}>` : '';
+    const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
+    const vpTag = ann.viewportWidth ? ` @${ann.viewportWidth}px` : '';
+    const autoTag = ann.isAutoDetected ? ` [${(ann.issueType || 'auto').toUpperCase()}]` : '';
+    const rulerTag = ann.isRulerAnnotation ? ' [SPACING]' : '';
+    const spacingInfo = ann.spacing ? ` (margin: ${Math.round(ann.spacing.margin.top)}/${Math.round(ann.spacing.margin.right)}/${Math.round(ann.spacing.margin.bottom)}/${Math.round(ann.spacing.margin.left)}, padding: ${Math.round(ann.spacing.padding.top)}/${Math.round(ann.spacing.padding.right)}/${Math.round(ann.spacing.padding.bottom)}/${Math.round(ann.spacing.padding.left)}, size: ${ann.computedWidth} × ${ann.computedHeight})` : '';
+    return `${num}. ${autoTag}${rulerTag}\`${ed.selector}\` ${tag ? `(${tag}${classes})` : ''}${vpTag}${spacingInfo}: "${ann.instruction}"`;
+  };
 
   if (annotations.length === 1) {
     const ann = annotations[0];
     const ed = ann.elementData;
-    const pageHint = multiPage ? ` (page: ${ann.pagePath})` : '';
-    prompt = `The user selected an element in their web app preview and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})${pageHint}\n\nFind this element in the project source code and make the requested change directly.`;
+    const vpHint = ann.viewportWidth ? ` (at viewport: ${ann.viewportWidth}px)` : '';
+    if (ann.isRulerAnnotation) {
+      const sp = ann.spacing;
+      prompt = `The user measured spacing on an element in the web app preview${vpHint} and wants a change:\n\n[SPACING] "${ann.instruction}"\n\nElement: \`${ed.selector}\` (size: ${ann.computedWidth} × ${ann.computedHeight}, margin: ${Math.round(sp.margin.top)}/${Math.round(sp.margin.right)}/${Math.round(sp.margin.bottom)}/${Math.round(sp.margin.left)}, padding: ${Math.round(sp.padding.top)}/${Math.round(sp.padding.right)}/${Math.round(sp.padding.bottom)}/${Math.round(sp.padding.left)})\n\nFind this element in the project source code and make the requested spacing change.${vpSuffix}`;
+    } else if (ann.isAutoDetected) {
+      prompt = `An auto-detected visual issue was found in the web app preview${vpHint}:\n\n[${(ann.issueType || '').toUpperCase()}] "${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})\n\nFind this element in the project source code and fix the issue.${vpSuffix}`;
+    } else {
+      prompt = `The user selected an element in their web app preview${vpHint} and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})\n\nFind this element in the project source code and make the requested change directly.${vpSuffix}`;
+    }
   } else {
+    // Group by page
+    const byPage = new Map();
+    for (const ann of annotations) {
+      const path = ann.pagePath || '/';
+      if (!byPage.has(path)) byPage.set(path, []);
+      byPage.get(path).push(ann);
+    }
+    const multiPage = byPage.size > 1;
+
     let num = 1;
     const sections = [];
-    for (const [path, anns] of byPage) {
-      const lines = anns.map(ann => {
-        const ed = ann.elementData;
-        const tag = `<${ed.tagName}>`;
-        const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
-        return `${num++}. \`${ed.selector}\` (${tag}${classes}): "${ann.instruction}"`;
-      });
-      if (multiPage) {
-        sections.push(`Page \`${path}\`:\n${lines.join('\n')}`);
-      } else {
-        sections.push(lines.join('\n'));
+
+    // User annotations section
+    if (userAnns.length > 0) {
+      const userByPage = new Map();
+      for (const ann of userAnns) {
+        const path = ann.pagePath || '/';
+        if (!userByPage.has(path)) userByPage.set(path, []);
+        userByPage.get(path).push(ann);
+      }
+      for (const [path, anns] of userByPage) {
+        const lines = anns.map(ann => fmtLine(ann, num++));
+        if (multiPage) {
+          sections.push(`Page \`${path}\`:\n${lines.join('\n')}`);
+        } else {
+          sections.push(lines.join('\n'));
+        }
       }
     }
-    prompt = `The user annotated ${annotations.length} elements in their web app preview. Make all these changes:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.`;
+
+    // Auto-detected section
+    if (autoAnns.length > 0) {
+      const autoLines = autoAnns.map(ann => fmtLine(ann, num++));
+      sections.push(`Auto-detected visual issues:\n${autoLines.join('\n')}`);
+    }
+
+    // Ruler/spacing section
+    if (rulerAnns.length > 0) {
+      const rulerLines = rulerAnns.map(ann => fmtLine(ann, num++));
+      sections.push(`Spacing/measurement fixes:\n${rulerLines.join('\n')}`);
+    }
+
+    const vpSummary = viewports.length > 1 && hasViewportInfo
+      ? ` across multiple viewport sizes (${viewports.map(v => v ? v + 'px' : 'full').join(', ')})`
+      : viewports[0] ? ` at ${viewports[0]}px viewport` : '';
+    const parts = [];
+    if (userAnns.length > 0) parts.push(`${userAnns.length} element(s) annotated`);
+    if (autoAnns.length > 0) parts.push(`${autoAnns.length} visual issue(s) auto-detected`);
+    if (rulerAnns.length > 0) parts.push(`${rulerAnns.length} spacing fix(es) measured`);
+    const what = parts.join(', ');
+    prompt = `${what} in the web app preview${vpSummary}. Fix all these:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.${vpSuffix}`;
   }
 
   const VISUAL_TAB_PREFIX = '\ud83c\udfaf Visual';

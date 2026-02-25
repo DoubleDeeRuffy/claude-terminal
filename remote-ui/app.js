@@ -176,6 +176,10 @@ const conn = {
   state: 'auth',
   retryCount: 0,
   retryTimer: null,
+  // Cloud relay mode: 'lan' (default, same network) or 'relay' (via cloud server)
+  mode: localStorage.getItem('remote_conn_mode') || 'lan',
+  cloudUrl: localStorage.getItem('remote_cloud_url') || '',
+  cloudApiKey: localStorage.getItem('remote_cloud_api_key') || '',
 };
 
 function connSetState(s) {
@@ -213,7 +217,24 @@ function init() {
   _setupChatDelegation();
   _setupMentionChipsDelegation();
 
-  if (conn.token) {
+  // Check for relay mode params in URL: ?mode=relay&url=...&key=...
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('mode') === 'relay' && urlParams.get('url') && urlParams.get('key')) {
+    conn.mode = 'relay';
+    conn.cloudUrl = urlParams.get('url');
+    conn.cloudApiKey = urlParams.get('key');
+    localStorage.setItem('remote_conn_mode', 'relay');
+    localStorage.setItem('remote_cloud_url', conn.cloudUrl);
+    localStorage.setItem('remote_cloud_api_key', conn.cloudApiKey);
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+
+  if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
+    // Relay mode: skip PIN, connect directly
+    _showMain();
+    _openWS();
+  } else if (conn.token) {
     _showMain();
     _openWS();
   } else {
@@ -307,14 +328,26 @@ function _openWS() {
   if (conn.ws && conn.ws.readyState === WebSocket.OPEN) return;
   // Close stale connecting/closing socket before creating a new one
   if (conn.ws) { try { conn.ws.close(); } catch (e) {} conn.ws = null; }
-  if (!conn.token) { _showAuth(); return; }
   if (conn.retryTimer) { clearTimeout(conn.retryTimer); conn.retryTimer = null; }
 
-  connSetState('connecting');
+  // Relay mode: connect to cloud server directly with API key
+  if (conn.mode === 'relay') {
+    if (!conn.cloudUrl || !conn.cloudApiKey) { _showAuth(); return; }
+    connSetState('connecting');
+    const base = conn.cloudUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:').replace(/\/$/, '');
+    const wsUrl = `${base}/relay?role=mobile&token=${encodeURIComponent(conn.cloudApiKey)}`;
+    const ws = new WebSocket(wsUrl);
+    conn.ws = ws;
+  } else {
+    // LAN mode: standard local WS with session token
+    if (!conn.token) { _showAuth(); return; }
+    connSetState('connecting');
+    const wsUrl = `ws://${window.location.host}/ws?token=${conn.token}`;
+    const ws = new WebSocket(wsUrl);
+    conn.ws = ws;
+  }
 
-  const wsUrl = `ws://${window.location.host}/ws?token=${conn.token}`;
-  const ws = new WebSocket(wsUrl);
-  conn.ws = ws;
+  const ws = conn.ws;
 
   ws.onopen = () => {
     conn.retryCount = 0;
@@ -330,25 +363,54 @@ function _openWS() {
 
   ws.onclose = (e) => {
     conn.ws = null;
-    if (e.code === 4401) {
-      conn.token = null;
-      localStorage.removeItem('remote_session_token');
+    // Auth failure
+    if (e.code === 4401 || e.code === 4003) {
+      if (conn.mode === 'relay') {
+        conn.cloudApiKey = '';
+        localStorage.removeItem('remote_cloud_api_key');
+      } else {
+        conn.token = null;
+        localStorage.removeItem('remote_session_token');
+      }
       connSetState('auth');
       _showAuth();
       return;
     }
-    if (conn.token && conn.state !== 'auth') _scheduleReconnect();
+    // Too many mobiles
+    if (e.code === 4002) {
+      const labelEl = $('status-label');
+      if (labelEl) labelEl.textContent = _isFr ? 'Trop de mobiles connectés' : 'Too many mobile connections';
+      return;
+    }
+    if (conn.state !== 'auth') _scheduleReconnect();
   };
 
   ws.onerror = () => {};
 }
 
 function _scheduleReconnect() {
-  if (!conn.token) return;
+  if (conn.mode === 'relay') {
+    if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  } else {
+    if (!conn.token) return;
+  }
   const delay = Math.min(1000 * Math.pow(2, conn.retryCount), 30000);
   conn.retryCount++;
   connSetState('reconnecting');
   conn.retryTimer = setTimeout(() => { conn.retryTimer = null; _openWS(); }, delay);
+}
+
+function _onDesktopOffline() {
+  const labelEl = $('status-label');
+  if (labelEl) labelEl.textContent = _isFr ? 'PC hors ligne' : 'Desktop offline';
+  const dot = $('connection-dot');
+  if (dot) { dot.classList.add('disconnected'); dot.classList.remove('reconnecting'); }
+}
+
+function _onRelayKicked() {
+  conn.ws = null;
+  connSetState('auth');
+  _showAuth();
 }
 
 function wsSend(type, data) {
@@ -390,6 +452,10 @@ function handleMessage({ type, data }) {
     case 'mention:file-list':    onFileList(data); break;
     case 'settings:updated':     break; // ack, nothing to do
     case 'pong': break;
+    // Relay-specific events
+    case 'relay:desktop-online':  connSetState('connected'); break;
+    case 'relay:desktop-offline': _onDesktopOffline(); break;
+    case 'relay:kicked':          _onRelayKicked(); break;
   }
 }
 
@@ -1419,12 +1485,13 @@ function _toggleToolExpand(card) {
 
 function _formatToolExpandContent(m) {
   const name = (m.toolName || '').toLowerCase();
+  const ext = _extFromPath(m.toolInput?.file_path);
   let html = '';
 
   // Input display
   if (name === 'bash' && m.toolInput?.command) {
     html += `<div class="tool-expand-section">
-      <pre class="tool-code">${escHtml(m.toolInput.command)}</pre>
+      <pre class="tool-code">${syntaxHighlight(m.toolInput.command, 'bash')}</pre>
     </div>`;
   } else if ((name === 'write' || name === 'edit' || name === 'read') && m.toolInput?.file_path) {
     html += `<div class="tool-expand-path">${escHtml(m.toolInput.file_path)}</div>`;
@@ -1433,22 +1500,24 @@ function _formatToolExpandContent(m) {
   if (name === 'edit' && m.toolInput?.old_string && m.toolInput?.new_string) {
     html += '<div class="tool-diff">';
     for (const line of m.toolInput.old_string.split('\n')) {
-      html += `<div class="diff-line diff-del"><span class="diff-sign">-</span><span class="diff-text">${escHtml(line)}</span></div>`;
+      html += `<div class="diff-line diff-del"><span class="diff-sign">-</span><span class="diff-text">${syntaxHighlight(line, ext)}</span></div>`;
     }
     for (const line of m.toolInput.new_string.split('\n')) {
-      html += `<div class="diff-line diff-add"><span class="diff-sign">+</span><span class="diff-text">${escHtml(line)}</span></div>`;
+      html += `<div class="diff-line diff-add"><span class="diff-sign">+</span><span class="diff-text">${syntaxHighlight(line, ext)}</span></div>`;
     }
     html += '</div>';
   }
 
-  // Output display
+  // Output display — highlight for read/write (file content), plain for bash output
   if (m.toolOutput) {
     const lines = m.toolOutput.split('\n');
     const maxLines = 20;
     const truncated = lines.length > maxLines;
     const display = truncated ? lines.slice(0, maxLines) : lines;
+    const outputText = display.join('\n');
+    const useHighlight = name === 'read' || name === 'write';
     html += `<div class="tool-expand-section">
-      <pre class="tool-output">${escHtml(display.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more)` : ''}</pre>
+      <pre class="tool-output">${useHighlight ? syntaxHighlight(outputText, ext) : escHtml(outputText)}${truncated ? `\n<span class="syn-cmt">… (${lines.length - maxLines} more)</span>` : ''}</pre>
     </div>`;
   } else if (name === 'bash' && m.status === 'complete') {
     html += `<div class="tool-expand-section"><pre class="tool-output tool-output-empty">${STRINGS.noOutput}</pre></div>`;
@@ -2330,6 +2399,111 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ─── Syntax Highlighting ──────────────────────────────────────────────────────
+
+const SYN_LANG_MAP = {
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+  ts: 'typescript', tsx: 'typescript',
+  json: 'json',
+  html: 'html', htm: 'html', xml: 'html',
+  css: 'css', scss: 'css', less: 'css',
+  lua: 'lua',
+  py: 'python', python: 'python',
+  md: 'markdown',
+  yaml: 'yaml', yml: 'yaml',
+  sh: 'bash', bash: 'bash', zsh: 'bash', shell: 'bash',
+  sql: 'sql',
+  rs: 'rust', rust: 'rust',
+  go: 'go',
+  java: 'java', cs: 'java', cpp: 'java', c: 'java', php: 'java',
+  rb: 'ruby', ruby: 'ruby',
+  javascript: 'javascript', typescript: 'typescript',
+};
+
+const SYN_COMMENT = {
+  lua: /(--[^\n]*)/g, sql: /(--[^\n]*)/g,
+  python: /(#[^\n]*)/g, ruby: /(#[^\n]*)/g, bash: /(#[^\n]*)/g, yaml: /(#[^\n]*)/g,
+  html: /(&lt;!--[\s\S]*?--&gt;)/g,
+};
+
+const SYN_KEYWORDS = {
+  javascript: /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|this|class|extends|import|export|default|from|async|await|try|catch|finally|throw|typeof|instanceof|in|of|null|undefined|true|false|yield|delete|void|super|static|get|set)\b/g,
+  typescript: /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|this|class|extends|import|export|default|from|async|await|try|catch|finally|throw|typeof|instanceof|in|of|null|undefined|true|false|yield|delete|void|super|static|get|set|type|interface|enum|namespace|declare|abstract|implements|readonly|as|is|keyof|infer|never|unknown|any)\b/g,
+  python: /\b(def|class|return|if|elif|else|for|while|break|continue|import|from|as|try|except|finally|raise|with|yield|lambda|pass|del|global|nonlocal|assert|True|False|None|and|or|not|in|is|async|await|self)\b/g,
+  lua: /\b(local|function|return|if|then|else|elseif|end|for|while|do|repeat|until|break|in|and|or|not|nil|true|false|goto|self)\b/g,
+  html: /\b(DOCTYPE|html|head|body|div|span|script|style|link|meta|title|class|id|src|href|rel|type)\b/g,
+  css: /\b(display|flex|grid|position|width|height|margin|padding|border|background|color|font|text|align|justify|content|items|overflow|z-index|opacity|transition|transform|animation|none|auto|inherit|initial|important)\b/g,
+  yaml: /\b(true|false|null|yes|no)\b/g,
+  bash: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|echo|export|source|cd|ls|grep|sed|awk|cat|mkdir|rm|cp|mv|chmod|sudo|npm|node|git|docker)\b/g,
+  sql: /\b(SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|INTO|VALUES|SET|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|NOT|NULL|IS|IN|LIKE|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|AS|DISTINCT|COUNT|SUM|AVG|MAX|MIN|INDEX|PRIMARY|KEY|FOREIGN|REFERENCES|CASCADE|UNIQUE|DEFAULT|EXISTS|BETWEEN|UNION|CASE|WHEN|THEN|ELSE|END|BEGIN|COMMIT|ROLLBACK)\b/gi,
+  rust: /\b(fn|let|mut|const|if|else|for|while|loop|break|continue|return|match|struct|enum|impl|trait|pub|use|mod|crate|self|super|as|in|ref|move|async|await|unsafe|where|type|true|false|Some|None|Ok|Err)\b/g,
+  go: /\b(func|var|const|if|else|for|range|switch|case|default|break|continue|return|go|defer|select|chan|map|struct|interface|type|package|import|true|false|nil|make|new|len|cap|append|delete|copy|panic|recover)\b/g,
+  java: /\b(public|private|protected|static|final|abstract|class|interface|extends|implements|return|if|else|for|while|do|switch|case|break|continue|new|this|super|try|catch|finally|throw|throws|import|package|void|int|long|float|double|boolean|char|null|true|false|instanceof|enum|override|using|namespace|string|var|const|virtual|struct)\b/g,
+  ruby: /\b(def|class|module|return|if|elsif|else|unless|for|while|do|end|begin|rescue|ensure|raise|yield|include|require|attr_reader|attr_writer|attr_accessor|self|super|nil|true|false|and|or|not|in|puts|print|lambda|proc)\b/g,
+};
+
+function syntaxHighlight(code, langHint) {
+  const lang = SYN_LANG_MAP[langHint] || null;
+  if (!lang || !code) return escHtml(code || '');
+  if (code.length > 50000) return escHtml(code);
+
+  if (lang === 'json') return _synJSON(code);
+  if (lang === 'markdown') return _synMarkdown(code);
+
+  let escaped = escHtml(code);
+  const tokens = [];
+  const protect = (html) => { const id = tokens.length; tokens.push(html); return `\x00T${id}\x00`; };
+
+  // Comments
+  const cmtPat = SYN_COMMENT[lang] || /(\/\/[^\n]*)/g;
+  escaped = escaped.replace(cmtPat, (_, m) => protect(`<span class="syn-cmt">${m}</span>`));
+
+  // Strings (double, single, backtick)
+  escaped = escaped.replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)/g, (_, m) => protect(`<span class="syn-str">${m}</span>`));
+  escaped = escaped.replace(/(&#x27;(?:[^&]|&(?!#x27;))*?&#x27;)/g, (_, m) => protect(`<span class="syn-str">${m}</span>`));
+  if (lang === 'javascript' || lang === 'typescript') {
+    escaped = escaped.replace(/(&#96;(?:[^&]|&(?!#96;))*?&#96;)/g, (_, m) => protect(`<span class="syn-str">${m}</span>`));
+  }
+
+  // Numbers
+  escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, (_, m) => protect(`<span class="syn-num">${m}</span>`));
+
+  // Keywords
+  const kwRegex = SYN_KEYWORDS[lang];
+  if (kwRegex) escaped = escaped.replace(kwRegex, (_, m) => protect(`<span class="syn-kw">${m}</span>`));
+
+  // Function calls
+  escaped = escaped.replace(/\b([a-zA-Z_]\w*)\s*\(/g, (_, m) => protect(`<span class="syn-fn">${m}</span>`) + '(');
+
+  // Restore tokens
+  escaped = escaped.replace(/\x00T(\d+)\x00/g, (_, i) => tokens[i]);
+  return escaped;
+}
+
+function _synJSON(code) {
+  let e = escHtml(code);
+  e = e.replace(/(&quot;[^&]*?&quot;)\s*:/g, '<span class="syn-fn">$1</span>:');
+  e = e.replace(/:\s*(&quot;[^&]*?&quot;)/g, ': <span class="syn-str">$1</span>');
+  e = e.replace(/:\s*(\d+\.?\d*)/g, ': <span class="syn-num">$1</span>');
+  e = e.replace(/:\s*(true|false|null)\b/g, ': <span class="syn-kw">$1</span>');
+  return e;
+}
+
+function _synMarkdown(code) {
+  let e = escHtml(code);
+  e = e.replace(/^(#{1,6}\s.*)$/gm, '<span class="syn-kw">$1</span>');
+  e = e.replace(/(\*\*[^*]+\*\*)/g, '<span class="syn-fn">$1</span>');
+  e = e.replace(/(&#96;[^&]+?&#96;)/g, '<span class="syn-str">$1</span>');
+  e = e.replace(/(\[[^\]]+\]\([^)]+\))/g, '<span class="syn-str">$1</span>');
+  return e;
+}
+
+function _extFromPath(filePath) {
+  if (!filePath) return '';
+  const dot = filePath.lastIndexOf('.');
+  return dot >= 0 ? filePath.slice(dot + 1).toLowerCase() : '';
+}
+
 function shortenPath(p) {
   const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
   if (parts.length <= 2) return p;
@@ -2343,11 +2517,25 @@ function _truncate(str, max) {
 }
 
 function renderMarkdown(text) {
-  return escHtml(text)
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => `<pre class="msg-code-block">${code}</pre>`)
+  // Extract code blocks first (before escaping), replace with placeholders
+  const codeBlocks = [];
+  let processed = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+    const idx = codeBlocks.length;
+    const highlighted = syntaxHighlight(code.replace(/\n$/, ''), lang || '');
+    const langLabel = lang ? `<span class="code-block-lang">${escHtml(lang)}</span>` : '';
+    codeBlocks.push(`<pre class="msg-code-block">${langLabel}${highlighted}</pre>`);
+    return `\x00CB${idx}\x00`;
+  });
+
+  // Now escape and apply inline markdown
+  processed = escHtml(processed)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>');
+
+  // Restore code blocks
+  processed = processed.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[i]);
+  return processed;
 }
 
 // ─── PWA Install Banner ──────────────────────────────────────────────────────

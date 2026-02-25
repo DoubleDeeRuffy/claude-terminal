@@ -1,0 +1,51 @@
+# Claude Terminal Cloud — nginx reverse proxy example
+# Place in /etc/nginx/sites-available/ and symlink to sites-enabled/
+
+server {
+    listen 80;
+    server_name cloud.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name cloud.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/cloud.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/cloud.example.com/privkey.pem;
+
+    client_max_body_size 100m;
+
+    # REST API and health
+    location / {
+        proxy_pass http://127.0.0.1:3800;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket relay
+    location /relay {
+        proxy_pass http://127.0.0.1:3800;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    # WebSocket session streams
+    location ~ ^/api/sessions/.+/stream$ {
+        proxy_pass http://127.0.0.1:3800;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}

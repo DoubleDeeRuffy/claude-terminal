@@ -22,6 +22,10 @@ let hookSessionCount = 0;
 // projectId -> { toolCount, toolNames: Set, lastToolName, startTime, notified }
 const sessionContext = new Map();
 
+// ── Last-active Claude tab tracking (for multi-tab session ID capture) ──
+// projectId -> terminalId (the tab that was most recently focused)
+const lastActiveClaudeTab = new Map();
+
 // ── Consumer: Time Tracking (hooks-only — scraping uses existing direct calls in TerminalManager) ──
 function wireTimeTrackingConsumer() {
   const { heartbeat, stopProject } = require('../state/timeTracking.state');
@@ -150,7 +154,12 @@ function resolveTerminalId(projectId) {
 }
 
 /**
- * Find the most recent Claude terminal for a project (for session ID capture).
+ * Find the most recently created Claude terminal for a project.
+ * Uses latest-terminal-ID heuristic (IDs are monotonically incrementing integers).
+ * When a project has only one Claude terminal, this is unambiguous.
+ * TODO: improve correlation for multi-terminal same-project edge case
+ * @param {string} projectId
+ * @returns {number|null} terminal ID or null
  */
 function findClaudeTerminalForProject(projectId) {
   try {
@@ -283,6 +292,44 @@ function wireTerminalStatusConsumer() {
   );
 }
 
+/**
+ * Record which Claude terminal tab is currently active for a project.
+ * Called by TerminalManager.setActiveTerminal whenever a Claude tab is focused.
+ * Used by wireTabRenameConsumer to route events to the correct tab.
+ * @param {string} projectId
+ * @param {number} terminalId
+ */
+function notifyTabActivated(projectId, terminalId) {
+  if (!projectId || terminalId == null) return;
+  lastActiveClaudeTab.set(projectId, terminalId);
+}
+
+// ── Consumer: Tab Rename on Slash Command (hooks-only) ──
+// When tabRenameOnSlashCommand is enabled and a slash command is submitted,
+// renames the active terminal tab to the full command text (truncated to 40 chars).
+function wireTabRenameConsumer() {
+  const MAX_TAB_NAME_LEN = 40;
+  consumerUnsubscribers.push(
+    eventBus.on(EVENT_TYPES.PROMPT_SUBMIT, (e) => {
+      if (e.source !== 'hooks') return;
+      if (!e.projectId) return;
+      const prompt = e.data?.prompt;
+      if (!prompt || !prompt.trimStart().startsWith('/')) return;
+      const { getSetting } = require('../state/settings.state');
+      if (!getSetting('tabRenameOnSlashCommand')) return;
+      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+      if (!terminalId) return;
+      const name = prompt.length > MAX_TAB_NAME_LEN
+        ? prompt.slice(0, MAX_TAB_NAME_LEN - 1) + '\u2026'
+        : prompt;
+      try {
+        const TerminalManager = require('../ui/components/TerminalManager');
+        TerminalManager.updateTerminalTabName(terminalId, name);
+      } catch (err) { /* TerminalManager not ready */ }
+    })
+  );
+}
+
 // ── Debug: wildcard listener (disabled by default to avoid log spam) ──
 // Enable via: window.__CLAUDE_EVENT_DEBUG = true
 function wireDebugListener() {
@@ -352,6 +399,7 @@ function initClaudeEvents() {
   wireDashboardStatsConsumer();
   wireTerminalStatusConsumer();
   wireSessionIdCapture();
+  wireTabRenameConsumer();
   wireDebugListener();
 
   // Activate provider
@@ -411,5 +459,6 @@ module.exports = {
   getEventBus,
   getDashboardStats,
   setNotificationFn,
+  notifyTabActivated,
   EVENT_TYPES
 };

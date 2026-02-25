@@ -333,6 +333,18 @@ function parseClaudeTitle(title) {
 }
 
 /**
+ * Returns true when an OSC title rename should be skipped because the tab was
+ * renamed to a slash command by the user's setting.
+ * Uses the module-level getSetting import to avoid any circular dependency issues.
+ * @param {string|number} id - Terminal ID
+ */
+function shouldSkipOscRename(id) {
+  if (!getSetting('tabRenameOnSlashCommand')) return false;
+  const td = getTerminal(id);
+  return !!(td && td.name && td.name.startsWith('/'));
+}
+
+/**
  * Shared title change handler for all Claude terminal types.
  * Parses OSC title for state, tool calls, and task names.
  * @param {string|number} id - Terminal ID
@@ -363,7 +375,9 @@ function handleClaudeTitleChange(id, title, options = {}) {
 
     // Auto-name tab from Claude's task name (not tool names)
     if (parsed.taskName) {
-      updateTerminalTabName(id, parsed.taskName);
+      if (!shouldSkipOscRename(id)) {
+        updateTerminalTabName(id, parsed.taskName);
+      }
     }
 
     updateTerminalStatus(id, 'working');
@@ -375,7 +389,9 @@ function handleClaudeTitleChange(id, title, options = {}) {
     if (parsed.taskName) {
       if (!terminalContext.has(id)) terminalContext.set(id, { taskName: null, lastTool: null, toolCount: 0, duration: null });
       terminalContext.get(id).taskName = parsed.taskName;
-      updateTerminalTabName(id, parsed.taskName);
+      if (!shouldSkipOscRename(id)) {
+        updateTerminalTabName(id, parsed.taskName);
+      }
     }
 
     // Handle pending prompt (quick-action terminals)
@@ -3673,6 +3689,7 @@ module.exports = {
   switchTerminalMode,
   // Scraping callback for EventBus
   setScrapingCallback,
+  updateTerminalTabName,
   // Cleanup when a project is deleted
   cleanupProjectMaps
 };

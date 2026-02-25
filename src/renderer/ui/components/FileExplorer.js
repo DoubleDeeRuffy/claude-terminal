@@ -224,13 +224,16 @@ async function readDirectoryAsync(dirPath) {
     const exists = await fs.promises.access(dirPath).then(() => true).catch(() => false);
     if (!exists) return [];
 
+    const { getSetting } = require('../../state/settings.state');
+    const showDotfiles = getSetting('showDotfiles');
+
     const names = await fs.promises.readdir(dirPath);
     const result = [];
     let skipped = 0;
 
     for (const name of names) {
       if (IGNORE_PATTERNS.has(name)) continue;
-      if (name.startsWith('.') && name !== '.env' && name !== '.gitignore') continue;
+      if (showDotfiles === false && name.startsWith('.')) continue;
 
       if (result.length >= MAX_DISPLAY_ENTRIES) {
         skipped++;
@@ -358,6 +361,9 @@ function updateSelectionVisuals() {
 
 // ========== SEARCH ==========
 async function collectAllFiles(dirPath, maxFiles = 5000) {
+  const { getSetting } = require('../../state/settings.state');
+  const showDotfiles = getSetting('showDotfiles');
+
   const results = [];
   const queue = [dirPath];
 
@@ -367,7 +373,7 @@ async function collectAllFiles(dirPath, maxFiles = 5000) {
       const names = await fs.promises.readdir(dir);
       for (const name of names) {
         if (IGNORE_PATTERNS.has(name)) continue;
-        if (name.startsWith('.') && name !== '.env' && name !== '.gitignore') continue;
+        if (showDotfiles === false && name.startsWith('.')) continue;
 
         const fullPath = path.join(dir, name);
         try {
