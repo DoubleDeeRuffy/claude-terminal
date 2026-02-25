@@ -27,6 +27,13 @@
     "sendToClaude": "Send to Claude",
     "sendAll": "Send all ({count})",
     "deletePin": "Delete",
+    "responsive": {
+      "full": "Full width",
+      "mobile": "Mobile",
+      "tablet": "Tablet",
+      "laptop": "Laptop",
+      "desktop": "Desktop"
+    },
     "settings": {
       "previewEnabled": "In-app Preview",
       "previewEnabledDesc": "Embed a live preview of the dev server directly in the app (uses more memory)"

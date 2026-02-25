@@ -65,6 +65,13 @@ const ICON_RELOAD  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor"
 const ICON_OPEN    = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M8 2h2v2M10 2L6 6M5 3H2v7h7V7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const ICON_INSPECT = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 1l4.2 10 1.5-3.8L10.5 5.7z" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 7l4 4" stroke-linecap="round"/></svg>`;
 
+// Responsive breakpoint icons
+const ICON_RESPONSIVE_FULL    = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON_RESPONSIVE_MOBILE  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="3" y="1" width="6" height="10" rx="1.2"/><path d="M5.5 9.5h1" stroke-linecap="round"/></svg>`;
+const ICON_RESPONSIVE_TABLET  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="2" y="1.5" width="8" height="9" rx="1.2"/><path d="M5.5 9h1" stroke-linecap="round"/></svg>`;
+const ICON_RESPONSIVE_LAPTOP  = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="2" y="2" width="8" height="6" rx="1"/><path d="M1 10h10" stroke-linecap="round"/></svg>`;
+const ICON_RESPONSIVE_DESKTOP = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" width="11" height="11"><rect x="1" y="1.5" width="10" height="7" rx="1"/><path d="M4 10.5h4M6 8.5v2" stroke-linecap="round"/></svg>`;
+
 // ── Inspect inject/uninject scripts ──────────────────────────────────
 function getInspectInjectScript() {
   const hex = getSetting('accentColor') || '#d97706';
@@ -283,13 +290,13 @@ function detachWebview(previewView) {
 function attachWebview(previewView) {
   const savedUrl = detachedWebviews.get(previewView);
   if (!savedUrl || savedUrl === 'about:blank') return;
-  const viewport = previewView.querySelector('.wa-browser-viewport');
-  if (!viewport) return;
+  const frame = previewView.querySelector('.wa-responsive-frame') || previewView.querySelector('.wa-browser-viewport');
+  if (!frame) return;
   const webview = document.createElement('webview');
   webview.className = 'webapp-preview-webview';
   webview.setAttribute('src', savedUrl);
   webview.setAttribute('disableblinkfeatures', 'Auxclick');
-  viewport.insertBefore(webview, viewport.firstChild);
+  frame.insertBefore(webview, frame.firstChild);
   wireWebviewEvents(previewView, webview);
   detachedWebviews.delete(previewView);
 }
@@ -496,14 +503,25 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
         <div class="wa-address-bar">
           <span class="wa-addr-scheme">http://</span><span class="wa-addr-host">localhost</span><span class="wa-addr-port">:${port}</span><span class="wa-addr-path"></span>
         </div>
+        <div class="wa-responsive-group">
+          <button class="wa-responsive-btn active" data-width="0" title="${t('webapp.responsive.full')}">${ICON_RESPONSIVE_FULL}</button>
+          <div class="wa-responsive-sep"></div>
+          <button class="wa-responsive-btn" data-width="375" title="${t('webapp.responsive.mobile')} (375px)">${ICON_RESPONSIVE_MOBILE}<span class="wa-responsive-label">375</span></button>
+          <button class="wa-responsive-btn" data-width="768" title="${t('webapp.responsive.tablet')} (768px)">${ICON_RESPONSIVE_TABLET}<span class="wa-responsive-label">768</span></button>
+          <button class="wa-responsive-btn" data-width="1024" title="${t('webapp.responsive.laptop')} (1024px)">${ICON_RESPONSIVE_LAPTOP}<span class="wa-responsive-label">1024</span></button>
+          <button class="wa-responsive-btn" data-width="1440" title="${t('webapp.responsive.desktop')} (1440px)">${ICON_RESPONSIVE_DESKTOP}<span class="wa-responsive-label">1440</span></button>
+        </div>
         <button class="wa-browser-btn wa-inspect" title="${t('webapp.inspect')} (I)">${ICON_INSPECT}<span class="wa-inspect-count"></span></button>
         <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
       </div>
       <div class="wa-browser-viewport">
-        <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
-        <div class="wa-pins-overlay"></div>
+        <div class="wa-responsive-frame">
+          <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
+          <div class="wa-pins-overlay"></div>
+        </div>
       </div>
+      <div class="wa-responsive-indicator"></div>
     </div>
   `;
 
@@ -674,7 +692,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       if (existingAnnotation) {
         existingAnnotation.instruction = instruction;
       } else {
-        const ann = { id: nextPinId++, elementData, instruction };
+        const ann = { id: nextPinId++, elementData, instruction, viewportWidth: currentBreakpoint || 0 };
         getPageAnns().annotations.push(ann);
         addPin(ann);
         updateBadge();
@@ -722,6 +740,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const pin = document.createElement('div');
     pin.className = 'wa-pin';
     pin.dataset.pinId = annotation.id;
+    pin.dataset.viewport = annotation.viewportWidth || 0;
     pin.textContent = annotation.id;
     const vp = absToViewport(abs.x + abs.width / 2 - 11, abs.y + abs.height / 2 - 11);
     pin.style.top = vp.y + 'px';
@@ -764,6 +783,8 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const page = pageAnnotations.get(currentPagePath);
     if (!page) return;
     for (const ann of page.annotations) addPin(ann);
+    // Dim pins from other viewports if responsive checker is active
+    if (previewView._updatePinViewportStyles) previewView._updatePinViewportStyles();
   }
 
   function activateInspect() {
@@ -814,6 +835,9 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
       width: elementData.rect.width,
       height: elementData.rect.height
     };
+
+    // Tag capture with current responsive breakpoint
+    elementData.capturedAtViewport = currentBreakpoint || 0;
 
     // Uninject inspect overlay for popover interaction
     // but keep scroll listener active for pin repositioning
@@ -934,6 +958,105 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     const wv = previewView.querySelector('.webapp-preview-webview');
     api.dialog.openExternal(wv ? wv.getURL() : url);
   };
+
+  // ── Responsive breakpoint buttons ──
+  let currentBreakpoint = 0; // 0 = full width
+  const responsiveGroup = previewView.querySelector('.wa-responsive-group');
+  const responsiveFrame = previewView.querySelector('.wa-responsive-frame');
+  const responsiveIndicator = previewView.querySelector('.wa-responsive-indicator');
+  const viewportEl = previewView.querySelector('.wa-browser-viewport');
+
+  function applyBreakpoint(width) {
+    currentBreakpoint = width;
+
+    // Update active button
+    responsiveGroup.querySelectorAll('.wa-responsive-btn').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.width) === width);
+    });
+
+    if (width === 0) {
+      // Full mode
+      responsiveFrame.style.maxWidth = '';
+      responsiveFrame.classList.remove('constrained');
+      if (viewportEl) viewportEl.classList.remove('responsive-active');
+      if (responsiveIndicator) {
+        responsiveIndicator.classList.remove('visible');
+        responsiveIndicator.textContent = '';
+      }
+    } else {
+      // Constrained mode
+      responsiveFrame.style.maxWidth = width + 'px';
+      responsiveFrame.classList.add('constrained');
+      if (viewportEl) viewportEl.classList.add('responsive-active');
+      if (responsiveIndicator) {
+        responsiveIndicator.textContent = width + 'px';
+        responsiveIndicator.classList.add('visible');
+      }
+    }
+
+    // Pins need repositioning after content reflows
+    setTimeout(() => {
+      invalidatePinsAfterResize();
+      updatePinViewportStyles();
+    }, 300);
+  }
+
+  function invalidatePinsAfterResize() {
+    const page = getPageAnns();
+    if (!page || page.annotations.length === 0) return;
+
+    const wv = previewView.querySelector('.webapp-preview-webview');
+    if (!wv) return;
+
+    const selectors = page.annotations.map(a => a.elementData.selector);
+    const queryScript = `(function() {
+      var results = {};
+      var selectors = ${JSON.stringify(selectors)};
+      for (var i = 0; i < selectors.length; i++) {
+        try {
+          var el = document.querySelector(selectors[i]);
+          if (el) {
+            var r = el.getBoundingClientRect();
+            results[selectors[i]] = { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+          }
+        } catch(e) {}
+      }
+      return JSON.stringify(results);
+    })()`;
+
+    try {
+      wv.executeJavaScript(queryScript).then(resultStr => {
+        try {
+          const results = JSON.parse(resultStr);
+          for (const ann of page.annotations) {
+            const newRect = results[ann.elementData.selector];
+            if (newRect) ann.elementData.absRect = newRect;
+          }
+          repositionAllPins();
+        } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  function updatePinViewportStyles() {
+    const page = getPageAnns();
+    if (!page) return;
+    for (const ann of page.annotations) {
+      const pinEl = overlay.querySelector(`.wa-pin[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      const annVp = ann.viewportWidth || 0;
+      const matchesCurrent = annVp === currentBreakpoint || annVp === 0;
+      pinEl.classList.toggle('wa-pin-other-viewport', !matchesCurrent);
+    }
+  }
+
+  responsiveGroup.querySelectorAll('.wa-responsive-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyBreakpoint(parseInt(btn.dataset.width)));
+  });
+
+  // Expose for annotation tagging
+  previewView._getCurrentBreakpoint = () => currentBreakpoint;
+  previewView._updatePinViewportStyles = updatePinViewportStyles;
 }
 
 async function renderInfoView(wrapper, projectIndex, project, deps) {
@@ -1047,11 +1170,19 @@ function sendAllFeedback(previewView, annotations, deps) {
   let prompt;
   const multiPage = byPage.size > 1;
 
+  // Detect viewport info across annotations
+  const viewports = [...new Set(annotations.map(a => a.viewportWidth || 0))];
+  const hasViewportInfo = viewports.some(v => v > 0);
+  const vpSuffix = hasViewportInfo
+    ? '\n\nFor viewport-specific issues, ensure the fixes work correctly at the specified breakpoints using responsive CSS (media queries).'
+    : '';
+
   if (annotations.length === 1) {
     const ann = annotations[0];
     const ed = ann.elementData;
     const pageHint = multiPage ? ` (page: ${ann.pagePath})` : '';
-    prompt = `The user selected an element in their web app preview and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})${pageHint}\n\nFind this element in the project source code and make the requested change directly.`;
+    const vpHint = ann.viewportWidth ? ` (at viewport: ${ann.viewportWidth}px)` : '';
+    prompt = `The user selected an element in their web app preview${vpHint} and wants a change:\n\n"${ann.instruction}"\n\nElement: \`${ed.selector}\` (<${ed.tagName}>${ed.className ? `, classes: \`${ed.className}\`` : ''})${pageHint}\n\nFind this element in the project source code and make the requested change directly.${vpSuffix}`;
   } else {
     let num = 1;
     const sections = [];
@@ -1060,7 +1191,8 @@ function sendAllFeedback(previewView, annotations, deps) {
         const ed = ann.elementData;
         const tag = `<${ed.tagName}>`;
         const classes = ed.className ? `, classes: \`${ed.className}\`` : '';
-        return `${num++}. \`${ed.selector}\` (${tag}${classes}): "${ann.instruction}"`;
+        const vpTag = ann.viewportWidth ? ` @${ann.viewportWidth}px` : '';
+        return `${num++}. \`${ed.selector}\` (${tag}${classes})${vpTag}: "${ann.instruction}"`;
       });
       if (multiPage) {
         sections.push(`Page \`${path}\`:\n${lines.join('\n')}`);
@@ -1068,7 +1200,10 @@ function sendAllFeedback(previewView, annotations, deps) {
         sections.push(lines.join('\n'));
       }
     }
-    prompt = `The user annotated ${annotations.length} elements in their web app preview. Make all these changes:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.`;
+    const vpSummary = viewports.length > 1 && hasViewportInfo
+      ? ` across multiple viewport sizes (${viewports.map(v => v ? v + 'px' : 'full').join(', ')})`
+      : viewports[0] ? ` at ${viewports[0]}px viewport` : '';
+    prompt = `The user annotated ${annotations.length} elements in their web app preview${vpSummary}. Make all these changes:\n\n${sections.join('\n\n')}\n\nFind each element in the project source code and make the requested changes.${vpSuffix}`;
   }
 
   const VISUAL_TAB_PREFIX = '\ud83c\udfaf Visual';

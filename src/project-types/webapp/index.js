@@ -422,12 +422,32 @@ module.exports = createType({
 /* ── Browser viewport wrapper ── */
 .wa-browser-viewport { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
+/* ── Responsive checker ── */
+.wa-responsive-group { display: flex; align-items: center; gap: 1px; flex-shrink: 0; padding: 0 2px; }
+.wa-responsive-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.08); margin: 0 4px; flex-shrink: 0; }
+.wa-responsive-btn { height: 24px; border: none; border-radius: 4px; background: transparent; color: rgba(255,255,255,0.22); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 0 6px; transition: background 0.1s, color 0.1s; flex-shrink: 0; font-size: 0; }
+.wa-responsive-btn:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
+.wa-responsive-btn.active { background: rgba(217,119,6,0.12); color: var(--accent); }
+.wa-responsive-btn.active:hover { background: rgba(217,119,6,0.18); }
+.wa-responsive-label { font-size: 9px; font-family: var(--wa-mono); font-weight: 500; line-height: 1; }
+
+/* ── Responsive frame (webview constraint wrapper) ── */
+.wa-responsive-frame { width: 100%; height: 100%; margin: 0 auto; display: flex; flex-direction: column; transition: max-width 0.2s cubic-bezier(0.4,0,0.2,1); position: relative; }
+.wa-responsive-frame.constrained { border-left: 1px solid rgba(255,255,255,0.08); border-right: 1px solid rgba(255,255,255,0.08); box-shadow: -1px 0 12px rgba(0,0,0,0.15), 1px 0 12px rgba(0,0,0,0.15); }
+.wa-browser-viewport.responsive-active { background: repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 20px), var(--bg-primary); }
+
+/* ── Responsive indicator bar ── */
+.wa-responsive-indicator { display: none; height: 20px; flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid rgba(255,255,255,0.055); align-items: center; justify-content: center; font-size: 10px; font-family: var(--wa-mono); color: rgba(255,255,255,0.3); letter-spacing: 0.03em; }
+.wa-responsive-indicator.visible { display: flex; }
+
 /* ── Pins overlay ── */
 .wa-pins-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; overflow: hidden; }
 
 /* Pin circle */
 .wa-pin { position: absolute; pointer-events: auto; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 2px solid rgba(255,255,255,0.9); transition: transform 0.12s; z-index: 2; animation: wa-pin-in 0.2s cubic-bezier(0.34,1.56,0.64,1); }
 .wa-pin:hover { transform: scale(1.2); }
+.wa-pin.wa-pin-other-viewport { opacity: 0.4; border-color: rgba(255,255,255,0.4); transform: scale(0.85); }
+.wa-pin.wa-pin-other-viewport:hover { opacity: 0.8; transform: scale(1); }
 @keyframes wa-pin-in { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
 /* Popover */

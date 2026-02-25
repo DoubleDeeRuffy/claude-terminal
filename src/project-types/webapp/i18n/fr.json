@@ -27,6 +27,13 @@
     "sendToClaude": "Envoyer a Claude",
     "sendAll": "Envoyer tout ({count})",
     "deletePin": "Supprimer",
+    "responsive": {
+      "full": "Pleine largeur",
+      "mobile": "Mobile",
+      "tablet": "Tablette",
+      "laptop": "Portable",
+      "desktop": "Bureau"
+    },
     "settings": {
       "previewEnabled": "Preview integre",
       "previewEnabledDesc": "Afficher un apercu live du serveur dev dans l'app (utilise plus de memoire)"
