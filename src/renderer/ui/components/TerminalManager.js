@@ -463,32 +463,17 @@ function setupClipboardShortcuts(wrapper, terminal, terminalId, inputChannel = '
     const tag = document.activeElement?.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT') return;
 
-    const sendPaste = (text) => {
-      if (!text) return;
-      if (inputChannel === 'fivem-input') {
-        api.fivem.input({ projectIndex: terminalId, data: text });
-      } else if (inputChannel === 'webapp-input') {
-        api.webapp.input({ projectIndex: terminalId, data: text });
-      } else {
-        api.terminal.input({ id: terminalId, data: text });
-      }
-    };
-
     if (e.key === 'V') {
       e.preventDefault();
       e.stopImmediatePropagation();
-      const now = Date.now();
-      if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
-      lastPasteTime = now;
-      navigator.clipboard.readText()
-        .then(sendPaste)
-        .catch(() => api.app.clipboardRead().then(sendPaste));
+      performPaste(terminalId, inputChannel);
     } else if (e.key === 'C') {
       const selection = terminal.getSelection();
       if (selection) {
         e.preventDefault();
         e.stopImmediatePropagation();
         navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+        terminal.clearSelection();
       }
     }
   }, true); // capture phase — runs before xterm
@@ -498,25 +483,78 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
   wrapper.addEventListener('paste', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const now = Date.now();
-    if (now - lastPasteTime < PASTE_DEBOUNCE_MS) {
+    performPaste(terminalId, inputChannel);
+  }, true);
+}
+
+/**
+ * Add right-click handler to a terminal wrapper element.
+ * Priority chain (settings-gated):
+ *   1. rightClickCopyPaste (Windows Terminal style) — copy if selection, else paste
+ *   2. rightClickPaste (legacy Phase 02) — instant paste when terminalContextMenu is off
+ *   3. Context menu — when terminalContextMenu setting is true
+ */
+function setupRightClickHandler(wrapper, terminal, terminalId, inputChannel = 'terminal-input') {
+  wrapper.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const ts = getSetting('terminalShortcuts') || {};
+
+    // Priority 1: Windows Terminal copy-or-paste (disabled by default)
+    if (ts.rightClickCopyPaste?.enabled) {
+      const selection = terminal.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection)
+          .catch(() => api.app.clipboardWrite(selection));
+        terminal.clearSelection();
+      } else {
+        performPaste(terminalId, inputChannel);
+      }
       return;
     }
-    lastPasteTime = now;
-    const sendPaste = (text) => {
-      if (!text) return;
-      if (inputChannel === 'fivem-input') {
-        api.fivem.input({ projectIndex: terminalId, data: text });
-      } else if (inputChannel === 'webapp-input') {
-        api.webapp.input({ projectIndex: terminalId, data: text });
-      } else {
-        api.terminal.input({ id: terminalId, data: text });
-      }
-    };
-    navigator.clipboard.readText()
-      .then(sendPaste)
-      .catch(() => api.app.clipboardRead().then(sendPaste));
-  }, true);
+
+    // Priority 2: Legacy instant paste (Phase 02 behavior, enabled by default)
+    if (ts.rightClickPaste?.enabled !== false && !getSetting('terminalContextMenu')) {
+      performPaste(terminalId, inputChannel);
+      return;
+    }
+
+    // Priority 3: Context menu (when terminalContextMenu setting is true)
+    if (getSetting('terminalContextMenu')) {
+      const selection = terminal.getSelection();
+      showContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: t('common.copy'),
+            shortcut: 'Ctrl+C',
+            icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+            disabled: !selection,
+            onClick: () => {
+              if (selection) {
+                navigator.clipboard.writeText(selection)
+                  .catch(() => api.app.clipboardWrite(selection));
+                terminal.clearSelection();
+              }
+            }
+          },
+          {
+            label: t('common.paste'),
+            shortcut: 'Ctrl+V',
+            icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>',
+            onClick: () => performPaste(terminalId, inputChannel)
+          },
+          { separator: true },
+          {
+            label: t('common.selectAll'),
+            shortcut: 'Ctrl+Shift+A',
+            icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M8 8h8v8H8z" fill="currentColor" opacity="0.3"/></svg>',
+            onClick: () => terminal.selectAll()
+          }
+        ]
+      });
+    }
+  });
 }
 
 /**
@@ -526,12 +564,99 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
  * @param {string} inputChannel - IPC channel for input (default: 'terminal-input')
  * @returns {Function} Key event handler
  */
+/**
+ * Normalize a stored key string (e.g. "Ctrl+Shift+C") to lowercase+sorted form
+ * for comparison with event-derived keys.
+ */
+function normalizeStoredKey(key) {
+  if (!key) return '';
+  return key
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .split('+')
+    .sort((a, b) => {
+      const order = ['ctrl', 'alt', 'shift', 'meta'];
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return 0;
+    })
+    .join('+');
+}
+
+/**
+ * Derive a normalized key string from a keyboard event (mirrors getKeyFromEvent + normalizeKey).
+ */
+function eventToNormalizedKey(e) {
+  const parts = [];
+  if (e.ctrlKey) parts.push('ctrl');
+  if (e.altKey) parts.push('alt');
+  if (e.shiftKey) parts.push('shift');
+  if (e.metaKey) parts.push('meta');
+  let key = e.key.toLowerCase();
+  if (key === ' ') key = 'space';
+  if (key === 'arrowup') key = 'up';
+  if (key === 'arrowdown') key = 'down';
+  if (key === 'arrowleft') key = 'left';
+  if (key === 'arrowright') key = 'right';
+  if (!['ctrl', 'alt', 'shift', 'meta', 'control'].includes(key)) {
+    parts.push(key);
+  }
+  return parts.join('+');
+}
+
 function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal-input') {
   return (e) => {
-    // Ctrl+Arrow to switch terminals/projects - handle directly with debounce
+    // Check rebound terminal shortcuts (ctrlC / ctrlV) at call-time — read from settings
+    if (e.ctrlKey && e.type === 'keydown') {
+      const ts = getSetting('terminalShortcuts') || {};
+      const eventKey = eventToNormalizedKey(e);
+
+      // Rebound ctrlC — fire copy on the custom key instead of Ctrl+C
+      const ctrlCCustomKey = ts.ctrlC?.key;
+      if (ctrlCCustomKey && ctrlCCustomKey !== 'Ctrl+C') {
+        if (eventKey === normalizeStoredKey(ctrlCCustomKey) && ts.ctrlC?.enabled !== false) {
+          const selection = terminal.getSelection();
+          if (selection) {
+            navigator.clipboard.writeText(selection)
+              .catch(() => api.app.clipboardWrite(selection));
+            terminal.clearSelection();
+            return false;
+          }
+          return true;
+        }
+      }
+
+      // Rebound ctrlV — fire paste on the custom key instead of Ctrl+V
+      const ctrlVCustomKey = ts.ctrlV?.key;
+      if (ctrlVCustomKey && ctrlVCustomKey !== 'Ctrl+V') {
+        if (eventKey === normalizeStoredKey(ctrlVCustomKey) && ts.ctrlV?.enabled !== false) {
+          performPaste(terminalId, inputChannel);
+          return false;
+        }
+      }
+    }
+
+    // Shift+Enter — send newline for multiline input (e.g., Claude CLI)
+    if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
+      if (inputChannel === 'fivem-input') {
+        api.fivem.input({ projectIndex: terminalId, data: '\n' });
+      } else if (inputChannel === 'webapp-input') {
+        api.webapp.input({ projectIndex: terminalId, data: '\n' });
+      } else {
+        api.terminal.input({ id: terminalId, data: '\n' });
+      }
+      return false;
+    }
+
+    // Ctrl+Up/Down to switch projects - handle directly with debounce
     // xterm.js can trigger the handler multiple times, so we debounce
+    // Note: Ctrl+Tab/Ctrl+Shift+Tab for terminal switching is handled via main process IPC
+    // Note: Ctrl+Left/Right send word-jump escape sequences to PTY (TERM-03)
     if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.repeat && e.type === 'keydown') {
-      const isArrowKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key);
+      const isArrowKey = ['ArrowUp', 'ArrowDown'].includes(e.key);
       if (isArrowKey) {
         const now = Date.now();
         if (now - lastArrowTime < ARROW_DEBOUNCE_MS) {
@@ -539,14 +664,6 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
         }
         lastArrowTime = now;
 
-        if (e.key === 'ArrowLeft' && callbacks.onSwitchTerminal) {
-          callbacks.onSwitchTerminal('left');
-          return false;
-        }
-        if (e.key === 'ArrowRight' && callbacks.onSwitchTerminal) {
-          callbacks.onSwitchTerminal('right');
-          return false;
-        }
         if (e.key === 'ArrowUp' && callbacks.onSwitchProject) {
           callbacks.onSwitchProject('up');
           return false;
@@ -555,6 +672,74 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
           callbacks.onSwitchProject('down');
           return false;
         }
+      }
+
+      // Ctrl+Backspace — delete previous word (TERM-05)
+      // Send ASCII ETB (0x17 = Ctrl+W) which is the standard word-rubout signal
+      // recognized by readline, PowerShell PSReadLine, and most shell line editors.
+      if (e.key === 'Backspace') {
+        if (inputChannel === 'terminal-input') {
+          api.terminal.input({ id: terminalId, data: '\x17' });
+          return false;
+        }
+        return true; // FiveM/WebApp — fall through to default behavior
+      }
+
+      // Ctrl+C — selection-gated copy (TERM-01), settings-gated with rebound key support
+      {
+        const ts = getSetting('terminalShortcuts') || {};
+        const ctrlCRebound = ts.ctrlC?.key && ts.ctrlC.key !== 'Ctrl+C';
+        if (ctrlCRebound) {
+          // When Ctrl+C is rebound, the original Ctrl+C always passes SIGINT
+          if (e.key.toLowerCase() === 'c') {
+            return true; // rebound — pass SIGINT through to PTY
+          }
+        } else if (e.key.toLowerCase() === 'c') {
+          if (ts.ctrlC?.enabled === false) {
+            return true; // disabled — pass SIGINT through to PTY
+          }
+          const selection = terminal.getSelection();
+          if (selection) {
+            navigator.clipboard.writeText(selection)
+              .catch(() => api.app.clipboardWrite(selection));
+            terminal.clearSelection();
+            return false; // suppress xterm — we handled the copy
+          }
+          return true; // no selection → let xterm send SIGINT to PTY
+        }
+      }
+
+      // Ctrl+V — paste with debounce and inputChannel routing (TERM-02), settings-gated with rebound key support
+      {
+        const ts = getSetting('terminalShortcuts') || {};
+        const ctrlVRebound = ts.ctrlV?.key && ts.ctrlV.key !== 'Ctrl+V';
+        if (!ctrlVRebound && e.key.toLowerCase() === 'v') {
+          if (ts.ctrlV?.enabled !== false) {
+            performPaste(terminalId, inputChannel);
+          }
+          return false;
+        }
+      }
+
+      // Ctrl+Left / Ctrl+Right — word-jump (TERM-03), settings-gated
+      // Only send VT escape sequences for real PTY terminals, not FiveM/WebApp consoles.
+      if (e.key === 'ArrowLeft') {
+        if (inputChannel === 'terminal-input') {
+          const ts = getSetting('terminalShortcuts') || {};
+          if (ts.ctrlArrow?.enabled === false) return true; // disabled — pass through to PTY
+          api.terminal.input({ id: terminalId, data: '\x1b[1;5D' });
+          return false;
+        }
+        return true; // FiveM/WebApp — fall through to default behavior
+      }
+      if (e.key === 'ArrowRight') {
+        if (inputChannel === 'terminal-input') {
+          const ts = getSetting('terminalShortcuts') || {};
+          if (ts.ctrlArrow?.enabled === false) return true; // disabled — pass through to PTY
+          api.terminal.input({ id: terminalId, data: '\x1b[1;5C' });
+          return false;
+        }
+        return true; // FiveM/WebApp — fall through to default behavior
       }
     }
     // Ctrl+W to close terminal - let it bubble to global handler
@@ -577,34 +762,23 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p' && e.type === 'keydown') {
       return false;
     }
+    // Ctrl+Shift+A: select all terminal content
+    if (e.ctrlKey && e.shiftKey && e.key === 'A' && e.type === 'keydown') {
+      terminal.selectAll();
+      return false;
+    }
     // Ctrl+Shift+C to copy selection
     if (e.ctrlKey && e.shiftKey && e.key === 'C' && e.type === 'keydown') {
       const selection = terminal.getSelection();
       if (selection) {
         navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+        terminal.clearSelection();
       }
       return false;
     }
     // Ctrl+Shift+V to paste (with anti-spam)
     if (e.ctrlKey && e.shiftKey && e.key === 'V' && e.type === 'keydown') {
-      const now = Date.now();
-      if (now - lastPasteTime < PASTE_DEBOUNCE_MS) {
-        return false;
-      }
-      lastPasteTime = now;
-      const sendPaste = (text) => {
-        if (!text) return;
-        if (inputChannel === 'fivem-input') {
-          api.fivem.input({ projectIndex: terminalId, data: text });
-        } else if (inputChannel === 'webapp-input') {
-          api.webapp.input({ projectIndex: terminalId, data: text });
-        } else {
-          api.terminal.input({ id: terminalId, data: text });
-        }
-      };
-      navigator.clipboard.readText()
-        .then(sendPaste)
-        .catch(() => api.app.clipboardRead().then(sendPaste));
+      performPaste(terminalId, inputChannel);
       return false;
     }
 
@@ -1093,7 +1267,7 @@ function closeTerminal(id) {
  * Create a new terminal for a project
  */
 async function createTerminal(project, options = {}) {
-  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null } = options;
+  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null } = options;
 
   // Determine mode: explicit > setting > default
   const mode = explicitMode || (runClaude ? (getSetting('defaultTerminalMode') || 'terminal') : 'terminal');
@@ -1107,7 +1281,8 @@ async function createTerminal(project, options = {}) {
   const result = await api.terminal.create({
     cwd: overrideCwd || project.path,
     runClaude,
-    skipPermissions
+    skipPermissions,
+    ...(resumeSessionId ? { resumeSessionId } : {})
   });
 
   // Handle new response format { success, id, error }
@@ -1261,6 +1436,33 @@ async function createTerminal(project, options = {}) {
   const storedTermData = getTerminal(id);
   if (storedTermData) {
     storedTermData.handlers = { unregister: () => unregisterTerminalHandler(id) };
+  }
+
+  // Resume failure watchdog — detects stale session IDs
+  if (resumeSessionId) {
+    const RESUME_WATCHDOG_MS = 5000;
+    let resumeDataReceived = false;
+    const checkDataInterval = setInterval(() => {
+      const td = getTerminal(id);
+      if (!td) { clearInterval(checkDataInterval); return; }
+      if (td.terminal.buffer.active.length > 1) {
+        resumeDataReceived = true;
+        clearInterval(checkDataInterval);
+      }
+    }, 500);
+    setTimeout(() => {
+      clearInterval(checkDataInterval);
+      const td = getTerminal(id);
+      if (!td) return;
+      if (resumeDataReceived) return;
+      console.warn(`[TerminalManager] Resume watchdog fired for terminal ${id} (session ${resumeSessionId}) — starting fresh`);
+      closeTerminal(id);
+      createTerminal(project, {
+        runClaude: true,
+        cwd: overrideCwd || project.path,
+        skipPermissions
+      });
+    }, RESUME_WATCHDOG_MS);
   }
 
   // Input handling

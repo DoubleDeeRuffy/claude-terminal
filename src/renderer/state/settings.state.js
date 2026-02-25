@@ -29,6 +29,7 @@ const defaultSettings = {
   effortLevel: 'high', // Effort level for chat sessions: low, medium, high, max
   remoteEnabled: false, // Enable remote control via mobile PWA
   remotePort: 3712, // Port for the remote control WebSocket/HTTP server
+  restoreTerminalSessions: true, // Restore terminal tabs from previous session on startup
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
 };
 

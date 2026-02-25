@@ -149,6 +149,25 @@ function resolveTerminalId(projectId) {
   return null;
 }
 
+/**
+ * Find the most recent Claude terminal for a project (for session ID capture).
+ */
+function findClaudeTerminalForProject(projectId) {
+  try {
+    const { terminalsState } = require('../state/terminals.state');
+    const terminals = terminalsState.get().terminals;
+    let bestId = null;
+    let bestNumericId = -1;
+    for (const [id, td] of terminals) {
+      if (td.project?.id !== projectId) continue;
+      if (td.mode !== 'terminal') continue;
+      if (td.isBasic) continue;
+      if (id > bestNumericId) { bestNumericId = id; bestId = id; }
+    }
+    return bestId;
+  } catch (e) { return null; }
+}
+
 // ── Consumer: Dashboard Stats (hooks-only) ──
 function wireDashboardStatsConsumer() {
   consumerUnsubscribers.push(
@@ -300,6 +319,24 @@ function deactivateProvider() {
   activeProvider = null;
 }
 
+// ── Consumer: Session ID Capture (hooks-only — captures Claude session IDs for resume) ──
+function wireSessionIdCapture() {
+  consumerUnsubscribers.push(
+    eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
+      if (e.source !== 'hooks') return;
+      if (!e.data?.sessionId) return;
+      if (!e.projectId) return;
+      const terminalId = findClaudeTerminalForProject(e.projectId);
+      if (!terminalId) return;
+      const { updateTerminal } = require('../state/terminals.state');
+      updateTerminal(terminalId, { claudeSessionId: e.data.sessionId });
+      const TerminalSessionService = require('../services/TerminalSessionService');
+      TerminalSessionService.saveTerminalSessions();
+      console.debug(`[Events] Captured session ID ${e.data.sessionId} for terminal ${terminalId}`);
+    })
+  );
+}
+
 /**
  * Initialize the Claude event system.
  * Reads hooksEnabled setting, activates the right provider, wires consumers.
@@ -314,6 +351,7 @@ function initClaudeEvents() {
   wireAttentionConsumer();
   wireDashboardStatsConsumer();
   wireTerminalStatusConsumer();
+  wireSessionIdCapture();
   wireDebugListener();
 
   // Activate provider

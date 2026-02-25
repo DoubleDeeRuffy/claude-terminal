@@ -553,6 +553,8 @@
       "description": "Real-time insights from Claude Code (time tracking, notifications, dashboard stats)"
     },
     "advanced": "Advanced",
+    "restoreTerminalSessions": "Restore terminal sessions",
+    "restoreTerminalSessionsDesc": "Reopen terminal tabs from the previous session when the app starts",
     "enable1MContext": "1M Token Context",
     "enable1MContextDesc": "Enable 1 million token context window for Opus and Sonnet (API only, beta)"
   },
