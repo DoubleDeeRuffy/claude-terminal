@@ -87,7 +87,7 @@ function saveTerminalSessionsImmediate() {
 
       const projectId = td.project.id;
       if (!projectSessions[projectId]) {
-        projectSessions[projectId] = { tabs: [], activeCwd: null };
+        projectSessions[projectId] = { tabs: [], activeCwd: null, activeTabIndex: null };
       }
 
       const tab = {
@@ -100,9 +100,10 @@ function saveTerminalSessionsImmediate() {
 
       projectSessions[projectId].tabs.push(tab);
 
-      // Track active terminal's cwd
+      // Track active terminal's cwd and tab index
       if (id === activeTerminalId) {
         projectSessions[projectId].activeCwd = tab.cwd;
+        projectSessions[projectId].activeTabIndex = projectSessions[projectId].tabs.length - 1;
       }
     }
 
