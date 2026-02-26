@@ -2,6 +2,8 @@
  * Main Process Services - Central Export
  */
 
+const fs = require('fs');
+const path = require('path');
 const terminalService = require('./TerminalService');
 const mcpService = require('./McpService');
 const fivemService = require('./FivemService');
@@ -39,6 +41,37 @@ function initializeServices(mainWindow) {
 
   // Provision unified MCP in global Claude settings
   databaseService.provisionGlobalMcp().catch(() => {});
+
+  // Poll for quick action triggers from MCP
+  _startQuickActionPoll(mainWindow);
+}
+
+let _qaPollTimer = null;
+
+function _startQuickActionPoll(mainWindow) {
+  const triggersDir = path.join(require('os').homedir(), '.claude-terminal', 'quickactions', 'triggers');
+  _qaPollTimer = setInterval(() => {
+    try {
+      if (!fs.existsSync(triggersDir)) return;
+      const files = fs.readdirSync(triggersDir).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const filePath = path.join(triggersDir, file);
+        try {
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          fs.unlinkSync(filePath);
+
+          if (data.projectId && data.command) {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('quickaction:run', data);
+              console.log(`[Services] MCP quick action: ${data.actionName} on ${data.projectId}`);
+            }
+          }
+        } catch (e) {
+          try { fs.unlinkSync(filePath); } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }, 2000);
 }
 
 /**
@@ -55,6 +88,7 @@ function cleanupServices() {
   hookEventServer.stop();
   remoteServer.stop();
   workflowService.destroy();
+  if (_qaPollTimer) clearInterval(_qaPollTimer);
 }
 
 module.exports = {

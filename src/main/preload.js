@@ -275,7 +275,8 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== PROJECT ====================
   project: {
     scanTodos: (projectPath) => ipcRenderer.invoke('scan-todos', projectPath),
-    stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath)
+    stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath),
+    onQuickActionRun: createListener('quickaction:run'),
   },
 
   // ==================== CLAUDE ====================

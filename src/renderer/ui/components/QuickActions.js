@@ -535,6 +535,7 @@ function refreshModalList(project) {
 module.exports = {
   renderQuickActionsBar,
   hideQuickActionsBar,
+  executeQuickAction,
   setTerminalCallback,
   QUICK_ACTION_ICONS,
   QUICK_ACTION_PRESETS

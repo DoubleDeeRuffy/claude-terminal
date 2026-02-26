@@ -85,6 +85,18 @@ async function initialize() {
     }
   );
 
+  // Listen for MCP-triggered quick actions
+  const api = window.electron_api;
+  if (api?.project?.onQuickActionRun) {
+    api.project.onQuickActionRun((data) => {
+      const { projectId, actionId } = data;
+      if (!projectId || !actionId) return;
+      const project = state.getProject(projectId);
+      if (!project) return;
+      ui.QuickActions.executeQuickAction(project, actionId);
+    });
+  }
+
   // Initialize Claude event bus and provider
   events.initClaudeEvents();
 

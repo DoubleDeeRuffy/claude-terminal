@@ -76,6 +76,29 @@ const tools = [
       required: ['project'],
     },
   },
+  {
+    name: 'quickaction_list',
+    description: 'List quick actions configured for a project. Quick actions are shell commands (build, test, dev, etc.) that can be run in a terminal.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name or ID' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'quickaction_run',
+    description: 'Trigger a quick action on a project. Opens a terminal in Claude Terminal and runs the command. The action executes asynchronously.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project name or ID' },
+        action: { type: 'string', description: 'Quick action name or ID' },
+      },
+      required: ['project', 'action'],
+    },
+  },
 ];
 
 // -- TODO scanner -------------------------------------------------------------
@@ -220,6 +243,56 @@ async function handle(name, args) {
 
       const lines = results.map(r => `${r.file}:${r.line} — ${r.text}`);
       return ok(`Found ${results.length} comments in ${p.name || path.basename(p.path)}:\n\n${lines.join('\n')}`);
+    }
+
+    if (name === 'quickaction_list') {
+      if (!args.project) return fail('Missing required parameter: project');
+      const p = findProject(args.project);
+      if (!p) return fail(`Project "${args.project}" not found. Use project_list to see available projects.`);
+
+      const actions = p.quickActions || [];
+      if (!actions.length) return ok(`No quick actions configured for ${p.name || path.basename(p.path || '?')}. Configure them in Claude Terminal.`);
+
+      let output = `Quick actions for ${p.name || path.basename(p.path || '?')} (${actions.length}):\n`;
+      output += `${'─'.repeat(40)}\n`;
+      for (const a of actions) {
+        output += `  ${a.name} [${a.icon || 'play'}]\n    ${a.command}\n`;
+      }
+      return ok(output);
+    }
+
+    if (name === 'quickaction_run') {
+      if (!args.project) return fail('Missing required parameter: project');
+      if (!args.action) return fail('Missing required parameter: action');
+
+      const p = findProject(args.project);
+      if (!p) return fail(`Project "${args.project}" not found.`);
+
+      const actions = p.quickActions || [];
+      const action = actions.find(a =>
+        a.id === args.action ||
+        a.name.toLowerCase() === args.action.toLowerCase()
+      );
+      if (!action) {
+        const available = actions.map(a => a.name).join(', ');
+        return fail(`Action "${args.action}" not found. Available: ${available || 'none'}`);
+      }
+
+      // Write trigger file for the app to pick up
+      const triggerDir = path.join(getDataDir(), 'quickactions', 'triggers');
+      if (!fs.existsSync(triggerDir)) fs.mkdirSync(triggerDir, { recursive: true });
+
+      const triggerFile = path.join(triggerDir, `${action.id}_${Date.now()}.json`);
+      fs.writeFileSync(triggerFile, JSON.stringify({
+        projectId: p.id,
+        actionId: action.id,
+        actionName: action.name,
+        command: action.command,
+        source: 'mcp',
+        timestamp: new Date().toISOString(),
+      }), 'utf8');
+
+      return ok(`Quick action "${action.name}" triggered on ${p.name || path.basename(p.path || '?')}. Command: ${action.command}`);
     }
 
     return fail(`Unknown project tool: ${name}`);
