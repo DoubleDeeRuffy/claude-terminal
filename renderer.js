@@ -1351,6 +1351,7 @@ window.projectsState = projectsState;
 // ========== CLOUD UPLOAD ==========
 // cloudUploadStatus: projectId -> { uploading?: boolean, synced?: boolean }
 const cloudUploadStatus = new Map();
+let cloudConnected = false;
 let _activeUploadToast = null;
 
 async function refreshCloudProjects() {
@@ -1432,12 +1433,24 @@ if (api.cloud?.onUploadProgress) {
 }
 
 // Refresh cloud projects on status change and at startup
+function _updateCloudConnected(connected) {
+  cloudConnected = connected;
+  ProjectList.setExternalState({ cloudConnected });
+  ProjectList.render();
+}
+
 if (api.cloud?.onStatusChanged) {
   api.cloud.onStatusChanged((status) => {
+    _updateCloudConnected(status.connected);
     if (status.connected) refreshCloudProjects();
   });
 }
-setTimeout(() => refreshCloudProjects(), 3000);
+setTimeout(async () => {
+  try {
+    const s = await api.cloud.status();
+    if (s.connected) { _updateCloudConnected(true); refreshCloudProjects(); }
+  } catch { /* ignore */ }
+}, 3000);
 
 // ========== SETUP COMPONENTS ==========
 // Setup ProjectList
@@ -1445,7 +1458,8 @@ ProjectList.setExternalState({
   fivemServers: localState.fivemServers,
   gitOperations: localState.gitOperations,
   gitRepoStatus: localState.gitRepoStatus,
-  cloudUploadStatus
+  cloudUploadStatus,
+  cloudConnected
 });
 
 ProjectList.setCallbacks({

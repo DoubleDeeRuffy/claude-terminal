@@ -63,6 +63,7 @@ let fivemServers = new Map();
 let gitOperations = new Map();
 let gitRepoStatus = new Map();
 let cloudUploadStatus = new Map();
+let cloudConnected = false;
 
 /**
  * Set external state references
@@ -72,6 +73,7 @@ function setExternalState(state) {
   if (state.gitOperations) gitOperations = state.gitOperations;
   if (state.gitRepoStatus) gitRepoStatus = state.gitRepoStatus;
   if (state.cloudUploadStatus) cloudUploadStatus = state.cloudUploadStatus;
+  if (state.cloudConnected !== undefined) cloudConnected = state.cloudConnected;
 }
 
 /**
@@ -224,7 +226,7 @@ function renderProjectHtml(project, depth) {
       ${menuIcons.code}
       ${t('projects.openInEditor', { editor: (EDITOR_OPTIONS.find(e => e.value === (getProjectEditor(project.id) || getSetting('editor'))) || EDITOR_OPTIONS[0]).label })}
     </button>
-    ${cloudUploadStatus.get(project.id)?.synced
+    ${cloudConnected ? (cloudUploadStatus.get(project.id)?.synced
       ? `<button class="more-actions-item btn-cloud-upload" data-project-id="${project.id}">
       ${menuIcons.cloudUpload}
       ${t('cloud.resyncBtn')}
@@ -232,7 +234,7 @@ function renderProjectHtml(project, depth) {
       : `<button class="more-actions-item btn-cloud-upload" data-project-id="${project.id}">
       ${menuIcons.cloudUpload}
       ${t('cloud.uploadTitle')}
-    </button>`}
+    </button>`) : ''}
     <div class="more-actions-divider"></div>
     ${(() => {
       const typeSettings = typeHandler.getProjectSettings(project);
