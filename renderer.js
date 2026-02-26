@@ -1489,6 +1489,18 @@ if (btnToggleExplorer) {
   btnToggleExplorer.onclick = () => FileExplorer.toggle();
 }
 
+// Wire lightbulb resume session button
+const btnResumeSession = document.getElementById('btn-resume-session');
+if (btnResumeSession) {
+  btnResumeSession.onclick = () => {
+    const selectedFilter = projectsState.get().selectedProjectFilter;
+    const projects = projectsState.get().projects;
+    if (selectedFilter !== null && projects[selectedFilter]) {
+      showSessionsModal(projects[selectedFilter]);
+    }
+  };
+}
+
 // Wire "+" new terminal button
 const btnNewTerminal = document.getElementById('btn-new-terminal');
 if (btnNewTerminal) {
@@ -1500,6 +1512,21 @@ if (btnNewTerminal) {
     }
   };
 }
+
+// Phase 8: Update window title on project switch
+projectsState.subscribe(() => {
+  if (getSetting('updateTitleOnProjectSwitch') === false) return;
+
+  const state = projectsState.get();
+  const selectedFilter = state.selectedProjectFilter;
+  const projects = state.projects;
+  const title = (selectedFilter !== null && projects[selectedFilter])
+    ? `Claude Terminal - ${projects[selectedFilter].name}`
+    : 'Claude Terminal';
+
+  document.title = title;
+  api.window.setTitle(title);
+});
 
 // Subscribe to project selection changes for FileExplorer
 projectsState.subscribe(() => {
