@@ -867,6 +867,117 @@
   background: rgba(255, 255, 255, 0.025);
 }
 
+/* ===== ROW DELETE BUTTON ===== */
+.db-grid-row-num {
+  position: relative;
+}
+.db-grid-row-delete {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  cursor: pointer;
+  color: var(--danger);
+  padding: 0;
+  transition: background 0.1s;
+}
+.db-grid-row-delete svg {
+  width: 12px;
+  height: 12px;
+}
+.db-grid-row-delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+.db-grid tbody tr:hover .db-grid-row-delete {
+  display: flex;
+}
+.db-grid tbody tr:hover .db-grid-row-idx {
+  display: none;
+}
+
+/* ===== INSERT ROW MODAL ===== */
+.db-insert-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 55vh;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.db-insert-form::-webkit-scrollbar { width: 4px; }
+.db-insert-form::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+.db-insert-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.db-insert-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.db-insert-type {
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.db-insert-pk {
+  font-size: 8px;
+  font-weight: 800;
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+.db-insert-nullable {
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  font-style: italic;
+}
+.db-insert-default {
+  font-size: 9px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--text-muted);
+  opacity: 0.5;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.db-insert-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.db-insert-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15);
+}
+.db-insert-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: inherit;
+}
+
 /* ========== QUERY EDITOR ========== */
 .database-query-editor {
   width: 100%;

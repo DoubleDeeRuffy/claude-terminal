@@ -6,6 +6,7 @@
 
 const { escapeHtml } = require('../../utils');
 const { t } = require('../../i18n');
+const { showConfirm } = require('../components/Modal');
 
 let ctx = null;
 
@@ -353,7 +354,7 @@ function renderBrowserDataPanel(tableName, tableMeta, isMongo, columnLabel) {
             ${data.rows.map((row, ri) => {
               const globalIdx = page * pageSize + ri + 1;
               return `<tr data-row="${ri}">
-                <td class="db-grid-row-num">${globalIdx}</td>
+                <td class="db-grid-row-num"><span class="db-grid-row-idx">${globalIdx}</span><button class="db-grid-row-delete" data-row="${ri}" title="${t('database.browserDeleteRow')}"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></td>
                 ${cols.map(col => {
                   const val = row[col];
                   const isNull = val === null || val === undefined;
@@ -508,6 +509,15 @@ function bindBrowserEvents(container) {
   // Add row button
   const addRowBtn = container.querySelector('#db-browser-add-row');
   if (addRowBtn) addRowBtn.onclick = () => insertNewRow();
+
+  // Delete row buttons
+  container.querySelectorAll('.db-grid-row-delete').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const rowIdx = parseInt(btn.dataset.row);
+      deleteRow(rowIdx);
+    };
+  });
 }
 
 async function commitCellEdit(input) {
@@ -580,7 +590,7 @@ async function commitCellEdit(input) {
   renderContent();
 }
 
-async function insertNewRow() {
+function insertNewRow() {
   const state = require('../../state');
   const activeId = state.getActiveConnection();
   const conn = state.getDatabaseConnection(activeId);
@@ -591,13 +601,121 @@ async function insertNewRow() {
     return;
   }
 
-  const sql = `INSERT INTO \`${panelState.browserSelectedTable}\` () VALUES ()`;
+  const schema = state.getDatabaseSchema(activeId);
+  const tableMeta = schema?.tables?.find(t => t.name === panelState.browserSelectedTable);
+  if (!tableMeta) return;
+
+  // Build form fields for each column
+  const fieldsHtml = tableMeta.columns.map(col => {
+    const pkBadge = col.primaryKey ? `<span class="db-insert-pk">PK</span>` : '';
+    const nullHint = col.nullable ? `<span class="db-insert-nullable">NULL</span>` : '';
+    const defaultHint = col.defaultValue ? `<span class="db-insert-default">${escapeHtml(String(col.defaultValue))}</span>` : '';
+    return `
+      <div class="db-insert-field">
+        <label class="db-insert-label">
+          ${pkBadge}${escapeHtml(col.name)}
+          <span class="db-insert-type">${escapeHtml(col.type)}</span>
+          ${nullHint}${defaultHint}
+        </label>
+        <input class="db-insert-input" data-col="${escapeHtml(col.name)}" data-nullable="${col.nullable}" placeholder="${col.nullable ? 'NULL' : ''}" />
+      </div>`;
+  }).join('');
+
+  const html = `<div class="db-insert-form">${fieldsHtml}</div>`;
+  const footer = `
+    <button class="btn-secondary" id="db-insert-cancel">${t('database.cancel')}</button>
+    <button class="btn-primary" id="db-insert-save">${t('database.browserInsertBtn')}</button>`;
+
+  ctx.showModal(t('database.browserAddRow') + ' — ' + panelState.browserSelectedTable, html, footer);
+
+  document.getElementById('db-insert-cancel').onclick = () => ctx.closeModal();
+  document.getElementById('db-insert-save').onclick = async () => {
+    const inputs = document.querySelectorAll('.db-insert-input');
+    const colNames = [];
+    const values = [];
+    inputs.forEach(input => {
+      const val = input.value.trim();
+      const nullable = input.dataset.nullable === 'true';
+      // Skip empty nullable fields (they'll use default/NULL)
+      if (val === '' && nullable) return;
+      if (val === '') return;
+      colNames.push(`\`${input.dataset.col}\``);
+      values.push(`'${val.replace(/'/g, "''")}'`);
+    });
+
+    if (colNames.length === 0) {
+      ctx.showToast({ type: 'warning', title: t('database.browserInsertEmpty') });
+      return;
+    }
+
+    const sql = `INSERT INTO \`${panelState.browserSelectedTable}\` (${colNames.join(', ')}) VALUES (${values.join(', ')})`;
+    try {
+      const result = await ctx.api.database.executeQuery({ id: activeId, sql });
+      if (result.error) {
+        ctx.showToast({ type: 'error', title: result.error });
+      } else {
+        ctx.showToast({ type: 'success', title: t('database.browserRowInserted') });
+        ctx.closeModal();
+        loadTableData(panelState.browserSelectedTable);
+      }
+    } catch (e) {
+      ctx.showToast({ type: 'error', title: e.message });
+    }
+  };
+}
+
+async function deleteRow(rowIdx) {
+  const state = require('../../state');
+  const activeId = state.getActiveConnection();
+  const conn = state.getDatabaseConnection(activeId);
+  const data = panelState.browserData;
+  if (!activeId || !data || !data.rows[rowIdx]) return;
+
+  if (conn && conn.type === 'mongodb') {
+    ctx.showToast({ type: 'warning', title: t('database.browserEditNotSupported') });
+    return;
+  }
+
+  const schema = state.getDatabaseSchema(activeId);
+  const tableMeta = schema?.tables?.find(t => t.name === panelState.browserSelectedTable);
+  if (!tableMeta) return;
+
+  const row = data.rows[rowIdx];
+  const pkCol = tableMeta.columns.find(c => c.primaryKey);
+
+  // Build a preview of the row for the confirmation message
+  const previewCols = data.columns.slice(0, 3);
+  const preview = previewCols.map(c => `${c}: ${row[c] === null ? 'NULL' : row[c]}`).join(', ');
+
+  const confirmed = await showConfirm({
+    title: t('database.browserDeleteRow'),
+    message: `${t('database.browserDeleteConfirm')}\n\n${preview}${data.columns.length > 3 ? '...' : ''}`,
+    confirmLabel: t('common.delete') || 'Delete',
+    danger: true
+  });
+
+  if (!confirmed) return;
+
+  let whereClause = '';
+  if (pkCol) {
+    const pkVal = row[pkCol.name];
+    whereClause = `WHERE \`${pkCol.name}\` = ${typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal}`;
+  } else {
+    const conditions = data.columns.map(c => {
+      const v = row[c];
+      if (v === null || v === undefined) return `\`${c}\` IS NULL`;
+      return `\`${c}\` = ${typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : v}`;
+    });
+    whereClause = `WHERE ${conditions.join(' AND ')} LIMIT 1`;
+  }
+
+  const sql = `DELETE FROM \`${panelState.browserSelectedTable}\` ${whereClause}`;
   try {
     const result = await ctx.api.database.executeQuery({ id: activeId, sql });
     if (result.error) {
       ctx.showToast({ type: 'error', title: result.error });
     } else {
-      ctx.showToast({ type: 'success', title: t('database.browserRowInserted') });
+      ctx.showToast({ type: 'success', title: t('database.browserRowDeleted') });
       loadTableData(panelState.browserSelectedTable);
     }
   } catch (e) {

@@ -1227,6 +1227,11 @@
     "browserAddRow": "Insert new row",
     "browserRowUpdated": "Row updated",
     "browserRowInserted": "Row inserted",
+    "browserRowDeleted": "Row deleted",
+    "browserDeleteRow": "Delete row",
+    "browserDeleteConfirm": "Are you sure you want to delete this row?",
+    "browserInsertBtn": "Insert",
+    "browserInsertEmpty": "Fill in at least one field",
     "browserEditNotSupported": "Inline editing is not supported for MongoDB"
   }
 }
