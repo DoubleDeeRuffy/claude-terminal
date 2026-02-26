@@ -65,6 +65,7 @@ Progress: [███████████████████████
 | Phase 14 P01 | 8 | 2 tasks | 5 files |
 | Phase 18 P01 | 10 | 2 tasks | 6 files |
 | Phase 16 P01 | 8 | 2 tasks | 3 files |
+| Phase 17 P01 | 4 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,9 @@ Recent decisions affecting current work:
 - [Phase 16]: Phase 16: Use saveTerminalSessions() debounced for name mutations — frequent changes, not crash-critical
 - [Phase 16]: Phase 16: mode pass-through in restore loop is prerequisite for chat-mode tabs to route through createChatTerminal and receive saved name
 - [Phase 16]: Phase 16: Lazy require path is ../../services/TerminalSessionService from ui/components (not ../services/ as specified in plan)
+- [Phase 17]: app.setAppUserModelId placed at top of bootstrapApp() on win32 — ensures runtime AUMID matches electron-builder appId before any window creation
+- [Phase 17]: allowToChangeInstallationDirectory: false — prevents NSIS keepShortcuts=false path that forces shortcut recreation on every update
+- [Phase 17]: isUpdated guard in customUnInstall wraps Delete shortcut line — desktop shortcut only removed on actual uninstall, not update runs
 
 ### Pending Todos
 

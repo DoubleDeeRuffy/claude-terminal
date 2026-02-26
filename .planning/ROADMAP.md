@@ -306,7 +306,7 @@ Plans:
 **Goal:** Fix Windows taskbar pin loss on auto-update by setting explicit AUMID, disabling forced shortcut recreation, and guarding shortcut deletion during update runs
 **Depends on:** Phase 16
 **Requirements:** PIN-01
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 17-01-PLAN.md — Set explicit AppUserModelId, disable allowToChangeInstallationDirectory, guard customUnInstall shortcut deletion
