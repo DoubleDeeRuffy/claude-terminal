@@ -4,7 +4,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const VERSION_RE = /^\d+\.\d+\.\d+/;
 
 function validatePingPayload(req, res, next) {
-  const { uuid, event_type, app_version, platform, arch } = req.body || {};
+  const { uuid, event_type, app_version, platform, arch, metadata } = req.body || {};
 
   if (!uuid || !UUID_RE.test(uuid)) {
     return res.status(400).json({ error: 'Invalid uuid' });
@@ -22,8 +22,19 @@ function validatePingPayload(req, res, next) {
     return res.status(400).json({ error: 'Invalid platform' });
   }
 
-  if (!arch || typeof arch !== 'string') {
+  if (!arch || !config.ALLOWED_ARCHS.includes(arch)) {
     return res.status(400).json({ error: 'Invalid arch' });
+  }
+
+  // Validate metadata size if present
+  if (metadata !== undefined) {
+    if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return res.status(400).json({ error: 'Invalid metadata' });
+    }
+    const metaStr = JSON.stringify(metadata);
+    if (metaStr.length > config.MAX_METADATA_SIZE) {
+      return res.status(400).json({ error: 'Metadata too large' });
+    }
   }
 
   next();

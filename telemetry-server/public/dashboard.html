@@ -74,7 +74,7 @@
     }
 
     th { color: #666; font-weight: 500; font-size: 11px; text-transform: uppercase; }
-    td:last-child { text-align: right; color: #d97706; font-weight: 500; }
+    td:last-child, th:last-child { text-align: right; color: #d97706; font-weight: 500; }
 
     .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
     .bar-label { font-size: 13px; min-width: 80px; color: #aaa; }
@@ -137,6 +137,20 @@
         <div class="section">
           <div class="section-title">Versions</div>
           <div id="versions"></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="section">
+          <div class="section-title">Countries</div>
+          <div id="countries"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">Top Cities</div>
+          <table>
+            <thead><tr><th>City</th><th>Country</th><th>Users</th></tr></thead>
+            <tbody id="cities"></tbody>
+          </table>
         </div>
       </div>
 
@@ -203,6 +217,13 @@
 
         renderBars(document.getElementById('platforms'), d.platforms, 'platform', 'count');
         renderBars(document.getElementById('versions'), d.versions, 'app_version', 'count');
+        if (d.countries?.length) renderBars(document.getElementById('countries'), d.countries, 'country', 'count');
+        else document.getElementById('countries').innerHTML = '<div style="color:#555;font-size:13px">No data yet</div>';
+        if (d.cities?.length) {
+          document.getElementById('cities').innerHTML = d.cities.map(c =>
+            `<tr><td>${c.city}</td><td>${c.country}</td><td>${fmt(c.count)}</td></tr>`
+          ).join('');
+        }
         renderTable(document.getElementById('events'), d.top_events, 'event_type', 'count');
         renderTable(document.getElementById('new-users'), d.new_users_per_day, 'day', 'count');
         renderTable(document.getElementById('active-users'), d.active_users_per_day, 'day', 'count');
