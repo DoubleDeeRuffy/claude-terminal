@@ -453,6 +453,16 @@ async function renderSettingsTab(initialTab = 'general') {
                 <span class="settings-toggle-slider"></span>
               </label>
             </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.updateTitleOnProjectSwitch')}</div>
+                <div class="settings-toggle-desc">${t('settings.updateTitleOnProjectSwitchDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="update-title-toggle" ${settings.updateTitleOnProjectSwitch !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
             <div class="settings-row">
               <div class="settings-label">
                 <div>${t('settings.editor')}</div>
@@ -514,6 +524,16 @@ async function renderSettingsTab(initialTab = 'general') {
                 </div>
                 <label class="settings-toggle">
                   <input type="checkbox" id="show-dotfiles-toggle" ${settings.showDotfiles !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.explorerNaturalSort')}</div>
+                  <div class="settings-toggle-desc">${t('settings.explorerNaturalSortDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="explorer-natural-sort-toggle" ${settings.explorerNaturalSort !== false ? 'checked' : ''}>
                   <span class="settings-toggle-slider"></span>
                 </label>
               </div>
@@ -612,6 +632,16 @@ async function renderSettingsTab(initialTab = 'general') {
                 <div class="execution-mode-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
               </div>
             </div>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
+                <div>${t('settings.showTabModeToggle')}</div>
+                <div class="settings-toggle-desc">${t('settings.showTabModeToggleDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="show-tab-mode-toggle" ${settings.showTabModeToggle !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
             </div>
             <div class="settings-toggle-row" style="margin-top: 12px;">
               <div class="settings-toggle-label">
@@ -1111,6 +1141,12 @@ async function renderSettingsTab(initialTab = 'general') {
     const newEnable1MContext = context1MToggle ? context1MToggle.checked : settings.enable1MContext || false;
     const showDotfilesToggle = document.getElementById('show-dotfiles-toggle');
     const newShowDotfiles = showDotfilesToggle ? showDotfilesToggle.checked : true;
+    const explorerNaturalSortToggle = document.getElementById('explorer-natural-sort-toggle');
+    const newExplorerNaturalSort = explorerNaturalSortToggle ? explorerNaturalSortToggle.checked : true;
+    const updateTitleToggle = document.getElementById('update-title-toggle');
+    const newUpdateTitleOnProjectSwitch = updateTitleToggle ? updateTitleToggle.checked : true;
+    const showTabModeToggleEl = document.getElementById('show-tab-mode-toggle');
+    const newShowTabModeToggle = showTabModeToggleEl ? showTabModeToggleEl.checked : true;
 
     const editorDropdown = document.getElementById('editor-dropdown');
     const newSettings = {
@@ -1128,6 +1164,9 @@ async function renderSettingsTab(initialTab = 'general') {
       hooksEnabled: newHooksEnabled,
       enable1MContext: newEnable1MContext,
       showDotfiles: newShowDotfiles,
+      explorerNaturalSort: newExplorerNaturalSort,
+      updateTitleOnProjectSwitch: newUpdateTitleOnProjectSwitch,
+      showTabModeToggle: newShowTabModeToggle,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand
     };
 
@@ -1148,6 +1187,11 @@ async function renderSettingsTab(initialTab = 'general') {
 
     document.body.classList.toggle('compact-projects', newCompactProjects);
     document.body.classList.toggle('reduce-motion', newReduceMotion);
+    document.body.classList.toggle('hide-tab-mode-toggle', !newShowTabModeToggle);
+    if (!newUpdateTitleOnProjectSwitch) {
+      document.title = 'Claude Terminal';
+      window.electron_api.window.setTitle('Claude Terminal');
+    }
     ctx.applyAccentColor(newSettings.accentColor);
 
     if (newTerminalTheme !== settings.terminalTheme) {

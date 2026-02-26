@@ -49,6 +49,34 @@ const IGNORE_PATTERNS = new Set([
 // Max entries displayed per folder
 const MAX_DISPLAY_ENTRIES = 500;
 
+// ========== NATURAL SORT COMPARATOR ==========
+// Module-level collators (created once, reused on every sort)
+const _collatorNatural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const _collatorAlpha = new Intl.Collator(undefined, { sensitivity: 'base' });
+
+// Priority tier: dotfiles/dotfolders first, then special-char prefixes, then normal names
+function _getNamePriority(name) {
+  if (name.startsWith('.')) return 0;                           // dotfiles/dotfolders first
+  if (/^[^a-zA-Z0-9\u00C0-\u024F]/.test(name)) return 1;      // special chars (_,-,#,@) second
+  return 2;                                                     // normal alphanumeric last
+}
+
+// Returns a comparator function for file/folder entries ({ name, isDirectory })
+function _makeFileComparator(naturalSort) {
+  const collator = naturalSort ? _collatorNatural : _collatorAlpha;
+  return (a, b) => {
+    // Directories always before files
+    if (a.isDirectory && !b.isDirectory) return -1;
+    if (!a.isDirectory && b.isDirectory) return 1;
+    // Within same type: priority tier first
+    const pa = _getNamePriority(a.name);
+    const pb = _getNamePriority(b.name);
+    if (pa !== pb) return pa - pb;
+    // Same priority: name comparison
+    return collator.compare(a.name, b.name);
+  };
+}
+
 // ========== CALLBACKS ==========
 function setCallbacks(cbs) {
   Object.assign(callbacks, cbs);
@@ -253,12 +281,9 @@ async function readDirectoryAsync(dirPath) {
       }
     }
 
-    // Sort: directories first, then alphabetical
-    result.sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-    });
+    // Sort: directories first, then by name (natural sort if setting enabled)
+    const explorerNaturalSort = getSetting('explorerNaturalSort');
+    result.sort(_makeFileComparator(explorerNaturalSort !== false));
 
     if (skipped > 0) {
       result.push({
@@ -402,6 +427,10 @@ const performSearch = debounce(async () => {
 
   const allFiles = await collectAllFiles(rootPath);
   searchResults = allFiles.filter(f => f.name.toLowerCase().includes(query));
+  const { getSetting } = require('../../state/settings.state');
+  const explorerNaturalSort = getSetting('explorerNaturalSort');
+  const _searchCollator = (explorerNaturalSort !== false) ? _collatorNatural : _collatorAlpha;
+  searchResults.sort((a, b) => _searchCollator.compare(a.name, b.name));
   render();
 }, 250);
 

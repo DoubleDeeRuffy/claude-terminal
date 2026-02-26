@@ -38,6 +38,11 @@ async function initialize() {
   // Initialize state
   await state.initializeState();
 
+  // Apply body classes for settings that affect global CSS
+  if (state.getSetting('showTabModeToggle') === false) {
+    document.body.classList.add('hide-tab-mode-toggle');
+  }
+
   // Initialize i18n with saved language or auto-detect
   const savedLanguage = state.getSetting('language');
   i18n.initI18n(savedLanguage);

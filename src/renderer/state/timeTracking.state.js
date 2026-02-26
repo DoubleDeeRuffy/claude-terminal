@@ -2,7 +2,7 @@
  * Time Tracking State Module (v3 - Heartbeat model)
  *
  * Simplified time tracking based on a single heartbeat() entry point.
- * Tracks all activity (Claude working + user interaction) with a 10-minute idle margin.
+ * Tracks all activity (Claude working + user interaction) with a 2-minute idle margin.
  *
  * Key design:
  * - Single heartbeat(projectId, source) function replaces start/stop/record/pause/resume
@@ -21,7 +21,12 @@ const ArchiveService = require('../services/ArchiveService');
 // CONSTANTS
 // ============================================================
 
-const IDLE_TIMEOUT = 10 * 60 * 1000;    // 10 minutes without heartbeat → idle out
+const { getSetting } = require('./settings.state');
+
+function getIdleTimeout() {
+  const minutes = getSetting('idleTimeout') || 2;
+  return minutes * 60 * 1000;
+}
 const TICK_INTERVAL = 60 * 1000;         // 60s tick (idle check, midnight, sleep/wake, checkpoint)
 const SAVE_DEBOUNCE = 1000;              // 1 second debounce for disk writes
 const MERGE_GAP = 5 * 60 * 1000;        // 5 minutes: merge sessions closer than this
@@ -218,7 +223,7 @@ function recoverFromCheckpoint() {
 
     // Finalize the crashed session using the checkpoint data
     // Use startedAt as both start, and estimate end as startedAt + (age capped at idle timeout)
-    const estimatedEnd = info.startedAt + Math.min(age, IDLE_TIMEOUT);
+    const estimatedEnd = info.startedAt + Math.min(age, getIdleTimeout());
     const duration = estimatedEnd - info.startedAt;
     if (duration > 1000) {
       addSession('projects', pid, info.startedAt, estimatedEnd, duration, info.source);
@@ -230,7 +235,7 @@ function recoverFromCheckpoint() {
   if (checkpoint._global?.startedAt) {
     const age = now - checkpoint._global.startedAt;
     if (age <= 60 * 60 * 1000) {
-      const estimatedEnd = checkpoint._global.startedAt + Math.min(age, IDLE_TIMEOUT);
+      const estimatedEnd = checkpoint._global.startedAt + Math.min(age, getIdleTimeout());
       const duration = estimatedEnd - checkpoint._global.startedAt;
       if (duration > 1000) {
         addSession('global', null, checkpoint._global.startedAt, estimatedEnd, duration);
@@ -448,7 +453,7 @@ function tick() {
 
   // --- Per-project idle check ---
   for (const [pid, info] of activeProjects) {
-    if (now - info.lastHeartbeat > IDLE_TIMEOUT) {
+    if (now - info.lastHeartbeat > getIdleTimeout()) {
       // Idle out: finalize at last heartbeat time
       const duration = info.lastHeartbeat - info.startedAt;
       if (duration > 1000) {
