@@ -15,6 +15,7 @@ const KEYTAR_SERVICE = 'claude-terminal-db';
 class DatabaseService {
   constructor() {
     this.connections = new Map(); // id -> { config, client, status }
+    this._schemaCache = new Map(); // id -> { tables, timestamp }
   }
 
   /**
@@ -67,6 +68,7 @@ class DatabaseService {
     if (conn) {
       await this._closeClient(conn.config.type, conn.client).catch(() => {});
       this.connections.delete(id);
+      this._schemaCache.delete(id);
     }
     return { success: true };
   }
@@ -87,12 +89,19 @@ class DatabaseService {
    * @param {string} id - Connection ID
    * @returns {Object} { success, tables?, error? }
    */
-  async getSchema(id) {
+  async getSchema(id, { force = false } = {}) {
     const conn = this.connections.get(id);
     if (!conn) return { success: false, error: 'Not connected' };
 
+    // Return cached schema if fresh (2 min TTL)
+    const cached = this._schemaCache.get(id);
+    if (!force && cached && (Date.now() - cached.timestamp) < 120000) {
+      return { success: true, tables: cached.tables };
+    }
+
     try {
       const tables = await this._getSchemaForType(conn.config.type, conn.client, conn.config);
+      this._schemaCache.set(id, { tables, timestamp: Date.now() });
       return { success: true, tables };
     } catch (error) {
       return { success: false, error: error.message };
@@ -474,84 +483,100 @@ class DatabaseService {
   }
 
   async _getMysqlSchema(client) {
-    const [tables] = await client.query('SHOW TABLES');
-    const key = Object.keys(tables[0] || {})[0];
-    const result = [];
-    for (const row of tables) {
-      const tableName = row[key];
-      const [columns] = await client.query(`SHOW COLUMNS FROM \`${tableName}\``);
-      result.push({
-        name: tableName,
-        columns: columns.map(c => ({
-          name: c.Field,
-          type: c.Type,
-          nullable: c.Null === 'YES',
-          primaryKey: c.Key === 'PRI',
-          defaultValue: c.Default
-        }))
+    // Single query to get all columns for all tables at once
+    const [rows] = await client.query(
+      `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT
+       FROM information_schema.columns
+       WHERE TABLE_SCHEMA = DATABASE()
+       ORDER BY TABLE_NAME, ORDINAL_POSITION`
+    );
+    const tableMap = new Map();
+    for (const row of rows) {
+      const tableName = row.TABLE_NAME;
+      if (!tableMap.has(tableName)) tableMap.set(tableName, []);
+      tableMap.get(tableName).push({
+        name: row.COLUMN_NAME,
+        type: row.COLUMN_TYPE,
+        nullable: row.IS_NULLABLE === 'YES',
+        primaryKey: row.COLUMN_KEY === 'PRI',
+        defaultValue: row.COLUMN_DEFAULT
       });
     }
-    return result;
+    return Array.from(tableMap.entries()).map(([name, columns]) => ({ name, columns }));
   }
 
   async _getPgSchema(client) {
-    const { rows: tables } = await client.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
-    );
-    const result = [];
-    for (const t of tables) {
-      const { rows: columns } = await client.query(
-        `SELECT column_name, data_type, is_nullable, column_default
-         FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`,
-        [t.table_name]
-      );
-      // Get primary key columns
-      const { rows: pkCols } = await client.query(
-        `SELECT a.attname FROM pg_index i
-         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-         WHERE i.indrelid = $1::regclass AND i.indisprimary`,
-        [t.table_name]
-      );
-      const pkNames = new Set(pkCols.map(p => p.attname));
-      result.push({
-        name: t.table_name,
-        columns: columns.map(c => ({
-          name: c.column_name,
-          type: c.data_type,
-          nullable: c.is_nullable === 'YES',
-          primaryKey: pkNames.has(c.column_name),
-          defaultValue: c.column_default
-        }))
+    // Two queries to get everything: all columns + all primary keys
+    const [colResult, pkResult] = await Promise.all([
+      client.query(
+        `SELECT table_name, column_name, data_type, is_nullable, column_default
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+         ORDER BY table_name, ordinal_position`
+      ),
+      client.query(
+        `SELECT tc.table_name, kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public'`
+      )
+    ]);
+
+    // Build PK lookup: tableName -> Set of PK column names
+    const pkMap = new Map();
+    for (const row of pkResult.rows) {
+      if (!pkMap.has(row.table_name)) pkMap.set(row.table_name, new Set());
+      pkMap.get(row.table_name).add(row.column_name);
+    }
+
+    // Group columns by table
+    const tableMap = new Map();
+    for (const c of colResult.rows) {
+      if (!tableMap.has(c.table_name)) tableMap.set(c.table_name, []);
+      const pks = pkMap.get(c.table_name);
+      tableMap.get(c.table_name).push({
+        name: c.column_name,
+        type: c.data_type,
+        nullable: c.is_nullable === 'YES',
+        primaryKey: pks ? pks.has(c.column_name) : false,
+        defaultValue: c.column_default
       });
     }
-    return result;
+    return Array.from(tableMap.entries()).map(([name, columns]) => ({ name, columns }));
   }
 
   async _getMongoSchema(client, config) {
     const dbName = config.database || 'test';
     const db = client.db(dbName);
     const collections = await db.listCollections().toArray();
+
+    // Sample all collections in parallel (batched to avoid overwhelming the server)
+    const BATCH_SIZE = 10;
     const result = [];
-    for (const col of collections) {
-      // Sample documents to infer fields
-      const docs = await db.collection(col.name).find().limit(100).toArray();
-      const fieldMap = new Map();
-      for (const doc of docs) {
-        for (const [key, value] of Object.entries(doc)) {
-          const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
-          if (!fieldMap.has(key)) fieldMap.set(key, new Set());
-          fieldMap.get(key).add(type);
+    for (let i = 0; i < collections.length; i += BATCH_SIZE) {
+      const batch = collections.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(batch.map(async (col) => {
+        const docs = await db.collection(col.name).find().limit(50).toArray();
+        const fieldMap = new Map();
+        for (const doc of docs) {
+          for (const [key, value] of Object.entries(doc)) {
+            const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+            if (!fieldMap.has(key)) fieldMap.set(key, new Set());
+            fieldMap.get(key).add(type);
+          }
         }
-      }
-      result.push({
-        name: col.name,
-        columns: Array.from(fieldMap.entries()).map(([name, types]) => ({
-          name,
-          type: Array.from(types).join(' | '),
-          nullable: types.has('null'),
-          primaryKey: name === '_id'
-        }))
-      });
+        return {
+          name: col.name,
+          columns: Array.from(fieldMap.entries()).map(([name, types]) => ({
+            name,
+            type: Array.from(types).join(' | '),
+            nullable: types.has('null'),
+            primaryKey: name === '_id'
+          }))
+        };
+      }));
+      result.push(...batchResults);
     }
     return result;
   }
