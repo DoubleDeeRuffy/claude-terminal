@@ -613,6 +613,16 @@ async function renderSettingsTab(initialTab = 'general') {
               </div>
             </div>
             </div>
+            <div class="settings-toggle-row" style="margin-top: 12px;">
+              <div class="settings-toggle-label">
+                <div>${t('settings.restoreTerminalSessions')}</div>
+                <div class="settings-toggle-desc">${t('settings.restoreTerminalSessionsDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="restore-sessions-toggle" ${settings.restoreTerminalSessions !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
           </div>
           <div class="settings-group">
             <div class="settings-group-title">${t('settings.terminalGroup')}</div>
@@ -1087,6 +1097,8 @@ async function renderSettingsTab(initialTab = 'general') {
 
     const compactProjectsToggle = document.getElementById('compact-projects-toggle');
     const newCompactProjects = compactProjectsToggle ? compactProjectsToggle.checked : true;
+    const restoreSessionsToggle = document.getElementById('restore-sessions-toggle');
+    const newRestoreTerminalSessions = restoreSessionsToggle ? restoreSessionsToggle.checked : true;
     const reduceMotionToggle = document.getElementById('reduce-motion-toggle');
     const newReduceMotion = reduceMotionToggle ? reduceMotionToggle.checked : false;
     const aiCommitToggle = document.getElementById('ai-commit-toggle');
@@ -1109,6 +1121,7 @@ async function renderSettingsTab(initialTab = 'general') {
       terminalTheme: newTerminalTheme,
       language: newLanguage,
       compactProjects: newCompactProjects,
+      restoreTerminalSessions: newRestoreTerminalSessions,
       reduceMotion: newReduceMotion,
       aiCommitMessages: newAiCommitMessages,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',

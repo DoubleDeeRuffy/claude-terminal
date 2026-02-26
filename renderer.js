@@ -152,6 +152,7 @@ onLanguageChange(() => {
 // ========== KEYBOARD SHORTCUTS (extracted to ShortcutsManager module) ==========
 // ========== INITIALIZATION ==========
 const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn } = require('./src/renderer/events');
+const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require('./src/renderer/services/TerminalSessionService');
 
 (async () => {
   ensureDirectories();
@@ -160,6 +161,55 @@ const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn }
 
   // Initialize Claude event bus and provider (hooks or scraping)
   initClaudeEvents();
+
+  // Restore terminal sessions from previous run
+  try {
+    const sessionData = loadSessionData();
+    if (sessionData && sessionData.projects) {
+      const projects = projectsState.get().projects;
+
+      for (const projectId of Object.keys(sessionData.projects)) {
+        const saved = sessionData.projects[projectId];
+        const project = projects.find(p => p.id === projectId);
+        if (!project) continue;
+        if (!fs.existsSync(project.path)) continue;
+        if (!saved.tabs || saved.tabs.length === 0) continue;
+
+        for (const tab of saved.tabs) {
+          const cwd = fs.existsSync(tab.cwd) ? tab.cwd : project.path;
+          await TerminalManager.createTerminal(project, {
+            runClaude: !tab.isBasic,
+            cwd,
+            skipPermissions: settingsState.get().skipPermissions,
+            resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
+          });
+        }
+
+        if (saved.activeCwd) {
+          const terminals = terminalsState.get().terminals;
+          let activeId = null;
+          terminals.forEach((td, id) => {
+            if (td.project?.id === projectId && td.cwd === saved.activeCwd) {
+              activeId = id;
+            }
+          });
+          if (activeId !== null) {
+            TerminalManager.setActiveTerminal(activeId);
+          }
+        }
+      }
+
+      if (sessionData.lastOpenedProjectId) {
+        const idx = projects.findIndex(p => p.id === sessionData.lastOpenedProjectId);
+        if (idx !== -1) {
+          setSelectedProjectFilter(idx);
+          TerminalManager.filterByProject(idx);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[SessionRestore] Error restoring terminal sessions:', err);
+  }
 
   // Initialize project types registry
   registry.discoverAll();
@@ -242,6 +292,16 @@ const { initClaudeEvents, switchProvider, getDashboardStats, setNotificationFn }
 
   // Initialize keyboard shortcuts (needs settingsState loaded)
   ShortcutsManager.registerAllShortcuts();
+
+  // Track last opened project for session restore
+  projectsState.subscribe((state) => {
+    if (state.selectedProjectFilter !== null && state.selectedProjectFilter !== undefined) {
+      const project = state.projects[state.selectedProjectFilter];
+      if (project) {
+        saveTerminalSessions();
+      }
+    }
+  });
 })();
 
 // ========== NOTIFICATIONS ==========
@@ -866,6 +926,7 @@ async function deleteProjectUI(projectId) {
 
   projectsState.set({ projects, rootOrder });
   saveProjects();
+  clearProjectSessions(projectId);
 
   if (projectsState.get().selectedProjectFilter === projectIndex) {
     setSelectedProjectFilter(null);
@@ -1313,7 +1374,7 @@ ProjectList.setCallbacks({
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),
-  onFilterTerminals: (idx) => TerminalManager.filterByProject(idx),
+  onFilterTerminals: (idx) => { TerminalManager.filterByProject(idx); saveTerminalSessions(); },
   countTerminalsForProject: TerminalManager.countTerminalsForProject,
   getTerminalStatsForProject: TerminalManager.getTerminalStatsForProject
 });

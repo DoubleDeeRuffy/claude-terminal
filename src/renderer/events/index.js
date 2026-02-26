@@ -366,6 +366,24 @@ function deactivateProvider() {
   activeProvider = null;
 }
 
+// ── Consumer: Session ID Capture (hooks-only — captures Claude session IDs for resume) ──
+function wireSessionIdCapture() {
+  consumerUnsubscribers.push(
+    eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
+      if (e.source !== 'hooks') return;
+      if (!e.data?.sessionId) return;
+      if (!e.projectId) return;
+      const terminalId = findClaudeTerminalForProject(e.projectId);
+      if (!terminalId) return;
+      const { updateTerminal } = require('../state/terminals.state');
+      updateTerminal(terminalId, { claudeSessionId: e.data.sessionId });
+      const TerminalSessionService = require('../services/TerminalSessionService');
+      TerminalSessionService.saveTerminalSessions();
+      console.debug(`[Events] Captured session ID ${e.data.sessionId} for terminal ${terminalId}`);
+    })
+  );
+}
+
 /**
  * Initialize the Claude event system.
  * Reads hooksEnabled setting, activates the right provider, wires consumers.
@@ -380,6 +398,7 @@ function initClaudeEvents() {
   wireAttentionConsumer();
   wireDashboardStatsConsumer();
   wireTerminalStatusConsumer();
+  wireSessionIdCapture();
   wireTabRenameConsumer();
   wireDebugListener();
 
