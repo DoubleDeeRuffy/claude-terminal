@@ -117,7 +117,7 @@ echo ""
 # 4. Create data dirs & build
 # ══════════════════════════════════════════════
 
-mkdir -p data/users
+mkdir -p data/users data/claude
 
 echo -e "  ${CYAN}Building and starting containers...${NC}"
 docker compose up -d --build
@@ -127,7 +127,50 @@ echo -e "  ${GREEN}✓ Server running on port 3800${NC}"
 echo ""
 
 # ══════════════════════════════════════════════
-# 5. Create user
+# 5. Claude Code authentication
+# ══════════════════════════════════════════════
+
+echo -e "  ${BOLD}Claude Code Authentication${NC}"
+echo ""
+
+# Check if credentials already exist in the container
+HAS_CREDS=$(docker exec ct-cloud test -f /home/node/.claude/.credentials.json && echo "yes" || echo "no")
+
+if [ "$HAS_CREDS" = "yes" ]; then
+  echo -e "  ${GREEN}✓ Claude credentials found${NC}"
+else
+  echo -e "  ${YELLOW}Claude Code needs to be authenticated for headless sessions.${NC}"
+  echo -e "  ${DIM}This will open the Claude login flow inside the container.${NC}"
+  echo ""
+  read -p "  Authenticate Claude Code now? (Y/n): " AUTH_CHOICE
+  AUTH_CHOICE=${AUTH_CHOICE:-Y}
+
+  if [ "$AUTH_CHOICE" = "Y" ] || [ "$AUTH_CHOICE" = "y" ]; then
+    echo ""
+    echo -e "  ${CYAN}Starting Claude login...${NC}"
+    echo -e "  ${DIM}Follow the instructions below — a URL will appear to open in your browser.${NC}"
+    echo ""
+    docker exec -it ct-cloud claude login 2>&1 || true
+    echo ""
+
+    # Verify credentials were created
+    HAS_CREDS=$(docker exec ct-cloud test -f /home/node/.claude/.credentials.json && echo "yes" || echo "no")
+    if [ "$HAS_CREDS" = "yes" ]; then
+      echo -e "  ${GREEN}✓ Claude authenticated successfully${NC}"
+    else
+      echo -e "  ${RED}Authentication may have failed — you can retry later:${NC}"
+      echo -e "  ${DIM}  docker exec -it ct-cloud claude login${NC}"
+    fi
+  else
+    echo -e "  ${DIM}Skipped — headless sessions won't work until authenticated.${NC}"
+    echo -e "  ${DIM}Authenticate later: docker exec -it ct-cloud claude login${NC}"
+  fi
+fi
+
+echo ""
+
+# ══════════════════════════════════════════════
+# 6. Create user
 # ══════════════════════════════════════════════
 
 USERNAME=""
@@ -151,7 +194,7 @@ API_KEY=$(echo "$API_OUTPUT" | grep -oP 'API Key: \K.*' || true)
 echo ""
 
 # ══════════════════════════════════════════════
-# 6. Reverse proxy
+# 7. Reverse proxy
 # ══════════════════════════════════════════════
 
 echo -e "  ${BOLD}Reverse proxy setup${NC}"
@@ -274,7 +317,7 @@ esac
 echo ""
 
 # ══════════════════════════════════════════════
-# 7. SSL with Let's Encrypt
+# 8. SSL with Let's Encrypt
 # ══════════════════════════════════════════════
 
 if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
@@ -363,6 +406,7 @@ echo -e "    ${CYAN}Claude Terminal > Settings > Cloud${NC}"
 echo ""
 echo -e "  ${DIM}────────────────────────────────────${NC}"
 echo -e "  ${DIM}Manage users:  docker exec ct-cloud node dist/cli.js user add <name>${NC}"
+echo -e "  ${DIM}Claude auth:   docker exec -it ct-cloud claude login${NC}"
 echo -e "  ${DIM}View logs:     docker compose -f $INSTALL_DIR/cloud/docker-compose.yml logs -f${NC}"
 echo -e "  ${DIM}Update:        cd $INSTALL_DIR && git pull && cd cloud && docker compose up -d --build${NC}"
 echo ""

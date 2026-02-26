@@ -13,6 +13,12 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# Install Claude Code CLI (required by Agent SDK for headless sessions)
+RUN apt-get update -qq && apt-get install -y -qq curl && \
+    curl -fsSL https://claude.ai/install.sh | bash && \
+    apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+ENV PATH="/root/.claude/bin:$PATH"
+
 COPY cloud/package.json cloud/package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
