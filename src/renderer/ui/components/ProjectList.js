@@ -62,6 +62,7 @@ let callbacks = {
 let fivemServers = new Map();
 let gitOperations = new Map();
 let gitRepoStatus = new Map();
+let cloudUploadStatus = new Map();
 
 /**
  * Set external state references
@@ -70,6 +71,7 @@ function setExternalState(state) {
   if (state.fivemServers) fivemServers = state.fivemServers;
   if (state.gitOperations) gitOperations = state.gitOperations;
   if (state.gitRepoStatus) gitRepoStatus = state.gitRepoStatus;
+  if (state.cloudUploadStatus) cloudUploadStatus = state.cloudUploadStatus;
 }
 
 /**
@@ -222,6 +224,15 @@ function renderProjectHtml(project, depth) {
       ${menuIcons.code}
       ${t('projects.openInEditor', { editor: (EDITOR_OPTIONS.find(e => e.value === (getProjectEditor(project.id) || getSetting('editor'))) || EDITOR_OPTIONS[0]).label })}
     </button>
+    ${cloudUploadStatus.get(project.id)?.synced
+      ? `<button class="more-actions-item btn-cloud-upload" data-project-id="${project.id}">
+      ${menuIcons.cloudUpload}
+      ${t('cloud.resyncBtn')}
+    </button>`
+      : `<button class="more-actions-item btn-cloud-upload" data-project-id="${project.id}">
+      ${menuIcons.cloudUpload}
+      ${t('cloud.uploadTitle')}
+    </button>`}
     <div class="more-actions-divider"></div>
     ${(() => {
       const typeSettings = typeHandler.getProjectSettings(project);
@@ -291,6 +302,7 @@ function renderProjectHtml(project, depth) {
           <span>${escapeHtml(project.name)}</span>
           ${terminalStats.total > 0 ? `<span class="terminal-count"><span class="working-count">${terminalStats.working}</span><span class="count-separator">/</span><span class="total-count">${terminalStats.total}</span></span>` : ''}
           ${project.isWorktree && project.worktreeBranch ? `<span class="project-worktree-badge" title="Worktree: ${escapeHtml(project.worktreeBranch)}">${escapeHtml(project.worktreeBranch)}</span>` : project.isWorktree ? '<span class="project-worktree-badge" title="Worktree">WT</span>' : ''}
+          ${cloudUploadStatus.get(project.id)?.uploading ? '<span class="project-cloud-badge uploading" title="Cloud upload...">&#9729;</span>' : cloudUploadStatus.get(project.id)?.synced ? '<span class="project-cloud-badge synced" title="Cloud synced">&#9729;</span>' : ''}
         </div>
         <div class="project-path">${escapeHtml(project.path)}</div>
         ${hasTime ? `<div class="project-time">
@@ -742,6 +754,9 @@ function attachListeners(list) {
         const project = getProject(projectId);
         closeAllMoreActionsMenus();
         if (project) showProjectSettings(project);
+      } else if (btn.classList.contains('btn-cloud-upload')) {
+        closeAllMoreActionsMenus();
+        if (callbacks.onCloudUpload) callbacks.onCloudUpload(projectId);
       } else if (btn.classList.contains('btn-customize-project')) {
         const project = getProject(projectId);
         closeAllMoreActionsMenus();

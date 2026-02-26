@@ -280,25 +280,6 @@ function buildHtml(settings) {
           </div>
         </div>
 
-        <!-- Upload project to cloud -->
-        <div class="rp-cloud-upload" id="rp-cloud-upload" style="display:none">
-          <div class="rp-cloud-upload-header">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
-              <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
-            </svg>
-            <span>${t('cloud.uploadTitle')}</span>
-          </div>
-          <div class="rp-cloud-upload-body">
-            <select id="cloud-upload-project-select" class="rp-cloud-input"></select>
-            <button class="rp-server-btn" id="cloud-upload-btn">${t('cloud.uploadBtn')}</button>
-          </div>
-          <div class="rp-cloud-upload-progress" id="cloud-upload-progress" style="display:none">
-            <div class="rp-progress-bar"><div class="rp-progress-fill" id="cloud-upload-fill"></div></div>
-            <span class="rp-progress-label" id="cloud-upload-label"></span>
-          </div>
-        </div>
-
       </div>
 
     </div>
@@ -476,13 +457,6 @@ function setupHandlers(context) {
     });
   }
 
-  const cloudUploadSection = document.getElementById('rp-cloud-upload');
-  const cloudUploadSelect = document.getElementById('cloud-upload-project-select');
-  const cloudUploadBtn = document.getElementById('cloud-upload-btn');
-  const cloudUploadProgress = document.getElementById('cloud-upload-progress');
-  const cloudUploadFill = document.getElementById('cloud-upload-fill');
-  const cloudUploadLabel = document.getElementById('cloud-upload-label');
-
   function updateCloudStatusUI(connected) {
     if (!cloudStatusIndicator || !cloudStatusText || !cloudConnectBtn) return;
     if (connected) {
@@ -490,85 +464,12 @@ function setupHandlers(context) {
       cloudStatusText.textContent = t('cloud.connected');
       cloudConnectBtn.textContent = t('cloud.disconnect');
       cloudConnectBtn.classList.add('rp-btn-danger');
-      if (cloudUploadSection) {
-        cloudUploadSection.style.display = '';
-        _populateUploadSelect();
-      }
     } else {
       cloudStatusIndicator.classList.remove('online');
       cloudStatusText.textContent = t('cloud.disconnected');
       cloudConnectBtn.textContent = t('cloud.connect');
       cloudConnectBtn.classList.remove('rp-btn-danger');
-      if (cloudUploadSection) cloudUploadSection.style.display = 'none';
     }
-  }
-
-  function _populateUploadSelect() {
-    if (!cloudUploadSelect || !_ctx) return;
-    const projects = _ctx.projectsState.get().projects || [];
-    cloudUploadSelect.innerHTML = '';
-    if (projects.length === 0) {
-      const opt = document.createElement('option');
-      opt.textContent = t('cloud.noProjects');
-      opt.disabled = true;
-      cloudUploadSelect.appendChild(opt);
-      return;
-    }
-    for (const p of projects) {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.name || p.path;
-      cloudUploadSelect.appendChild(opt);
-    }
-  }
-
-  if (cloudUploadBtn) {
-    cloudUploadBtn.addEventListener('click', async () => {
-      if (!cloudUploadSelect) return;
-      const projectId = cloudUploadSelect.value;
-      const projects = (_ctx.projectsState.get().projects || []);
-      const project = projects.find(p => p.id === projectId);
-      if (!project) return;
-
-      cloudUploadBtn.disabled = true;
-      if (cloudUploadProgress) cloudUploadProgress.style.display = '';
-      if (cloudUploadFill) cloudUploadFill.style.width = '0%';
-      if (cloudUploadLabel) cloudUploadLabel.textContent = t('cloud.uploadPhaseScanning');
-
-      try {
-        const result = await window.electron_api.cloud.uploadProject({
-          projectName: project.name || window.electron_nodeModules.path.basename(project.path),
-          projectPath: project.path,
-        });
-        if (cloudUploadFill) cloudUploadFill.style.width = '100%';
-        if (cloudUploadLabel) cloudUploadLabel.textContent = t('cloud.uploadSuccess');
-        setTimeout(() => {
-          if (cloudUploadProgress) cloudUploadProgress.style.display = 'none';
-        }, 3000);
-      } catch (err) {
-        if (cloudUploadLabel) cloudUploadLabel.textContent = t('cloud.uploadError');
-        if (cloudUploadFill) cloudUploadFill.style.width = '0%';
-      } finally {
-        cloudUploadBtn.disabled = false;
-      }
-    });
-  }
-
-  if (window.electron_api.cloud?.onUploadProgress) {
-    window.electron_api.cloud.onUploadProgress((progress) => {
-      if (!cloudUploadFill || !cloudUploadLabel) return;
-      const percent = progress.percent || 0;
-      cloudUploadFill.style.width = `${percent}%`;
-      if (progress.phase === 'scanning') {
-        cloudUploadLabel.textContent = t('cloud.uploadPhaseScanning');
-      } else if (progress.phase === 'compressing') {
-        cloudUploadLabel.textContent = t('cloud.uploadPhaseCompressing');
-      } else if (progress.phase === 'uploading') {
-        cloudUploadLabel.textContent = t('cloud.uploadPhaseUploading');
-      } else if (progress.phase === 'done') {
-        cloudUploadLabel.textContent = t('cloud.uploadSuccess');
-      }
-    });
   }
 
   if (cloudUrlInput) {

@@ -1187,7 +1187,8 @@
     "syncMessage": "{count} fichier(s) modifié(s) dans \"{project}\" depuis une session cloud. Appliquer ?",
     "syncApply": "Appliquer",
     "syncSkip": "Ignorer",
-    "syncApplied": "Changements appliqués"
+    "syncApplied": "Changements appliqués",
+    "resyncBtn": "Re-synchroniser dans le cloud"
   },
   "database": {
     "title": "Base de données",

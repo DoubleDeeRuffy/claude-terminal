@@ -1348,12 +1348,104 @@ window.closeModal = closeModal;
 window.createTerminalForProject = createTerminalForProject;
 window.projectsState = projectsState;
 
+// ========== CLOUD UPLOAD ==========
+// cloudUploadStatus: projectId -> { uploading?: boolean, synced?: boolean }
+const cloudUploadStatus = new Map();
+let _activeUploadToast = null;
+
+async function refreshCloudProjects() {
+  try {
+    const status = await api.cloud.status();
+    if (!status.connected) return;
+    const { projects: cloudProjects } = await api.cloud.getProjects();
+    if (!cloudProjects || !Array.isArray(cloudProjects)) return;
+    const cloudNames = new Set(cloudProjects.map(p => p.name));
+    const localProjects = projectsState.get().projects || [];
+    for (const p of localProjects) {
+      const name = p.name || path.basename(p.path);
+      const cur = cloudUploadStatus.get(p.id);
+      if (cloudNames.has(name)) {
+        cloudUploadStatus.set(p.id, { ...cur, synced: true });
+      } else if (cur?.synced) {
+        cloudUploadStatus.delete(p.id);
+      }
+    }
+    ProjectList.render();
+  } catch { /* cloud unavailable, ignore */ }
+}
+
+async function cloudUploadProject(projectId) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return;
+
+  // Check cloud connection
+  try {
+    const status = await api.cloud.status();
+    if (!status.connected) {
+      showToast({ type: 'warning', title: t('cloud.uploadTitle'), message: t('cloud.disconnected') });
+      return;
+    }
+  } catch {
+    showToast({ type: 'warning', title: t('cloud.uploadTitle'), message: t('cloud.disconnected') });
+    return;
+  }
+
+  // Prevent double upload on same project
+  if (cloudUploadStatus.get(projectId)?.uploading) return;
+
+  cloudUploadStatus.set(projectId, { ...cloudUploadStatus.get(projectId), uploading: true });
+  ProjectList.render();
+
+  const projectName = project.name || path.basename(project.path);
+  _activeUploadToast = showToast({ type: 'info', title: t('cloud.uploadTitle'), message: t('cloud.uploadPhaseScanning'), duration: 0 });
+
+  try {
+    await api.cloud.uploadProject({ projectName, projectPath: project.path });
+    cloudUploadStatus.set(projectId, { synced: true });
+    ProjectList.render();
+    if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
+    showToast({ type: 'success', title: t('cloud.uploadSuccess'), message: projectName });
+  } catch (err) {
+    // Keep synced state if it was previously synced
+    const wasSynced = cloudUploadStatus.get(projectId)?.synced;
+    cloudUploadStatus.set(projectId, wasSynced ? { synced: true } : {});
+    if (!wasSynced) cloudUploadStatus.delete(projectId);
+    ProjectList.render();
+    if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
+    showToast({ type: 'error', title: t('cloud.uploadError'), message: err.message || projectName });
+  }
+}
+
+if (api.cloud?.onUploadProgress) {
+  api.cloud.onUploadProgress((progress) => {
+    if (!_activeUploadToast) return;
+    const msgEl = _activeUploadToast.querySelector('.toast-message');
+    if (!msgEl) return;
+    const phases = {
+      scanning: t('cloud.uploadPhaseScanning'),
+      compressing: t('cloud.uploadPhaseCompressing'),
+      uploading: t('cloud.uploadPhaseUploading'),
+      done: t('cloud.uploadSuccess'),
+    };
+    if (phases[progress.phase]) msgEl.textContent = phases[progress.phase];
+  });
+}
+
+// Refresh cloud projects on status change and at startup
+if (api.cloud?.onStatusChanged) {
+  api.cloud.onStatusChanged((status) => {
+    if (status.connected) refreshCloudProjects();
+  });
+}
+setTimeout(() => refreshCloudProjects(), 3000);
+
 // ========== SETUP COMPONENTS ==========
 // Setup ProjectList
 ProjectList.setExternalState({
   fivemServers: localState.fivemServers,
   gitOperations: localState.gitOperations,
-  gitRepoStatus: localState.gitRepoStatus
+  gitRepoStatus: localState.gitRepoStatus,
+  cloudUploadStatus
 });
 
 ProjectList.setCallbacks({
@@ -1371,6 +1463,7 @@ ProjectList.setCallbacks({
   onGitPull: gitPull,
   onGitPush: gitPush,
   onNewWorktree: openNewWorktreeModal,
+  onCloudUpload: cloudUploadProject,
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),
