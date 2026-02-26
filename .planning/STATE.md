@@ -179,5 +179,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 14-01-PLAN.md (lightbulb resume-session button in terminals-filter bar)
-Resume file: .planning/phases/14-add-resume-session-button-near-new-terminal-button-with-lightbulb-icon/14-01-SUMMARY.md
+Stopped at: Phase 17 context gathered
+Resume file: .planning/phases/17-on-update-installation-the-pinned-taskbar-icon-gets-lost-is-there-a-whole-uninstall-and-install-happening/17-CONTEXT.md
