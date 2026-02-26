@@ -159,12 +159,13 @@ Plans:
 
 ### Phase 6.3: Remember active task on Project scope to restore it on project-swap and app restart (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
+**Goal:** Persist the active terminal tab per project and restore it on project-swap and app restart so users land on exactly the tab they were last working in
 **Depends on:** Phase 6
-**Plans:** 0 plans
+**Requirements:** SESS-01, SESS-02
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:discuss-phase 6.3 to break down)
+- [ ] 6.3-01-PLAN.md — Persist activeTabIndex in TerminalSessionService and restore in filterByProject
 
 ### Phase 6.2: scroll to the very end on session resume in every tab (INSERTED)
 
