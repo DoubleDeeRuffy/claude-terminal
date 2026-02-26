@@ -89,6 +89,9 @@ const _cloudWsProxy = {
 // Cache sessionId → projectId mapping to avoid disk reads on every chat-idle
 const _sessionProjectMap = new Map();
 
+// Cache sessionId → tab name (set by broadcastSessionStarted / broadcastTabRenamed)
+const _sessionTabNames = new Map();
+
 // Buffer of chat events per session — replayed to late-joining clients
 // Each entry is an array of { channel, data } objects
 const _sessionMessageBuffer = new Map();
@@ -358,14 +361,18 @@ function _sendProjectsAndSessions(ws) {
       ));
       const projectId = project?.id || null;
       if (projectId) _sessionProjectMap.set(sessionId, projectId);
+      // Use stored tab name (from broadcastSessionStarted/broadcastTabRenamed),
+      // falling back to project name, then 'Chat'
+      const tabName = _sessionTabNames.get(sessionId) || project?.name || 'Chat';
       _wsSend(ws, 'session:started', {
         sessionId,
         projectId,
-        tabName: project?.name || 'Chat',
+        tabName,
       });
 
       // Replay buffered chat events for this session
       const buffer = _sessionMessageBuffer.get(sessionId);
+      console.log(`[Remote] Session ${sessionId}: buffer has ${buffer?.length || 0} event(s), all buffers: ${[..._sessionMessageBuffer.keys()].join(', ') || 'none'}`);
       if (buffer && buffer.length > 0) {
         totalBuffered += buffer.length;
         for (const { channel, data } of buffer) {
@@ -775,12 +782,14 @@ function broadcastProjectsUpdate(projects) {
 }
 
 function broadcastSessionStarted({ sessionId, projectId, tabName }) {
-  console.log(`[Remote] → broadcast session:started sessionId=${sessionId} projectId=${projectId}`);
+  console.log(`[Remote] → broadcast session:started sessionId=${sessionId} projectId=${projectId} tabName=${tabName}`);
   if (projectId) _sessionProjectMap.set(sessionId, projectId);
+  if (tabName) _sessionTabNames.set(sessionId, tabName);
   _broadcast('session:started', { sessionId, projectId, tabName: tabName || 'Chat' });
 }
 
 function broadcastTabRenamed({ sessionId, tabName }) {
+  if (tabName) _sessionTabNames.set(sessionId, tabName);
   _broadcast('session:tab-renamed', { sessionId, tabName });
 }
 
@@ -813,11 +822,15 @@ let _chatBridgeInstalled = false;
 function _ensureChatBridge() {
   if (_chatBridgeInstalled) return;
   _chatBridgeInstalled = true;
+  console.log('[Remote] Installing chat bridge callback');
 
   const chatService = require('./ChatService');
   chatService.setRemoteEventCallback((channel, data) => {
     const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed', 'session:tab-renamed'];
     if (!relayed.includes(channel)) return;
+    if (channel === 'chat-user-message') {
+      console.log(`[Remote] Bridge received chat-user-message sid=${data?.sessionId} text="${(data?.text || '').slice(0, 50)}"`);
+    }
 
     let enriched = data;
     // Enrich chat-idle / chat-permission-request with cached projectId
@@ -837,11 +850,15 @@ function _ensureChatBridge() {
         const buf = _sessionMessageBuffer.get(sid);
         buf.push({ channel, data: enriched });
         if (buf.length > MAX_BUFFER_PER_SESSION) buf.shift();
+        if (channel !== 'chat-message') {
+          console.log(`[Remote] Buffered ${channel} for session ${sid} (buffer size: ${buf.length})`);
+        }
       }
       // Clean up buffers on session end
       if (channel === 'session:closed' || channel === 'chat-error') {
         _sessionMessageBuffer.delete(sid);
         _sessionProjectMap.delete(sid);
+        _sessionTabNames.delete(sid);
       }
     }
 
@@ -901,14 +918,19 @@ function stop() {
   }
   _connectedClients.clear();
   _sessionTokens.clear();
-  _sessionProjectMap.clear();
-  _sessionMessageBuffer.clear();
   _pin = null;
   _failedAttempts = 0;
   _lockoutUntil = 0;
 
   if (wss) { wss.close(); wss = null; }
   if (httpServer) { httpServer.close(); httpServer = null; }
+
+  // Only clear shared caches if cloud is also disconnected
+  if (!_cloudClient?.connected) {
+    _sessionProjectMap.clear();
+    _sessionMessageBuffer.clear();
+    _sessionTabNames.clear();
+  }
 
   // Only remove chat bridge if cloud is also disconnected
   _teardownChatBridge();
