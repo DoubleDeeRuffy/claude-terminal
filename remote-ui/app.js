@@ -257,7 +257,21 @@ function init() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      // Check for updates every 60s
+      setInterval(() => reg.update(), 60_000);
+      // Auto-apply new SW when available
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'activated') {
+            console.log('[SW] New version activated, reloading...');
+            window.location.reload();
+          }
+        });
+      });
+    }).catch(err => {
       console.warn('SW registration failed:', err);
     });
   }
