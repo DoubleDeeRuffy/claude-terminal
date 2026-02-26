@@ -134,7 +134,7 @@ echo -e "  ${BOLD}Claude Code Authentication${NC}"
 echo ""
 
 # Check if credentials already exist in the container
-HAS_CREDS=$(docker exec ct-cloud test -f /home/node/.claude/.credentials.json && echo "yes" || echo "no")
+HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json && echo "yes" || echo "no")
 
 if [ "$HAS_CREDS" = "yes" ]; then
   echo -e "  ${GREEN}✓ Claude credentials found${NC}"
@@ -154,7 +154,7 @@ else
     echo ""
 
     # Verify credentials were created
-    HAS_CREDS=$(docker exec ct-cloud test -f /home/node/.claude/.credentials.json && echo "yes" || echo "no")
+    HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json && echo "yes" || echo "no")
     if [ "$HAS_CREDS" = "yes" ]; then
       echo -e "  ${GREEN}✓ Claude authenticated successfully${NC}"
     else
