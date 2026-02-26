@@ -355,15 +355,9 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    // Use ChatService's internal _send to intercept messages
-    // We monkey-patch mainWindow temporarily — cleaner approach: use an event callback
-    const origSend = chatService._send.bind(chatService);
+    let unregisterInterceptor;
 
     const interceptor = (channel, data) => {
-      if (data?.sessionId !== sessionId) {
-        origSend(channel, data);
-        return;
-      }
       if (channel === 'chat-message' && onMessage) onMessage(data.message);
       if (channel === 'chat-message' && data.message?.type === 'assistant') {
         const content = data.message?.message?.content;
@@ -375,19 +369,17 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
       }
       if (channel === 'chat-done') {
         signal?.removeEventListener('abort', onAbort);
-        chatService._send = origSend;
+        unregisterInterceptor?.();
         cleanup?.();
         resolve({ output: stdout.trim(), success: true });
       }
       if (channel === 'chat-error') {
         signal?.removeEventListener('abort', onAbort);
-        chatService._send = origSend;
+        unregisterInterceptor?.();
         cleanup?.();
         reject(new Error(data.error || 'Agent step failed'));
       }
     };
-
-    chatService._send = interceptor;
 
     chatService.startSession({
       cwd,
@@ -398,12 +390,14 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
       maxTurns,
     }).then(id => {
       sessionId = id;
+      // Register per-session interceptor (safe for parallel execution)
+      unregisterInterceptor = chatService.addSessionInterceptor(id, interceptor);
       cleanup = () => {
         // nothing extra — session closed by chat-done/error
       };
     }).catch(err => {
       signal?.removeEventListener('abort', onAbort);
-      chatService._send = origSend;
+      unregisterInterceptor?.();
       reject(err);
     });
   });
