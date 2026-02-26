@@ -158,6 +158,12 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 (async () => {
   ensureDirectories();
   await initializeState(); // Loads settings, projects AND initializes time tracking
+
+  // Apply body classes for settings that affect global CSS
+  if (getSetting('showTabModeToggle') === false) {
+    document.body.classList.add('hide-tab-mode-toggle');
+  }
+
   initI18n(settingsState.get().language); // Initialize i18n with saved language preference
 
   // Initialize Claude event bus and provider (hooks or scraping)
