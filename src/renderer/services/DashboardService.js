@@ -190,6 +190,29 @@ async function detectProjectType(projectPath) {
       }
     }
 
+    // One-level-deep detection for C# (.sln/.csproj)
+    // Other markers only check root; .NET solutions are commonly nested (e.g., src/MyApp.sln)
+    try {
+      const csharpMarker = PROJECT_TYPE_MARKERS.find(m => m.type === 'csharp');
+      if (csharpMarker) {
+        const rootEntries = fs.readdirSync(projectPath);
+        for (const entry of rootEntries) {
+          // Skip dotfiles and common non-project directories for performance
+          if (entry.startsWith('.') || entry === 'node_modules' || entry === 'bin' || entry === 'obj') continue;
+          const subPath = path.join(projectPath, entry);
+          try {
+            if (!fs.statSync(subPath).isDirectory()) continue;
+          } catch (e) { continue; }
+          const hasFile = csharpMarker.files.some(f => fileMatchExists(subPath, f));
+          if (hasFile) {
+            return { type: csharpMarker.type, label: csharpMarker.label, color: csharpMarker.color };
+          }
+        }
+      }
+    } catch (e) {
+      // Silently ignore — detection is best-effort
+    }
+
     return null;
   } catch (e) {
     return null;
