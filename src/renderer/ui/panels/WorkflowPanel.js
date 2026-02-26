@@ -461,7 +461,7 @@ function renderWorkflowList(el) {
 
 function cardHtml(wf) {
   const lastRun = state.runs.find(r => r.workflowId === wf.id);
-  const cfg = TRIGGER_CONFIG[wf.trigger.type];
+  const cfg = TRIGGER_CONFIG[wf.trigger?.type] || TRIGGER_CONFIG.manual;
   const runCount = state.runs.filter(r => r.workflowId === wf.id).length;
   const successCount = state.runs.filter(r => r.workflowId === wf.id && r.status === 'success').length;
 
@@ -480,10 +480,10 @@ function cardHtml(wf) {
           </div>
         </div>
         <div class="wf-card-pipeline">
-          ${wf.steps.map((s, i) => {
-            const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
-            const stepStatus = lastRun ? (lastRun.steps[i]?.status || '') : '';
-            return `<div class="wf-pipe-step ${stepStatus ? 'wf-pipe-step--' + stepStatus : ''}" title="${escapeHtml(s.type)}">
+          ${(wf.steps || []).map((s, i) => {
+            const info = STEP_TYPES.find(x => x.type === (s.type || '').split('.')[0]) || STEP_TYPES[0];
+            const stepStatus = lastRun ? (lastRun.steps?.[i]?.status || '') : '';
+            return `<div class="wf-pipe-step ${stepStatus ? 'wf-pipe-step--' + stepStatus : ''}" title="${escapeHtml(s.type || '')}">
               <span class="wf-chip wf-chip--${info.color}">${info.icon}</span>
               <span class="wf-pipe-label">${escapeHtml(info.label)}</span>
             </div>${i < wf.steps.length - 1 ? '<span class="wf-pipe-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>' : ''}`;
@@ -493,7 +493,7 @@ function cardHtml(wf) {
           <span class="wf-trigger-tag wf-trigger-tag--${cfg.color}">
             ${cfg.icon}
             ${escapeHtml(cfg.label)}
-            ${wf.trigger.value ? `<code>${escapeHtml(wf.trigger.value)}</code>` : ''}
+            ${wf.trigger?.value ? `<code>${escapeHtml(wf.trigger.value)}</code>` : ''}
             ${wf.hookType ? `<code>${escapeHtml(wf.hookType)}</code>` : ''}
           </span>
           <div class="wf-card-stats">
@@ -520,9 +520,10 @@ function renderRunHistory(el) {
     <div class="wf-runs">
       ${state.runs.map(run => {
         const wf = state.workflows.find(w => w.id === run.workflowId);
-        const totalSteps = run.steps.length;
-        const doneSteps = run.steps.filter(s => s.status === 'success').length;
-        const failedSteps = run.steps.filter(s => s.status === 'failed').length;
+        const steps = run.steps || [];
+        const totalSteps = steps.length;
+        const doneSteps = steps.filter(s => s.status === 'success').length;
+        const failedSteps = steps.filter(s => s.status === 'failed').length;
 
         return `
           <div class="wf-run wf-run--${run.status}">
@@ -860,7 +861,7 @@ function openDetail(id) {
   const wf = state.workflows.find(w => w.id === id);
   if (!wf) return;
   const runs = state.runs.filter(r => r.workflowId === id);
-  const cfg = TRIGGER_CONFIG[wf.trigger.type];
+  const cfg = TRIGGER_CONFIG[wf.trigger?.type] || TRIGGER_CONFIG.manual;
 
   const overlay = document.createElement('div');
   overlay.className = 'wf-overlay';
@@ -883,7 +884,7 @@ function openDetail(id) {
             <span class="wf-detail-meta-icon wf-chip wf-chip--${cfg.color}">${cfg.icon}</span>
             <div>
               <div class="wf-detail-meta-label">Trigger</div>
-              <div class="wf-detail-meta-val">${cfg.label}${wf.trigger.value ? ` · <code>${escapeHtml(wf.trigger.value)}</code>` : ''}${wf.hookType ? ` · <code>${escapeHtml(wf.hookType)}</code>` : ''}</div>
+              <div class="wf-detail-meta-val">${cfg.label}${wf.trigger?.value ? ` · <code>${escapeHtml(wf.trigger.value)}</code>` : ''}${wf.hookType ? ` · <code>${escapeHtml(wf.hookType)}</code>` : ''}</div>
             </div>
           </div>
           <div class="wf-detail-meta-item">
@@ -905,13 +906,13 @@ function openDetail(id) {
         <div class="wf-detail-section">
           <div class="wf-detail-sec-title">Séquence</div>
           <div class="wf-detail-steps">
-            ${wf.steps.map((s, i) => {
-              const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
+            ${(wf.steps || []).map((s, i) => {
+              const info = STEP_TYPES.find(x => x.type === (s.type || '').split('.')[0]) || STEP_TYPES[0];
               return `
                 <div class="wf-det-step">
                   <span class="wf-det-step-n">${i + 1}</span>
                   <span class="wf-chip wf-chip--${info.color}">${info.icon}</span>
-                  <span class="wf-det-step-type">${escapeHtml(s.type)}</span>
+                  <span class="wf-det-step-type">${escapeHtml(s.type || '')}</span>
                   <span class="wf-det-step-id">\$${escapeHtml(s.id || '')}</span>
                   ${s.condition ? `<span class="wf-det-step-cond">if</span>` : ''}
                 </div>
