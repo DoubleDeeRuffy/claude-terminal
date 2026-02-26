@@ -122,7 +122,16 @@ function registerCloudHandlers() {
             if (res.statusCode >= 200 && res.statusCode < 300) {
               resolve(JSON.parse(body));
             } else {
-              reject(new Error(body));
+              let message;
+              if (res.statusCode === 413) {
+                const sizeMB = Math.round(fs.statSync(zipPath).size / 1024 / 1024);
+                message = `Project too large (${sizeMB} MB). Increase server upload limit (nginx client_max_body_size).`;
+              } else {
+                // Try to extract text from HTML responses
+                const textMatch = body.match(/<title>(.+?)<\/title>/i) || body.match(/<h1>(.+?)<\/h1>/i);
+                message = textMatch ? `${res.statusCode} ${textMatch[1]}` : `HTTP ${res.statusCode}: ${body.substring(0, 200)}`;
+              }
+              reject(new Error(message));
             }
           });
         });
