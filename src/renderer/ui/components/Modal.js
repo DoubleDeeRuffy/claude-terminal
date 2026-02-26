@@ -97,13 +97,13 @@ function showModal(modal) {
     firstInput.focus();
   }
 
-  // Escape key handler
+  // Escape key handler — stored on modal for cleanup in closeModal()
   const escHandler = (e) => {
     if (e.key === 'Escape') {
       closeModal(modal);
-      document.removeEventListener('keydown', escHandler);
     }
   };
+  modal._escHandler = escHandler;
   document.addEventListener('keydown', escHandler);
 }
 
@@ -112,6 +112,10 @@ function showModal(modal) {
  * @param {HTMLElement} modal
  */
 function closeModal(modal) {
+  if (modal._escHandler) {
+    document.removeEventListener('keydown', modal._escHandler);
+    delete modal._escHandler;
+  }
   modal.classList.remove('active');
   setTimeout(() => {
     if (modal.parentNode) {

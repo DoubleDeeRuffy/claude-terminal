@@ -9,6 +9,7 @@ const { t, setLanguage, getCurrentLanguage, getAvailableLanguages } = require('.
 const RemotePanel = require('./RemotePanel');
 
 let ctx = null;
+let _settingsDropdownCleanup = null;
 
 function init(context) {
   ctx = context;
@@ -1122,9 +1123,16 @@ async function renderSettingsTab(initialTab = 'general') {
       };
     });
   });
+  // Remove previous document-level listener before adding a new one (prevents stacking on re-render)
+  if (_settingsDropdownCleanup) _settingsDropdownCleanup();
   const closeDropdowns = () => container.querySelectorAll('.settings-dropdown.open').forEach(d => d.classList.remove('open'));
   document.addEventListener('click', closeDropdowns);
-  container.closest('.tab-content, .content-area, #settings-tab')?.addEventListener('scroll', closeDropdowns, { passive: true });
+  const scrollParent = container.closest('.tab-content, .content-area, #settings-tab');
+  scrollParent?.addEventListener('scroll', closeDropdowns, { passive: true });
+  _settingsDropdownCleanup = () => {
+    document.removeEventListener('click', closeDropdowns);
+    scrollParent?.removeEventListener('scroll', closeDropdowns);
+  };
 
   const saveSettingsHandler = async () => {
     const selectedMode = container.querySelector('.execution-mode-card:not(.terminal-mode-card).selected');

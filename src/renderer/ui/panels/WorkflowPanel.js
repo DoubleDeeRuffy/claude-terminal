@@ -179,8 +179,11 @@ function bindWfDropdown(container, key, onChange) {
     });
   });
 
-  // Close on outside click
-  const close = (e) => { if (!drop.contains(e.target)) { drop.classList.remove('open'); document.removeEventListener('click', close); } };
+  // Close on outside click — auto-cleanup if element is detached from DOM
+  const close = (e) => {
+    if (!document.body.contains(drop)) { document.removeEventListener('click', close); return; }
+    if (!drop.contains(e.target)) { drop.classList.remove('open'); document.removeEventListener('click', close); }
+  };
   document.addEventListener('click', close);
 }
 
@@ -200,8 +203,14 @@ function drawCronPicker(container, draft) {
   let cronMode = parsed.mode;
   let cronValues = { ...parsed.values };
   const opts = cronOpts();
+  let _prevCloseAll = null; // Track previous document listener for cleanup
 
   const render = () => {
+    // Clean up previous document-level listener before re-render
+    if (_prevCloseAll) {
+      document.removeEventListener('click', _prevCloseAll);
+      _prevCloseAll = null;
+    }
     let phrase = '';
     switch (cronMode) {
       case 'interval':
@@ -282,9 +291,9 @@ function drawCronPicker(container, draft) {
     const closeAll = (e) => {
       if (!container.contains(e.target)) {
         container.querySelectorAll('.wf-cdrop.open').forEach(d => d.classList.remove('open'));
-        document.removeEventListener('click', closeAll);
       }
     };
+    _prevCloseAll = closeAll;
     document.addEventListener('click', closeAll);
 
     // Bind custom input
