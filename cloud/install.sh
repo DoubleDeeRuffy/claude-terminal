@@ -85,7 +85,7 @@ else
   echo -e "  ${CYAN}Cloning cloud server...${NC}"
   git clone --depth 1 --filter=blob:none --sparse \
     https://github.com/Sterll/claude-terminal.git "$INSTALL_DIR" 2>/dev/null
-  cd "$INSTALL_DIR" && git sparse-checkout set cloud 2>/dev/null
+  cd "$INSTALL_DIR" && git sparse-checkout set cloud remote-ui 2>/dev/null
   cd cloud
 fi
 

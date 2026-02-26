@@ -1,0 +1,8 @@
+# Only include cloud/ and remote-ui/ in build context
+*
+!cloud/
+!remote-ui/
+cloud/node_modules/
+cloud/data/
+cloud/dist/
+cloud/.env

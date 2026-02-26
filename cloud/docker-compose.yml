@@ -1,6 +1,8 @@
 services:
   cloud:
-    build: .
+    build:
+      context: ..
+      dockerfile: cloud/Dockerfile
     container_name: ct-cloud
     ports:
       - "${PORT:-3800}:3800"

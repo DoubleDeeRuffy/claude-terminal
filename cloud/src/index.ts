@@ -1,4 +1,5 @@
 import http from 'http';
+import path from 'path';
 import express from 'express';
 import { config } from './config';
 import { store } from './store/store';
@@ -59,6 +60,14 @@ export async function startServer(): Promise<void> {
 
   // Cloud API routes
   app.use('/api', createCloudRouter());
+
+  // Remote UI (PWA static files)
+  const remoteUiDir = path.join(__dirname, '..', 'remote-ui');
+  app.use(express.static(remoteUiDir));
+  // SPA fallback: serve index.html for unknown routes
+  app.use((_req, res) => {
+    res.sendFile(path.join(remoteUiDir, 'index.html'));
+  });
 
   const server = http.createServer(app);
 

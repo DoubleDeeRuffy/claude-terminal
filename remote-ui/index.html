@@ -30,7 +30,7 @@
 
   <div id="app">
 
-    <!-- ═══ PIN AUTH SCREEN ═══ -->
+    <!-- ═══ AUTH SCREEN ═══ -->
     <div id="screen-auth" class="screen">
       <div class="auth-container">
         <div class="auth-logo">
@@ -38,20 +38,41 @@
         </div>
         <h1 class="auth-title">Claude Terminal</h1>
         <p class="auth-subtitle">Remote Control</p>
-        <p class="auth-message">Enter the 4-digit PIN shown in<br>Settings → Remote Control</p>
-        <div class="pin-input-row">
-          <div class="pin-field-wrapper">
-            <input id="pin-input" class="pin-input" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="····" autocomplete="one-time-code">
-            <div class="pin-underline"></div>
+
+        <!-- PIN auth (LAN mode) -->
+        <div id="auth-pin-section">
+          <p class="auth-message">Enter the 4-digit PIN shown in<br>Settings → Remote Control</p>
+          <div class="pin-input-row">
+            <div class="pin-field-wrapper">
+              <input id="pin-input" class="pin-input" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="····" autocomplete="one-time-code">
+              <div class="pin-underline"></div>
+            </div>
+            <button id="pin-submit-btn" class="pin-submit-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"/>
+                <polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </button>
           </div>
-          <button id="pin-submit-btn" class="pin-submit-btn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="5" y1="12" x2="19" y2="12"/>
-              <polyline points="12 5 19 12 12 19"/>
-            </svg>
-          </button>
+          <div id="pin-error" class="pin-error hidden">Invalid or expired PIN. Try again.</div>
+          <button id="auth-switch-cloud" class="auth-mode-switch">Cloud mode</button>
         </div>
-        <div id="pin-error" class="pin-error hidden">Invalid or expired PIN. Try again.</div>
+
+        <!-- API key auth (Cloud mode) -->
+        <div id="auth-cloud-section" class="hidden">
+          <p class="auth-message">Enter your API key</p>
+          <div class="cloud-key-input-row">
+            <input id="cloud-key-input" class="cloud-key-input" type="password" placeholder="ctc_..." autocomplete="off" spellcheck="false">
+            <button id="cloud-key-submit-btn" class="pin-submit-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"/>
+                <polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </button>
+          </div>
+          <div id="cloud-key-error" class="pin-error hidden">Connection failed. Check your API key.</div>
+          <button id="auth-switch-pin" class="auth-mode-switch">PIN mode (LAN)</button>
+        </div>
       </div>
     </div>
 
