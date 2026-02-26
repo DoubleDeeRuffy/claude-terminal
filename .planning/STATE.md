@@ -176,6 +176,7 @@ Recent decisions affecting current work:
 - Phase 6.2 inserted after Phase 6: scroll to the very end on session resume in every tab (URGENT)
 - Phase 17 added: On update-installation the pinned taskbar icon gets lost. Is there a whole uninstall and install happening?
 - Phase 18 added: Disable Haiki Tab-Naming Settings toggle
+- Phase 6.3 inserted after Phase 6: Remember active task on Project scope to restore it on project-swap and app restart (URGENT)
 
 ### Blockers/Concerns
 
@@ -193,5 +194,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Phase 18 context gathered
-Resume file: .planning/phases/18-disable-haiki-tab-naming-settings-toggle/18-CONTEXT.md
+Stopped at: Phase 6.3 context gathered
+Resume file: .planning/phases/6.3-remember-active-task-on-project-scope-to-restore-it-on-project-swap-and-app-restart/6.3-CONTEXT.md
