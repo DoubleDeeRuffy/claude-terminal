@@ -1066,11 +1066,8 @@ function updateTerminalStatus(id, status) {
         clearTimeout(safetyTimeout);
         loadingTimeouts.delete(id);
       }
-      // Scroll to bottom after session replay output has been written
-      const td = getTerminal(id);
-      if (td && td.terminal && typeof td.terminal.scrollToBottom === 'function') {
-        td.terminal.scrollToBottom();
-      }
+      // Schedule silence-based scroll — fires 300ms after PTY data goes quiet
+      scheduleScrollAfterRestore(id);
     }
     if (status === 'ready' && previousStatus === 'working') {
       // Skip scraping notifications when hooks are active (bus consumer handles it with richer data)
@@ -1345,7 +1342,7 @@ async function createTerminal(project, options = {}) {
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
     const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
-    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
+    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
   }
 
   const result = await api.terminal.create({
@@ -3733,6 +3730,42 @@ function cleanupProjectMaps(projectIndex) {
   }
 }
 
+/**
+ * Schedule a scroll-to-bottom for a restored terminal once PTY data goes silent.
+ *
+ * After app restart or --resume, PTY replay streams data through the adaptive batcher
+ * (4–32ms per IPC batch) for an unbounded duration proportional to session history size.
+ * A fixed timeout cannot reliably cover all sessions. Instead, we poll lastTerminalData
+ * (already maintained per terminal) and scroll once 300ms of silence is observed, or
+ * after 8s unconditionally.
+ *
+ * @param {string} id - Terminal ID
+ */
+function scheduleScrollAfterRestore(id) {
+  const SILENCE_MS = 300;   // 300ms no new data = replay done
+  const MAX_WAIT_MS = 8000; // hard fallback — scroll regardless after 8s
+  const POLL_MS = 50;       // polling interval
+
+  const startTime = Date.now();
+
+  const poll = setInterval(() => {
+    const td = getTerminal(id);
+    if (!td || !td.terminal || typeof td.terminal.scrollToBottom !== 'function') {
+      clearInterval(poll);
+      return;
+    }
+
+    const lastData = lastTerminalData.get(id);
+    const silentFor = lastData ? Date.now() - lastData : Date.now() - startTime;
+    const timedOut  = Date.now() - startTime >= MAX_WAIT_MS;
+
+    if (silentFor >= SILENCE_MS || timedOut) {
+      clearInterval(poll);
+      td.terminal.scrollToBottom();
+    }
+  }, POLL_MS);
+}
+
 module.exports = {
   createTerminal,
   closeTerminal,
@@ -3779,5 +3812,7 @@ module.exports = {
   setScrapingCallback,
   updateTerminalTabName,
   // Cleanup when a project is deleted
-  cleanupProjectMaps
+  cleanupProjectMaps,
+  // Silence-based scroll scheduling for session restore
+  scheduleScrollAfterRestore
 };
