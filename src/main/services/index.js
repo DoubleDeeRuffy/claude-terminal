@@ -44,6 +44,9 @@ function initializeServices(mainWindow) {
 
   // Poll for quick action triggers from MCP
   _startQuickActionPoll(mainWindow);
+
+  // Poll for FiveM triggers from MCP
+  _startFivemTriggerPoll(mainWindow);
 }
 
 let _qaPollTimer = null;
@@ -74,6 +77,54 @@ function _startQuickActionPoll(mainWindow) {
   }, 2000);
 }
 
+let _fivemPollTimer = null;
+
+function _resolveProjectIndex(projectId) {
+  const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+  try {
+    if (!fs.existsSync(projFile)) return -1;
+    const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+    return (data.projects || []).findIndex(p => p.id === projectId);
+  } catch (_) { return -1; }
+}
+
+function _startFivemTriggerPoll(mainWindow) {
+  const triggersDir = path.join(require('os').homedir(), '.claude-terminal', 'fivem', 'triggers');
+  _fivemPollTimer = setInterval(() => {
+    try {
+      if (!fs.existsSync(triggersDir)) return;
+      const files = fs.readdirSync(triggersDir).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const filePath = path.join(triggersDir, file);
+        try {
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          fs.unlinkSync(filePath);
+
+          if (!data.projectId) continue;
+          const projectIndex = _resolveProjectIndex(data.projectId);
+          if (projectIndex < 0) {
+            console.warn(`[Services] FiveM trigger: project ${data.projectId} not found`);
+            continue;
+          }
+
+          if (data.type === 'start') {
+            console.log(`[Services] MCP FiveM start: project ${data.projectId}`);
+            fivemService.start({ projectIndex, projectPath: data.projectPath, runCommand: data.runCommand });
+          } else if (data.type === 'stop') {
+            console.log(`[Services] MCP FiveM stop: project ${data.projectId}`);
+            fivemService.stop({ projectIndex });
+          } else if (data.type === 'command' && data.command) {
+            console.log(`[Services] MCP FiveM command: "${data.command}" on ${data.projectId}`);
+            fivemService.sendCommand(projectIndex, data.command);
+          }
+        } catch (e) {
+          try { fs.unlinkSync(filePath); } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }, 2000);
+}
+
 /**
  * Cleanup all services before quit
  */
@@ -89,6 +140,7 @@ function cleanupServices() {
   remoteServer.stop();
   workflowService.destroy();
   if (_qaPollTimer) clearInterval(_qaPollTimer);
+  if (_fivemPollTimer) clearInterval(_fivemPollTimer);
 }
 
 module.exports = {
