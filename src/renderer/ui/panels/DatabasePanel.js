@@ -818,12 +818,19 @@ async function loadTableData(tableName) {
   const escapedTable = escapeIdentifier(tableName);
   let sql, countSql;
   if (isMongo) {
-    // Basic text search for MongoDB — use JSON filter instead of $where to avoid injection
+    // Use $regex per-field search — safe against NoSQL injection (no $where/JS eval)
     if (searchTerm) {
-      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      sql = `db.${tableName}.find({ $or: [${(() => {
-        return `{ $where: "JSON.stringify(this).indexOf('${escaped.replace(/'/g, "\\'")}') !== -1" }`;
-      })()}] }).limit(${pageSize}).skip(${offset})`;
+      const escapedRegex = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const state2 = require('../../state');
+      const schema = state2.getDatabaseSchema(activeId);
+      const tableMeta = schema?.tables?.find(t => t.name === tableName);
+      const fields = tableMeta ? tableMeta.columns.map(c => c.name).filter(n => n !== '_id') : [];
+      if (fields.length > 0) {
+        const orConditions = fields.map(f => `${JSON.stringify(f)}: { "$regex": ${JSON.stringify(escapedRegex)}, "$options": "i" }`);
+        sql = `db.${tableName}.find({ "$or": [${orConditions.map(c => `{ ${c} }`).join(', ')}] }).limit(${pageSize}).skip(${offset})`;
+      } else {
+        sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+      }
     } else {
       sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
     }
