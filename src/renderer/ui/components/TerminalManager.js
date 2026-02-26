@@ -1019,6 +1019,9 @@ function updateTerminalTabName(id, name) {
       nameSpan.textContent = name;
     }
   }
+  // Phase 16: persist name change (debounced)
+  const TerminalSessionService = require('../../services/TerminalSessionService');
+  TerminalSessionService.saveTerminalSessions();
 }
 
 /**
@@ -1148,6 +1151,9 @@ function startRenameTab(id) {
     newSpan.textContent = newName;
     newSpan.ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
     input.replaceWith(newSpan);
+    // Phase 16: persist user rename (debounced)
+    const TerminalSessionService = require('../../services/TerminalSessionService');
+    TerminalSessionService.saveTerminalSessions();
   };
 
   input.onblur = finishRename;
@@ -3447,6 +3453,9 @@ async function createChatTerminal(project, options = {}) {
       if (_chatSessionId && api.remote?.notifyTabRenamed) {
         api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
       }
+      // Phase 16: persist chat AI name (debounced)
+      const TerminalSessionService = require('../../services/TerminalSessionService');
+      TerminalSessionService.saveTerminalSessions();
     },
     onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
     onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),

@@ -87,6 +87,7 @@ function saveTerminalSessionsImmediate() {
         isBasic: td.isBasic || false,
         mode: td.mode || 'terminal',
         claudeSessionId: td.claudeSessionId || null,
+        name: td.name || null,   // Phase 16: persist tab name
       };
 
       projectSessions[projectId].tabs.push(tab);
