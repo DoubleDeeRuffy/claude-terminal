@@ -19,6 +19,9 @@ const HOOK_TYPES = [
   { value: 'Setup',             label: 'Setup',             desc: 'Phase de setup' },
   { value: 'TeammateIdle',      label: 'TeammateIdle',      desc: 'Teammate inactif' },
   { value: 'TaskCompleted',     label: 'TaskCompleted',     desc: 'Tâche terminée' },
+  { value: 'ConfigChange',     label: 'ConfigChange',     desc: 'Changement de config' },
+  { value: 'WorktreeCreate',   label: 'WorktreeCreate',   desc: 'Création de worktree' },
+  { value: 'WorktreeRemove',   label: 'WorktreeRemove',   desc: 'Suppression de worktree' },
 ];
 
 const STEP_TYPES = [
@@ -37,9 +40,7 @@ const TRIGGER_CONFIG = {
     desc: 'Planifié à heures fixes',
     icon: svgClock(),
     color: 'info',
-    fields: [
-      { id: 'triggerValue', label: 'Expression cron', placeholder: '0 8 * * *  (chaque jour à 8h)', mono: true },
-    ],
+    extra: 'cronPicker',
   },
   hook: {
     label: 'Hook Claude',
@@ -65,6 +66,155 @@ const TRIGGER_CONFIG = {
     fields: [],
   },
 };
+
+/* ─── Cron picker ──────────────────────────────────────────────────────────── */
+
+const CRON_MODES = [
+  { id: 'interval', label: 'Intervalle' },
+  { id: 'daily',    label: 'Quotidien' },
+  { id: 'weekly',   label: 'Hebdo' },
+  { id: 'monthly',  label: 'Mensuel' },
+  { id: 'custom',   label: 'Custom' },
+];
+
+const DAYS_OF_WEEK = [
+  { value: 1, label: 'Lundi' },    { value: 2, label: 'Mardi' },
+  { value: 3, label: 'Mercredi' }, { value: 4, label: 'Jeudi' },
+  { value: 5, label: 'Vendredi' }, { value: 6, label: 'Samedi' },
+  { value: 0, label: 'Dimanche' },
+];
+
+const INTERVAL_OPTIONS = [
+  { value: 5,  label: '5 min' },   { value: 10, label: '10 min' },
+  { value: 15, label: '15 min' },  { value: 20, label: '20 min' },
+  { value: 30, label: '30 min' },  { value: 60, label: '1 heure' },
+  { value: 120, label: '2 heures' }, { value: 180, label: '3 heures' },
+  { value: 240, label: '4 heures' }, { value: 360, label: '6 heures' },
+  { value: 480, label: '8 heures' }, { value: 720, label: '12 heures' },
+];
+
+function buildCronFromMode(mode, v) {
+  switch (mode) {
+    case 'interval': {
+      const mins = v.interval || 15;
+      if (mins >= 60) return `0 */${mins / 60} * * *`;
+      return `*/${mins} * * * *`;
+    }
+    case 'daily':   return `${v.minute || 0} ${v.hour ?? 8} * * *`;
+    case 'weekly':  return `${v.minute || 0} ${v.hour ?? 8} * * ${v.dow ?? 1}`;
+    case 'monthly': return `${v.minute || 0} ${v.hour ?? 8} ${v.dom || 1} * *`;
+    default: return v.raw || '* * * * *';
+  }
+}
+
+function parseCronToMode(expr) {
+  if (!expr || !expr.trim()) return { mode: 'daily', values: { hour: 8, minute: 0 } };
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return { mode: 'custom', values: { raw: expr } };
+
+  const [min, hour, dom, mon, dow] = parts;
+
+  // Interval: */N * * * * or 0 */N * * *
+  if (min.startsWith('*/') && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    return { mode: 'interval', values: { interval: parseInt(min.slice(2)) } };
+  }
+  if (min === '0' && hour.startsWith('*/') && dom === '*' && mon === '*' && dow === '*') {
+    return { mode: 'interval', values: { interval: parseInt(hour.slice(2)) * 60 } };
+  }
+
+  // Weekly: N N * * N
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && /^\d+$/.test(dow)) {
+    return { mode: 'weekly', values: { hour: +hour, minute: +min, dow: +dow } };
+  }
+
+  // Monthly: N N N * *
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && /^\d+$/.test(dom) && mon === '*' && dow === '*') {
+    return { mode: 'monthly', values: { hour: +hour, minute: +min, dom: +dom } };
+  }
+
+  // Daily: N N * * *
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '*') {
+    return { mode: 'daily', values: { hour: +hour, minute: +min } };
+  }
+
+  return { mode: 'custom', values: { raw: expr } };
+}
+
+function drawCronPicker(container, draft) {
+  const parsed = parseCronToMode(draft.triggerValue);
+  let cronMode = parsed.mode;
+  let cronValues = { ...parsed.values };
+
+  const render = () => {
+    const hourOpts = Array.from({ length: 24 }, (_, i) => `<option value="${i}" ${(cronValues.hour ?? 8) === i ? 'selected' : ''}>${String(i).padStart(2, '0')}</option>`).join('');
+    const minOpts = [0, 15, 30, 45].map(m => `<option value="${m}" ${(cronValues.minute || 0) === m ? 'selected' : ''}>${String(m).padStart(2, '0')}</option>`).join('');
+    const dowOpts = DAYS_OF_WEEK.map(d => `<option value="${d.value}" ${(cronValues.dow ?? 1) === d.value ? 'selected' : ''}>${d.label}</option>`).join('');
+    const domOpts = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${(cronValues.dom || 1) === (i + 1) ? 'selected' : ''}>${i + 1}</option>`).join('');
+    const intOpts = INTERVAL_OPTIONS.map(o => `<option value="${o.value}" ${(cronValues.interval || 15) === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
+
+    let phrase = '';
+    switch (cronMode) {
+      case 'interval':
+        phrase = `<span class="wf-cron-label">Toutes les</span><select class="wf-cron-select" data-cv="interval">${intOpts}</select>`;
+        break;
+      case 'daily':
+        phrase = `<span class="wf-cron-label">Chaque jour à</span><select class="wf-cron-select" data-cv="hour">${hourOpts}</select><span class="wf-cron-label">h</span><select class="wf-cron-select" data-cv="minute">${minOpts}</select>`;
+        break;
+      case 'weekly':
+        phrase = `<span class="wf-cron-label">Chaque</span><select class="wf-cron-select" data-cv="dow">${dowOpts}</select><span class="wf-cron-label">à</span><select class="wf-cron-select" data-cv="hour">${hourOpts}</select><span class="wf-cron-label">h</span><select class="wf-cron-select" data-cv="minute">${minOpts}</select>`;
+        break;
+      case 'monthly':
+        phrase = `<span class="wf-cron-label">Le</span><select class="wf-cron-select" data-cv="dom">${domOpts}</select><span class="wf-cron-label">de chaque mois à</span><select class="wf-cron-select" data-cv="hour">${hourOpts}</select><span class="wf-cron-label">h</span><select class="wf-cron-select" data-cv="minute">${minOpts}</select>`;
+        break;
+      case 'custom':
+        phrase = `<input class="wf-input wf-input--mono" id="wf-cron-raw" placeholder="0 8 * * *" value="${escapeHtml(cronValues.raw || draft.triggerValue || '')}">`;
+        break;
+    }
+
+    const cron = cronMode === 'custom' ? (cronValues.raw || draft.triggerValue || '') : buildCronFromMode(cronMode, cronValues);
+    draft.triggerValue = cron;
+
+    container.innerHTML = `
+      <div class="wf-cron-modes">
+        ${CRON_MODES.map(m => `<button class="wf-cron-mode ${cronMode === m.id ? 'active' : ''}" data-cm="${m.id}">${m.label}</button>`).join('')}
+      </div>
+      <div class="wf-cron-phrase">${phrase}</div>
+      ${cron ? `<div class="wf-cron-preview"><code>${escapeHtml(cron)}</code></div>` : ''}
+    `;
+
+    // Bind mode buttons
+    container.querySelectorAll('[data-cm]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cronMode = btn.dataset.cm;
+        cronValues = { hour: cronValues.hour ?? 8, minute: cronValues.minute || 0, dow: cronValues.dow ?? 1, dom: cronValues.dom || 1, interval: cronValues.interval || 15 };
+        render();
+      });
+    });
+
+    // Bind selects
+    container.querySelectorAll('.wf-cron-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        cronValues[sel.dataset.cv] = parseInt(sel.value);
+        draft.triggerValue = buildCronFromMode(cronMode, cronValues);
+        const prev = container.querySelector('.wf-cron-preview code');
+        if (prev) prev.textContent = draft.triggerValue;
+      });
+    });
+
+    // Bind custom input
+    const rawInput = container.querySelector('#wf-cron-raw');
+    if (rawInput) {
+      rawInput.addEventListener('input', () => {
+        cronValues.raw = rawInput.value;
+        draft.triggerValue = rawInput.value;
+        const prev = container.querySelector('.wf-cron-preview code');
+        if (prev) prev.textContent = rawInput.value;
+      });
+    }
+  };
+
+  render();
+}
 
 const state = {
   workflows: [],
@@ -386,7 +536,11 @@ function openBuilder(workflowId = null) {
     if (!sub) return;
     const cfg = TRIGGER_CONFIG[draft.trigger];
 
-    if (draft.trigger === 'hook') {
+    if (draft.trigger === 'cron') {
+      sub.innerHTML = '';
+      drawCronPicker(sub, draft);
+      return; // drawCronPicker handles its own event binding
+    } else if (draft.trigger === 'hook') {
       sub.innerHTML = `
         <div class="wf-sub-label">Type d'événement</div>
         <div class="wf-hook-grid">
