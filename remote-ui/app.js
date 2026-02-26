@@ -512,6 +512,36 @@ function _onDesktopOffline() {
   // Show headless banner if in relay mode (cloud server available)
   if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
     _showHeadlessBanner(true);
+    // Fetch cloud projects so user can start headless sessions
+    _fetchCloudProjects();
+  }
+}
+
+async function _fetchCloudProjects() {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/api/projects`, {
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) return;
+    const { projects } = await resp.json();
+    if (projects && projects.length) {
+      // Map cloud projects to the format the PWA expects
+      state.projects = projects.map(p => ({
+        id: `cloud-${p.name}`,
+        name: p.name,
+        path: p.name,
+        color: '',
+        icon: '',
+        _cloud: true,
+      }));
+      state.folders = [];
+      state.rootOrder = [];
+      renderProjectsList();
+    }
+  } catch (e) {
+    console.error('[Cloud] Failed to fetch projects:', e);
   }
 }
 
