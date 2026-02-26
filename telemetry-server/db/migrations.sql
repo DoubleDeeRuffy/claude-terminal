@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS events (
   os_version TEXT,
   locale TEXT,
   metadata TEXT,
+  country TEXT,
+  city TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -26,10 +28,17 @@ CREATE TABLE IF NOT EXISTS unique_users (
   app_version TEXT,
   platform TEXT,
   arch TEXT,
-  os_version TEXT
+  os_version TEXT,
+  country TEXT,
+  city TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_first_seen ON unique_users(first_seen);
 CREATE INDEX IF NOT EXISTS idx_users_last_seen ON unique_users(last_seen);
 CREATE INDEX IF NOT EXISTS idx_users_app_version ON unique_users(app_version);
 CREATE INDEX IF NOT EXISTS idx_users_platform ON unique_users(platform);
+
+-- Geo columns (added for location analytics)
+-- ALTER TABLE is not idempotent in SQLite, handled in database.js migration logic
+CREATE INDEX IF NOT EXISTS idx_events_country ON events(country);
+CREATE INDEX IF NOT EXISTS idx_users_country ON unique_users(country);

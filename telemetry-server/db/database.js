@@ -13,6 +13,17 @@ function initDatabase() {
   const migrations = fs.readFileSync(path.join(__dirname, 'migrations.sql'), 'utf8');
   db.exec(migrations);
 
+  // Add geo columns to existing tables (ALTER TABLE is not idempotent in SQLite)
+  const addColumn = (table, column, type) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch (_) { /* column already exists */ }
+  };
+  addColumn('events', 'country', 'TEXT');
+  addColumn('events', 'city', 'TEXT');
+  addColumn('unique_users', 'country', 'TEXT');
+  addColumn('unique_users', 'city', 'TEXT');
+
   console.log('[DB] Database initialized');
 }
 
@@ -23,8 +34,8 @@ function getDb() {
 
 function insertEvent(data) {
   const stmt = getDb().prepare(`
-    INSERT INTO events (uuid, event_type, app_version, platform, arch, os_version, locale, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO events (uuid, event_type, app_version, platform, arch, os_version, locale, metadata, country, city)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -35,21 +46,25 @@ function insertEvent(data) {
     data.arch,
     data.os_version || null,
     data.locale || null,
-    JSON.stringify(data.metadata || {})
+    JSON.stringify(data.metadata || {}),
+    data.country || null,
+    data.city || null
   );
 }
 
 function upsertUser(data) {
   const stmt = getDb().prepare(`
-    INSERT INTO unique_users (uuid, app_version, platform, arch, os_version)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO unique_users (uuid, app_version, platform, arch, os_version, country, city)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (uuid)
     DO UPDATE SET
       last_seen = CURRENT_TIMESTAMP,
       app_version = excluded.app_version,
       platform = excluded.platform,
       arch = excluded.arch,
-      os_version = excluded.os_version
+      os_version = excluded.os_version,
+      country = excluded.country,
+      city = excluded.city
   `);
 
   stmt.run(
@@ -57,7 +72,9 @@ function upsertUser(data) {
     data.app_version,
     data.platform,
     data.arch,
-    data.os_version || null
+    data.os_version || null,
+    data.country || null,
+    data.city || null
   );
 }
 
@@ -120,6 +137,23 @@ function getStats() {
     ORDER BY day DESC
   `).all();
 
+  const countries = d.prepare(`
+    SELECT country, COUNT(*) as count
+    FROM unique_users
+    WHERE country IS NOT NULL
+    GROUP BY country
+    ORDER BY count DESC
+  `).all();
+
+  const cities = d.prepare(`
+    SELECT city, country, COUNT(*) as count
+    FROM unique_users
+    WHERE city IS NOT NULL
+    GROUP BY city, country
+    ORDER BY count DESC
+    LIMIT 30
+  `).all();
+
   return {
     users: {
       total: totalUsers.count,
@@ -129,6 +163,8 @@ function getStats() {
     },
     platforms,
     versions,
+    countries,
+    cities,
     top_events: topEvents,
     new_users_per_day: newUsersPerDay,
     active_users_per_day: activeUsersPerDay
