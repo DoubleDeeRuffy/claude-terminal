@@ -172,10 +172,11 @@ Plans:
 **Goal:** All restored terminal tabs scroll to the very bottom after app restart so users see the most recent output, not a mid-session scroll position
 **Depends on:** Phase 6
 **Requirements:** SESS-01
-**Plans:** 1/1 plans complete
+**Plans:** 2 plans (1 gap closure)
 
 Plans:
-- [ ] 6.2-01-PLAN.md — Add post-restore scroll-all loop in renderer.js and loading→ready scroll hook in TerminalManager.js
+- [x] 6.2-01-PLAN.md — Add post-restore scroll-all loop in renderer.js and loading→ready scroll hook in TerminalManager.js
+- [ ] 6.2-02-PLAN.md — Replace fixed 200ms timeout and premature loading→ready scroll with silence-based PTY detection
 
 ### Phase 6.1: Bugfix: save NewSessionId after Clear for restore to restore the correct session, not an old one (INSERTED)
 
@@ -331,3 +332,12 @@ Plans:
 
 Plans:
 - [ ] 18-01-PLAN.md — Add aiTabNaming setting, guard ChatView and TerminalManager rename call sites, create Tabs settings group with toggle and relocated slash-command toggle, i18n
+
+### Phase 19: 10.1 Tab-Renaming-For-Resume-Dialog
+
+**Goal:** [To be planned]
+**Depends on:** Phase 18
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:discuss-phase 19 to break down)
