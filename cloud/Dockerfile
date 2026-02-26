@@ -14,10 +14,11 @@ FROM node:22-slim
 WORKDIR /app
 
 # Install Claude Code CLI (required by Agent SDK for headless sessions)
+# Use NODE_OPTIONS to cap memory during install (prevents OOM on small VPS)
 RUN apt-get update -qq && apt-get install -y -qq curl && \
-    curl -fsSL https://claude.ai/install.sh | bash && \
+    NODE_OPTIONS="--max-old-space-size=512" curl -fsSL https://claude.ai/install.sh | bash && \
     apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-ENV PATH="/root/.claude/bin:$PATH"
+ENV PATH="/root/.local/bin:$PATH"
 
 COPY cloud/package.json cloud/package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
