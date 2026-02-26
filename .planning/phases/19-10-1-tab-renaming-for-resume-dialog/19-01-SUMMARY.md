@@ -1,0 +1,106 @@
+---
+phase: 19-10-1-tab-renaming-for-resume-dialog
+plan: 01
+subsystem: ui
+tags: [session-names, resume-dialog, tab-renaming, terminal-manager, css]
+
+# Dependency graph
+requires:
+  - phase: 16-remember-tab-names-of-claude-sessions-through-app-restarts
+    provides: session-names.json storage via setSessionCustomName/getSessionCustomName
+  - phase: 14-add-resume-session-button-near-new-terminal-button-with-lightbulb-icon
+    provides: resume session dialog that reads session-names.json
+provides:
+  - Tab name propagation to session-names.json from terminal-mode updateTerminalTabName
+  - Tab name propagation to session-names.json from chat-mode onTabRename
+  - Accent-colored metadata (timestamp, branch) in resume dialog
+affects:
+  - resume-dialog
+  - session-names
+  - chat-view
+  - terminal-manager
+
+# Tech tracking
+tech-stack:
+  added: []
+  patterns:
+    - "setSessionCustomName called after name mutation in both rename paths (terminal-mode and chat-mode)"
+    - "Guard pattern: claudeSessionId && name / _chatSessionId && name prevents empty-string propagation"
+
+key-files:
+  created: []
+  modified:
+    - src/renderer/ui/components/TerminalManager.js
+    - styles/projects.css
+
+key-decisions:
+  - "19-01: Guard claudeSessionId && name in updateTerminalTabName — only propagate when session ID known and name is non-empty"
+  - "19-01: Guard _chatSessionId && name in onTabRename — if session ID not yet assigned at rename time, skip silently (subsequent renames propagate once ID arrives)"
+  - "19-01: Propagation call placed before saveTerminalSessions in both paths — name hits session-names.json before debounced session save"
+  - "19-01: accent color at 0.85 opacity for metadata text, 1.0 for SVG icons — visible but not overwhelming"
+
+patterns-established:
+  - "Name propagation pattern: after any tab rename, call setSessionCustomName(sessionId, name) guarded by truthy ID and name"
+
+requirements-completed: [TAB-RESUME-01]
+
+# Metrics
+duration: 2min
+completed: 2026-02-26
+---
+
+# Phase 19 Plan 01: Tab Renaming for Resume Dialog Summary
+
+**Tab names (AI haiku, slash command, manual rename) now propagate to session-names.json so the resume dialog shows the saved name instead of "Untitled conversation", plus metadata text uses the accent color for readability.**
+
+## Performance
+
+- **Duration:** ~2 min
+- **Started:** 2026-02-26T18:59:59Z
+- **Completed:** 2026-02-26T19:01:42Z
+- **Tasks:** 2
+- **Files modified:** 2
+
+## Accomplishments
+- Both terminal-mode and chat-mode rename paths now call setSessionCustomName after a tab rename
+- Resume dialog will display saved tab names instead of falling back to "Untitled conversation"
+- Metadata elements (timestamp, branch pill, icons) in the resume dialog are now readable via accent/theme color at 0.85 opacity
+
+## Task Commits
+
+Each task was committed atomically:
+
+1. **Task 1: Propagate tab names to session-names.json from both rename paths** - `98dba0ec` (feat)
+2. **Task 2: Fix metadata readability with accent color in resume dialog** - `ee890641` (feat)
+
+**Plan metadata:** (docs commit follows)
+
+## Files Created/Modified
+- `src/renderer/ui/components/TerminalManager.js` - Added setSessionCustomName calls in updateTerminalTabName (terminal-mode) and onTabRename (chat-mode)
+- `styles/projects.css` - Changed .session-meta-item and .session-meta-branch from var(--text-muted) to var(--accent), adjusted opacities to 0.85/1.0
+
+## Decisions Made
+- Guard pattern `claudeSessionId && name` (terminal-mode) and `_chatSessionId && name` (chat-mode) ensures no empty strings propagate and silently skips if session ID not yet assigned
+- Propagation placed before the saveTerminalSessions debounced call so name reaches session-names.json immediately
+- Accent color opacity 0.85 for text, 1.0 for SVG icons — balances visibility without being dominant
+
+## Deviations from Plan
+
+None - plan executed exactly as written.
+
+## Issues Encountered
+
+None.
+
+## User Setup Required
+
+None - no external service configuration required.
+
+## Next Phase Readiness
+
+- Phase 6.4 (Bugfix — session resume claudeSessionId not persisted across restarts) is the next urgent phase
+- Resume dialog now displays correct tab names for all sessions that have been renamed since this deployment
+
+---
+*Phase: 19-10-1-tab-renaming-for-resume-dialog*
+*Completed: 2026-02-26*

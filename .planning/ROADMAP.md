@@ -347,7 +347,7 @@ Plans:
 **Goal:** Resume session dialog displays saved tab names instead of "Untitled conversation" and metadata text is readable with accent color
 **Depends on:** Phase 18
 **Requirements:** TAB-RESUME-01
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 19-01-PLAN.md — Propagate tab names to session-names.json from both rename paths, fix metadata accent color

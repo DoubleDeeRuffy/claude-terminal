@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 6.3 — Remember Active Tab Per Project (COMPLETE)
+**Current focus:** Phase 19 — Tab Renaming for Resume Dialog (COMPLETE)
 
 ## Current Position
 
-Phase: 6.3 (remember-active-task-on-project-scope-to-restore-it-on-project-swap-and-app-restart) — COMPLETE
+Phase: 19 (19-10-1-tab-renaming-for-resume-dialog) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 6.3-01 complete — activeTabIndex saved per project in TerminalSessionService + restored by filterByProject with bounds-check fallback
-Last activity: 2026-02-26 - Completed plan 6.3-01: activeTabIndex persistence in TerminalSessionService + active tab restore in TerminalManager.js
+Status: Plan 19-01 complete — tab names propagate to session-names.json from both rename paths; resume dialog metadata uses accent color
+Last activity: 2026-02-26 - Completed plan 19-01: tab name propagation in TerminalManager.js + CSS metadata readability fix in projects.css
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -69,6 +69,7 @@ Progress: [███████████████████████
 | Phase 6.2 P01 | 1 | 1 tasks | 2 files |
 | Phase 6.3 P01 | 2 | 2 tasks | 2 files |
 | Phase 6.2 P02 | 8 | 2 tasks | 2 files |
+| Phase 19-10-1-tab-renaming-for-resume-dialog P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,8 @@ Recent decisions affecting current work:
 - [Phase 6.3]: 6.3-01: Lazy require for loadSessionData in filterByProject avoids circular dep (Phase 04/05/6.1 pattern)
 - [Phase 6.3]: 6.3-01: Bounds-check savedIdx < visibleIds.length — silent fallback to firstVisibleId on out-of-range, no crash
 - [Phase 6.2]: 6.2-02: scheduleScrollAfterRestore polls lastTerminalData for 300ms silence (50ms interval, 8s hard fallback) — per-terminal independent polling replaces shared setTimeout(200)
+- [Phase 19-01]: 19-01: Guard claudeSessionId && name in updateTerminalTabName and _chatSessionId && name in onTabRename — prevents empty propagation and silently skips when session ID not yet assigned
+- [Phase 19-01]: 19-01: accent color at 0.85 opacity for metadata text, 1.0 for SVG icons in resume dialog
 
 ### Pending Todos
 
@@ -204,5 +207,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 6.2-02-PLAN.md
-Resume file: .planning/phases/6.2-scroll-to-the-very-end-on-session-resume-in-every-tab/6.2-02-SUMMARY.md
+Stopped at: Completed 19-01-PLAN.md
+Resume file: .planning/phases/19-10-1-tab-renaming-for-resume-dialog/19-01-SUMMARY.md
