@@ -296,7 +296,7 @@ Plans:
 **Goal:** Tab names persist across app restarts — restored tabs display the exact name they had before shutdown, covering all name sources (user renames, AI haiku names, slash-command names, defaults)
 **Depends on:** Phase 15
 **Requirements:** TAB-PERSIST-01
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 16-01-PLAN.md — Add name to serialized tab object, trigger save on all name-mutation paths, pass saved name and mode in restore loop

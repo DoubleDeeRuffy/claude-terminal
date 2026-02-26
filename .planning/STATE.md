@@ -64,6 +64,7 @@ Progress: [███████████████████████
 | Phase 13 P01 | 8 | 2 tasks | 6 files |
 | Phase 14 P01 | 8 | 2 tasks | 5 files |
 | Phase 18 P01 | 10 | 2 tasks | 6 files |
+| Phase 16 P01 | 8 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,9 @@ Recent decisions affecting current work:
 - [Phase 18]: Guard on outer if condition of ChatView generateTabName blocks — both instant truncation and async haiku call skipped when disabled
 - [Phase 18]: aiTabNaming guard added alongside shouldSkipOscRename in TerminalManager — keeps AI naming toggle and slash-command cooldown as separate concerns
 - [Phase 18]: Slash-command rename toggle relocated from terminalGroup to new tabsGroup with relabeled i18n key (tabRenameOnSlashCommandTerminal)
+- [Phase 16]: Phase 16: Use saveTerminalSessions() debounced for name mutations — frequent changes, not crash-critical
+- [Phase 16]: Phase 16: mode pass-through in restore loop is prerequisite for chat-mode tabs to route through createChatTerminal and receive saved name
+- [Phase 16]: Phase 16: Lazy require path is ../../services/TerminalSessionService from ui/components (not ../services/ as specified in plan)
 
 ### Pending Todos
 
