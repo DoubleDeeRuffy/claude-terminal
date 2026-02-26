@@ -387,6 +387,36 @@ if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
 fi
 
 # ══════════════════════════════════════════════
+# 9. Auto-update
+# ══════════════════════════════════════════════
+
+echo -e "  ${BOLD}Auto-update${NC}"
+echo ""
+echo -e "  ${DIM}Checks for updates every 6 hours and rebuilds automatically.${NC}"
+echo ""
+read -p "  Enable auto-update? (Y/n): " UPDATE_CHOICE
+UPDATE_CHOICE=${UPDATE_CHOICE:-Y}
+
+if [ "$UPDATE_CHOICE" = "Y" ] || [ "$UPDATE_CHOICE" = "y" ]; then
+  # Make update script executable
+  chmod +x "$INSTALL_DIR/cloud/update.sh"
+
+  # Create log file
+  touch /var/log/ct-cloud-update.log
+
+  # Install cron job (every 6 hours)
+  CRON_LINE="0 */6 * * * $INSTALL_DIR/cloud/update.sh"
+  (crontab -l 2>/dev/null | grep -v 'ct-cloud/cloud/update.sh'; echo "$CRON_LINE") | crontab -
+  echo -e "  ${GREEN}✓ Auto-update enabled (every 6h)${NC}"
+  echo -e "  ${DIM}Logs: /var/log/ct-cloud-update.log${NC}"
+else
+  echo -e "  ${DIM}Skipped — update manually:${NC}"
+  echo -e "  ${DIM}  $INSTALL_DIR/cloud/update.sh${NC}"
+fi
+
+echo ""
+
+# ══════════════════════════════════════════════
 # Done
 # ══════════════════════════════════════════════
 
@@ -408,5 +438,6 @@ echo -e "  ${DIM}─────────────────────
 echo -e "  ${DIM}Manage users:  docker exec ct-cloud node dist/cli.js user add <name>${NC}"
 echo -e "  ${DIM}Claude auth:   docker exec -it ct-cloud claude login${NC}"
 echo -e "  ${DIM}View logs:     docker compose -f $INSTALL_DIR/cloud/docker-compose.yml logs -f${NC}"
-echo -e "  ${DIM}Update:        cd $INSTALL_DIR && git pull && cd cloud && docker compose up -d --build${NC}"
+echo -e "  ${DIM}Manual update: $INSTALL_DIR/cloud/update.sh${NC}"
+echo -e "  ${DIM}Update logs:   /var/log/ct-cloud-update.log${NC}"
 echo ""
