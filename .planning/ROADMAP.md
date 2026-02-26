@@ -269,7 +269,7 @@ Plans:
 **Goal:** Users with .NET projects see SDK-specific dashboard badge and framework stats, with detection supporting .sln/.csproj at root and one level deep
 **Depends on:** Phase 11
 **Requirements:** DOTNET-01
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 12-01-PLAN.md — Create dotnet project type plugin (detection, badge, stats, i18n) and extend DashboardService one-level-deep detection

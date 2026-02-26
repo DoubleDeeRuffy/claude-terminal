@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 19 — Tab Renaming for Resume Dialog (COMPLETE)
+**Current focus:** Phase 12 — Dashboard Support For DotNet Projects (COMPLETE)
 
 ## Current Position
 
-Phase: 19 (19-10-1-tab-renaming-for-resume-dialog) — COMPLETE
+Phase: 12 (12-dashboard-support-for-dotnet-projects) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 19-01 complete — tab names propagate to session-names.json from both rename paths; resume dialog metadata uses accent color
-Last activity: 2026-02-26 - Completed plan 19-01: tab name propagation in TerminalManager.js + CSS metadata readability fix in projects.css
+Status: Plan 12-01 complete — dotnet project type plugin with SDK-specific badge and stats; DashboardService one-level-deep csharp detection
+Last activity: 2026-02-26 - Completed plan 12-01: dotnet plugin (index.js, DotNetDashboard.js, i18n) + DashboardService csharp fallback
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -70,6 +70,7 @@ Progress: [███████████████████████
 | Phase 6.3 P01 | 2 | 2 tasks | 2 files |
 | Phase 6.2 P02 | 8 | 2 tasks | 2 files |
 | Phase 19-10-1-tab-renaming-for-resume-dialog P01 | 2 | 2 tasks | 2 files |
+| Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,8 @@ Recent decisions affecting current work:
 - [Phase 6.2]: 6.2-02: scheduleScrollAfterRestore polls lastTerminalData for 300ms silence (50ms interval, 8s hard fallback) — per-terminal independent polling replaces shared setTimeout(200)
 - [Phase 19-01]: 19-01: Guard claudeSessionId && name in updateTerminalTabName and _chatSessionId && name in onTabRename — prevents empty propagation and silently skips when session ID not yet assigned
 - [Phase 19-01]: 19-01: accent color at 0.85 opacity for metadata text, 1.0 for SVG icons in resume dialog
+- [Phase 12-01]: DotNetDashboard uses lazy access to window.electron_nodeModules inside function bodies per established preload timing pattern
+- [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
 
 ### Pending Todos
 
@@ -207,5 +210,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 19-01-PLAN.md
-Resume file: .planning/phases/19-10-1-tab-renaming-for-resume-dialog/19-01-SUMMARY.md
+Stopped at: Completed 12-01-PLAN.md
+Resume file: .planning/phases/12-dashboard-support-for-dotnet-projects/12-01-SUMMARY.md
