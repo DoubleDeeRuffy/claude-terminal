@@ -4,12 +4,21 @@ const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
 let ctx = null;
 
 const HOOK_TYPES = [
-  { value: 'PreToolUse',    label: 'PreToolUse',    desc: 'Avant chaque outil' },
-  { value: 'PostToolUse',   label: 'PostToolUse',   desc: 'Après chaque outil' },
-  { value: 'Notification',  label: 'Notification',  desc: 'À chaque notification' },
-  { value: 'Stop',          label: 'Stop',          desc: 'À l\'arrêt de Claude' },
-  { value: 'SubagentStop',  label: 'SubagentStop',  desc: 'Arrêt d\'un sous-agent' },
-  { value: 'PreCompact',    label: 'PreCompact',    desc: 'Avant compaction' },
+  { value: 'PreToolUse',        label: 'PreToolUse',        desc: 'Avant chaque outil' },
+  { value: 'PostToolUse',       label: 'PostToolUse',       desc: 'Après chaque outil' },
+  { value: 'PostToolUseFailure',label: 'PostToolUseFailure',desc: 'Après échec d\'un outil' },
+  { value: 'Notification',      label: 'Notification',      desc: 'À chaque notification' },
+  { value: 'UserPromptSubmit',  label: 'UserPromptSubmit',  desc: 'Soumission d\'un prompt' },
+  { value: 'SessionStart',      label: 'SessionStart',      desc: 'Début de session' },
+  { value: 'SessionEnd',        label: 'SessionEnd',        desc: 'Fin de session' },
+  { value: 'Stop',              label: 'Stop',              desc: 'À l\'arrêt de Claude' },
+  { value: 'SubagentStart',     label: 'SubagentStart',     desc: 'Lancement d\'un sous-agent' },
+  { value: 'SubagentStop',      label: 'SubagentStop',      desc: 'Arrêt d\'un sous-agent' },
+  { value: 'PreCompact',        label: 'PreCompact',        desc: 'Avant compaction mémoire' },
+  { value: 'PermissionRequest', label: 'PermissionRequest', desc: 'Demande de permission' },
+  { value: 'Setup',             label: 'Setup',             desc: 'Phase de setup' },
+  { value: 'TeammateIdle',      label: 'TeammateIdle',      desc: 'Teammate inactif' },
+  { value: 'TaskCompleted',     label: 'TaskCompleted',     desc: 'Tâche terminée' },
 ];
 
 const STEP_TYPES = [

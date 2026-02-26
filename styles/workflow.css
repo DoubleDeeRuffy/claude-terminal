@@ -879,13 +879,15 @@
 
 .wf-hook-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 5px;
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 .wf-hook-opt {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  padding: 9px 11px;
+  padding: 7px 9px;
   background: rgba(255,255,255,.02);
   border: 1.5px solid var(--wf-border);
   border-radius: 8px;
