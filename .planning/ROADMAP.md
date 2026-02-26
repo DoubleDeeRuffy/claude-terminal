@@ -293,12 +293,13 @@ Plans:
 
 ### Phase 16: Remember Tab-Names of Claude-Sessions through app-restarts
 
-**Goal:** [To be planned]
+**Goal:** Tab names persist across app restarts — restored tabs display the exact name they had before shutdown, covering all name sources (user renames, AI haiku names, slash-command names, defaults)
 **Depends on:** Phase 15
-**Plans:** 0 plans
+**Requirements:** TAB-PERSIST-01
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:discuss-phase 16 to break down)
+- [ ] 16-01-PLAN.md — Add name to serialized tab object, trigger save on all name-mutation paths, pass saved name and mode in restore loop
 
 ### Phase 17: On update-installation the pinned taskbar icon gets lost. Is there a whole uninstall and install happening?
 

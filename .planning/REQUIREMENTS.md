@@ -76,6 +76,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - **TAB-NAME-01**: User can disable automatic AI-powered tab name generation via a settings toggle (default: enabled, affects both chat-mode haiku naming and terminal-mode OSC rename)
 
+### Tab Name Persistence
+
+- **TAB-PERSIST-01**: Tab names persist across app restarts — restored tabs display the exact name they had before shutdown (user renames, AI names, slash-command names, defaults)
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -117,6 +121,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TAB-MODE-01 | Phase 13 | Planned |
 | SESS-RESUME-01 | Phase 14 | Planned |
 | TAB-NAME-01 | Phase 18 | Planned |
+| TAB-PERSIST-01 | Phase 16 | Planned |
 
 **Coverage:**
 - v1 requirements: 16 total, all complete
