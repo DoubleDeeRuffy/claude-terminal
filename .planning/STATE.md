@@ -183,6 +183,7 @@ Recent decisions affecting current work:
 - Phase 17 added: On update-installation the pinned taskbar icon gets lost. Is there a whole uninstall and install happening?
 - Phase 18 added: Disable Haiki Tab-Naming Settings toggle
 - Phase 6.3 inserted after Phase 6: Remember active task on Project scope to restore it on project-swap and app restart (URGENT)
+- Phase 19 added: 10.1 Tab-Renaming-For-Resume-Dialog
 
 ### Blockers/Concerns
 
