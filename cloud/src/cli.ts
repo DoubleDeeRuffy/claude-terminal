@@ -22,6 +22,7 @@ function printUsage(): void {
 
     ct-cloud status                   Server status
     ct-cloud start                    Start server (foreground)
+    ct-cloud admin                    Interactive TUI dashboard
 
   `);
 }
@@ -158,6 +159,11 @@ async function main(): Promise<void> {
       return await status();
     } else if (command === 'start') {
       return await startServer();
+    } else if (command === 'admin') {
+      const { AdminTUI } = await import('./admin/AdminTUI');
+      const tui = new AdminTUI();
+      await tui.start();
+      return;
     } else {
       printUsage();
       if (command) process.exit(1);

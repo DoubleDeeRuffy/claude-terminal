@@ -86,4 +86,17 @@ export class RelayServer {
   getRoomForUser(userName: string): Room | undefined {
     return this.rooms.get(userName);
   }
+
+  listRooms(): Array<{ userName: string; hasDesktop: boolean; mobileCount: number; desktopConnectedAt: number | null }> {
+    const result: Array<{ userName: string; hasDesktop: boolean; mobileCount: number; desktopConnectedAt: number | null }> = [];
+    for (const [userName, room] of this.rooms) {
+      result.push({
+        userName,
+        hasDesktop: room.hasDesktop,
+        mobileCount: room.mobileCount,
+        desktopConnectedAt: room.desktopConnectedAt,
+      });
+    }
+    return result;
+  }
 }
