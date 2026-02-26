@@ -42,9 +42,6 @@ function initializeServices(mainWindow) {
   // Provision unified MCP in global Claude settings
   databaseService.provisionGlobalMcp().catch(() => {});
 
-  // Poll for quick action triggers from MCP
-  _startQuickActionPoll(mainWindow);
-
   // Poll for MCP trigger files (quick actions, FiveM, WebApp)
   _startMcpTriggerPolling(mainWindow);
 }
