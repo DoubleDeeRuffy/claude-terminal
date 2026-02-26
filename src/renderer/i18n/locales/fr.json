@@ -1206,6 +1206,7 @@
     "runQueryShortcut": "Ctrl+Entrée",
     "queryPlaceholder": "SELECT * FROM table_name LIMIT 100;",
     "mongoPlaceholder": "db.collection.find({})",
+    "queryClear": "Effacer la requête",
     "querySuccess": "{count} ligne(s) en {duration}ms",
     "queryError": "Erreur de requête : {error}",
     "noActiveConnection": "Connectez-vous d'abord à une base de données",

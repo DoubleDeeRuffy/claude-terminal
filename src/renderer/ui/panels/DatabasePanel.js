@@ -793,6 +793,35 @@ async function loadSchema(id) {
 
 // ==================== Query Tab ====================
 
+function getQueryTemplates(isMongo) {
+  if (isMongo) {
+    return [
+      { label: 'Find All',     icon: '&#x25B6;', sql: 'db.collection.find({}).limit(50)',        cat: 'read' },
+      { label: 'Find Where',   icon: '&#x1F50D;', sql: 'db.collection.find({ field: "value" })', cat: 'read' },
+      { label: 'Count',        icon: '&#x23;',   sql: 'db.collection.countDocuments({})',         cat: 'read' },
+      { label: 'Insert',       icon: '&#x2B;',   sql: 'db.collection.insertOne({ key: "value" })', cat: 'write' },
+      { label: 'Update',       icon: '&#x270E;', sql: 'db.collection.updateOne({ _id: "" }, { $set: { key: "value" } })', cat: 'write' },
+      { label: 'Delete',       icon: '&#x2716;', sql: 'db.collection.deleteOne({ _id: "" })',    cat: 'danger' },
+      { label: 'Aggregate',    icon: '&#x2261;', sql: 'db.collection.aggregate([\n  { $match: {} },\n  { $group: { _id: "$field", count: { $sum: 1 } } }\n])', cat: 'read' },
+      { label: 'Distinct',     icon: '&#x2662;', sql: 'db.collection.distinct("field")',          cat: 'read' },
+    ];
+  }
+  return [
+    { label: 'SELECT',        icon: '&#x25B6;', sql: 'SELECT * FROM table_name\nLIMIT 100;',     cat: 'read' },
+    { label: 'WHERE',         icon: '&#x1F50D;', sql: "SELECT * FROM table_name\nWHERE column = 'value'\nLIMIT 100;", cat: 'read' },
+    { label: 'COUNT',         icon: '&#x23;',   sql: 'SELECT COUNT(*) AS total\nFROM table_name;', cat: 'read' },
+    { label: 'JOIN',          icon: '&#x21C4;', sql: 'SELECT a.*, b.*\nFROM table_a a\nINNER JOIN table_b b ON a.id = b.a_id\nLIMIT 100;', cat: 'read' },
+    { label: 'GROUP BY',      icon: '&#x2261;', sql: 'SELECT column, COUNT(*) AS cnt\nFROM table_name\nGROUP BY column\nORDER BY cnt DESC;', cat: 'read' },
+    { label: 'INSERT',        icon: '&#x2B;',   sql: "INSERT INTO table_name (col1, col2)\nVALUES ('val1', 'val2');", cat: 'write' },
+    { label: 'UPDATE',        icon: '&#x270E;', sql: "UPDATE table_name\nSET column = 'new_value'\nWHERE id = 1;", cat: 'write' },
+    { label: 'DELETE',        icon: '&#x2716;', sql: 'DELETE FROM table_name\nWHERE id = 1;',     cat: 'danger' },
+    { label: 'CREATE TABLE',  icon: '&#x2295;', sql: 'CREATE TABLE new_table (\n  id INT PRIMARY KEY AUTO_INCREMENT,\n  name VARCHAR(255) NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);', cat: 'ddl' },
+    { label: 'ALTER TABLE',   icon: '&#x2699;', sql: 'ALTER TABLE table_name\nADD COLUMN new_col VARCHAR(255);', cat: 'ddl' },
+    { label: 'INDEXES',       icon: '&#x26A1;', sql: 'SHOW INDEX FROM table_name;',               cat: 'read' },
+    { label: 'DESCRIBE',      icon: '&#x2139;', sql: 'DESCRIBE table_name;',                      cat: 'read' },
+  ];
+}
+
 function renderQuery(container) {
   const state = require('../../state');
   const activeId = state.getActiveConnection();
@@ -807,32 +836,67 @@ function renderQuery(container) {
   const placeholder = isMongo ? t('database.mongoPlaceholder') : t('database.queryPlaceholder');
   const currentQuery = state.getCurrentQuery();
   const queryResult = state.getQueryResult(activeId);
+  const templates = getQueryTemplates(isMongo);
 
-  let html = `
-    <div class="database-query-section">
-      <textarea class="database-query-editor" id="database-query-input" placeholder="${escapeHtml(placeholder)}">${escapeHtml(currentQuery)}</textarea>
-      <div class="database-query-toolbar">
-        <button class="btn-sm btn-accent" id="database-run-btn" ${panelState.queryRunning ? 'disabled' : ''}>
-          ${panelState.queryRunning ? t('database.connecting') : t('database.runQuery')}
-        </button>
-        <span class="database-query-hint">${t('database.runQueryShortcut')}</span>
-      </div>
-    </div>`;
+  // Template chips
+  const templatesHtml = templates.map((tpl, i) => {
+    const catClass = `db-query-tpl-${tpl.cat}`;
+    return `<button class="db-query-tpl ${catClass}" data-tpl-idx="${i}" title="${escapeHtml(tpl.sql.replace(/\n/g, ' '))}">${tpl.icon} ${escapeHtml(tpl.label)}</button>`;
+  }).join('');
 
+  // Build results
+  let resultsHtml = '';
   if (queryResult) {
     if (queryResult.error) {
-      html += `<div class="database-message error">${escapeHtml(queryResult.error)}</div>`;
+      resultsHtml = `<div class="db-query-error">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        ${escapeHtml(queryResult.error)}
+      </div>`;
     } else {
-      html += `<div class="database-results-status">${t('database.querySuccess', { count: queryResult.rowCount || 0, duration: queryResult.duration || 0 })}</div>`;
-      html += buildResultsTable(queryResult);
+      const stmtInfo = queryResult.statementsRun ? ` (${queryResult.statementsRun} statements)` : '';
+      resultsHtml = `<div class="db-query-success">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        ${t('database.querySuccess', { count: queryResult.rowCount || 0, duration: queryResult.duration || 0 })}${stmtInfo}
+      </div>`;
+      resultsHtml += buildResultsTable(queryResult);
     }
   }
 
-  container.innerHTML = html;
+  container.innerHTML = `
+    <div class="db-query-layout">
+      <div class="db-query-top">
+        <div class="db-query-templates">${templatesHtml}</div>
+        <div class="db-query-editor-wrap">
+          <textarea class="database-query-editor" id="database-query-input" placeholder="${escapeHtml(placeholder)}" spellcheck="false">${escapeHtml(currentQuery)}</textarea>
+          <div class="db-query-actions">
+            <button class="db-query-run" id="database-run-btn" ${panelState.queryRunning ? 'disabled' : ''}>
+              ${panelState.queryRunning
+                ? `<span class="db-query-run-spinner"></span> ${t('database.connecting')}`
+                : `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8 5v14l11-7z"/></svg> ${t('database.runQuery')}`
+              }
+            </button>
+            <button class="db-query-clear" id="database-clear-btn" title="${t('database.queryClear')}">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+            <span class="db-query-shortcut">${t('database.runQueryShortcut')}</span>
+          </div>
+        </div>
+      </div>
+      <div class="db-query-results">
+        ${resultsHtml}
+      </div>
+    </div>`;
 
   // Bind events
   const runBtn = document.getElementById('database-run-btn');
   if (runBtn) runBtn.onclick = () => runQuery();
+
+  const clearBtn = document.getElementById('database-clear-btn');
+  if (clearBtn) clearBtn.onclick = () => {
+    state.setCurrentQuery('');
+    state.setQueryResult(activeId, null);
+    renderContent();
+  };
 
   const input = document.getElementById('database-query-input');
   if (input) {
@@ -846,6 +910,21 @@ function renderQuery(container) {
       state.setCurrentQuery(input.value);
     });
   }
+
+  // Template click handlers
+  container.querySelectorAll('.db-query-tpl').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.tplIdx);
+      const tpl = templates[idx];
+      if (!tpl) return;
+      const textarea = document.getElementById('database-query-input');
+      if (textarea) {
+        textarea.value = tpl.sql;
+        textarea.focus();
+        state.setCurrentQuery(tpl.sql);
+      }
+    };
+  });
 }
 
 function buildResultsTable(result) {
@@ -873,10 +952,59 @@ function buildResultsTable(result) {
   return html;
 }
 
+function splitSqlStatements(sql) {
+  const statements = [];
+  let current = '';
+  let inString = false;
+  let stringChar = '';
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      current += ch;
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      current += ch;
+      if (ch === '*' && next === '/') { current += '/'; i++; inBlockComment = false; }
+      continue;
+    }
+    if (inString) {
+      current += ch;
+      if (ch === stringChar && next === stringChar) { current += next; i++; }
+      else if (ch === stringChar) inString = false;
+      continue;
+    }
+
+    if (ch === '\'' || ch === '"' || ch === '`') { inString = true; stringChar = ch; current += ch; continue; }
+    if (ch === '-' && next === '-') { inLineComment = true; current += ch; continue; }
+    if (ch === '/' && next === '*') { inBlockComment = true; current += ch; continue; }
+
+    if (ch === ';') {
+      const trimmed = current.trim();
+      if (trimmed) statements.push(trimmed);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  const trimmed = current.trim();
+  if (trimmed) statements.push(trimmed);
+  return statements;
+}
+
 async function runQuery() {
   const state = require('../../state');
   const activeId = state.getActiveConnection();
   if (!activeId) return;
+
+  const conn = state.getDatabaseConnection(activeId);
+  const isMongo = conn && conn.type === 'mongodb';
 
   const input = document.getElementById('database-query-input');
   const sql = input ? input.value.trim() : state.getCurrentQuery().trim();
@@ -886,8 +1014,55 @@ async function runQuery() {
   renderContent();
 
   try {
-    const result = await ctx.api.database.executeQuery({ id: activeId, sql, limit: 100 });
-    state.setQueryResult(activeId, result);
+    // MongoDB: send as-is (not SQL, no semicolon splitting)
+    if (isMongo) {
+      const result = await ctx.api.database.executeQuery({ id: activeId, sql, limit: 100 });
+      state.setQueryResult(activeId, result);
+    } else {
+      const statements = splitSqlStatements(sql);
+      if (statements.length === 0) {
+        panelState.queryRunning = false;
+        renderContent();
+        return;
+      }
+
+      let lastResult = null;
+      let totalDuration = 0;
+      let totalAffected = 0;
+      let statementsRun = 0;
+
+      for (const stmt of statements) {
+        const result = await ctx.api.database.executeQuery({ id: activeId, sql: stmt, limit: 100 });
+        statementsRun++;
+        totalDuration += result.duration || 0;
+
+        if (result.error) {
+          state.setQueryResult(activeId, {
+            error: `Statement ${statementsRun}/${statements.length}: ${result.error}`,
+            duration: totalDuration
+          });
+          panelState.queryRunning = false;
+          renderContent();
+          return;
+        }
+
+        // Track affected rows for non-SELECT statements
+        if (result.rows && result.rows[0] && result.rows[0].affectedRows !== undefined) {
+          totalAffected += result.rows[0].affectedRows;
+        }
+        lastResult = result;
+      }
+
+      // If multiple statements and last one was non-SELECT, show aggregate
+      if (statements.length > 1 && lastResult && lastResult.rows && lastResult.rows[0] && lastResult.rows[0].affectedRows !== undefined) {
+        lastResult.rows = [{ affectedRows: totalAffected, insertId: lastResult.rows[0].insertId }];
+      }
+      lastResult.duration = totalDuration;
+      if (statements.length > 1) {
+        lastResult.statementsRun = statementsRun;
+      }
+      state.setQueryResult(activeId, lastResult);
+    }
   } catch (e) {
     state.setQueryResult(activeId, { error: e.message });
   }
