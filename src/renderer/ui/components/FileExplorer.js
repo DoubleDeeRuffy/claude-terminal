@@ -94,9 +94,122 @@ function sanitizeFileName(name) {
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
 }
 
+// ========== STATE PERSISTENCE ==========
+let _isRestoring = false;
+
+function _triggerSave() {
+  try {
+    const { saveTerminalSessions } = require('../../services/TerminalSessionService');
+    saveTerminalSessions();
+  } catch (e) { /* ignore — circular dep protection */ }
+}
+
+function getState() {
+  const treeEl = document.getElementById('file-explorer-tree');
+  return {
+    expandedPaths: [...expandedFolders.keys()].filter(p => {
+      const entry = expandedFolders.get(p);
+      return entry && entry.loaded;
+    }),
+    panelVisible: isVisible,
+    scrollTop: treeEl ? treeEl.scrollTop : 0
+  };
+}
+
+function _applyScrollTop(scrollTop) {
+  if (!scrollTop) return;
+  requestAnimationFrame(() => {
+    const treeEl = document.getElementById('file-explorer-tree');
+    if (!treeEl) return;
+    const maxScroll = Math.max(0, treeEl.scrollHeight - treeEl.clientHeight);
+    treeEl.scrollTop = Math.min(scrollTop, maxScroll);
+    setTimeout(() => { _isRestoring = false; }, 100);
+  });
+}
+
+function restoreState(savedState) {
+  const { expandedPaths = [], panelVisible = true, scrollTop = 0 } = savedState;
+
+  _isRestoring = true;
+
+  // Panel visibility
+  if (panelVisible && !isVisible) {
+    show();
+  } else if (!panelVisible && isVisible) {
+    manuallyHidden = true;
+    const panel = document.getElementById('file-explorer-panel');
+    if (panel) panel.style.display = 'none';
+    isVisible = false;
+  } else {
+    manuallyHidden = !panelVisible;
+  }
+
+  if (expandedPaths.length === 0) {
+    render();
+    _applyScrollTop(scrollTop);
+    return;
+  }
+
+  let remaining = 0;
+  for (const folderPath of expandedPaths) {
+    try {
+      if (!fs.existsSync(folderPath)) continue;
+      if (!isPathSafe(folderPath)) continue;
+      const entry = expandedFolders.get(folderPath);
+      if (!entry) {
+        remaining++;
+        expandedFolders.set(folderPath, { children: [], loaded: false, loading: true });
+        readDirectoryAsync(folderPath).then(children => {
+          const e = expandedFolders.get(folderPath);
+          if (e) { e.children = children; e.loaded = true; e.loading = false; }
+          remaining--;
+          render();
+          if (remaining === 0) _applyScrollTop(scrollTop);
+        }).catch(() => {
+          remaining--;
+          const e = expandedFolders.get(folderPath);
+          if (e) { e.loaded = true; e.loading = false; }
+          render();
+          if (remaining === 0) _applyScrollTop(scrollTop);
+        });
+      } else if (entry && !entry.loaded && !entry.loading) {
+        remaining++;
+        entry.loading = true;
+        readDirectoryAsync(folderPath).then(children => {
+          entry.children = children; entry.loaded = true; entry.loading = false;
+          remaining--;
+          render();
+          if (remaining === 0) _applyScrollTop(scrollTop);
+        }).catch(() => {
+          entry.loaded = true; entry.loading = false;
+          remaining--;
+          render();
+          if (remaining === 0) _applyScrollTop(scrollTop);
+        });
+      }
+    } catch (e) { /* silently skip */ }
+  }
+
+  if (remaining === 0) {
+    render();
+    _applyScrollTop(scrollTop);
+  }
+}
+
 // ========== ROOT PATH ==========
-function setRootPath(projectPath) {
-  if (rootPath === projectPath) return;
+function setRootPath(projectPath, savedState = null) {
+  const isSamePath = rootPath === projectPath;
+
+  // If same path and we have saved state to apply, just restore state without clearing
+  if (isSamePath && savedState) {
+    expandedFolders.clear();
+    restoreState(savedState);
+    updateSearchBarVisibility();
+    return;
+  }
+
+  // If same path and no saved state, nothing to do
+  if (isSamePath) return;
 
   // Save expanded folder paths for the current project before switching
   if (rootPath && expandedFolders.size > 0) {
@@ -111,27 +224,31 @@ function setRootPath(projectPath) {
   searchQuery = '';
   searchResults = [];
 
-  // Restore saved expanded paths for the new project
-  // Only mark them as expanded - getOrLoadFolder() will handle async loading during render
-  if (rootPath && savedExpandedPaths.has(rootPath)) {
-    const paths = savedExpandedPaths.get(rootPath);
-    for (const p of paths) {
-      const entry = { children: [], loaded: false, loading: true };
-      expandedFolders.set(p, entry);
-      readDirectoryAsync(p).then(children => {
-        entry.children = children;
-        entry.loaded = true;
-        entry.loading = false;
-        render();
-      }).catch(() => {
-        entry.loaded = true;
-        entry.loading = false;
-        render();
-      });
-    }
-  }
+  if (!rootPath) return;
 
-  if (rootPath && !manuallyHidden) {
+  if (savedState) {
+    restoreState(savedState);
+  } else {
+    // Restore saved expanded paths for the new project (in-memory persistence for within-session switches)
+    if (savedExpandedPaths.has(rootPath)) {
+      const paths = savedExpandedPaths.get(rootPath);
+      for (const p of paths) {
+        const entry = { children: [], loaded: false, loading: true };
+        expandedFolders.set(p, entry);
+        readDirectoryAsync(p).then(children => {
+          entry.children = children;
+          entry.loaded = true;
+          entry.loading = false;
+          render();
+        }).catch(() => {
+          entry.loaded = true;
+          entry.loading = false;
+          render();
+        });
+      }
+    }
+
+    manuallyHidden = false;
     show();
     render();
   }
@@ -146,6 +263,7 @@ function show() {
     isVisible = true;
     startGitStatusPolling();
     updateSearchBarVisibility();
+    _triggerSave();
   }
 }
 
@@ -162,6 +280,7 @@ function hide() {
     panel.style.display = 'none';
     isVisible = false;
     stopGitStatusPolling();
+    _triggerSave();
   }
 }
 
@@ -1176,6 +1295,7 @@ function toggleFolder(folderPath) {
     render(); // Show loading state immediately
   }
   // If entry exists but still loading, do nothing - render will happen when loaded
+  _triggerSave();
 }
 
 // ========== RESIZER ==========
@@ -1232,6 +1352,15 @@ function initResizer() {
 function init() {
   initResizer();
   attachListeners();
+
+  // Debounced scroll listener for scroll position persistence
+  const treeEl = document.getElementById('file-explorer-tree');
+  if (treeEl) {
+    const debouncedScrollSave = debounce(() => {
+      if (!_isRestoring) _triggerSave();
+    }, 500);
+    treeEl.addEventListener('scroll', debouncedScrollSave);
+  }
 }
 
 // ========== EXPORTS ==========
@@ -1241,5 +1370,7 @@ module.exports = {
   show,
   hide,
   toggle,
-  init
+  init,
+  getState,
+  restoreState
 };

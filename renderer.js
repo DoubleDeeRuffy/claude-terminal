@@ -178,6 +178,8 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 
   // Restore terminal sessions from previous run
   try {
+    const { setSkipExplorerCapture } = require('./src/renderer/services/TerminalSessionService');
+    setSkipExplorerCapture(true);
     const sessionData = loadSessionData();
     if (sessionData && sessionData.projects) {
       const projects = projectsState.get().projects;
@@ -226,6 +228,11 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   } catch (err) {
     console.error('[SessionRestore] Error restoring terminal sessions:', err);
   }
+  // Re-enable explorer state capture after restore loop completes
+  try {
+    const { setSkipExplorerCapture: clearSkip } = require('./src/renderer/services/TerminalSessionService');
+    clearSkip(false);
+  } catch (e) { /* ignore */ }
 
   // Initialize project types registry
   registry.discoverAll();
@@ -1558,7 +1565,11 @@ projectsState.subscribe(() => {
   const projects = state.projects;
 
   if (selectedFilter !== null && projects[selectedFilter]) {
-    FileExplorer.setRootPath(projects[selectedFilter].path);
+    const project = projects[selectedFilter];
+    // Load saved explorer state for this project (expanded folders, panel visibility, scroll position)
+    const sessionData = loadSessionData();
+    const explorerState = sessionData?.projects?.[project.id]?.explorer || null;
+    FileExplorer.setRootPath(project.path, explorerState);
   } else {
     FileExplorer.hide();
   }
@@ -3757,11 +3768,17 @@ if (timeElements.container) {
 api.lifecycle.onWillQuit(() => {
   const { saveAndShutdown } = require('./src/renderer');
   saveAndShutdown();
+  // Flush explorer state (including scroll position) to disk before quit
+  const { saveTerminalSessionsImmediate } = require('./src/renderer/services/TerminalSessionService');
+  saveTerminalSessionsImmediate();
 });
 
 // Backup cleanup on window unload (in case onWillQuit doesn't fire)
 window.addEventListener('beforeunload', () => {
   const { saveAndShutdown } = require('./src/renderer');
   saveAndShutdown();
+  // Flush explorer state (including scroll position) to disk before quit
+  const { saveTerminalSessionsImmediate } = require('./src/renderer/services/TerminalSessionService');
+  saveTerminalSessionsImmediate();
 });
 
