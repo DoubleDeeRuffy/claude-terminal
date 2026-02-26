@@ -2581,6 +2581,71 @@
   font-weight: 500;
 }
 
+/* ── Cloud Upload Section ── */
+
+.rp-cloud-upload {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.rp-cloud-upload-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.rp-cloud-upload-header svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.rp-cloud-upload-body {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rp-cloud-upload-body select {
+  flex: 1;
+  min-width: 0;
+}
+
+.rp-cloud-upload-progress {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rp-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rp-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.rp-progress-label {
+  font-size: var(--font-2xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* ── Shared: keep old remote-status classes for back-compat if referenced elsewhere ── */
 .remote-status-row {
   display: flex;
