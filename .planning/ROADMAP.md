@@ -354,9 +354,9 @@ Plans:
 
 ### Phase 20: Bugfix-Swap-Projects-Selected-Tab
 
-**Goal:** [To be planned]
+**Goal:** Fix the bug where switching between projects always resets to the first tab instead of remembering the last-active tab, and restore scroll position when switching back
 **Depends on:** Phase 19
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:discuss-phase 20 to break down)
+- [ ] 20-01-PLAN.md — Add in-memory per-project active tab tracking and scroll position restoration in TerminalManager.js
