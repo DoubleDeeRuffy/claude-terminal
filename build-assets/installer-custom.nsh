@@ -33,6 +33,9 @@
 !macroend
 
 !macro customUnInstall
-  ; Clean up desktop shortcut on uninstall
-  Delete "$DESKTOP\Claude Terminal.lnk"
+  ; Only clean up desktop shortcut on actual uninstall, NOT during update runs
+  ; During updates, preserving the shortcut prevents taskbar pin loss
+  ${ifNot} ${isUpdated}
+    Delete "$DESKTOP\Claude Terminal.lnk"
+  ${endIf}
 !macroend
