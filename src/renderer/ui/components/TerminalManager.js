@@ -1011,6 +1011,11 @@ function updateTerminalTabName(id, name) {
   // Update state
   updateTerminal(id, { name });
 
+  // Phase 19: propagate tab name to session-names.json (resume dialog)
+  if (termData.claudeSessionId && name) {
+    setSessionCustomName(termData.claudeSessionId, name);
+  }
+
   // Update DOM
   const tab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
   if (tab) {
@@ -3477,6 +3482,10 @@ async function createChatTerminal(project, options = {}) {
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
+      // Phase 19: propagate tab name to session-names.json (resume dialog)
+      if (_chatSessionId && name) {
+        setSessionCustomName(_chatSessionId, name);
+      }
       // Notify remote PWA of tab rename
       if (_chatSessionId && api.remote?.notifyTabRenamed) {
         api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
