@@ -345,6 +345,14 @@ contextBridge.exposeInMainWorld('electron_api', {
     send: (data) => ipcRenderer.send('cloud:send', data),
     onMessage: createListener('cloud:message'),
     onStatusChanged: createListener('cloud:status-changed'),
+    uploadProject: (params) => ipcRenderer.invoke('cloud:upload-project', params),
+    onUploadProgress: createListener('cloud:upload-progress'),
+    getProjects: () => ipcRenderer.invoke('cloud:get-projects'),
+    checkPendingChanges: () => ipcRenderer.invoke('cloud:check-pending-changes'),
+    downloadChanges: (params) => ipcRenderer.invoke('cloud:download-changes', params),
+    takeoverSession: (params) => ipcRenderer.invoke('cloud:takeover-session', params),
+    onHeadlessActive: createListener('cloud:headless-active'),
+    onPendingChanges: createListener('cloud:pending-changes'),
   },
 
   // ==================== USAGE ====================

@@ -102,6 +102,74 @@ export class ProjectManager {
     }
   }
 
+  async getUnsyncedChanges(userName: string, projectName: string): Promise<Array<{
+    sessionId: string;
+    changedFiles: string[];
+    completedAt: number;
+  }>> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const changesDir = path.join(projectPath, '.ct-cloud');
+    try {
+      const files = await fs.promises.readdir(changesDir);
+      const results: Array<{ sessionId: string; changedFiles: string[]; completedAt: number }> = [];
+      for (const file of files) {
+        if (!file.startsWith('changes-') || !file.endsWith('.json')) continue;
+        const data = JSON.parse(await fs.promises.readFile(path.join(changesDir, file), 'utf-8'));
+        if (!data.synced) results.push(data);
+      }
+      return results;
+    } catch {
+      return [];
+    }
+  }
+
+  async downloadChangesZip(userName: string, projectName: string): Promise<NodeJS.ReadableStream> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const changes = await this.getUnsyncedChanges(userName, projectName);
+
+    // Collect all unique changed files across unsynced sessions
+    const allFiles = new Set<string>();
+    for (const change of changes) {
+      for (const f of change.changedFiles) allFiles.add(f);
+    }
+
+    if (allFiles.size === 0) throw new Error('No changes to download');
+
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 6 } });
+
+    for (const relPath of allFiles) {
+      const absPath = path.join(projectPath, relPath);
+      try {
+        await fs.promises.access(absPath);
+        archive.file(absPath, { name: relPath });
+      } catch {
+        // File was deleted — include a marker
+        archive.append('', { name: relPath + '.DELETED' });
+      }
+    }
+
+    archive.finalize();
+    return archive;
+  }
+
+  async acknowledgeChanges(userName: string, projectName: string): Promise<void> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const changesDir = path.join(projectPath, '.ct-cloud');
+    try {
+      const files = await fs.promises.readdir(changesDir);
+      for (const file of files) {
+        if (!file.startsWith('changes-') || !file.endsWith('.json')) continue;
+        const filePath = path.join(changesDir, file);
+        const data = JSON.parse(await fs.promises.readFile(filePath, 'utf-8'));
+        data.synced = true;
+        await fs.promises.writeFile(filePath, JSON.stringify(data), 'utf-8');
+      }
+    } catch {
+      // No changes dir — nothing to ack
+    }
+  }
+
   private validateProjectName(name: string): void {
     if (!name || !/^[a-zA-Z0-9_.-]+$/.test(name)) {
       throw new Error('Project name must be alphanumeric (a-z, 0-9, _, ., -)');

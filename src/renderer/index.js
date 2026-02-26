@@ -97,6 +97,9 @@ async function initialize() {
     });
   }
 
+  // ── Cloud reconnect listeners ──
+  _registerCloudListeners(api);
+
   // Initialize Claude event bus and provider
   events.initClaudeEvents();
 
@@ -113,6 +116,86 @@ async function initialize() {
     }, 500);
   });
 
+}
+
+// ── Cloud reconnect handlers ──────────────────────────────────────────────────
+
+function _registerCloudListeners(api) {
+  if (!api?.cloud) return;
+
+  const { showConfirm } = require('./ui/components/Modal');
+  const { t } = require('./i18n');
+  const Toast = require('./ui/components/Toast');
+  const { projectsState } = require('./state/projects.state');
+
+  function _getAllProjects() {
+    return projectsState.get().projects || [];
+  }
+
+  // Active headless sessions detected on reconnect
+  if (api.cloud.onHeadlessActive) {
+    api.cloud.onHeadlessActive(async ({ sessions }) => {
+      if (!sessions || sessions.length === 0) return;
+      for (const session of sessions) {
+        const confirmed = await showConfirm({
+          title: t('cloud.headlessReconnectTitle'),
+          message: t('cloud.headlessReconnectMessage', { project: session.projectName || session.id }),
+          confirmLabel: t('cloud.headlessTakeover'),
+          cancelLabel: t('cloud.headlessContinue'),
+        });
+        if (confirmed) {
+          try {
+            const projects = _getAllProjects();
+            const localProject = projects.find(p =>
+              p.name === session.projectName || p.path?.endsWith(session.projectName)
+            );
+            await api.cloud.takeoverSession({
+              sessionId: session.id,
+              projectName: session.projectName,
+              localProjectPath: localProject?.path || null,
+            });
+            Toast.show(t('cloud.syncApplied'), 'success');
+          } catch (err) {
+            Toast.show(t('cloud.uploadError'), 'error');
+          }
+        }
+      }
+    });
+  }
+
+  // Pending file changes detected on reconnect
+  if (api.cloud.onPendingChanges) {
+    api.cloud.onPendingChanges(async ({ changes }) => {
+      if (!changes || changes.length === 0) return;
+      for (const { projectName, changes: fileChanges } of changes) {
+        const count = fileChanges.reduce((sum, c) => sum + (c.changedFiles?.length || 0), 0);
+        if (count === 0) continue;
+        const confirmed = await showConfirm({
+          title: t('cloud.syncTitle'),
+          message: t('cloud.syncMessage', { project: projectName, count }),
+          confirmLabel: t('cloud.syncApply'),
+          cancelLabel: t('cloud.syncSkip'),
+        });
+        if (confirmed) {
+          try {
+            const projects = _getAllProjects();
+            const localProject = projects.find(p =>
+              p.name === projectName || p.path?.endsWith(projectName)
+            );
+            if (localProject) {
+              await api.cloud.downloadChanges({
+                projectName,
+                localProjectPath: localProject.path,
+              });
+              Toast.show(t('cloud.syncApplied'), 'success');
+            }
+          } catch (err) {
+            Toast.show(t('cloud.uploadError'), 'error');
+          }
+        }
+      }
+    });
+  }
 }
 
 // Telemetry consent modal is handled in renderer.js (main entry point)

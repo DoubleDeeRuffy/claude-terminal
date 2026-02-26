@@ -1,4 +1,6 @@
 import { v4 as uuid } from 'uuid';
+import path from 'path';
+import fs from 'fs';
 import { WebSocket } from 'ws';
 import { store, UserSession } from '../store/store';
 import { config } from '../config';
@@ -12,6 +14,7 @@ interface ActiveSession {
   messageQueue: ReturnType<typeof createMessageQueue>;
   streamClients: Set<WebSocket>;
   status: 'running' | 'idle' | 'error';
+  changedFiles: Set<string>;
 }
 
 function createMessageQueue(onIdle?: () => void) {
@@ -116,6 +119,7 @@ export class SessionManager {
       messageQueue,
       streamClients: new Set(),
       status: 'running',
+      changedFiles: new Set(),
     };
     this.sessions.set(sessionId, activeSession);
 
@@ -220,6 +224,7 @@ export class SessionManager {
     try {
       for await (const event of queryStream) {
         if (!this.sessions.has(sessionId)) break;
+        this.trackFileChanges(session, event);
         this.broadcastToStream(sessionId, { type: 'event', sessionId, event });
       }
       if (session) session.status = 'idle';
@@ -229,10 +234,50 @@ export class SessionManager {
       this.broadcastToStream(sessionId, { type: 'error', sessionId, error: err.message });
     }
 
+    // Persist changed files for sync
+    if (session && session.changedFiles.size > 0) {
+      await this.persistChangedFiles(session);
+    }
+
     // Update meta
     if (session) {
       await this.persistSessionMeta(session.userName, sessionId, session.projectName, session.status);
     }
+  }
+
+  private trackFileChanges(session: ActiveSession, event: any): void {
+    // SDK assistant messages contain tool_use blocks with file paths
+    if (event?.type === 'assistant' && event?.message?.content) {
+      for (const block of event.message.content) {
+        if (block.type === 'tool_use' && (block.name === 'Write' || block.name === 'Edit')) {
+          const filePath = block.input?.file_path;
+          if (filePath) {
+            const cwd = store.getProjectPath(session.userName, session.projectName);
+            const resolved = path.resolve(cwd, filePath);
+            const relative = path.relative(cwd, resolved);
+            // Only track files inside the project directory
+            if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+              session.changedFiles.add(relative);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private async persistChangedFiles(session: ActiveSession): Promise<void> {
+    const projectPath = store.getProjectPath(session.userName, session.projectName);
+    const changesDir = path.join(projectPath, '.ct-cloud');
+    await fs.promises.mkdir(changesDir, { recursive: true });
+
+    const changesFile = path.join(changesDir, `changes-${session.id}.json`);
+    await fs.promises.writeFile(changesFile, JSON.stringify({
+      sessionId: session.id,
+      projectName: session.projectName,
+      changedFiles: Array.from(session.changedFiles),
+      completedAt: Date.now(),
+      synced: false,
+    }), 'utf-8');
   }
 
   private broadcastToStream(sessionId: string, data: any): void {

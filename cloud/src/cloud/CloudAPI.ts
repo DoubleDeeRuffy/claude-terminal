@@ -92,6 +92,40 @@ export function createCloudRouter(): Router {
     }
   });
 
+  // ── Project Changes (for sync) ──
+
+  router.get('/projects/:name/changes', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const changes = await projectManager.getUnsyncedChanges(req.userName!, name);
+      res.json({ changes });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.get('/projects/:name/changes/download', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const zipStream = await projectManager.downloadChangesZip(req.userName!, name);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${name}-changes.zip"`);
+      (zipStream as any).pipe(res);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects/:name/changes/ack', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      await projectManager.acknowledgeChanges(req.userName!, name);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   router.delete('/projects/:name', async (req: AuthRequest, res: Response) => {
     try {
       const name = req.params.name as string;
