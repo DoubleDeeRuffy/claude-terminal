@@ -72,6 +72,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - **SESS-RESUME-01**: User can resume a previous Claude session from a visible button in the terminal toolbar (opens existing sessions modal for the current project)
 
+### Tab Naming
+
+- **TAB-NAME-01**: User can disable automatic AI-powered tab name generation via a settings toggle (default: enabled, affects both chat-mode haiku naming and terminal-mode OSC rename)
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -112,10 +116,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOTNET-01 | Phase 12 | Planned |
 | TAB-MODE-01 | Phase 13 | Planned |
 | SESS-RESUME-01 | Phase 14 | Planned |
+| TAB-NAME-01 | Phase 18 | Planned |
 
 **Coverage:**
 - v1 requirements: 16 total, all complete
-- v2 requirements: 8 mapped (TERM-V2-01, TITLE-01, TITLE-02, WIN-01, WIN-02, WIN-03, TAB-MODE-01, SESS-RESUME-01)
+- v2 requirements: 9 mapped (TERM-V2-01, TITLE-01, TITLE-02, WIN-01, WIN-02, WIN-03, TAB-MODE-01, SESS-RESUME-01, TAB-NAME-01)
 - Unmapped: TERM-V2-02, FILE-V2-01
 
 ---
