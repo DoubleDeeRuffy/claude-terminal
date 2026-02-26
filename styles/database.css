@@ -1230,6 +1230,33 @@
   color: var(--danger);
 }
 
+/* DML result (compact badge for INSERT/UPDATE/DELETE/ALTER) */
+.db-query-dml-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  border-radius: var(--radius);
+  color: var(--success);
+}
+.db-query-dml-result svg {
+  flex-shrink: 0;
+}
+.db-query-dml-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.db-query-dml-time {
+  font-size: 10px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
 /* Success state */
 .db-query-success {
   display: flex;

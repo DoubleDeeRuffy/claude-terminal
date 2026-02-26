@@ -1207,6 +1207,7 @@
     "queryPlaceholder": "SELECT * FROM table_name LIMIT 100;",
     "mongoPlaceholder": "db.collection.find({})",
     "queryClear": "Clear query",
+    "queryAffected": "{count} row(s) affected",
     "querySuccess": "{count} row(s) in {duration}ms",
     "queryError": "Query error: {error}",
     "noActiveConnection": "Connect to a database first",

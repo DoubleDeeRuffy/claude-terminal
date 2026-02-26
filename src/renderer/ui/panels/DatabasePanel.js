@@ -854,11 +854,24 @@ function renderQuery(container) {
       </div>`;
     } else {
       const stmtInfo = queryResult.statementsRun ? ` (${queryResult.statementsRun} statements)` : '';
-      resultsHtml = `<div class="db-query-success">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-        ${t('database.querySuccess', { count: queryResult.rowCount || 0, duration: queryResult.duration || 0 })}${stmtInfo}
-      </div>`;
-      resultsHtml += buildResultsTable(queryResult);
+      const isDml = queryResult.rows && queryResult.rows.length === 1 && queryResult.columns &&
+        (queryResult.columns.includes('affectedRows') || queryResult.columns.includes('changes'));
+
+      if (isDml) {
+        const row = queryResult.rows[0];
+        const affected = row.affectedRows !== undefined ? row.affectedRows : row.changes;
+        resultsHtml = `<div class="db-query-dml-result">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          <span class="db-query-dml-text">${t('database.queryAffected', { count: affected })}${stmtInfo}</span>
+          <span class="db-query-dml-time">${queryResult.duration || 0}ms</span>
+        </div>`;
+      } else {
+        resultsHtml = `<div class="db-query-success">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          ${t('database.querySuccess', { count: queryResult.rowCount || 0, duration: queryResult.duration || 0 })}${stmtInfo}
+        </div>`;
+        resultsHtml += buildResultsTable(queryResult);
+      }
     }
   }
 
