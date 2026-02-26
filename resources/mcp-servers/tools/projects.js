@@ -235,7 +235,17 @@ async function handle(name, args) {
       if (!p.path || !fs.existsSync(p.path)) return fail(`Project path not found: ${p.path}`);
 
       const patternStr = args.pattern || 'TODO|FIXME|HACK|XXX';
-      const regex = new RegExp(`\\b(${patternStr})\\b`, 'i');
+      // Validate regex to prevent ReDoS from user-provided patterns
+      let regex;
+      try {
+        regex = new RegExp(`\\b(${patternStr})\\b`, 'i');
+        // Quick sanity test to catch catastrophic backtracking
+        const testStart = Date.now();
+        regex.test('a'.repeat(100));
+        if (Date.now() - testStart > 50) return fail('Pattern too expensive — simplify the regex.');
+      } catch (e) {
+        return fail(`Invalid regex pattern: ${e.message}`);
+      }
       const results = [];
       scanTodos(p.path, regex, results);
 
