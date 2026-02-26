@@ -82,7 +82,8 @@
     "resumeError": "Impossible de reprendre la session",
     "messages": "{count} msgs",
     "loading": "Initialisation de Claude Code...",
-    "loadingHint": "Cela peut prendre quelques secondes"
+    "loadingHint": "Cela peut prendre quelques secondes",
+    "resumeSession": "Reprendre une session Claude"
   },
   "mcp": {
     "notFound": "MCP introuvable",
@@ -569,7 +570,11 @@
     "checkForUpdatesBtn": "Vérifier",
     "checking": "Vérification...",
     "upToDate": "À jour",
+    "updateTitleOnProjectSwitch": "Mettre à jour le titre lors du changement de projet",
+    "updateTitleOnProjectSwitchDesc": "Changer le titre de l'application dans la barre des tâches pour afficher le projet actif (utile pour les outils de suivi du temps)",
     "defaultTerminalMode": "Mode terminal par défaut",
+    "showTabModeToggle": "Afficher le bouton de changement de mode",
+    "showTabModeToggleDesc": "Afficher le bouton Chat/Terminal sur les onglets (visible au survol)",
     "modeTerminal": "Terminal",
     "modeTerminalDesc": "Terminal classique avec xterm.js",
     "modeChat": "Chat UI",
@@ -615,6 +620,8 @@
     "explorerGroup": "Explorateur",
     "showDotfiles": "Afficher les dotfiles",
     "showDotfilesDesc": "Afficher les fichiers et dossiers cachés (commençant par un point) dans l'explorateur de fichiers",
+    "explorerNaturalSort": "Tri naturel",
+    "explorerNaturalSortDesc": "Trie les noms de fichiers en traitant les chiffres comme des valeurs (fichier2 avant fichier10). Correspond au comportement de l'Explorateur Windows.",
     "launchAtStartup": "Lancer au démarrage",
     "launchAtStartupDesc": "Démarrer automatiquement avec Windows",
     "compactProjects": "Vue compacte des projets",

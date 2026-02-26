@@ -82,7 +82,8 @@
     "resumeError": "Unable to resume session",
     "messages": "{count} msgs",
     "loading": "Initializing Claude Code...",
-    "loadingHint": "This may take a few seconds"
+    "loadingHint": "This may take a few seconds",
+    "resumeSession": "Resume Claude session"
   },
   "git": {
     "noRemote": "No remote",
@@ -503,7 +504,11 @@
     "checkForUpdatesBtn": "Check",
     "checking": "Checking...",
     "upToDate": "Up to date",
+    "updateTitleOnProjectSwitch": "Update window title on project switch",
+    "updateTitleOnProjectSwitchDesc": "Change the app title in the taskbar to show the active project (useful for external time-tracking tools)",
     "defaultTerminalMode": "Default terminal mode",
+    "showTabModeToggle": "Show mode switch on tabs",
+    "showTabModeToggleDesc": "Show the Chat/Terminal switch button on terminal tabs (hover to reveal)",
     "modeTerminal": "Terminal",
     "modeTerminalDesc": "Classic terminal with xterm.js",
     "modeChat": "Chat UI",
@@ -549,6 +554,8 @@
     "explorerGroup": "Explorer",
     "showDotfiles": "Show dotfiles",
     "showDotfilesDesc": "Show hidden files and folders (starting with a dot) in the file explorer",
+    "explorerNaturalSort": "Natural sort",
+    "explorerNaturalSortDesc": "Sort filenames with numbers as values (file2 before file10). Matches Windows Explorer behavior.",
     "launchAtStartup": "Launch at startup",
     "launchAtStartupDesc": "Start automatically with Windows",
     "compactProjects": "Compact projects view",
