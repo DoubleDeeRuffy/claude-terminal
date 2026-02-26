@@ -356,7 +356,7 @@ Plans:
 
 **Goal:** Fix the bug where switching between projects always resets to the first tab instead of remembering the last-active tab, and restore scroll position when switching back
 **Depends on:** Phase 19
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 20-01-PLAN.md — Add in-memory per-project active tab tracking and scroll position restoration in TerminalManager.js

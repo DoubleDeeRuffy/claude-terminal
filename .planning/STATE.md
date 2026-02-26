@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 6.4 — Bugfix: claudeSessionId not persisted across restarts (COMPLETE)
+**Current focus:** Phase 20 — Bugfix: swap projects resets to first tab instead of remembering last-active (COMPLETE)
 
 ## Current Position
 
-Phase: 6.4 (6.4-bugfix-session-resume-claudesessionid-not-persisted-across-restarts) — COMPLETE
+Phase: 20 (20-bugfix-swap-projects-selected-tab) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 6.4-01 complete — added claudeSessionId and cwd fields to termData object literal in createTerminal() fixing session persistence across restarts
-Last activity: 2026-02-26 - Completed plan 6.4-01: two-field fix in TerminalManager.js termData object literal
+Status: Plan 20-01 complete — added lastActivePerProject and savedScrollPositions Maps in TerminalManager.js to restore last-active tab and scroll position on project switch
+Last activity: 2026-02-26 - Completed plan 20-01: in-memory tab and scroll tracking for project switches
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -69,9 +69,10 @@ Progress: [███████████████████████
 | Phase 6.2 P01 | 1 | 1 tasks | 2 files |
 | Phase 6.3 P01 | 2 | 2 tasks | 2 files |
 | Phase 6.2 P02 | 8 | 2 tasks | 2 files |
-| Phase 19-10-1-tab-renaming-for-resume-dialog P01 | 2 | 2 tasks | 2 files |
+| Phase 10-1-tab-renaming-for-resume-dialog P01 | 2 | 2 tasks | 2 files |
 | Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
 | Phase 6.4 P01 | 5 | 2 tasks | 1 files |
+| Phase 20-bugfix-swap-projects-selected-tab P01 | 2 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -159,11 +160,12 @@ Recent decisions affecting current work:
 - [Phase 6.3]: 6.3-01: Lazy require for loadSessionData in filterByProject avoids circular dep (Phase 04/05/6.1 pattern)
 - [Phase 6.3]: 6.3-01: Bounds-check savedIdx < visibleIds.length — silent fallback to firstVisibleId on out-of-range, no crash
 - [Phase 6.2]: 6.2-02: scheduleScrollAfterRestore polls lastTerminalData for 300ms silence (50ms interval, 8s hard fallback) — per-terminal independent polling replaces shared setTimeout(200)
-- [Phase 19-01]: 19-01: Guard claudeSessionId && name in updateTerminalTabName and _chatSessionId && name in onTabRename — prevents empty propagation and silently skips when session ID not yet assigned
-- [Phase 19-01]: 19-01: accent color at 0.85 opacity for metadata text, 1.0 for SVG icons in resume dialog
+- [Phase 10.1-01]: 10.1-01: Guard claudeSessionId && name in updateTerminalTabName and _chatSessionId && name in onTabRename — prevents empty propagation and silently skips when session ID not yet assigned
+- [Phase 10.1-01]: 10.1-01: accent color at 0.85 opacity for metadata text, 1.0 for SVG icons in resume dialog
 - [Phase 12-01]: DotNetDashboard uses lazy access to window.electron_nodeModules inside function bodies per established preload timing pattern
 - [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
 - [Phase 6.4]: 6.4-01: cwd and claudeSessionId added directly to termData object literal (not via updateTerminal) to avoid state notification with incomplete data
+- [Phase 20-bugfix-swap-projects-selected-tab]: 20-01: lastActivePerProject Map tracks last-active terminal ID per project in-memory; filterByProject uses Map as primary restore source, disk activeTabIndex as secondary fallback
 
 ### Pending Todos
 
@@ -193,7 +195,7 @@ Recent decisions affecting current work:
 - Phase 17 added: On update-installation the pinned taskbar icon gets lost. Is there a whole uninstall and install happening?
 - Phase 18 added: Disable Haiki Tab-Naming Settings toggle
 - Phase 6.3 inserted after Phase 6: Remember active task on Project scope to restore it on project-swap and app restart (URGENT)
-- Phase 19 added: 10.1 Tab-Renaming-For-Resume-Dialog
+- Phase 10.1 added: Tab-Renaming-For-Resume-Dialog
 - Phase 6.4 inserted after Phase 6: Bugfix — session resume claudeSessionId not persisted across restarts (URGENT)
 - Phase 20 added: Bugfix-Swap-Projects-Selected-Tab
 
