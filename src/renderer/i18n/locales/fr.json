@@ -1240,7 +1240,9 @@
     "browserDeleteConfirm": "Êtes-vous sûr de vouloir supprimer cette ligne ?",
     "browserInsertBtn": "Insérer",
     "browserInsertEmpty": "Remplissez au moins un champ",
-    "browserEditNotSupported": "L'édition en ligne n'est pas supportée pour MongoDB"
+    "browserEditNotSupported": "L'édition en ligne n'est pas supportée pour MongoDB",
+    "browserSearchPlaceholder": "Rechercher dans les données...",
+    "browserSearchClear": "Effacer la recherche"
   },
   "telemetry": {
     "consentTitle": "Aidez à améliorer Claude Terminal",

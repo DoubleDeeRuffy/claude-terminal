@@ -27,6 +27,8 @@ let panelState = {
   browserSortDir: 'ASC',
   browserEditingCell: null, // { row, col, original }
   browserPendingEdits: new Map(), // rowIdx -> { col: newVal }
+  browserSearchTerm: '',
+  browserSearchDebounce: null,
 };
 
 function init(context) {
@@ -371,12 +373,21 @@ function renderBrowserDataPanel(tableName, tableMeta, isMongo, columnLabel) {
   const fromRow = rowsShown > 0 ? page * pageSize + 1 : 0;
   const toRow = fromRow + rowsShown - 1;
 
+  const searchTerm = panelState.browserSearchTerm;
+
   return `
     <div class="db-browser-panel">
       <div class="db-browser-toolbar">
         <div class="db-browser-toolbar-left">
           <span class="db-browser-table-title">${escapeHtml(tableName)}</span>
           <span class="db-browser-row-info">${totalCount > 0 ? `${fromRow}-${toRow} / ${totalCount}` : ''}</span>
+        </div>
+        <div class="db-browser-toolbar-search">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="text" class="db-browser-toolbar-search-input" id="db-browser-search" placeholder="${t('database.browserSearchPlaceholder')}" value="${escapeHtml(searchTerm)}">
+          ${searchTerm ? `<button class="db-browser-toolbar-search-clear" id="db-browser-search-clear" title="${t('database.browserSearchClear')}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>` : ''}
         </div>
         <div class="db-browser-toolbar-right">
           <button class="db-browser-btn" id="db-browser-refresh" title="${t('database.browserRefresh')}">
@@ -428,11 +439,49 @@ function bindBrowserEvents(container) {
         panelState.browserData = null;
         panelState.browserEditingCell = null;
         panelState.browserPendingEdits.clear();
+        panelState.browserSearchTerm = '';
         renderContent();
         loadTableData(tableName);
       }
     };
   });
+
+  // Data search
+  const searchInput = container.querySelector('#db-browser-search');
+  if (searchInput) {
+    searchInput.oninput = () => {
+      panelState.browserSearchTerm = searchInput.value;
+      clearTimeout(panelState.browserSearchDebounce);
+      panelState.browserSearchDebounce = setTimeout(() => {
+        panelState.browserPage = 0;
+        loadTableData(panelState.browserSelectedTable);
+      }, 400);
+    };
+    searchInput.onkeydown = (e) => {
+      if (e.key === 'Escape') {
+        if (panelState.browserSearchTerm) {
+          panelState.browserSearchTerm = '';
+          panelState.browserPage = 0;
+          renderContent();
+          loadTableData(panelState.browserSelectedTable);
+          e.stopPropagation();
+        }
+      } else if (e.key === 'Enter') {
+        clearTimeout(panelState.browserSearchDebounce);
+        panelState.browserPage = 0;
+        loadTableData(panelState.browserSelectedTable);
+      }
+    };
+  }
+  const searchClearBtn = container.querySelector('#db-browser-search-clear');
+  if (searchClearBtn) {
+    searchClearBtn.onclick = () => {
+      panelState.browserSearchTerm = '';
+      panelState.browserPage = 0;
+      renderContent();
+      loadTableData(panelState.browserSelectedTable);
+    };
+  }
 
   // Refresh
   const refreshBtn = container.querySelector('#db-browser-refresh');
@@ -732,14 +781,39 @@ async function loadTableData(tableName) {
   const sortCol = panelState.browserSortCol;
   const sortDir = panelState.browserSortDir;
 
+  // Build search WHERE clause
+  const searchTerm = panelState.browserSearchTerm.trim();
+  let searchWhere = '';
+  if (searchTerm && !isMongo) {
+    const state2 = require('../../state');
+    const schema = state2.getDatabaseSchema(activeId);
+    const tableMeta = schema?.tables?.find(t => t.name === tableName);
+    if (tableMeta && tableMeta.columns.length > 0) {
+      const escaped = searchTerm.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
+      const conditions = tableMeta.columns.map(col => {
+        return `CAST(\`${col.name}\` AS CHAR) LIKE '%${escaped}%'`;
+      });
+      searchWhere = ` WHERE (${conditions.join(' OR ')})`;
+    }
+  }
+
   let sql, countSql;
   if (isMongo) {
-    sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+    // Basic text search for MongoDB
+    if (searchTerm) {
+      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      sql = `db.${tableName}.find({ $or: [${(() => {
+        // Use a generic text search across string fields
+        return `{ $where: "JSON.stringify(this).indexOf('${escaped.replace(/'/g, "\\'")}') !== -1" }`;
+      })()}] }).limit(${pageSize}).skip(${offset})`;
+    } else {
+      sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+    }
     countSql = null;
   } else {
     const orderBy = sortCol ? ` ORDER BY \`${sortCol}\` ${sortDir}` : '';
-    sql = `SELECT * FROM \`${tableName}\`${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
-    countSql = `SELECT COUNT(*) as cnt FROM \`${tableName}\``;
+    sql = `SELECT * FROM \`${tableName}\`${searchWhere}${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
+    countSql = `SELECT COUNT(*) as cnt FROM \`${tableName}\`${searchWhere}`;
   }
 
   try {
