@@ -333,6 +333,14 @@ function parseClaudeTitle(title) {
 }
 
 /**
+ * Track when a tab was last renamed by a slash command (hooks PROMPT_SUBMIT).
+ * Used to prevent OSC title changes from overwriting the slash-command name.
+ * The cooldown prevents the race where OSC fires before hooks rename completes.
+ */
+const slashRenameTimestamps = new Map();
+const SLASH_RENAME_COOLDOWN = 30000; // 30s — protect slash name for this long
+
+/**
  * Returns true when an OSC title rename should be skipped because the tab was
  * renamed to a slash command by the user's setting.
  * Uses the module-level getSetting import to avoid any circular dependency issues.
@@ -341,7 +349,12 @@ function parseClaudeTitle(title) {
 function shouldSkipOscRename(id) {
   if (!getSetting('tabRenameOnSlashCommand')) return false;
   const td = getTerminal(id);
-  return !!(td && td.name && td.name.startsWith('/'));
+  // Check 1: tab name starts with / (slash command name)
+  if (td && td.name && td.name.startsWith('/')) return true;
+  // Check 2: cooldown — within 30s of a slash rename, block OSC overwrites
+  const ts = slashRenameTimestamps.get(id);
+  if (ts && Date.now() - ts < SLASH_RENAME_COOLDOWN) return true;
+  return false;
 }
 
 /**
@@ -462,12 +475,29 @@ function extractTerminalContext(terminal) {
 
 
 /**
- * Setup paste handler to prevent double-paste issue
- * xterm.js + Electron can trigger paste twice, so we handle it manually
- * @param {HTMLElement} wrapper - Terminal wrapper element
- * @param {string|number} terminalId - Terminal ID for IPC
- * @param {string} inputChannel - IPC channel for input
+ * Shared paste helper — encapsulates debounce + clipboard read + IPC dispatch.
+ * Used by setupPasteHandler, setupClipboardShortcuts, createTerminalKeyHandler,
+ * and the right-click context menu.
  */
+function performPaste(terminalId, inputChannel = 'terminal-input') {
+  const now = Date.now();
+  if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
+  lastPasteTime = now;
+  const sendPaste = (text) => {
+    if (!text) return;
+    if (inputChannel === 'fivem-input') {
+      api.fivem.input({ projectIndex: terminalId, data: text });
+    } else if (inputChannel === 'webapp-input') {
+      api.webapp.input({ projectIndex: terminalId, data: text });
+    } else {
+      api.terminal.input({ id: terminalId, data: text });
+    }
+  };
+  navigator.clipboard.readText()
+    .then(sendPaste)
+    .catch(() => api.app.clipboardRead().then(sendPaste));
+}
+
 /**
  * Setup DOM-level clipboard shortcuts (capture phase, before xterm intercepts)
  * xterm.js 6.x handles Ctrl+Shift+V internally but fails in Electron — we must intercept first.
@@ -973,6 +1003,11 @@ function updateTerminalTabName(id, name) {
   const termData = getTerminal(id);
   if (!termData) return;
 
+  // Track slash command renames for OSC overwrite protection
+  if (name && name.startsWith('/')) {
+    slashRenameTimestamps.set(id, Date.now());
+  }
+
   // Update state
   updateTerminal(id, { name });
 
@@ -1160,6 +1195,14 @@ function setActiveTerminal(id) {
     const newProjectId = termData.project?.id;
     if (prevProjectId !== newProjectId) {
       if (newProjectId) heartbeat(newProjectId, 'terminal');
+    }
+
+    // Track active Claude tab for event routing (tab rename, session ID capture)
+    if (newProjectId && termData.mode === 'terminal' && !termData.isBasic) {
+      try {
+        const { notifyTabActivated } = require('../../events');
+        notifyTabActivated(newProjectId, id);
+      } catch (e) { /* events module not ready */ }
     }
   }
 }
@@ -1408,6 +1451,7 @@ async function createTerminal(project, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -1710,6 +1754,7 @@ function createTypeConsole(project, projectIndex) {
   // Prevent double-paste issue
   setupPasteHandler(consoleView, projectIndex, `${typeId}-input`);
   setupClipboardShortcuts(consoleView, terminal, projectIndex, `${typeId}-input`);
+  setupRightClickHandler(consoleView, terminal, projectIndex, `${typeId}-input`);
 
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
@@ -2850,6 +2895,7 @@ async function resumeSession(project, sessionId, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3007,6 +3053,7 @@ async function createTerminalWithPrompt(project, prompt) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3567,6 +3614,7 @@ async function switchTerminalMode(id) {
     // Setup paste handler and key handler (use ptyId for PTY input routing)
     setupPasteHandler(wrapper, ptyId, 'terminal-input');
     setupClipboardShortcuts(wrapper, terminal, ptyId, 'terminal-input');
+    setupRightClickHandler(wrapper, terminal, ptyId, 'terminal-input');
     terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, ptyId, 'terminal-input'));
 
     // Title change

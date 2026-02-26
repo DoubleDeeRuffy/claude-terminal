@@ -39,6 +39,10 @@ const defaultSettings = {
   cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
   cloudAutoConnect: true, // Auto-connect to cloud relay on startup
+  terminalShortcuts: {}, // Terminal shortcut toggles (empty = all enabled by default)
+  idleTimeout: 2, // Idle timeout in minutes for time tracking
+  projectsPanelWidth: null, // Saved projects panel width (null = CSS default)
+  fileExplorerWidth: null, // Saved file explorer width (null = CSS default)
 };
 
 const settingsState = new State({ ...defaultSettings });

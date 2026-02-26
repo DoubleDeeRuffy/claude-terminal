@@ -17,6 +17,7 @@ let rootPath = null;
 let selectedFiles = new Set();
 let lastSelectedFile = null;
 let expandedFolders = new Map(); // path -> { children: [...], loaded: bool }
+let savedExpandedPaths = new Map(); // projectPath -> Set of expanded folder paths (in-memory persistence)
 let callbacks = {
   onOpenInTerminal: null,
   onOpenFile: null
@@ -96,6 +97,12 @@ function sanitizeFileName(name) {
 // ========== ROOT PATH ==========
 function setRootPath(projectPath) {
   if (rootPath === projectPath) return;
+
+  // Save expanded folder paths for the current project before switching
+  if (rootPath && expandedFolders.size > 0) {
+    savedExpandedPaths.set(rootPath, new Set(expandedFolders.keys()));
+  }
+
   rootPath = projectPath;
   selectedFiles.clear();
   lastSelectedFile = null;
@@ -103,6 +110,15 @@ function setRootPath(projectPath) {
   gitStatusMap.clear();
   searchQuery = '';
   searchResults = [];
+
+  // Restore saved expanded paths for the new project
+  if (rootPath && savedExpandedPaths.has(rootPath)) {
+    const paths = savedExpandedPaths.get(rootPath);
+    for (const p of paths) {
+      expandedFolders.set(p, { children: [], loaded: false });
+    }
+  }
+
   if (rootPath && !manuallyHidden) {
     show();
     render();
@@ -1174,15 +1190,27 @@ function initResizer() {
       document.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      localStorage.setItem('file-explorer-width', panel.offsetWidth);
+      const { settingsState, saveSettings } = require('../../state/settings.state');
+      settingsState.setProp('fileExplorerWidth', panel.offsetWidth);
+      saveSettings();
     };
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   });
 
-  // Restore saved width
-  const savedWidth = localStorage.getItem('file-explorer-width');
+  // Restore saved width (migrate from localStorage if needed)
+  const { getSetting: getSettingForWidth, settingsState: ss, saveSettings: saveSett } = require('../../state/settings.state');
+  let savedWidth = getSettingForWidth('fileExplorerWidth');
+  if (!savedWidth) {
+    const legacyWidth = localStorage.getItem('file-explorer-width');
+    if (legacyWidth) {
+      savedWidth = parseInt(legacyWidth);
+      ss.setProp('fileExplorerWidth', savedWidth);
+      saveSett();
+      localStorage.removeItem('file-explorer-width');
+    }
+  }
   if (savedWidth) {
     panel.style.width = savedWidth + 'px';
   }

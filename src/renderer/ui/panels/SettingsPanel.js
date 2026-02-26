@@ -667,6 +667,26 @@ async function renderSettingsTab(initialTab = 'general') {
                   <span class="settings-toggle-slider"></span>
                 </label>
               </div>
+              <div class="settings-row">
+                <div class="settings-label">
+                  <div>${t('settings.idleTimeout')}</div>
+                  <div class="settings-desc">${t('settings.idleTimeoutDesc')}</div>
+                </div>
+                <div class="settings-dropdown" id="idle-timeout-dropdown" data-value="${settings.idleTimeout || 2}">
+                  <div class="settings-dropdown-trigger">
+                    <span>${t('settings.idleTimeoutMinutes', { count: settings.idleTimeout || 2 })}</span>
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                  </div>
+                  <div class="settings-dropdown-menu">
+                    ${[1, 2, 3, 5, 10, 15, 30].map(m =>
+                      `<div class="settings-dropdown-option ${(settings.idleTimeout || 2) === m ? 'selected' : ''}" data-value="${m}">
+                        <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                        ${t('settings.idleTimeoutMinutes', { count: m })}
+                      </div>`
+                    ).join('')}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="settings-group">
@@ -1148,6 +1168,9 @@ async function renderSettingsTab(initialTab = 'general') {
     const showTabModeToggleEl = document.getElementById('show-tab-mode-toggle');
     const newShowTabModeToggle = showTabModeToggleEl ? showTabModeToggleEl.checked : true;
 
+    const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
+    const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 2);
+
     const editorDropdown = document.getElementById('editor-dropdown');
     const newSettings = {
       editor: editorDropdown?.dataset.value || settings.editor || 'code',
@@ -1167,7 +1190,8 @@ async function renderSettingsTab(initialTab = 'general') {
       explorerNaturalSort: newExplorerNaturalSort,
       updateTitleOnProjectSwitch: newUpdateTitleOnProjectSwitch,
       showTabModeToggle: newShowTabModeToggle,
-      tabRenameOnSlashCommand: newTabRenameOnSlashCommand
+      tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
+      idleTimeout: newIdleTimeout
     };
 
     container.querySelectorAll('.dynamic-setting-toggle').forEach(toggle => {

@@ -407,7 +407,14 @@
     "quickPicker": "Quick picker",
     "newProject": "New project",
     "newTerminal": "New terminal",
-    "toggleFileExplorer": "Toggle file explorer"
+    "toggleFileExplorer": "Toggle file explorer",
+    "terminalShortcutsTitle": "Terminal shortcuts",
+    "terminalCopy": "Copy selection (Ctrl+C)",
+    "terminalPaste": "Paste clipboard (Ctrl+V)",
+    "terminalWordJump": "Word jump (Ctrl+Arrow)",
+    "terminalTabSwitch": "Switch tabs (Ctrl+Tab)",
+    "terminalRightClickPaste": "Right-click paste",
+    "terminalRightClickCopyPaste": "Right-click copy/paste (Windows Terminal style)"
   },
   "contextMenu": {
     "newSubfolder": "New subfolder",
@@ -585,6 +592,9 @@
     "terminalGroup": "Terminal",
     "tabRenameOnSlashCommand": "Rename tab on slash command",
     "tabRenameOnSlashCommandDesc": "Automatically rename the terminal tab to the last slash command executed (e.g. /gsd:verify-work 12)",
+    "idleTimeout": "Idle timeout",
+    "idleTimeoutDesc": "Minutes of inactivity before time tracking pauses",
+    "idleTimeoutMinutes": "{count} min",
     "hooks": {
       "title": "Smart Hooks",
       "enable": "Enable Smart Hooks",

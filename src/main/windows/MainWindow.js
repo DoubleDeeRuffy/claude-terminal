@@ -164,12 +164,12 @@ function createMainWindow({ isDev = false } = {}) {
     mainWindow.maximize();
   }
 
-  // Intercept Ctrl+Arrow to prevent Windows Snap and forward to renderer for tab switching
+  // Intercept Ctrl+Up/Down to prevent Windows Snap and forward to renderer for project switching
+  // Ctrl+Left/Right is NOT intercepted — it passes through to xterm for word-jump (TERM-03)
   mainWindow.webContents.on('before-input-event', (event, input) => {
     const modKey = process.platform === 'darwin' ? input.meta : input.control;
     if (modKey && !input.shift && !input.alt && input.type === 'keyDown') {
-      const dir = { Left: 'left', ArrowLeft: 'left', Right: 'right', ArrowRight: 'right',
-                     Up: 'up', ArrowUp: 'up', Down: 'down', ArrowDown: 'down' }[input.key];
+      const dir = { Up: 'up', ArrowUp: 'up', Down: 'down', ArrowDown: 'down' }[input.key];
       if (dir) {
         event.preventDefault();
         mainWindow.webContents.send('ctrl-arrow', dir);

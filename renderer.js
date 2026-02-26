@@ -1458,10 +1458,10 @@ TerminalManager.setCallbacks({
   onSwitchProject: switchProject
 });
 
-// Listen for Ctrl+Arrow forwarded from main process (bypasses Windows Snap)
+// Listen for Ctrl+Up/Down forwarded from main process (bypasses Windows Snap)
+// Ctrl+Left/Right is handled by xterm's key handler for word-jump
 api.window.onCtrlArrow((dir) => {
-  if (dir === 'left' || dir === 'right') switchTerminal(dir);
-  else if (dir === 'up' || dir === 'down') switchProject(dir);
+  if (dir === 'up' || dir === 'down') switchProject(dir);
 });
 
 // Setup FileExplorer
