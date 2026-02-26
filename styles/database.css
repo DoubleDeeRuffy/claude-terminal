@@ -1090,16 +1090,63 @@
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-/* Textarea inside the wrapper — removes its own border */
-.db-query-editor-wrap .database-query-editor {
+/* ===== Syntax Highlight Overlay ===== */
+.db-query-highlight-wrap {
+  position: relative;
+}
+/* Shared font metrics for textarea + highlight layer */
+.db-query-highlight-wrap .database-query-editor,
+.db-query-highlight-wrap .db-query-highlight {
+  margin: 0;
+  padding: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  tab-size: 2;
   border: none;
   border-radius: 0;
+}
+/* Highlight layer sits behind the textarea */
+.db-query-highlight-wrap .db-query-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--text-primary);
+  background: transparent;
+  overflow: hidden;
+  z-index: 0;
+}
+.db-query-highlight-wrap .db-query-highlight code {
+  font: inherit;
+  color: inherit;
+}
+/* Textarea is transparent text, visible caret */
+.db-query-highlight-wrap .database-query-editor {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  color: transparent;
+  caret-color: var(--text-primary);
+  background: transparent;
+  resize: vertical;
   min-height: 100px;
   max-height: 260px;
+  overflow: auto;
 }
-.db-query-editor-wrap .database-query-editor:focus {
+.db-query-highlight-wrap .database-query-editor::selection {
+  background: rgba(217, 119, 6, 0.25);
+  color: transparent;
+}
+.db-query-highlight-wrap .database-query-editor:focus {
   border-color: transparent;
   box-shadow: none;
+}
+.db-query-highlight-wrap .database-query-editor::placeholder {
+  color: var(--text-muted);
 }
 
 /* ===== Action Bar ===== */
@@ -1286,7 +1333,7 @@
   font-family: 'Cascadia Code', monospace;
   font-size: var(--font-sm);
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: 1.6;
   outline: none;
   transition: border-color 0.15s;
   tab-size: 2;

@@ -5,6 +5,7 @@
  */
 
 const { escapeHtml } = require('../../utils');
+const { highlight } = require('../../utils/syntaxHighlight');
 const { t } = require('../../i18n');
 const { showConfirm } = require('../components/Modal');
 
@@ -880,7 +881,10 @@ function renderQuery(container) {
       <div class="db-query-top">
         <div class="db-query-templates">${templatesHtml}</div>
         <div class="db-query-editor-wrap">
-          <textarea class="database-query-editor" id="database-query-input" placeholder="${escapeHtml(placeholder)}" spellcheck="false">${escapeHtml(currentQuery)}</textarea>
+          <div class="db-query-highlight-wrap">
+            <pre class="db-query-highlight" id="database-query-highlight" aria-hidden="true"><code>${currentQuery ? highlight(currentQuery, isMongo ? 'js' : 'sql') + '\n' : '\n'}</code></pre>
+            <textarea class="database-query-editor" id="database-query-input" placeholder="${escapeHtml(placeholder)}" spellcheck="false">${escapeHtml(currentQuery)}</textarea>
+          </div>
           <div class="db-query-actions">
             <button class="db-query-run" id="database-run-btn" ${panelState.queryRunning ? 'disabled' : ''}>
               ${panelState.queryRunning
@@ -912,6 +916,19 @@ function renderQuery(container) {
   };
 
   const input = document.getElementById('database-query-input');
+  const highlightEl = document.getElementById('database-query-highlight');
+  const syncHighlight = () => {
+    if (highlightEl && input) {
+      const code = highlightEl.querySelector('code');
+      if (code) code.innerHTML = input.value ? highlight(input.value, isMongo ? 'js' : 'sql') + '\n' : '\n';
+    }
+  };
+  const syncScroll = () => {
+    if (highlightEl && input) {
+      highlightEl.scrollTop = input.scrollTop;
+      highlightEl.scrollLeft = input.scrollLeft;
+    }
+  };
   if (input) {
     input.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
@@ -921,7 +938,9 @@ function renderQuery(container) {
     });
     input.addEventListener('input', () => {
       state.setCurrentQuery(input.value);
+      syncHighlight();
     });
+    input.addEventListener('scroll', syncScroll);
   }
 
   // Template click handlers
@@ -935,6 +954,7 @@ function renderQuery(container) {
         textarea.value = tpl.sql;
         textarea.focus();
         state.setCurrentQuery(tpl.sql);
+        syncHighlight();
       }
     };
   });
