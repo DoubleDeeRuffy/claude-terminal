@@ -105,7 +105,7 @@ class TerminalService {
     let flushScheduled = false;
     let lastFlush = Date.now();
 
-    ptyProcess.onData(data => {
+    const dataDisposable = ptyProcess.onData(data => {
       buffer += data;
       if (!flushScheduled) {
         flushScheduled = true;
@@ -121,11 +121,14 @@ class TerminalService {
     });
 
     // Handle exit
-    ptyProcess.onExit(() => {
+    const exitDisposable = ptyProcess.onExit(() => {
       try { ptyProcess.kill(); } catch (e) {}
       this.terminals.delete(id);
       this.sendToRenderer('terminal-exit', { id });
     });
+
+    // Store disposables for cleanup on kill()
+    ptyProcess._disposables = [dataDisposable, exitDisposable];
 
     // Run Claude CLI on non-Windows platforms
     if (runClaude && process.platform !== 'win32') {
@@ -204,6 +207,14 @@ class TerminalService {
     const pid = term.pid;
     this.terminals.delete(id);
 
+    // Dispose event listeners before killing to prevent leaks
+    if (term._disposables) {
+      for (const d of term._disposables) {
+        try { d.dispose(); } catch (_) {}
+      }
+      term._disposables = null;
+    }
+
     try {
       term.kill();
     } catch (e) {
@@ -223,6 +234,13 @@ class TerminalService {
     const pids = [];
     this.terminals.forEach((term, id) => {
       pids.push(term.pid);
+      // Dispose event listeners before killing
+      if (term._disposables) {
+        for (const d of term._disposables) {
+          try { d.dispose(); } catch (_) {}
+        }
+        term._disposables = null;
+      }
       try { term.kill(); } catch (_) {}
     });
     this.terminals.clear();
