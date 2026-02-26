@@ -1066,6 +1066,11 @@ function updateTerminalStatus(id, status) {
         clearTimeout(safetyTimeout);
         loadingTimeouts.delete(id);
       }
+      // Scroll to bottom after session replay output has been written
+      const td = getTerminal(id);
+      if (td && td.terminal && typeof td.terminal.scrollToBottom === 'function') {
+        td.terminal.scrollToBottom();
+      }
     }
     if (status === 'ready' && previousStatus === 'working') {
       // Skip scraping notifications when hooks are active (bus consumer handles it with richer data)

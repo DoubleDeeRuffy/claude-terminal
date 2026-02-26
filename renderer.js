@@ -224,6 +224,16 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
           TerminalManager.filterByProject(idx);
         }
       }
+
+      // Scroll all restored terminals to bottom after fit completes
+      setTimeout(() => {
+        const terminals = terminalsState.get().terminals;
+        terminals.forEach((td, id) => {
+          if (td.terminal && typeof td.terminal.scrollToBottom === 'function') {
+            td.terminal.scrollToBottom();
+          }
+        });
+      }, 200);
     }
   } catch (err) {
     console.error('[SessionRestore] Error restoring terminal sessions:', err);
