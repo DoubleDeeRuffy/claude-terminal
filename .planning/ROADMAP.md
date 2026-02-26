@@ -172,7 +172,7 @@ Plans:
 **Goal:** All restored terminal tabs scroll to the very bottom after app restart so users see the most recent output, not a mid-session scroll position
 **Depends on:** Phase 6
 **Requirements:** SESS-01
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 6.2-01-PLAN.md — Add post-restore scroll-all loop in renderer.js and loading→ready scroll hook in TerminalManager.js

@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 18 — Disable Haiku Tab-Naming Settings Toggle
+**Current focus:** Phase 6.2 — Scroll to Bottom on Session Resume (COMPLETE)
 
 ## Current Position
 
-Phase: 18 (disable-haiki-tab-naming-settings-toggle) — COMPLETE
+Phase: 6.2 (scroll-to-the-very-end-on-session-resume-in-every-tab) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 18-01 complete — AI tab naming toggle in new Tabs settings group, guards on all 4 rename call sites, EN+FR i18n
-Last activity: 2026-02-26 - Completed plan 18-01: aiTabNaming setting + ChatView/TerminalManager guards + Tabs settings group + i18n
+Status: Plan 6.2-01 complete — scrollToBottom on all restored terminals via 200ms loop + loading->ready hook in TerminalManager
+Last activity: 2026-02-26 - Completed plan 6.2-01: post-restore scroll loop in renderer.js + loading->ready scrollToBottom in TerminalManager.js
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -66,6 +66,7 @@ Progress: [███████████████████████
 | Phase 18 P01 | 10 | 2 tasks | 6 files |
 | Phase 16 P01 | 8 | 2 tasks | 3 files |
 | Phase 17 P01 | 4 | 2 tasks | 3 files |
+| Phase 6.2 P01 | 1 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -148,6 +149,7 @@ Recent decisions affecting current work:
 - [Phase 17]: app.setAppUserModelId placed at top of bootstrapApp() on win32 — ensures runtime AUMID matches electron-builder appId before any window creation
 - [Phase 17]: allowToChangeInstallationDirectory: false — prevents NSIS keepShortcuts=false path that forces shortcut recreation on every update
 - [Phase 17]: isUpdated guard in customUnInstall wraps Delete shortcut line — desktop shortcut only removed on actual uninstall, not update runs
+- [Phase 6.2]: 6.2-01: 200ms delay for post-restore scroll ensures fitAddon.fit() completes; scrollToBottom on loading->ready fires after history replay; broader behavior accepted
 
 ### Pending Todos
 
@@ -194,5 +196,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Phase 6.3 context gathered
+Stopped at: Completed 6.2-01-PLAN.md
 Resume file: .planning/phases/6.3-remember-active-task-on-project-scope-to-restore-it-on-project-swap-and-app-restart/6.3-CONTEXT.md
