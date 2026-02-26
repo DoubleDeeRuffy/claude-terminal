@@ -14,6 +14,7 @@ const hookEventServer = require('./HookEventServer');
 const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
 const remoteServer = require('./RemoteServer');
 const workflowService = require('./WorkflowService');
+const databaseService = require('./DatabaseService');
 
 /**
  * Initialize all services with main window reference
@@ -35,6 +36,9 @@ function initializeServices(mainWindow) {
   workflowService.setMainWindow(mainWindow);
   workflowService.setDeps({ chatService });
   workflowService.init();
+
+  // Provision unified MCP in global Claude settings
+  databaseService.provisionGlobalMcp().catch(() => {});
 }
 
 /**

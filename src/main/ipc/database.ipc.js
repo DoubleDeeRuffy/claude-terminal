@@ -42,12 +42,8 @@ function registerDatabaseHandlers() {
     return databaseService.loadConnections();
   });
 
-  ipcMain.handle('database-provision-mcp', async (event, { projectPath, config }) => {
-    return databaseService.provisionMcpServer(projectPath, config);
-  });
-
-  ipcMain.handle('database-deprovision-mcp', async (event, { projectPath, mcpName }) => {
-    return databaseService.deprovisionMcpServer(projectPath, mcpName);
+  ipcMain.handle('database-refresh-mcp', async () => {
+    return databaseService.provisionGlobalMcp();
   });
 
   ipcMain.handle('database-get-credential', async (event, { id }) => {

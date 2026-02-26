@@ -146,7 +146,6 @@ function buildConnectionCard(conn, status) {
         <div class="database-card-title-row">
           <span class="database-type-badge ${conn.type}">${escapeHtml(conn.type.toUpperCase())}</span>
           <span class="database-card-title">${escapeHtml(conn.name || conn.id)}</span>
-          ${conn.mcpProvisioned ? `<span class="database-mcp-badge">${t('database.mcpProvisioned')}</span>` : ''}
         </div>
         <span class="database-status-badge ${status}">${t('database.' + status)}</span>
       </div>
@@ -164,13 +163,6 @@ function buildConnectionCard(conn, status) {
           </button>` :
           `<button class="btn-database primary" data-action="connect" data-id="${escapeHtml(conn.id)}" title="${t('database.connect')}">
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8 5v14l11-7z"/></svg>
-          </button>`}
-        ${conn.mcpProvisioned ?
-          `<button class="btn-database" data-action="deprovision" data-id="${escapeHtml(conn.id)}" title="${t('database.deprovisionMcp')}">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
-          </button>` :
-          `<button class="btn-database" data-action="provision" data-id="${escapeHtml(conn.id)}" title="${t('database.provisionMcp')}">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 15h14v3H5z"/></svg>
           </button>`}
         <button class="btn-database" data-action="edit" data-id="${escapeHtml(conn.id)}" title="${t('database.editConnection')}">
           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -219,8 +211,6 @@ function bindConnectionEvents(container) {
         case 'disconnect': await disconnectDatabase(id); break;
         case 'edit': showConnectionForm(id); break;
         case 'delete': await deleteConnection(id); break;
-        case 'provision': await provisionMcp(id); break;
-        case 'deprovision': await deprovisionMcp(id); break;
         case 'import-detected': importDetected(btn.dataset.detected); break;
       }
     };
@@ -1157,14 +1147,6 @@ async function deleteConnection(id) {
     await ctx.api.database.disconnect({ id });
   }
 
-  // Deprovision MCP if active
-  if (conn && conn.mcpProvisioned && conn.projectId) {
-    const project = getProject(conn.projectId);
-    if (project) {
-      await ctx.api.database.deprovisionMcp({ projectPath: project.path, mcpName: conn.mcpName });
-    }
-  }
-
   // Delete credential
   await ctx.api.database.setCredential({ id, password: '' }).catch(() => {});
 
@@ -1173,52 +1155,6 @@ async function deleteConnection(id) {
   renderContent();
 }
 
-async function provisionMcp(id) {
-  const state = require('../../state');
-  const conn = state.getDatabaseConnection(id);
-  if (!conn) return;
-
-  // Need a project path
-  const projectPath = conn.projectId ? getProject(conn.projectId)?.path : null;
-  if (!projectPath) {
-    ctx.showToast({ type: 'error', title: 'Link to a project first' });
-    return;
-  }
-
-  // Get password for MCP env
-  let config = { ...conn };
-  if (conn.type !== 'sqlite') {
-    const cred = await ctx.api.database.getCredential({ id });
-    if (cred.success && cred.password) config.password = cred.password;
-  }
-
-  const result = await ctx.api.database.provisionMcp({ projectPath, config });
-  if (result.success) {
-    state.updateDatabaseConnection(id, { mcpProvisioned: true, mcpName: result.mcpName });
-    await saveConnections();
-    ctx.showToast({ type: 'success', title: t('database.mcpEnabled') });
-  } else {
-    ctx.showToast({ type: 'error', title: result.error });
-  }
-
-  renderContent();
-}
-
-async function deprovisionMcp(id) {
-  const state = require('../../state');
-  const conn = state.getDatabaseConnection(id);
-  if (!conn || !conn.mcpName) return;
-
-  const projectPath = conn.projectId ? getProject(conn.projectId)?.path : null;
-  if (projectPath) {
-    await ctx.api.database.deprovisionMcp({ projectPath, mcpName: conn.mcpName });
-  }
-
-  state.updateDatabaseConnection(id, { mcpProvisioned: false, mcpName: null });
-  await saveConnections();
-  ctx.showToast({ type: 'info', title: t('database.mcpDisabled') });
-  renderContent();
-}
 
 async function runAutoDetect() {
   const state = require('../../state');
@@ -1453,6 +1389,8 @@ async function saveConnections() {
   const state = require('../../state');
   const connections = state.getDatabaseConnections();
   await ctx.api.database.saveConnections({ connections });
+  // Refresh global MCP config (passwords env vars, connection list)
+  await ctx.api.database.refreshMcp().catch(() => {});
 }
 
 function getProject(id) {
