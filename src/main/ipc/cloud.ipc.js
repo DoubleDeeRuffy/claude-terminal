@@ -85,12 +85,12 @@ function registerCloudHandlers() {
     const zipPath = path.join(os.tmpdir(), `ct-upload-${Date.now()}.zip`);
 
     try {
-      // Zip the project
+      // Zip the project (include .git so cloud sessions can push/pull)
       await zipProject(projectPath, zipPath, (progress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('cloud:upload-progress', progress);
         }
-      });
+      }, { includeGit: true });
 
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('cloud:upload-progress', { phase: 'uploading', percent: 90 });
