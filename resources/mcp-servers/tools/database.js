@@ -14,6 +14,31 @@ const path = require('path');
 
 const MAX_ROWS = 100;
 
+// -- SQL identifier escaping --------------------------------------------------
+
+/**
+ * Escape a SQL identifier for SQLite (double-quote escaping).
+ * Doubles any embedded double-quotes: my"table → "my""table"
+ */
+function sqliteId(name) {
+  return '"' + String(name).replace(/"/g, '""') + '"';
+}
+
+/**
+ * Escape a SQL identifier for MySQL (backtick escaping).
+ * Doubles any embedded backticks: my`table → `my``table`
+ */
+function mysqlId(name) {
+  return '`' + String(name).replace(/`/g, '``') + '`';
+}
+
+/**
+ * Escape a SQL identifier for PostgreSQL (double-quote escaping).
+ */
+function pgId(name) {
+  return '"' + String(name).replace(/"/g, '""') + '"';
+}
+
 // -- Logging ------------------------------------------------------------------
 
 function log(...args) {
@@ -166,7 +191,7 @@ async function listTables(client, type, filter) {
     tables = tables.filter(t => match(t.name));
     const result = [];
     for (const { name } of tables) {
-      const columns = client.prepare(`PRAGMA table_info('${name}')`).all();
+      const columns = client.prepare(`PRAGMA table_info(${sqliteId(name)})`).all();
       const colStr = columns.map(c => c.name).join(', ');
       result.push(`${name}: ${colStr}`);
     }
@@ -180,7 +205,7 @@ async function listTables(client, type, filter) {
     for (const row of tables) {
       const tableName = row[key];
       if (!match(tableName)) continue;
-      const [columns] = await client.execute(`SHOW COLUMNS FROM \`${tableName}\``);
+      const [columns] = await client.execute(`SHOW COLUMNS FROM ${mysqlId(tableName)}`);
       const colStr = columns.map(c => c.Field).join(', ');
       result.push(`${tableName}: ${colStr}`);
     }
@@ -215,7 +240,7 @@ async function listTables(client, type, filter) {
 
 async function describeTable(client, type, tableName) {
   if (type === 'sqlite') {
-    const columns = client.prepare(`PRAGMA table_info('${tableName}')`).all();
+    const columns = client.prepare(`PRAGMA table_info(${sqliteId(tableName)})`).all();
     if (!columns.length) return `Table '${tableName}' not found`;
     const lines = columns.map(c => {
       const parts = [`${c.name} ${c.type}`];
@@ -228,7 +253,7 @@ async function describeTable(client, type, tableName) {
   }
 
   if (type === 'mysql') {
-    const [columns] = await client.execute(`SHOW FULL COLUMNS FROM \`${tableName}\``);
+    const [columns] = await client.execute(`SHOW FULL COLUMNS FROM ${mysqlId(tableName)}`);
     if (!columns.length) return `Table '${tableName}' not found`;
     const lines = columns.map(c => {
       const parts = [`${c.Field} ${c.Type}`];
@@ -320,9 +345,10 @@ async function getFullSchema(client, type) {
     const tables = client.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
     const sections = [];
     for (const { name } of tables) {
-      const cols = client.prepare(`PRAGMA table_info('${name}')`).all();
-      const fks = client.prepare(`PRAGMA foreign_key_list('${name}')`).all();
-      const idxs = client.prepare(`PRAGMA index_list('${name}')`).all();
+      const escaped = sqliteId(name);
+      const cols = client.prepare(`PRAGMA table_info(${escaped})`).all();
+      const fks = client.prepare(`PRAGMA foreign_key_list(${escaped})`).all();
+      const idxs = client.prepare(`PRAGMA index_list(${escaped})`).all();
 
       let s = `## ${name}\n`;
       s += cols.map(c => {
@@ -340,7 +366,7 @@ async function getFullSchema(client, type) {
       if (idxs.length) {
         s += '\n  Indexes:';
         for (const idx of idxs) {
-          const iCols = client.prepare(`PRAGMA index_info('${idx.name}')`).all();
+          const iCols = client.prepare(`PRAGMA index_info(${sqliteId(idx.name)})`).all();
           s += `\n    ${idx.name}${idx.unique ? ' (UNIQUE)' : ''}: ${iCols.map(i => i.name).join(', ')}`;
         }
       }
@@ -355,12 +381,12 @@ async function getFullSchema(client, type) {
     const sections = [];
     for (const row of tables) {
       const tn = row[key];
-      const [cols] = await client.execute(`SHOW FULL COLUMNS FROM \`${tn}\``);
+      const [cols] = await client.execute(`SHOW FULL COLUMNS FROM ${mysqlId(tn)}`);
       const [fksRaw] = await client.execute(
         `SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
          WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL`, [tn]);
-      const [idxsRaw] = await client.execute(`SHOW INDEX FROM \`${tn}\``);
+      const [idxsRaw] = await client.execute(`SHOW INDEX FROM ${mysqlId(tn)}`);
 
       let s = `## ${tn}\n`;
       s += cols.map(c => {
@@ -480,7 +506,7 @@ async function getStats(client, type) {
     const lines = [];
     let totalRows = 0;
     for (const { name } of tables) {
-      const row = client.prepare(`SELECT COUNT(*) as cnt FROM "${name}"`).get();
+      const row = client.prepare(`SELECT COUNT(*) as cnt FROM ${sqliteId(name)}`).get();
       lines.push(`${name}: ${row.cnt.toLocaleString()} rows`);
       totalRows += row.cnt;
     }
@@ -498,7 +524,7 @@ async function getStats(client, type) {
     let totalRows = 0;
     for (const row of tables) {
       const tn = row[key];
-      const [cnt] = await client.execute(`SELECT COUNT(*) as cnt FROM \`${tn}\``);
+      const [cnt] = await client.execute(`SELECT COUNT(*) as cnt FROM ${mysqlId(tn)}`);
       const count = Number(cnt[0].cnt);
       lines.push(`${tn}: ${count.toLocaleString()} rows`);
       totalRows += count;
@@ -516,7 +542,7 @@ async function getStats(client, type) {
     const lines = [];
     let totalRows = 0;
     for (const { table_name: tn } of tablesRes.rows) {
-      const cnt = await client.query(`SELECT COUNT(*) as cnt FROM "${tn}"`);
+      const cnt = await client.query(`SELECT COUNT(*) as cnt FROM ${pgId(tn)}`);
       const count = Number(cnt.rows[0].cnt);
       lines.push(`${tn}: ${count.toLocaleString()} rows`);
       totalRows += count;

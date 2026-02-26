@@ -24,6 +24,16 @@ const MAX_ROWS = 100;
 let connection = null;
 let dbType = null;
 
+// -- SQL identifier escaping ------------------------------------------------
+
+function sqliteId(name) {
+  return '"' + String(name).replace(/"/g, '""') + '"';
+}
+
+function mysqlId(name) {
+  return '`' + String(name).replace(/`/g, '``') + '`';
+}
+
 // -- Logging (stderr only) --------------------------------------------------
 
 function log(...args) {
@@ -148,7 +158,7 @@ async function listTables() {
     const tables = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
     const result = [];
     for (const { name } of tables) {
-      const columns = conn.prepare(`PRAGMA table_info('${name}')`).all();
+      const columns = conn.prepare(`PRAGMA table_info(${sqliteId(name)})`).all();
       const colNames = columns.map(c => c.name).join(', ');
       result.push(`${name}: ${colNames}`);
     }
@@ -161,7 +171,7 @@ async function listTables() {
     const result = [];
     for (const row of tables) {
       const tableName = row[key];
-      const [columns] = await conn.execute(`SHOW COLUMNS FROM \`${tableName}\``);
+      const [columns] = await conn.execute(`SHOW COLUMNS FROM ${mysqlId(tableName)}`);
       const colNames = columns.map(c => c.Field).join(', ');
       result.push(`${tableName}: ${colNames}`);
     }
@@ -196,7 +206,7 @@ async function describeTable(tableName) {
   const conn = await getConnection();
 
   if (dbType === 'sqlite') {
-    const columns = conn.prepare(`PRAGMA table_info('${tableName}')`).all();
+    const columns = conn.prepare(`PRAGMA table_info(${sqliteId(tableName)})`).all();
     if (!columns.length) return `Table '${tableName}' not found`;
     const lines = columns.map(c => {
       const parts = [`${c.name} ${c.type}`];
@@ -209,7 +219,7 @@ async function describeTable(tableName) {
   }
 
   if (dbType === 'mysql') {
-    const [columns] = await conn.execute(`SHOW FULL COLUMNS FROM \`${tableName}\``);
+    const [columns] = await conn.execute(`SHOW FULL COLUMNS FROM ${mysqlId(tableName)}`);
     if (!columns.length) return `Table '${tableName}' not found`;
     const lines = columns.map(c => {
       const parts = [`${c.Field} ${c.Type}`];
