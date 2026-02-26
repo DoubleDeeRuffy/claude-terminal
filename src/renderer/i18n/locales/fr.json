@@ -1218,6 +1218,15 @@
     "save": "Enregistrer",
     "cancel": "Annuler",
     "rowCount": "{count} lignes",
-    "detectedFrom": "Détecté depuis {source}"
+    "detectedFrom": "Détecté depuis {source}",
+    "selectTable": "Sélectionnez une table pour parcourir ses données",
+    "browserLoading": "Chargement des données...",
+    "browserClickLoad": "Cliquez sur une table pour charger ses données",
+    "browserNoRows": "Aucune ligne dans cette table",
+    "browserRefresh": "Rafraîchir les données",
+    "browserAddRow": "Insérer une nouvelle ligne",
+    "browserRowUpdated": "Ligne mise à jour",
+    "browserRowInserted": "Ligne insérée",
+    "browserEditNotSupported": "L'édition en ligne n'est pas supportée pour MongoDB"
   }
 }

@@ -13,7 +13,18 @@ let panelState = {
   initialized: false,
   activeSubTab: 'connections', // 'connections' | 'schema' | 'query'
   expandedTables: new Set(),
-  queryRunning: false
+  queryRunning: false,
+  // Data browser state
+  browserSelectedTable: null,
+  browserTableFilter: '',
+  browserData: null,       // { columns, rows, totalCount }
+  browserPage: 0,
+  browserPageSize: 50,
+  browserLoading: false,
+  browserSortCol: null,
+  browserSortDir: 'ASC',
+  browserEditingCell: null, // { row, col, original }
+  browserPendingEdits: new Map(), // rowIdx -> { col: newVal }
 };
 
 function init(context) {
@@ -223,7 +234,7 @@ function bindConnectionEvents(container) {
   });
 }
 
-// ==================== Schema Tab ====================
+// ==================== Schema / Data Browser Tab ====================
 
 function renderSchema(container) {
   const state = require('../../state');
@@ -237,68 +248,420 @@ function renderSchema(container) {
   const schema = state.getDatabaseSchema(activeId);
   if (!schema) {
     loadSchema(activeId);
-    container.innerHTML = `<div class="database-empty-state"><div class="database-empty-text">${t('database.detecting')}</div></div>`;
+    container.innerHTML = `<div class="database-empty-state">
+      <div class="database-empty-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M12 3C7.58 3 4 4.79 4 7v10c0 2.21 3.58 4 8 4s8-1.79 8-4V7c0-2.21-3.58-4-8-4zm6 14c0 .5-2.13 2-6 2s-6-1.5-6-2v-2.23c1.61.78 3.72 1.23 6 1.23s4.39-.45 6-1.23V17zm0-5c0 .5-2.13 2-6 2s-6-1.5-6-2V9.77C7.61 10.55 9.72 11 12 11s4.39-.45 6-1.23V12zm-6-3c-3.87 0-6-1.5-6-2s2.13-2 6-2 6 1.5 6 2-2.13 2-6 2z"/></svg>
+      </div>
+      <div class="database-empty-text">${t('database.detecting')}</div>
+    </div>`;
     return;
   }
 
   const conn = state.getDatabaseConnection(activeId);
-  const isMonogo = conn && conn.type === 'mongodb';
-  const tableLabel = isMonogo ? t('database.collections') : t('database.tables');
-  const columnLabel = isMonogo ? t('database.fields') : t('database.columns');
+  const isMongo = conn && conn.type === 'mongodb';
+  const tableLabel = isMongo ? t('database.collections') : t('database.tables');
+  const columnLabel = isMongo ? t('database.fields') : t('database.columns');
 
   if (!schema.tables || schema.tables.length === 0) {
     container.innerHTML = `<div class="database-empty-state"><div class="database-empty-text">${t('database.noTables')}</div></div>`;
     return;
   }
 
-  let html = `<div class="database-schema-tree">`;
-  html += `<div class="database-schema-header">${tableLabel} (${schema.tables.length})</div>`;
+  // Filter tables
+  const filter = panelState.browserTableFilter.toLowerCase();
+  const filteredTables = filter
+    ? schema.tables.filter(t => t.name.toLowerCase().includes(filter))
+    : schema.tables;
 
-  for (const table of schema.tables) {
-    const expanded = panelState.expandedTables.has(table.name);
-    html += `
-      <div class="database-schema-table ${expanded ? 'expanded' : ''}" data-table="${escapeHtml(table.name)}">
-        <div class="database-schema-table-header">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12" class="database-schema-chevron">
-            <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
-          </svg>
-          <span class="database-schema-table-name">${escapeHtml(table.name)}</span>
-          <span class="database-schema-table-count">${table.columns.length} ${columnLabel.toLowerCase()}</span>
+  const selectedTable = panelState.browserSelectedTable;
+  const selectedMeta = selectedTable ? schema.tables.find(t => t.name === selectedTable) : null;
+
+  container.innerHTML = `
+    <div class="db-browser">
+      <div class="db-browser-sidebar">
+        <div class="db-browser-search">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="text" class="db-browser-search-input" id="db-browser-filter" placeholder="${tableLabel}..." value="${escapeHtml(panelState.browserTableFilter)}">
+          <span class="db-browser-count">${filteredTables.length}</span>
         </div>
-        ${expanded ? buildColumnsHtml(table.columns) : ''}
-      </div>`;
-  }
+        <div class="db-browser-table-list" id="db-browser-table-list">
+          ${filteredTables.map(table => `
+            <div class="db-browser-table-item ${table.name === selectedTable ? 'active' : ''}" data-table="${escapeHtml(table.name)}">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" class="db-browser-table-icon"><path d="M3 3h18v18H3V3zm2 4v4h6V7H5zm8 0v4h6V7h-6zm-8 6v4h6v-4H5zm8 0v4h6v-4h-6z"/></svg>
+              <span class="db-browser-table-name">${escapeHtml(table.name)}</span>
+              <span class="db-browser-table-cols">${table.columns.length}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="db-browser-main">
+        ${selectedTable && selectedMeta ? renderBrowserDataPanel(selectedTable, selectedMeta, isMongo, columnLabel) : renderBrowserEmptyState(tableLabel)}
+      </div>
+    </div>`;
 
-  html += `</div>`;
-  container.innerHTML = html;
-
-  // Bind expand/collapse
-  container.querySelectorAll('.database-schema-table-header').forEach(header => {
-    header.onclick = () => {
-      const tableName = header.parentElement.dataset.table;
-      if (panelState.expandedTables.has(tableName)) {
-        panelState.expandedTables.delete(tableName);
-      } else {
-        panelState.expandedTables.add(tableName);
-      }
-      renderContent();
-    };
-  });
+  bindBrowserEvents(container);
 }
 
-function buildColumnsHtml(columns) {
-  let html = '<div class="database-schema-columns">';
-  for (const col of columns) {
-    html += `
-      <div class="database-schema-column">
-        ${col.primaryKey ? '<span class="pk-icon" title="Primary Key">PK</span>' : '<span class="pk-spacer"></span>'}
-        <span class="col-name">${escapeHtml(col.name)}</span>
-        <span class="col-type">${escapeHtml(col.type)}</span>
-        ${col.nullable ? '<span class="col-nullable">NULL</span>' : ''}
+function renderBrowserEmptyState(tableLabel) {
+  return `
+    <div class="db-browser-empty">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="40" height="40"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+      <span>${t('database.selectTable')}</span>
+    </div>`;
+}
+
+function renderBrowserDataPanel(tableName, tableMeta, isMongo, columnLabel) {
+  const data = panelState.browserData;
+  const loading = panelState.browserLoading;
+  const page = panelState.browserPage;
+  const pageSize = panelState.browserPageSize;
+  const sortCol = panelState.browserSortCol;
+  const sortDir = panelState.browserSortDir;
+
+  // Column info strip
+  const colsHtml = tableMeta.columns.map(col => {
+    const pkClass = col.primaryKey ? ' pk' : '';
+    return `<span class="db-col-chip${pkClass}" title="${escapeHtml(col.type)}${col.primaryKey ? ' (PK)' : ''}${col.nullable ? ' NULL' : ''}">
+      ${col.primaryKey ? '<span class="db-col-pk">PK</span>' : ''}
+      ${escapeHtml(col.name)}
+      <span class="db-col-type">${escapeHtml(col.type)}</span>
+    </span>`;
+  }).join('');
+
+  // Data grid
+  let gridHtml = '';
+  if (loading) {
+    gridHtml = `<div class="db-browser-loading"><div class="db-browser-spinner"></div>${t('database.browserLoading')}</div>`;
+  } else if (!data || !data.rows) {
+    gridHtml = `<div class="db-browser-loading">${t('database.browserClickLoad')}</div>`;
+  } else if (data.rows.length === 0) {
+    gridHtml = `<div class="db-browser-loading">${t('database.browserNoRows')}</div>`;
+  } else {
+    const cols = data.columns || [];
+    gridHtml = `
+      <div class="db-grid-wrapper">
+        <table class="db-grid">
+          <thead><tr>
+            <th class="db-grid-row-num">#</th>
+            ${cols.map(col => {
+              const isSorted = sortCol === col;
+              const arrow = isSorted ? (sortDir === 'ASC' ? ' &#9650;' : ' &#9660;') : '';
+              return `<th class="db-grid-th ${isSorted ? 'sorted' : ''}" data-col="${escapeHtml(col)}">${escapeHtml(col)}${arrow}</th>`;
+            }).join('')}
+          </tr></thead>
+          <tbody>
+            ${data.rows.map((row, ri) => {
+              const globalIdx = page * pageSize + ri + 1;
+              return `<tr data-row="${ri}">
+                <td class="db-grid-row-num">${globalIdx}</td>
+                ${cols.map(col => {
+                  const val = row[col];
+                  const isNull = val === null || val === undefined;
+                  const displayVal = isNull ? 'NULL' : escapeHtml(String(val));
+                  const cellClass = isNull ? 'db-grid-cell null' : 'db-grid-cell';
+                  const isEditing = panelState.browserEditingCell && panelState.browserEditingCell.row === ri && panelState.browserEditingCell.col === col;
+                  if (isEditing) {
+                    return `<td class="db-grid-cell editing"><input class="db-grid-edit-input" data-row="${ri}" data-col="${escapeHtml(col)}" value="${isNull ? '' : escapeHtml(String(val))}" autofocus></td>`;
+                  }
+                  return `<td class="${cellClass}" data-row="${ri}" data-col="${escapeHtml(col)}">${displayVal}</td>`;
+                }).join('')}
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
       </div>`;
   }
-  html += '</div>';
-  return html;
+
+  // Pagination
+  const totalCount = data ? (data.totalCount || data.rows?.length || 0) : 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const rowsShown = data && data.rows ? data.rows.length : 0;
+  const fromRow = rowsShown > 0 ? page * pageSize + 1 : 0;
+  const toRow = fromRow + rowsShown - 1;
+
+  return `
+    <div class="db-browser-panel">
+      <div class="db-browser-toolbar">
+        <div class="db-browser-toolbar-left">
+          <span class="db-browser-table-title">${escapeHtml(tableName)}</span>
+          <span class="db-browser-row-info">${totalCount > 0 ? `${fromRow}-${toRow} / ${totalCount}` : ''}</span>
+        </div>
+        <div class="db-browser-toolbar-right">
+          <button class="db-browser-btn" id="db-browser-refresh" title="${t('database.browserRefresh')}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+          </button>
+          <button class="db-browser-btn" id="db-browser-add-row" title="${t('database.browserAddRow')}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+          <div class="db-browser-pagination">
+            <button class="db-browser-btn" id="db-browser-prev" ${page <= 0 ? 'disabled' : ''}>
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+            </button>
+            <span class="db-browser-page-info">${page + 1} / ${totalPages}</span>
+            <button class="db-browser-btn" id="db-browser-next" ${page >= totalPages - 1 ? 'disabled' : ''}>
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="db-browser-columns-strip">${colsHtml}</div>
+      <div class="db-browser-grid-container">${gridHtml}</div>
+    </div>`;
+}
+
+function bindBrowserEvents(container) {
+  // Table filter
+  const filterInput = container.querySelector('#db-browser-filter');
+  if (filterInput) {
+    filterInput.oninput = () => {
+      panelState.browserTableFilter = filterInput.value;
+      renderContent();
+      // Re-focus input after re-render
+      setTimeout(() => {
+        const input = document.querySelector('#db-browser-filter');
+        if (input) { input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
+      }, 0);
+    };
+  }
+
+  // Table selection
+  container.querySelectorAll('.db-browser-table-item').forEach(item => {
+    item.onclick = () => {
+      const tableName = item.dataset.table;
+      if (panelState.browserSelectedTable !== tableName) {
+        panelState.browserSelectedTable = tableName;
+        panelState.browserPage = 0;
+        panelState.browserSortCol = null;
+        panelState.browserSortDir = 'ASC';
+        panelState.browserData = null;
+        panelState.browserEditingCell = null;
+        panelState.browserPendingEdits.clear();
+        renderContent();
+        loadTableData(tableName);
+      }
+    };
+  });
+
+  // Refresh
+  const refreshBtn = container.querySelector('#db-browser-refresh');
+  if (refreshBtn) refreshBtn.onclick = () => loadTableData(panelState.browserSelectedTable);
+
+  // Pagination
+  const prevBtn = container.querySelector('#db-browser-prev');
+  if (prevBtn) prevBtn.onclick = () => { panelState.browserPage--; loadTableData(panelState.browserSelectedTable); };
+  const nextBtn = container.querySelector('#db-browser-next');
+  if (nextBtn) nextBtn.onclick = () => { panelState.browserPage++; loadTableData(panelState.browserSelectedTable); };
+
+  // Column sort
+  container.querySelectorAll('.db-grid-th').forEach(th => {
+    th.onclick = () => {
+      const col = th.dataset.col;
+      if (panelState.browserSortCol === col) {
+        panelState.browserSortDir = panelState.browserSortDir === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        panelState.browserSortCol = col;
+        panelState.browserSortDir = 'ASC';
+      }
+      panelState.browserPage = 0;
+      loadTableData(panelState.browserSelectedTable);
+    };
+  });
+
+  // Cell click to edit
+  container.querySelectorAll('.db-grid-cell:not(.editing)').forEach(cell => {
+    cell.ondblclick = () => {
+      const row = parseInt(cell.dataset.row);
+      const col = cell.dataset.col;
+      if (col === undefined) return;
+      panelState.browserEditingCell = { row, col, original: cell.textContent };
+      renderContent();
+      setTimeout(() => {
+        const input = document.querySelector('.db-grid-edit-input');
+        if (input) { input.focus(); input.select(); }
+      }, 0);
+    };
+  });
+
+  // Edit input handling
+  container.querySelectorAll('.db-grid-edit-input').forEach(input => {
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        commitCellEdit(input);
+      } else if (e.key === 'Escape') {
+        panelState.browserEditingCell = null;
+        renderContent();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        commitCellEdit(input);
+      }
+    };
+    input.onblur = () => {
+      // Small delay to avoid conflicts with clicks
+      setTimeout(() => {
+        if (panelState.browserEditingCell) {
+          commitCellEdit(input);
+        }
+      }, 100);
+    };
+  });
+
+  // Add row button
+  const addRowBtn = container.querySelector('#db-browser-add-row');
+  if (addRowBtn) addRowBtn.onclick = () => insertNewRow();
+}
+
+async function commitCellEdit(input) {
+  const row = parseInt(input.dataset.row);
+  const col = input.dataset.col;
+  const newVal = input.value;
+  const data = panelState.browserData;
+
+  if (!data || !data.rows[row]) return;
+
+  const oldVal = data.rows[row][col];
+  const oldStr = oldVal === null || oldVal === undefined ? '' : String(oldVal);
+
+  panelState.browserEditingCell = null;
+
+  if (newVal === oldStr) {
+    renderContent();
+    return;
+  }
+
+  // Build UPDATE query
+  const state = require('../../state');
+  const activeId = state.getActiveConnection();
+  const conn = state.getDatabaseConnection(activeId);
+  const schema = state.getDatabaseSchema(activeId);
+  const tableMeta = schema?.tables?.find(t => t.name === panelState.browserSelectedTable);
+
+  if (!tableMeta || !activeId) return;
+
+  // Find primary key for WHERE clause
+  const pkCol = tableMeta.columns.find(c => c.primaryKey);
+  const isMongo = conn && conn.type === 'mongodb';
+
+  if (isMongo) {
+    ctx.showToast({ type: 'warning', title: t('database.browserEditNotSupported') });
+    renderContent();
+    return;
+  }
+
+  let whereClause = '';
+  if (pkCol) {
+    const pkVal = data.rows[row][pkCol.name];
+    whereClause = `WHERE \`${pkCol.name}\` = ${typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal}`;
+  } else {
+    // No PK — use all columns for WHERE
+    const conditions = data.columns.map(c => {
+      const v = data.rows[row][c];
+      if (v === null || v === undefined) return `\`${c}\` IS NULL`;
+      return `\`${c}\` = ${typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : v}`;
+    });
+    whereClause = `WHERE ${conditions.join(' AND ')} LIMIT 1`;
+  }
+
+  const setVal = newVal === '' ? 'NULL' : `'${newVal.replace(/'/g, "''")}'`;
+  const sql = `UPDATE \`${panelState.browserSelectedTable}\` SET \`${col}\` = ${setVal} ${whereClause}`;
+
+  try {
+    const result = await ctx.api.database.executeQuery({ id: activeId, sql });
+    if (result.error) {
+      ctx.showToast({ type: 'error', title: result.error });
+    } else {
+      // Update local data
+      data.rows[row][col] = newVal === '' ? null : newVal;
+      ctx.showToast({ type: 'success', title: t('database.browserRowUpdated') });
+    }
+  } catch (e) {
+    ctx.showToast({ type: 'error', title: e.message });
+  }
+
+  renderContent();
+}
+
+async function insertNewRow() {
+  const state = require('../../state');
+  const activeId = state.getActiveConnection();
+  const conn = state.getDatabaseConnection(activeId);
+  if (!activeId || !panelState.browserSelectedTable) return;
+
+  if (conn && conn.type === 'mongodb') {
+    ctx.showToast({ type: 'warning', title: t('database.browserEditNotSupported') });
+    return;
+  }
+
+  const sql = `INSERT INTO \`${panelState.browserSelectedTable}\` () VALUES ()`;
+  try {
+    const result = await ctx.api.database.executeQuery({ id: activeId, sql });
+    if (result.error) {
+      ctx.showToast({ type: 'error', title: result.error });
+    } else {
+      ctx.showToast({ type: 'success', title: t('database.browserRowInserted') });
+      loadTableData(panelState.browserSelectedTable);
+    }
+  } catch (e) {
+    ctx.showToast({ type: 'error', title: e.message });
+  }
+}
+
+async function loadTableData(tableName) {
+  if (!tableName) return;
+  const state = require('../../state');
+  const activeId = state.getActiveConnection();
+  const conn = state.getDatabaseConnection(activeId);
+  if (!activeId) return;
+
+  panelState.browserLoading = true;
+  panelState.browserEditingCell = null;
+  renderContent();
+
+  const isMongo = conn && conn.type === 'mongodb';
+  const page = panelState.browserPage;
+  const pageSize = panelState.browserPageSize;
+  const offset = page * pageSize;
+  const sortCol = panelState.browserSortCol;
+  const sortDir = panelState.browserSortDir;
+
+  let sql, countSql;
+  if (isMongo) {
+    sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+    countSql = null;
+  } else {
+    const orderBy = sortCol ? ` ORDER BY \`${sortCol}\` ${sortDir}` : '';
+    sql = `SELECT * FROM \`${tableName}\`${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
+    countSql = `SELECT COUNT(*) as cnt FROM \`${tableName}\``;
+  }
+
+  try {
+    // Fetch count + data in parallel
+    const [dataResult, countResult] = await Promise.all([
+      ctx.api.database.executeQuery({ id: activeId, sql, limit: pageSize }),
+      countSql ? ctx.api.database.executeQuery({ id: activeId, sql: countSql, limit: 1 }) : Promise.resolve(null)
+    ]);
+
+    let totalCount = 0;
+    if (countResult && countResult.rows && countResult.rows.length > 0) {
+      totalCount = Object.values(countResult.rows[0])[0] || 0;
+    }
+
+    panelState.browserData = {
+      columns: dataResult.columns || [],
+      rows: dataResult.rows || [],
+      totalCount: totalCount || dataResult.rows?.length || 0,
+      error: dataResult.error || null
+    };
+
+    if (dataResult.error) {
+      ctx.showToast({ type: 'error', title: dataResult.error });
+    }
+  } catch (e) {
+    panelState.browserData = { columns: [], rows: [], totalCount: 0, error: e.message };
+    ctx.showToast({ type: 'error', title: e.message });
+  }
+
+  panelState.browserLoading = false;
+  renderContent();
 }
 
 async function loadSchema(id) {

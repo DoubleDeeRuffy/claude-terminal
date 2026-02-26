@@ -1218,6 +1218,15 @@
     "save": "Save",
     "cancel": "Cancel",
     "rowCount": "{count} rows",
-    "detectedFrom": "Detected from {source}"
+    "detectedFrom": "Detected from {source}",
+    "selectTable": "Select a table to browse its data",
+    "browserLoading": "Loading data...",
+    "browserClickLoad": "Click a table to load its data",
+    "browserNoRows": "No rows found in this table",
+    "browserRefresh": "Refresh data",
+    "browserAddRow": "Insert new row",
+    "browserRowUpdated": "Row updated",
+    "browserRowInserted": "Row inserted",
+    "browserEditNotSupported": "Inline editing is not supported for MongoDB"
   }
 }
