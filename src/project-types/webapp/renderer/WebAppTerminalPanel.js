@@ -1007,6 +1007,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
         <button class="wa-send-all">${t('webapp.sendToClaude')}</button>
         <button class="wa-browser-btn wa-open-ext" title="${t('webapp.openBrowser')}">${ICON_OPEN}</button>
       </div>
+      <div class="wa-scan-filters"></div>
       <div class="wa-browser-viewport">
         <div class="wa-responsive-frame">
           <webview class="webapp-preview-webview" src="${url}" disableblinkfeatures="Auxclick"></webview>
@@ -1040,6 +1041,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   let autoAnnotations = [];
   let nextAutoPinId = 1000;
   let scanActive = false;
+  let scanFilterHidden = new Set(); // issue types currently hidden by filter
 
   // Ruler state (transient)
   let rulerActive = false;
@@ -1055,6 +1057,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   const rulerBtn = previewView.querySelector('.wa-ruler');
   const rulerBadge = previewView.querySelector('.wa-ruler-count');
   const overlay = previewView.querySelector('.wa-pins-overlay');
+  const scanFiltersEl = previewView.querySelector('.wa-scan-filters');
 
   /** Get annotations for the current page */
   function getPageAnns() {
@@ -1122,6 +1125,90 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     } else {
       scanBadge.textContent = '';
       scanBadge.classList.remove('visible');
+    }
+  }
+
+  /** Build scan filter bar from current autoAnnotations */
+  function buildScanFilters() {
+    if (!scanFiltersEl) return;
+    // Count issues by type
+    const counts = {};
+    for (const ann of autoAnnotations) {
+      counts[ann.issueType] = (counts[ann.issueType] || 0) + 1;
+    }
+    const types = Object.keys(counts);
+    if (types.length === 0) {
+      scanFiltersEl.innerHTML = '';
+      scanFiltersEl.classList.remove('visible');
+      return;
+    }
+
+    const typeLabels = {
+      'overflow': t('webapp.scan.types.overflow'),
+      'contrast': t('webapp.scan.types.contrast'),
+      'broken-image': t('webapp.scan.types.brokenImage'),
+      'z-index': t('webapp.scan.types.zIndex'),
+      'aria': t('webapp.scan.types.aria'),
+      'alt-text': t('webapp.scan.types.altText'),
+      'keyboard': t('webapp.scan.types.keyboard'),
+      'structure': t('webapp.scan.types.structure'),
+      'a11y': t('webapp.scan.types.a11y')
+    };
+
+    // Sort by count descending
+    types.sort((a, b) => counts[b] - counts[a]);
+
+    let html = '';
+    for (const type of types) {
+      const active = !scanFilterHidden.has(type);
+      html += `<button class="wa-scan-filter-chip ${active ? 'active' : ''}" data-filter-type="${type}">
+        <span class="wa-scan-filter-dot" data-type="${type}"></span>
+        ${typeLabels[type] || type} <span class="wa-scan-filter-count">${counts[type]}</span>
+      </button>`;
+    }
+    scanFiltersEl.innerHTML = html;
+    scanFiltersEl.classList.add('visible');
+
+    // Wire click handlers
+    for (const chip of scanFiltersEl.querySelectorAll('.wa-scan-filter-chip')) {
+      chip.onclick = () => {
+        const type = chip.dataset.filterType;
+        if (scanFilterHidden.has(type)) {
+          scanFilterHidden.delete(type);
+          chip.classList.add('active');
+        } else {
+          scanFilterHidden.add(type);
+          chip.classList.remove('active');
+        }
+        applyScanFilter();
+      };
+    }
+  }
+
+  /** Show/hide auto pins based on active filters */
+  function applyScanFilter() {
+    for (const ann of autoAnnotations) {
+      const pinEl = overlay.querySelector(`.wa-pin-auto[data-pin-id="${ann.id}"]`);
+      if (!pinEl) continue;
+      pinEl.style.display = scanFilterHidden.has(ann.issueType) ? 'none' : '';
+    }
+    // Update scan badge with visible count only
+    const visibleCount = autoAnnotations.filter(a => !scanFilterHidden.has(a.issueType)).length;
+    if (visibleCount > 0) {
+      scanBadge.textContent = visibleCount;
+      scanBadge.classList.add('visible');
+    } else {
+      scanBadge.textContent = '';
+      scanBadge.classList.remove('visible');
+    }
+    updateBadge();
+  }
+
+  function clearScanFilters() {
+    scanFilterHidden.clear();
+    if (scanFiltersEl) {
+      scanFiltersEl.innerHTML = '';
+      scanFiltersEl.classList.remove('visible');
     }
   }
 
@@ -1351,6 +1438,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     nextAutoPinId = 1000;
     overlay.querySelectorAll('.wa-pin-auto').forEach(el => el.remove());
     updateScanBadge();
+    clearScanFilters();
   }
 
   function addAutoPin(annotation) {
@@ -1494,6 +1582,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
 
     updateScanBadge();
     updateBadge();
+    buildScanFilters();
     scanBtn?.classList.add('scan-found');
     setTimeout(() => scanBtn?.classList.remove('scan-found'), 2000);
   }
