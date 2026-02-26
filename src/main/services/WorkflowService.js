@@ -16,6 +16,7 @@
 'use strict';
 
 const crypto    = require('crypto');
+const fs        = require('fs');
 const path      = require('path');
 
 const storage   = require('./WorkflowStorage');
@@ -97,15 +98,49 @@ class WorkflowService {
   init() {
     const workflows = storage.loadWorkflows();
     this._scheduler.reload(workflows);
+    this._startMcpTriggerPoll();
     console.log(`[WorkflowService] Initialized with ${workflows.length} workflow(s)`);
   }
 
   destroy() {
     this._scheduler.destroy();
+    if (this._mcpPollTimer) clearInterval(this._mcpPollTimer);
     for (const [, exec] of this._active) {
       exec.abortController.abort();
     }
     this._active.clear();
+  }
+
+  /**
+   * Poll for MCP trigger/cancel request files.
+   * The MCP process writes JSON files in workflows/triggers/ since it
+   * cannot call WorkflowService directly (separate process).
+   */
+  _startMcpTriggerPoll() {
+    const triggersDir = path.join(require('os').homedir(), '.claude-terminal', 'workflows', 'triggers');
+    this._mcpPollTimer = setInterval(() => {
+      try {
+        if (!fs.existsSync(triggersDir)) return;
+        const files = fs.readdirSync(triggersDir).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+          const filePath = path.join(triggersDir, file);
+          try {
+            const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            fs.unlinkSync(filePath);
+
+            if (data.action === 'cancel' && data.runId) {
+              this.cancel(data.runId);
+              console.log(`[WorkflowService] MCP cancel: ${data.runId}`);
+            } else if (data.workflowId) {
+              this.trigger(data.workflowId, { trigger: 'mcp' });
+              console.log(`[WorkflowService] MCP trigger: ${data.workflowId}`);
+            }
+          } catch (e) {
+            try { fs.unlinkSync(filePath); } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }, 3000);
   }
 
   // ─── IPC bridge ─────────────────────────────────────────────────────────────
