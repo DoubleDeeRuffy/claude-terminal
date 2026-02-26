@@ -871,8 +871,9 @@ function _ensureChatBridge() {
 
 function _teardownChatBridge() {
   if (!_chatBridgeInstalled) return;
-  // Only remove if neither local server nor cloud client are active
-  if (httpServer || _cloudClient?.connected) return;
+  // Only remove if neither local server nor cloud client are registered
+  // (check _cloudClient existence, not .connected — connection may come later)
+  if (httpServer || _cloudClient) return;
   _chatBridgeInstalled = false;
   try {
     const chatService = require('./ChatService');
@@ -925,8 +926,8 @@ function stop() {
   if (wss) { wss.close(); wss = null; }
   if (httpServer) { httpServer.close(); httpServer = null; }
 
-  // Only clear shared caches if cloud is also disconnected
-  if (!_cloudClient?.connected) {
+  // Only clear shared caches if no cloud client is registered
+  if (!_cloudClient) {
     _sessionProjectMap.clear();
     _sessionMessageBuffer.clear();
     _sessionTabNames.clear();
