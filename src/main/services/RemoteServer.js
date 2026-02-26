@@ -78,7 +78,9 @@ const _cloudWsProxy = {
   get readyState() { return _cloudClient?.connected ? 1 : 3; },
   send(data) {
     if (_cloudClient?.connected) {
-      try { _cloudClient.send(typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) {}
+      try { _cloudClient.send(typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) {
+        console.warn(`[Remote] Cloud proxy send failed: ${e.message}`);
+      }
     }
   },
   close() {},
@@ -86,6 +88,11 @@ const _cloudWsProxy = {
 
 // Cache sessionId → projectId mapping to avoid disk reads on every chat-idle
 const _sessionProjectMap = new Map();
+
+// Buffer of chat events per session — replayed to late-joining clients
+// Each entry is an array of { channel, data } objects
+const _sessionMessageBuffer = new Map();
+const MAX_BUFFER_PER_SESSION = 500; // cap to prevent memory issues
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -340,8 +347,10 @@ function _sendProjectsAndSessions(ws) {
     _wsSend(ws, 'projects:updated', { projects, folders, rootOrder });
 
     // Envoyer les sessions actives une par une via session:started
+    // + replay buffered messages so late-joining clients see conversation history
     const chatService = require('./ChatService');
     const activeSessions = chatService.getActiveSessions();
+    let totalBuffered = 0;
     console.log(`[Remote] Sending init data — ${projects.length} project(s), ${activeSessions.length} active session(s)`);
     for (const { sessionId, cwd } of activeSessions) {
       const project = projects.find(p => p.path && cwd && (
@@ -354,6 +363,18 @@ function _sendProjectsAndSessions(ws) {
         projectId,
         tabName: project?.name || 'Chat',
       });
+
+      // Replay buffered chat events for this session
+      const buffer = _sessionMessageBuffer.get(sessionId);
+      if (buffer && buffer.length > 0) {
+        totalBuffered += buffer.length;
+        for (const { channel, data } of buffer) {
+          _wsSend(ws, channel, data);
+        }
+      }
+    }
+    if (totalBuffered > 0) {
+      console.log(`[Remote] Replayed ${totalBuffered} buffered chat event(s)`);
     }
   } catch (e) {
     console.warn(`[Remote] Failed to send init data: ${e.message}`);
@@ -813,21 +834,37 @@ function start(win, port = 3712) {
   // Bridge ChatService events → connected WS clients
   const chatService = require('./ChatService');
   chatService.setRemoteEventCallback((channel, data) => {
-    const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed'];
+    const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed', 'session:tab-renamed'];
     if (relayed.includes(channel)) {
       let enriched = data;
-      // Enrich chat-idle with cached projectId (populated at session:started)
-      if (channel === 'chat-idle' && data?.sessionId) {
+      // Enrich chat-idle / chat-permission-request with cached projectId
+      if ((channel === 'chat-idle' || channel === 'chat-permission-request') && data?.sessionId) {
         const cachedProjectId = _sessionProjectMap.get(data.sessionId);
         if (cachedProjectId) {
           enriched = { ...data, projectId: cachedProjectId };
         }
       }
-      // Clean up session project cache on session:closed
-      if (channel === 'session:closed' && data?.sessionId) {
-        _sessionProjectMap.delete(data.sessionId);
+
+      // Buffer chat events per session for late-joining clients
+      const sid = data?.sessionId;
+      if (sid) {
+        const buffered = ['chat-message', 'chat-user-message', 'chat-permission-request', 'chat-idle', 'chat-done'];
+        if (buffered.includes(channel)) {
+          if (!_sessionMessageBuffer.has(sid)) _sessionMessageBuffer.set(sid, []);
+          const buf = _sessionMessageBuffer.get(sid);
+          buf.push({ channel, data: enriched });
+          if (buf.length > MAX_BUFFER_PER_SESSION) buf.shift();
+        }
+        // Clean up buffers on session end
+        if (channel === 'session:closed' || channel === 'chat-error') {
+          _sessionMessageBuffer.delete(sid);
+          _sessionProjectMap.delete(sid);
+        }
       }
-      console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
+
+      if (channel !== 'chat-message') {
+        console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
+      }
       _broadcast(channel, enriched);
     }
   });
@@ -845,6 +882,7 @@ function stop() {
   _connectedClients.clear();
   _sessionTokens.clear();
   _sessionProjectMap.clear();
+  _sessionMessageBuffer.clear();
   _pin = null;
   _failedAttempts = 0;
   _lockoutUntil = 0;
