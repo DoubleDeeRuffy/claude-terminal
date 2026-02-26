@@ -147,43 +147,64 @@ function renderWorkflowList(el) {
 
   el.querySelectorAll('.wf-card').forEach(card => {
     const id = card.dataset.id;
-    card.querySelector('.wf-card-body').addEventListener('click', () => openDetail(id));
+    card.querySelector('.wf-card-body').addEventListener('click', (e) => {
+      // Don't trigger detail when clicking interactive elements
+      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
+      openDetail(id);
+    });
     card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
-    card.querySelector('.wf-card-toggle')?.addEventListener('change', e => toggleWorkflow(id, e.target.checked));
+    const toggle = card.querySelector('.wf-card-toggle');
+    if (toggle) {
+      toggle.addEventListener('change', e => { e.stopPropagation(); toggleWorkflow(id, e.target.checked); });
+      toggle.closest('.wf-switch')?.addEventListener('click', e => e.stopPropagation());
+    }
   });
 }
 
 function cardHtml(wf) {
   const lastRun = state.runs.find(r => r.workflowId === wf.id);
   const cfg = TRIGGER_CONFIG[wf.trigger.type];
+  const runCount = state.runs.filter(r => r.workflowId === wf.id).length;
+  const successCount = state.runs.filter(r => r.workflowId === wf.id && r.status === 'success').length;
 
   return `
     <div class="wf-card ${wf.enabled ? '' : 'wf-card--off'}" data-id="${wf.id}">
       <div class="wf-card-accent wf-card-accent--${cfg.color}"></div>
       <div class="wf-card-body">
         <div class="wf-card-top">
-          <span class="wf-card-name">${escapeHtml(wf.name)}</span>
-          ${lastRun ? `<span class="wf-status-pill wf-status-pill--${lastRun.status}">${statusDot(lastRun.status)}${statusLabel(lastRun.status)}</span>` : `<span class="wf-status-pill wf-status-pill--none">–</span>`}
+          <div class="wf-card-title-row">
+            <span class="wf-card-name">${escapeHtml(wf.name)}</span>
+            ${!wf.enabled ? '<span class="wf-card-paused">PAUSED</span>' : ''}
+          </div>
+          <div class="wf-card-top-right">
+            ${lastRun ? `<span class="wf-status-pill wf-status-pill--${lastRun.status}">${statusDot(lastRun.status)}${statusLabel(lastRun.status)}</span>` : ''}
+            <label class="wf-switch"><input type="checkbox" class="wf-card-toggle" ${wf.enabled ? 'checked' : ''}><span class="wf-switch-track"></span></label>
+          </div>
         </div>
-        <div class="wf-card-sub">
+        <div class="wf-card-pipeline">
+          ${wf.steps.map((s, i) => {
+            const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
+            const stepStatus = lastRun ? (lastRun.steps[i]?.status || '') : '';
+            return `<div class="wf-pipe-step ${stepStatus ? 'wf-pipe-step--' + stepStatus : ''}" title="${escapeHtml(s.type)}">
+              <span class="wf-chip wf-chip--${info.color}">${info.icon}</span>
+              <span class="wf-pipe-label">${escapeHtml(info.label)}</span>
+            </div>${i < wf.steps.length - 1 ? '<span class="wf-pipe-arrow"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>' : ''}`;
+          }).join('')}
+        </div>
+        <div class="wf-card-footer">
           <span class="wf-trigger-tag wf-trigger-tag--${cfg.color}">
             ${cfg.icon}
             ${escapeHtml(cfg.label)}
             ${wf.trigger.value ? `<code>${escapeHtml(wf.trigger.value)}</code>` : ''}
             ${wf.hookType ? `<code>${escapeHtml(wf.hookType)}</code>` : ''}
           </span>
-          <span class="wf-steps-chain">
-            ${wf.steps.slice(0, 6).map(s => {
-              const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
-              return `<span class="wf-chip wf-chip--${info.color}" title="${escapeHtml(s.type)}">${info.icon}</span>`;
-            }).join('<span class="wf-chain-arrow">›</span>')}
-            ${wf.steps.length > 6 ? `<span class="wf-chip-more">+${wf.steps.length - 6}</span>` : ''}
-          </span>
+          <div class="wf-card-stats">
+            ${runCount > 0 ? `<span class="wf-card-stat">${svgRuns()} ${runCount} run${runCount > 1 ? 's' : ''}</span>` : ''}
+            ${runCount > 0 ? `<span class="wf-card-stat wf-card-stat--rate">${Math.round(successCount / runCount * 100)}%</span>` : ''}
+            ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${escapeHtml(lastRun.duration)}</span>` : ''}
+          </div>
+          <button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>
         </div>
-      </div>
-      <div class="wf-card-actions">
-        <label class="wf-switch"><input type="checkbox" class="wf-card-toggle" ${wf.enabled ? 'checked' : ''}><span class="wf-switch-track"></span></label>
-        <button class="wf-card-run" title="Lancer">${svgPlay()}</button>
       </div>
     </div>
   `;
@@ -201,28 +222,44 @@ function renderRunHistory(el) {
     <div class="wf-runs">
       ${state.runs.map(run => {
         const wf = state.workflows.find(w => w.id === run.workflowId);
+        const totalSteps = run.steps.length;
+        const doneSteps = run.steps.filter(s => s.status === 'success').length;
+        const failedSteps = run.steps.filter(s => s.status === 'failed').length;
+
         return `
-          <div class="wf-run">
-            <div class="wf-run-bar wf-run-bar--${run.status}"></div>
+          <div class="wf-run wf-run--${run.status}">
+            <div class="wf-run-indicator">
+              <div class="wf-run-indicator-icon wf-run-indicator-icon--${run.status}">
+                ${run.status === 'success' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' :
+                  run.status === 'failed' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>' :
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'}
+              </div>
+              <div class="wf-run-indicator-line"></div>
+            </div>
             <div class="wf-run-body">
-              <div class="wf-run-top">
-                <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
-                <span class="wf-status-pill wf-status-pill--${run.status}">${statusLabel(run.status)}</span>
+              <div class="wf-run-header">
+                <div class="wf-run-header-left">
+                  <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
+                  <div class="wf-run-meta">
+                    <span class="wf-run-time">${svgClock(9)} ${escapeHtml(run.startedAt)}</span>
+                    <span class="wf-run-duration">${svgTimer()} ${escapeHtml(run.duration)}</span>
+                  </div>
+                </div>
+                <div class="wf-run-header-right">
+                  <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
+                  <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+                </div>
               </div>
-              <div class="wf-run-meta">
-                ${svgClock()} ${escapeHtml(run.startedAt)}
-                <span class="wf-run-sep"></span>
-                ${svgTimer()} ${escapeHtml(run.duration)}
-                <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
-              </div>
-              <div class="wf-run-steps">
-                ${run.steps.map(s => `
-                  <span class="wf-run-step wf-run-step--${s.status}">
-                    <span class="wf-run-dot"></span>
-                    <span class="wf-run-step-name">${escapeHtml(s.name)}</span>
-                    <span class="wf-run-dur">${escapeHtml(s.duration)}</span>
-                  </span>
-                `).join('')}
+              <div class="wf-run-pipeline">
+                ${run.steps.map((s, i) => {
+                  const info = STEP_TYPES.find(x => x.type === s.name) || STEP_TYPES[0];
+                  return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
+                    <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+                    <span class="wf-run-pipe-name">${escapeHtml(s.name)}</span>
+                    <span class="wf-run-pipe-dur">${escapeHtml(s.duration)}</span>
+                    <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
+                  </div>${i < run.steps.length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
+                }).join('')}
               </div>
             </div>
           </div>
@@ -663,6 +700,7 @@ function svgX(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 
 function svgScope() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`; }
 function svgConc() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>`; }
 function svgEmpty() { return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
+function svgRuns() { return `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`; }
 
 /* ─── Mock data ─────────────────────────────────────────────────────────────── */
 
