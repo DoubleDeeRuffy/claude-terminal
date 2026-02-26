@@ -1544,7 +1544,7 @@ async function createTerminal(project, options = {}) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title) {
+        if (title && getSetting('aiTabNaming') !== false) {
           // Update terminal tab name instead of window title
           updateTerminalTabName(id, title);
         }
@@ -2943,7 +2943,7 @@ async function resumeSession(project, sessionId, options = {}) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title) updateTerminalTabName(id, title);
+        if (title && getSetting('aiTabNaming') !== false) updateTerminalTabName(id, title);
         updateTerminal(id, { inputBuffer: '' });
       }
     } else if (data === '\x7f' || data === '\b') {
@@ -3114,7 +3114,7 @@ async function createTerminalWithPrompt(project, prompt) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title) updateTerminalTabName(id, title);
+        if (title && getSetting('aiTabNaming') !== false) updateTerminalTabName(id, title);
         updateTerminal(id, { inputBuffer: '' });
       }
     } else if (data === '\x7f' || data === '\b') {
