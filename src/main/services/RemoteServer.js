@@ -69,6 +69,21 @@ let _lockoutUntil = 0;
 // Live time data pushed from renderer
 let _timeData = { todayMs: 0 };
 
+// ─── Cloud Relay Bridge ──────────────────────────────────────────────────────
+// CloudRelayClient reference — injected via setCloudClient()
+let _cloudClient = null;
+
+// Virtual WS-like object that routes send() calls through the cloud relay
+const _cloudWsProxy = {
+  get readyState() { return _cloudClient?.connected ? 1 : 3; },
+  send(data) {
+    if (_cloudClient?.connected) {
+      try { _cloudClient.send(typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) {}
+    }
+  },
+  close() {},
+};
+
 // Cache sessionId → projectId mapping to avoid disk reads on every chat-idle
 const _sessionProjectMap = new Map();
 
@@ -518,6 +533,27 @@ function _handleClientMessage(ws, token, raw) {
         break;
       }
 
+      case 'request:init': {
+        // Mobile (cloud or local) is requesting initial state
+        console.log('[Remote] ← request:init — sending hello + projects + sessions');
+        const settings = _loadSettings();
+        _wsSend(ws, 'hello', {
+          version: '1.0',
+          serverName: 'Claude Terminal',
+          chatModel: settings.chatModel || null,
+          effortLevel: settings.effortLevel || null,
+          accentColor: settings.accentColor || '#d97706',
+        });
+        setImmediate(() => {
+          _sendProjectsAndSessions(ws);
+          _wsSend(ws, 'time:update', _timeData);
+          if (_isMainWindowReady()) {
+            mainWindow.webContents.send('remote:request-time-push');
+          }
+        });
+        break;
+      }
+
       default:
         break;
     }
@@ -684,10 +720,15 @@ function _wsSend(ws, type, data) {
 
 function _broadcast(type, data) {
   const msg = JSON.stringify({ type, data });
+  // Local WS clients
   for (const ws of _connectedClients.values()) {
     if (ws.readyState === 1) {
       try { ws.send(msg); } catch (e) {}
     }
+  }
+  // Cloud relay — forward to remote mobiles connected via cloud
+  if (_cloudClient?.connected) {
+    try { _cloudClient.send(msg); } catch (e) {}
   }
 }
 
@@ -819,6 +860,59 @@ function setMainWindow(win) {
   _syncServerState();
 }
 
+// ─── Cloud Relay Bridge API ──────────────────────────────────────────────────
+
+/**
+ * Inject the CloudRelayClient instance so RemoteServer can bridge messages.
+ * @param {import('./CloudRelayClient').CloudRelayClient} client
+ */
+function setCloudClient(client) {
+  _cloudClient = client;
+}
+
+/**
+ * Handle a message arriving from the cloud relay (mobile → relay → desktop).
+ * Routes it through the same handler as local WS messages.
+ * @param {object|string} msg - Parsed JSON message from relay
+ */
+function handleCloudMessage(msg) {
+  const raw = typeof msg === 'string' ? msg : JSON.stringify(msg);
+  _handleClientMessage(_cloudWsProxy, '__cloud__', Buffer.from(raw));
+}
+
+/**
+ * Send initial state to cloud-connected mobiles (hello, projects, sessions, time).
+ * Called when CloudRelayClient connects to the relay server.
+ */
+function sendInitToCloud() {
+  if (!_cloudClient?.connected) return;
+  console.log('[Remote] Sending init data to cloud relay');
+
+  // 1. hello
+  const settings = _loadSettings();
+  _cloudClient.send(JSON.stringify({
+    type: 'hello',
+    data: {
+      version: '1.0',
+      serverName: 'Claude Terminal',
+      chatModel: settings.chatModel || null,
+      effortLevel: settings.effortLevel || null,
+      accentColor: settings.accentColor || '#d97706',
+    },
+  }));
+
+  // 2. projects + sessions
+  _sendProjectsAndSessions(_cloudWsProxy);
+
+  // 3. time tracking
+  _cloudClient.send(JSON.stringify({ type: 'time:update', data: _timeData }));
+
+  // 4. Request fresh time data from renderer
+  if (_isMainWindowReady()) {
+    mainWindow.webContents.send('remote:request-time-push');
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 function getServerInfo() {
@@ -849,5 +943,8 @@ module.exports = {
   broadcastSessionStarted,
   broadcastTabRenamed,
   setTimeData,
+  setCloudClient,
+  handleCloudMessage,
+  sendInitToCloud,
   _syncServerState,
 };

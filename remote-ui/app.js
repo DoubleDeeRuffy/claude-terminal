@@ -544,7 +544,11 @@ function handleMessage({ type, data }) {
     case 'settings:updated':     break; // ack, nothing to do
     case 'pong': break;
     // Relay-specific events
-    case 'relay:desktop-online':  connSetState('connected'); break;
+    case 'relay:desktop-online':
+      connSetState('connected');
+      // Ask the desktop to send init data (projects, sessions, time)
+      wsSend('request:init', {});
+      break;
     case 'relay:desktop-offline': _onDesktopOffline(); break;
     case 'relay:kicked':          _onRelayKicked(); break;
   }
