@@ -159,6 +159,13 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   ensureDirectories();
   await initializeState(); // Loads settings, projects AND initializes time tracking
 
+  // Restore saved projects panel width (must be after settings are loaded)
+  const savedPanelWidth = settingsState.get().projectsPanelWidth;
+  if (savedPanelWidth) {
+    const panel = document.querySelector('.projects-panel');
+    if (panel) panel.style.width = savedPanelWidth + 'px';
+  }
+
   // Apply body classes for settings that affect global CSS
   if (getSetting('showTabModeToggle') === false) {
     document.body.classList.add('hide-tab-mode-toggle');
@@ -1473,6 +1480,11 @@ TerminalManager.setCallbacks({
 // Ctrl+Left/Right is handled by xterm's key handler for word-jump
 api.window.onCtrlArrow((dir) => {
   if (dir === 'up' || dir === 'down') switchProject(dir);
+});
+
+// Listen for Ctrl+Tab/Ctrl+Shift+Tab forwarded from main process (Chromium swallows Tab)
+api.window.onCtrlTab((dir) => {
+  switchTerminal(dir);
 });
 
 // Setup FileExplorer
@@ -3168,11 +3180,7 @@ api.tray.onShowSessions(() => {
     document.addEventListener('mouseup', onMouseUp);
   });
 
-  // Restore saved width
-  const savedWidth = settingsState.get().projectsPanelWidth;
-  if (savedWidth) {
-    panel.style.width = savedWidth + 'px';
-  }
+  // Note: width restoration is done in the async init block (after settings load)
 })();
 
 // ========== PROJECTS PANEL TOGGLE ==========
