@@ -533,15 +533,29 @@ function handleMessage({ type, data }) {
   switch (type) {
     case 'hello':
       connSetState('connected');
-      // Clear stale local sessions — server will re-send active ones via session:started
-      state.sessions = {};
-      state.selectedSessionId = null;
-      localStorage.removeItem('remote_sessions');
-      localStorage.removeItem('remote_selected_session');
+      // Mark existing sessions as stale — server will re-confirm active ones via session:started
+      // We keep them until init is complete to avoid data loss on flaky reconnections
+      for (const s of Object.values(state.sessions)) s._stale = true;
       if (data.chatModel) { state.selectedModel = data.chatModel; }
       if (data.effortLevel) { state.selectedEffort = data.effortLevel; }
       if (data.accentColor) _applyAccentColor(data.accentColor);
       _updatePlusMenuSelection();
+      // After a short delay, purge sessions the server didn't re-confirm
+      clearTimeout(state._staleCleanupTimer);
+      state._staleCleanupTimer = setTimeout(() => {
+        let changed = false;
+        for (const [id, s] of Object.entries(state.sessions)) {
+          if (s._stale) { delete state.sessions[id]; changed = true; }
+        }
+        if (changed) {
+          if (state.selectedSessionId && !state.sessions[state.selectedSessionId]) {
+            const ids = Object.keys(state.sessions);
+            state.selectedSessionId = ids.length ? ids[ids.length - 1] : null;
+          }
+          _saveSessions();
+          renderSessionBar(); renderChatMessages();
+        }
+      }, 3000);
       break;
     case 'projects:updated':     onProjectsUpdated(data); break;
     case 'session:started':      onSessionStarted(data); break;
@@ -611,6 +625,8 @@ function onSessionStarted({ sessionId, projectId, tabName }) {
   if (!state.sessions[sessionId]) {
     state.sessions[sessionId] = _makeSession(sessionId, projectId, tabName, messages);
   }
+  // Server confirmed this session is active — remove stale flag
+  delete state.sessions[sessionId]._stale;
   if (!state.selectedSessionId || projectId === state.selectedProjectId) {
     state.selectedSessionId = sessionId;
     state.selectedProjectId = projectId;
