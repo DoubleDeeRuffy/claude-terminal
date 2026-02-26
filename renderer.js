@@ -47,6 +47,8 @@ const {
   saveSettingsImmediate,
   getSetting,
   setSetting,
+  isNotificationsEnabled,
+  toggleNotifications,
   createFolder,
   deleteFolder,
   renameFolder,
@@ -115,7 +117,6 @@ function closeModal() {
 
 // ========== LOCAL STATE ==========
 const localState = {
-  notificationsEnabled: true,
   fivemServers: new Map(),
   gitOperations: new Map(),
   gitRepoStatus: new Map(),
@@ -231,6 +232,8 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   if (settingsState.get().reduceMotion) {
     document.body.classList.add('reduce-motion');
   }
+  // Restore notification bell state from persisted settings
+  document.getElementById('btn-notifications').classList.toggle('active', isNotificationsEnabled());
 
   // ========== PANELS INIT (must run after state is loaded) ==========
   MemoryEditor.init({ showModal, closeModal });
@@ -306,7 +309,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 
 // ========== NOTIFICATIONS ==========
 function showNotification(type, title, body, terminalId) {
-  if (!localState.notificationsEnabled) return;
+  if (!isNotificationsEnabled()) return;
   if (document.hasFocus() && terminalsState.get().activeTerminal === terminalId) return;
   const labels = { show: t('terminals.notifBtnShow') };
   api.notification.show({ type: type || 'done', title, body, terminalId, autoDismiss: 8000, labels });
@@ -1622,9 +1625,10 @@ function showCloseDialog() {
 }
 
 document.getElementById('btn-notifications').onclick = () => {
-  localState.notificationsEnabled = !localState.notificationsEnabled;
-  document.getElementById('btn-notifications').classList.toggle('active', localState.notificationsEnabled);
-  if (localState.notificationsEnabled && 'Notification' in window && Notification.permission === 'default') {
+  toggleNotifications();
+  const enabled = isNotificationsEnabled();
+  document.getElementById('btn-notifications').classList.toggle('active', enabled);
+  if (enabled && 'Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
   }
 };
