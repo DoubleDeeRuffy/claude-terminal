@@ -80,6 +80,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - **TAB-PERSIST-01**: Tab names persist across app restarts — restored tabs display the exact name they had before shutdown (user renames, AI names, slash-command names, defaults)
 
+### Resume Dialog Tab Names
+
+- **TAB-RESUME-01**: Resume session dialog displays saved tab names (from AI haiku, slash commands, or manual renames) instead of "Untitled conversation", with readable accent-colored metadata
+
 ### Taskbar Pin Stability
 
 - **PIN-01**: Windows taskbar pin survives app auto-updates — shortcuts are preserved (not deleted and recreated) during update runs, and AUMID is consistent between running process and shortcut
@@ -127,6 +131,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TAB-NAME-01 | Phase 18 | Planned |
 | TAB-PERSIST-01 | Phase 16 | Planned |
 | PIN-01 | Phase 17 | Planned |
+| TAB-RESUME-01 | Phase 19 | Planned |
 
 **Coverage:**
 - v1 requirements: 16 total, all complete
