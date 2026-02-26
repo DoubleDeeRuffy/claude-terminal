@@ -32,10 +32,85 @@ function buildHtml(settings) {
           <div class="rp-master-desc">${t('remote.enableDesc')}</div>
         </div>
       </div>
-      <label class="settings-toggle">
-        <input type="checkbox" id="remote-enabled-toggle" ${remoteEnabled ? 'checked' : ''}>
-        <span class="settings-toggle-slider"></span>
-      </label>
+      <div class="rp-master-actions">
+        <button class="rp-help-btn" id="rp-help-btn" type="button" title="${t('remote.helpTitle')}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </button>
+        <label class="settings-toggle">
+          <input type="checkbox" id="remote-enabled-toggle" ${remoteEnabled ? 'checked' : ''}>
+          <span class="settings-toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ═══ Help Guide Overlay ═══ -->
+    <div class="rp-help-overlay" id="rp-help-overlay" style="display:none">
+      <div class="rp-help-panel">
+        <div class="rp-help-header">
+          <h3 class="rp-help-heading">${t('remote.helpTitle')}</h3>
+          <button class="rp-help-close" id="rp-help-close" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <p class="rp-help-intro">${t('remote.helpIntro')}</p>
+
+        <div class="rp-help-section">
+          <div class="rp-help-section-icon rp-help-icon-local">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>
+            </svg>
+          </div>
+          <div class="rp-help-section-content">
+            <h4>${t('remote.helpLocalTitle')}</h4>
+            <ol class="rp-help-steps">
+              <li>${t('remote.helpLocalStep1')}</li>
+              <li>${t('remote.helpLocalStep2')}</li>
+              <li>${t('remote.helpLocalStep3')}</li>
+              <li>${t('remote.helpLocalStep4')}</li>
+            </ol>
+            <div class="rp-help-note">${t('remote.helpLocalNote')}</div>
+          </div>
+        </div>
+
+        <div class="rp-help-section">
+          <div class="rp-help-section-icon rp-help-icon-cloud">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+            </svg>
+          </div>
+          <div class="rp-help-section-content">
+            <h4>${t('remote.helpCloudTitle')}</h4>
+            <ol class="rp-help-steps">
+              <li>${t('remote.helpCloudStep1')}</li>
+              <li>${t('remote.helpCloudStep2')}</li>
+              <li>${t('remote.helpCloudStep3')}</li>
+              <li>${t('remote.helpCloudStep4')}</li>
+            </ol>
+            <div class="rp-help-note">${t('remote.helpCloudNote')}</div>
+          </div>
+        </div>
+
+        <div class="rp-help-section rp-help-section-security">
+          <div class="rp-help-section-icon rp-help-icon-security">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="rp-help-section-content">
+            <h4>${t('remote.helpSecurityTitle')}</h4>
+            <ul class="rp-help-list">
+              <li>${t('remote.helpSecurityPoint1')}</li>
+              <li>${t('remote.helpSecurityPoint2')}</li>
+              <li>${t('remote.helpSecurityPoint3')}</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ═══ Connection Modes ═══ -->
@@ -207,6 +282,27 @@ function setupHandlers(context) {
   const refreshBtn = document.getElementById('remote-pin-refresh-btn');
 
   if (!toggle) return;
+
+  // ── Help guide ──
+  const helpBtn = document.getElementById('rp-help-btn');
+  const helpOverlay = document.getElementById('rp-help-overlay');
+  const helpClose = document.getElementById('rp-help-close');
+
+  if (helpBtn && helpOverlay) {
+    helpBtn.addEventListener('click', () => {
+      helpOverlay.style.display = '';
+    });
+  }
+  if (helpClose && helpOverlay) {
+    helpClose.addEventListener('click', () => {
+      helpOverlay.style.display = 'none';
+    });
+  }
+  if (helpOverlay) {
+    helpOverlay.addEventListener('click', (e) => {
+      if (e.target === helpOverlay) helpOverlay.style.display = 'none';
+    });
+  }
 
   // ── Mode tabs ──
   const modeTabs = document.querySelectorAll('.rp-mode-tab');

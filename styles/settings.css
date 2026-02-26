@@ -1683,6 +1683,13 @@
   transition: border-color 0.2s;
 }
 
+.rp-master-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .rp-master-toggle:has(input:checked) {
   border-color: rgba(217, 119, 6, 0.3);
 }
@@ -1808,6 +1815,217 @@
   background: rgba(168, 85, 247, 0.06);
   border-color: rgba(168, 85, 247, 0.12);
   color: rgba(192, 132, 252, 0.9);
+}
+
+/* ── Help Button ── */
+.rp-help-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.rp-help-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ── Help Overlay ── */
+.rp-help-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 40px;
+  animation: rp-fadeIn 0.15s ease;
+  backdrop-filter: blur(2px);
+}
+
+.rp-help-panel {
+  width: 460px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: modalIn 0.2s ease;
+}
+
+.rp-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.rp-help-heading {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.rp-help-close {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.rp-help-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.rp-help-intro {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* ── Help Sections ── */
+.rp-help-section {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.rp-help-section:last-child {
+  margin-bottom: 0;
+}
+
+.rp-help-section-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.rp-help-icon-local {
+  background: rgba(59, 130, 246, 0.1);
+  color: rgba(96, 165, 250, 0.9);
+}
+
+.rp-help-icon-cloud {
+  background: rgba(168, 85, 247, 0.1);
+  color: rgba(192, 132, 252, 0.9);
+}
+
+.rp-help-icon-security {
+  background: rgba(34, 197, 94, 0.1);
+  color: rgba(74, 222, 128, 0.9);
+}
+
+.rp-help-section-content h4 {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 10px 0;
+}
+
+.rp-help-steps {
+  margin: 0;
+  padding-left: 20px;
+  list-style: none;
+  counter-reset: help-step;
+}
+
+.rp-help-steps li {
+  position: relative;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 3px 0;
+  padding-left: 8px;
+  counter-increment: help-step;
+}
+
+.rp-help-steps li::before {
+  content: counter(help-step);
+  position: absolute;
+  left: -20px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.rp-help-list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: none;
+}
+
+.rp-help-list li {
+  position: relative;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 2px 0 2px 4px;
+}
+
+.rp-help-list li::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(74, 222, 128, 0.6);
+}
+
+.rp-help-note {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  border-left: 2px solid var(--border-color);
+}
+
+.rp-help-section-security {
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
 }
 
 /* ── Server Card ── */
