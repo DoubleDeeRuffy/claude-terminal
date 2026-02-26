@@ -137,13 +137,14 @@ function buildConnectionCard(conn, status) {
         </div>
         <span class="database-status-badge ${status}">${t('database.' + status)}</span>
       </div>
-      <div class="database-card-info">
-        ${conn.type === 'sqlite' ? escapeHtml(conn.filePath || '') :
-          conn.type === 'mongodb' ? escapeHtml(conn.connectionString ? conn.connectionString.replace(/\/\/[^@]+@/, '//***@') : `${conn.host}:${conn.port}`) :
-          escapeHtml(`${conn.host || 'localhost'}:${conn.port || ''} / ${conn.database || ''}`)}
-        ${projectName ? ` <span class="database-card-project">${escapeHtml(projectName)}</span>` : ''}
-      </div>
-      <div class="database-card-actions">
+      <div class="database-card-bottom">
+        <div class="database-card-info">
+          ${conn.type === 'sqlite' ? escapeHtml(conn.filePath || '') :
+            conn.type === 'mongodb' ? escapeHtml(conn.connectionString ? conn.connectionString.replace(/\/\/[^@]+@/, '//***@') : `${conn.host}:${conn.port}`) :
+            escapeHtml(`${conn.host || 'localhost'}:${conn.port || ''} / ${conn.database || ''}`)}
+          ${projectName ? ` <span class="database-card-project">${escapeHtml(projectName)}</span>` : ''}
+        </div>
+        <div class="database-card-actions">
         ${status === 'connected' ?
           `<button class="btn-database" data-action="disconnect" data-id="${escapeHtml(conn.id)}" title="${t('database.disconnect')}">
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0119 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.05.89-3.89 2.3-5.16L5.88 5.46A8.94 8.94 0 003 12a9 9 0 0018 0c0-2.74-1.23-5.19-3.17-6.83z"/></svg>
@@ -164,6 +165,7 @@ function buildConnectionCard(conn, status) {
         <button class="btn-database danger" data-action="delete" data-id="${escapeHtml(conn.id)}" title="${t('database.deleteConnection')}">
           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
         </button>
+      </div>
       </div>
     </div>`;
 }
