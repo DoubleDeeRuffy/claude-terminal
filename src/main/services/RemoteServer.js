@@ -803,6 +803,66 @@ function _syncServerState() {
   }
 }
 
+// ─── ChatService Bridge ──────────────────────────────────────────────────────
+// The callback bridges ChatService events (chat-message, chat-idle, etc.)
+// to both local WS clients AND the cloud relay. It must be installed whenever
+// either the local remote server OR the cloud relay is active.
+
+let _chatBridgeInstalled = false;
+
+function _ensureChatBridge() {
+  if (_chatBridgeInstalled) return;
+  _chatBridgeInstalled = true;
+
+  const chatService = require('./ChatService');
+  chatService.setRemoteEventCallback((channel, data) => {
+    const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed', 'session:tab-renamed'];
+    if (!relayed.includes(channel)) return;
+
+    let enriched = data;
+    // Enrich chat-idle / chat-permission-request with cached projectId
+    if ((channel === 'chat-idle' || channel === 'chat-permission-request') && data?.sessionId) {
+      const cachedProjectId = _sessionProjectMap.get(data.sessionId);
+      if (cachedProjectId) {
+        enriched = { ...data, projectId: cachedProjectId };
+      }
+    }
+
+    // Buffer chat events per session for late-joining clients
+    const sid = data?.sessionId;
+    if (sid) {
+      const buffered = ['chat-message', 'chat-user-message', 'chat-permission-request', 'chat-idle', 'chat-done'];
+      if (buffered.includes(channel)) {
+        if (!_sessionMessageBuffer.has(sid)) _sessionMessageBuffer.set(sid, []);
+        const buf = _sessionMessageBuffer.get(sid);
+        buf.push({ channel, data: enriched });
+        if (buf.length > MAX_BUFFER_PER_SESSION) buf.shift();
+      }
+      // Clean up buffers on session end
+      if (channel === 'session:closed' || channel === 'chat-error') {
+        _sessionMessageBuffer.delete(sid);
+        _sessionProjectMap.delete(sid);
+      }
+    }
+
+    if (channel !== 'chat-message') {
+      console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
+    }
+    _broadcast(channel, enriched);
+  });
+}
+
+function _teardownChatBridge() {
+  if (!_chatBridgeInstalled) return;
+  // Only remove if neither local server nor cloud client are active
+  if (httpServer || _cloudClient?.connected) return;
+  _chatBridgeInstalled = false;
+  try {
+    const chatService = require('./ChatService');
+    chatService.setRemoteEventCallback(null);
+  } catch (e) {}
+}
+
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 function start(win, port = 3712) {
@@ -831,51 +891,11 @@ function start(win, port = 3712) {
     stop(); // Full cleanup including wss, callback, clients
   });
 
-  // Bridge ChatService events → connected WS clients
-  const chatService = require('./ChatService');
-  chatService.setRemoteEventCallback((channel, data) => {
-    const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed', 'session:tab-renamed'];
-    if (relayed.includes(channel)) {
-      let enriched = data;
-      // Enrich chat-idle / chat-permission-request with cached projectId
-      if ((channel === 'chat-idle' || channel === 'chat-permission-request') && data?.sessionId) {
-        const cachedProjectId = _sessionProjectMap.get(data.sessionId);
-        if (cachedProjectId) {
-          enriched = { ...data, projectId: cachedProjectId };
-        }
-      }
-
-      // Buffer chat events per session for late-joining clients
-      const sid = data?.sessionId;
-      if (sid) {
-        const buffered = ['chat-message', 'chat-user-message', 'chat-permission-request', 'chat-idle', 'chat-done'];
-        if (buffered.includes(channel)) {
-          if (!_sessionMessageBuffer.has(sid)) _sessionMessageBuffer.set(sid, []);
-          const buf = _sessionMessageBuffer.get(sid);
-          buf.push({ channel, data: enriched });
-          if (buf.length > MAX_BUFFER_PER_SESSION) buf.shift();
-        }
-        // Clean up buffers on session end
-        if (channel === 'session:closed' || channel === 'chat-error') {
-          _sessionMessageBuffer.delete(sid);
-          _sessionProjectMap.delete(sid);
-        }
-      }
-
-      if (channel !== 'chat-message') {
-        console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
-      }
-      _broadcast(channel, enriched);
-    }
-  });
+  // Bridge ChatService events → connected WS clients + cloud
+  _ensureChatBridge();
 }
 
 function stop() {
-  try {
-    const chatService = require('./ChatService');
-    chatService.setRemoteEventCallback(null);
-  } catch (e) {}
-
   for (const ws of _connectedClients.values()) {
     try { ws.close(); } catch (e) {}
   }
@@ -889,6 +909,9 @@ function stop() {
 
   if (wss) { wss.close(); wss = null; }
   if (httpServer) { httpServer.close(); httpServer = null; }
+
+  // Only remove chat bridge if cloud is also disconnected
+  _teardownChatBridge();
 
   console.log('[Remote] Server stopped');
 }
@@ -906,6 +929,9 @@ function setMainWindow(win) {
  */
 function setCloudClient(client) {
   _cloudClient = client;
+  // Ensure chat bridge is active so events flow to cloud even
+  // if the local WS remote server isn't started
+  if (client) _ensureChatBridge();
 }
 
 /**
