@@ -1258,8 +1258,9 @@
     "collect1": "Identifiant anonyme aléatoire (UUID)",
     "collect2": "Version de l'application et type d'OS",
     "collect3": "Utilisation des fonctionnalités",
+    "collect4": "Pays et ville (via géolocalisation IP, l'IP n'est jamais stockée)",
     "whatWeDoNotCollect": "Ce que nous ne collectons PAS",
-    "notCollect1": "Adresses IP ou localisation",
+    "notCollect1": "Adresses IP",
     "notCollect2": "Noms de projets ou chemins de fichiers",
     "notCollect3": "Commandes terminal ou messages de chat"
   }

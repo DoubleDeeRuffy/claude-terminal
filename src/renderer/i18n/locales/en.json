@@ -1258,8 +1258,9 @@
     "collect1": "Random anonymous ID (UUID)",
     "collect2": "App version and OS type",
     "collect3": "Feature usage patterns",
+    "collect4": "Country and city (via IP geolocation, IP is never stored)",
     "whatWeDoNotCollect": "What we do NOT collect",
-    "notCollect1": "IP addresses or location",
+    "notCollect1": "IP addresses",
     "notCollect2": "Project names or file paths",
     "notCollect3": "Terminal commands or chat messages"
   }
