@@ -65,7 +65,7 @@ class TerminalService {
     // If running Claude, spawn it directly via cmd.exe /c (no shell banner, no prompt)
     if (runClaude && process.platform === 'win32') {
       const claudeArgs = ['claude'];
-      if (resumeSessionId) {
+      if (resumeSessionId && /^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
         claudeArgs.push('--resume', resumeSessionId);
       }
       if (skipPermissions) {

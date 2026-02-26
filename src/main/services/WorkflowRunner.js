@@ -233,7 +233,11 @@ function assertPathWithinProject(filePath, vars) {
   if (!projectDir) return; // no project context — skip check (manual runs)
   const resolved = path.resolve(filePath);
   const base = path.resolve(projectDir);
-  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+  // Case-insensitive comparison on Windows to prevent bypass via mixed case
+  const cmp = process.platform === 'win32'
+    ? (a, b) => a.toLowerCase() === b.toLowerCase() || a.toLowerCase().startsWith(b.toLowerCase() + path.sep)
+    : (a, b) => a === b || a.startsWith(b + path.sep);
+  if (!cmp(resolved, base)) {
     throw new Error(`Path "${filePath}" is outside the project directory`);
   }
 }
