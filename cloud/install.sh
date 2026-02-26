@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# When piped (curl | bash), stdin is the script content, not the terminal.
+# Save to a temp file and re-exec so `read` can use the terminal.
+if [ ! -t 0 ]; then
+  TMPSCRIPT=$(mktemp /tmp/ct-cloud-install.XXXXXX.sh)
+  cat > "$TMPSCRIPT"
+  exec bash "$TMPSCRIPT" "$@" </dev/tty
+fi
+
 BOLD='\033[1m'
 DIM='\033[2m'
 GREEN='\033[0;32m'
@@ -90,7 +98,7 @@ echo ""
 
 DOMAIN=""
 while [ -z "$DOMAIN" ]; do
-  read -p "  Domain name (e.g. cloud.example.com): " DOMAIN </dev/tty
+  read -p "  Domain name (e.g. cloud.example.com): " DOMAIN
   if [ -z "$DOMAIN" ]; then
     echo -e "  ${RED}Domain is required${NC}"
   fi
@@ -124,7 +132,7 @@ echo ""
 
 USERNAME=""
 while [ -z "$USERNAME" ]; do
-  read -p "  Username (a-z, 0-9, _, -): " USERNAME </dev/tty
+  read -p "  Username (a-z, 0-9, _, -): " USERNAME
   if [ -z "$USERNAME" ]; then
     echo -e "  ${RED}Username is required${NC}"
   elif ! echo "$USERNAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
@@ -152,7 +160,7 @@ echo -e "  ${DIM}1${NC}) Nginx   ${DIM}(recommended)${NC}"
 echo -e "  ${DIM}2${NC}) Apache2"
 echo -e "  ${DIM}3${NC}) Skip    ${DIM}(I'll configure it myself)${NC}"
 echo ""
-read -p "  Choice [1/2/3]: " PROXY_CHOICE </dev/tty
+read -p "  Choice [1/2/3]: " PROXY_CHOICE
 
 setup_nginx() {
   # Install nginx if missing
@@ -272,7 +280,7 @@ echo ""
 if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
   echo -e "  ${BOLD}SSL Certificate${NC}"
   echo ""
-  read -p "  Setup free SSL with Let's Encrypt? (Y/n): " SSL_CHOICE </dev/tty
+  read -p "  Setup free SSL with Let's Encrypt? (Y/n): " SSL_CHOICE
   SSL_CHOICE=${SSL_CHOICE:-Y}
 
   if [ "$SSL_CHOICE" = "Y" ] || [ "$SSL_CHOICE" = "y" ]; then
@@ -298,7 +306,7 @@ if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
     fi
 
     echo ""
-    read -p "  Email for Let's Encrypt (optional, press Enter to skip): " LE_EMAIL </dev/tty
+    read -p "  Email for Let's Encrypt (optional, press Enter to skip): " LE_EMAIL
 
     CERTBOT_FLAGS="--non-interactive --agree-tos -d $DOMAIN"
     if [ -n "$LE_EMAIL" ]; then
