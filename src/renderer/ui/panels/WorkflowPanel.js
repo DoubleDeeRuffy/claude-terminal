@@ -140,31 +140,81 @@ function parseCronToMode(expr) {
   return { mode: 'custom', values: { raw: expr } };
 }
 
+/** Build HTML for a custom dropdown (div-based, no native <select>) */
+function wfDropdown(key, options, selectedValue) {
+  const sel = options.find(o => String(o.value) === String(selectedValue)) || options[0];
+  return `<div class="wf-cdrop" data-cv="${key}">
+    <button class="wf-cdrop-btn" type="button">${escapeHtml(sel.label)}<svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="wf-cdrop-list">${options.map(o =>
+      `<div class="wf-cdrop-item ${String(o.value) === String(selectedValue) ? 'active' : ''}" data-val="${o.value}">${escapeHtml(o.label)}</div>`
+    ).join('')}</div>
+  </div>`;
+}
+
+/** Bind a wfDropdown by data-cv key inside a container. Calls onChange(value) on pick. */
+function bindWfDropdown(container, key, onChange) {
+  const drop = container.querySelector(`.wf-cdrop[data-cv="${key}"]`);
+  if (!drop) return;
+  const btn = drop.querySelector('.wf-cdrop-btn');
+  const list = drop.querySelector('.wf-cdrop-list');
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.wf-cdrop.open').forEach(d => { if (d !== drop) d.classList.remove('open'); });
+    drop.classList.toggle('open');
+    if (drop.classList.contains('open')) {
+      const active = list.querySelector('.wf-cdrop-item.active');
+      if (active) active.scrollIntoView({ block: 'nearest' });
+    }
+  });
+
+  list.querySelectorAll('.wf-cdrop-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      drop.classList.remove('open');
+      btn.firstChild.textContent = item.textContent;
+      list.querySelectorAll('.wf-cdrop-item').forEach(it => it.classList.remove('active'));
+      item.classList.add('active');
+      onChange(item.dataset.val);
+    });
+  });
+
+  // Close on outside click
+  const close = (e) => { if (!drop.contains(e.target)) { drop.classList.remove('open'); document.removeEventListener('click', close); } };
+  document.addEventListener('click', close);
+}
+
+/** Generate option arrays for the cron dropdowns */
+function cronOpts() {
+  return {
+    hour: Array.from({ length: 24 }, (_, i) => ({ value: i, label: String(i).padStart(2, '0') })),
+    minute: [0, 15, 30, 45].map(m => ({ value: m, label: String(m).padStart(2, '0') })),
+    dow: DAYS_OF_WEEK,
+    dom: Array.from({ length: 28 }, (_, i) => ({ value: i + 1, label: `${i + 1}` })),
+    interval: INTERVAL_OPTIONS,
+  };
+}
+
 function drawCronPicker(container, draft) {
   const parsed = parseCronToMode(draft.triggerValue);
   let cronMode = parsed.mode;
   let cronValues = { ...parsed.values };
+  const opts = cronOpts();
 
   const render = () => {
-    const hourOpts = Array.from({ length: 24 }, (_, i) => `<option value="${i}" ${(cronValues.hour ?? 8) === i ? 'selected' : ''}>${String(i).padStart(2, '0')}</option>`).join('');
-    const minOpts = [0, 15, 30, 45].map(m => `<option value="${m}" ${(cronValues.minute || 0) === m ? 'selected' : ''}>${String(m).padStart(2, '0')}</option>`).join('');
-    const dowOpts = DAYS_OF_WEEK.map(d => `<option value="${d.value}" ${(cronValues.dow ?? 1) === d.value ? 'selected' : ''}>${d.label}</option>`).join('');
-    const domOpts = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${(cronValues.dom || 1) === (i + 1) ? 'selected' : ''}>${i + 1}</option>`).join('');
-    const intOpts = INTERVAL_OPTIONS.map(o => `<option value="${o.value}" ${(cronValues.interval || 15) === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
-
     let phrase = '';
     switch (cronMode) {
       case 'interval':
-        phrase = `<span class="wf-cron-label">Toutes les</span><select class="wf-cron-select" data-cv="interval">${intOpts}</select>`;
+        phrase = `<span class="wf-cron-label">Toutes les</span>${wfDropdown('interval', opts.interval, cronValues.interval || 15)}`;
         break;
       case 'daily':
-        phrase = `<span class="wf-cron-label">Chaque jour à</span><select class="wf-cron-select" data-cv="hour">${hourOpts}</select><span class="wf-cron-label">h</span><select class="wf-cron-select" data-cv="minute">${minOpts}</select>`;
+        phrase = `<span class="wf-cron-label">Chaque jour à</span>${wfDropdown('hour', opts.hour, cronValues.hour ?? 8)}<span class="wf-cron-label">h</span>${wfDropdown('minute', opts.minute, cronValues.minute || 0)}`;
         break;
       case 'weekly':
-        phrase = `<span class="wf-cron-label">Chaque</span><select class="wf-cron-select" data-cv="dow">${dowOpts}</select><span class="wf-cron-label">à</span><select class="wf-cron-select" data-cv="hour">${hourOpts}</select><span class="wf-cron-label">h</span><select class="wf-cron-select" data-cv="minute">${minOpts}</select>`;
+        phrase = `<span class="wf-cron-label">Chaque</span>${wfDropdown('dow', opts.dow, cronValues.dow ?? 1)}<span class="wf-cron-label">à</span>${wfDropdown('hour', opts.hour, cronValues.hour ?? 8)}<span class="wf-cron-label">h</span>${wfDropdown('minute', opts.minute, cronValues.minute || 0)}`;
         break;
       case 'monthly':
-        phrase = `<span class="wf-cron-label">Le</span><select class="wf-cron-select" data-cv="dom">${domOpts}</select><span class="wf-cron-label">de chaque mois à</span><select class="wf-cron-select" data-cv="hour">${hourOpts}</select><span class="wf-cron-label">h</span><select class="wf-cron-select" data-cv="minute">${minOpts}</select>`;
+        phrase = `<span class="wf-cron-label">Le</span>${wfDropdown('dom', opts.dom, cronValues.dom || 1)}<span class="wf-cron-label">de chaque mois à</span>${wfDropdown('hour', opts.hour, cronValues.hour ?? 8)}<span class="wf-cron-label">h</span>${wfDropdown('minute', opts.minute, cronValues.minute || 0)}`;
         break;
       case 'custom':
         phrase = `<input class="wf-input wf-input--mono" id="wf-cron-raw" placeholder="0 8 * * *" value="${escapeHtml(cronValues.raw || draft.triggerValue || '')}">`;
@@ -191,15 +241,51 @@ function drawCronPicker(container, draft) {
       });
     });
 
-    // Bind selects
-    container.querySelectorAll('.wf-cron-select').forEach(sel => {
-      sel.addEventListener('change', () => {
-        cronValues[sel.dataset.cv] = parseInt(sel.value);
-        draft.triggerValue = buildCronFromMode(cronMode, cronValues);
-        const prev = container.querySelector('.wf-cron-preview code');
-        if (prev) prev.textContent = draft.triggerValue;
+    // Bind custom dropdowns
+    container.querySelectorAll('.wf-cdrop').forEach(drop => {
+      const btn = drop.querySelector('.wf-cdrop-btn');
+      const list = drop.querySelector('.wf-cdrop-list');
+      const key = drop.dataset.cv;
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close all other open dropdowns first
+        container.querySelectorAll('.wf-cdrop.open').forEach(d => { if (d !== drop) d.classList.remove('open'); });
+        drop.classList.toggle('open');
+        // Scroll active item into view
+        if (drop.classList.contains('open')) {
+          const activeItem = list.querySelector('.wf-cdrop-item.active');
+          if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+        }
+      });
+
+      list.querySelectorAll('.wf-cdrop-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const val = isNaN(+item.dataset.val) ? item.dataset.val : +item.dataset.val;
+          cronValues[key] = val;
+          drop.classList.remove('open');
+          // Update button label
+          btn.firstChild.textContent = item.textContent;
+          // Mark active
+          list.querySelectorAll('.wf-cdrop-item').forEach(it => it.classList.remove('active'));
+          item.classList.add('active');
+          // Update cron
+          draft.triggerValue = buildCronFromMode(cronMode, cronValues);
+          const prev = container.querySelector('.wf-cron-preview code');
+          if (prev) prev.textContent = draft.triggerValue;
+        });
       });
     });
+
+    // Close dropdowns on outside click
+    const closeAll = (e) => {
+      if (!container.contains(e.target)) {
+        container.querySelectorAll('.wf-cdrop.open').forEach(d => d.classList.remove('open'));
+        document.removeEventListener('click', closeAll);
+      }
+    };
+    document.addEventListener('click', closeAll);
 
     // Bind custom input
     const rawInput = container.querySelector('#wf-cron-raw');
@@ -229,9 +315,55 @@ function init(context) {
 
 async function load() {
   renderPanel();
-  state.workflows = getMockWorkflows();
-  state.runs = getMockRuns();
+  await refreshData();
   renderContent();
+  registerLiveListeners();
+}
+
+const api = window.electron_api?.workflow;
+
+/** Fetch workflows + recent runs from backend */
+async function refreshData() {
+  try {
+    const [wfRes, runRes] = await Promise.all([
+      api?.list(),
+      api?.getRecentRuns(50),
+    ]);
+    if (wfRes?.success) state.workflows = wfRes.workflows;
+    if (runRes?.success) state.runs = runRes.runs;
+  } catch (e) {
+    console.error('[WorkflowPanel] Failed to load data:', e);
+  }
+}
+
+let listenersRegistered = false;
+/** Register real-time event listeners for live run updates */
+function registerLiveListeners() {
+  if (listenersRegistered || !api) return;
+  listenersRegistered = true;
+
+  api.onRunStart(({ run }) => {
+    state.runs.unshift(run);
+    renderContent();
+  });
+
+  api.onRunEnd(({ runId, status, duration }) => {
+    const run = state.runs.find(r => r.id === runId);
+    if (run) {
+      run.status = status;
+      run.duration = duration;
+    }
+    renderContent();
+  });
+
+  api.onStepUpdate(({ runId, stepId, status, output }) => {
+    const run = state.runs.find(r => r.id === runId);
+    if (run) {
+      const step = run.steps?.find(s => s.id === stepId);
+      if (step) step.status = status;
+    }
+    renderContent();
+  });
 }
 
 /* ─── Panel shell ──────────────────────────────────────────────────────────── */
@@ -467,7 +599,7 @@ function openBuilder(workflowId = null) {
       step++; draw();
     });
     overlay.querySelector('#wf-save')?.addEventListener('click', () => {
-      sync(); save(); overlay.remove();
+      sync(); saveWorkflow(draft, workflowId); overlay.remove();
     });
 
     /* trigger cards */
@@ -512,6 +644,9 @@ function openBuilder(workflowId = null) {
         draft.concurrency = btn.dataset.conc;
       });
     });
+
+    /* scope dropdown (step 3) */
+    bindWfDropdown(overlay, 'scope', (val) => { draft.scope = val; });
   };
 
   const rebindSteps = () => {
@@ -528,7 +663,6 @@ function openBuilder(workflowId = null) {
   const sync = () => {
     const n = overlay.querySelector('#wf-name'); if (n) draft.name = n.value;
     const tv = overlay.querySelector('#wf-trigger-value'); if (tv) draft.triggerValue = tv.value;
-    const sc = overlay.querySelector('#wf-scope'); if (sc) draft.scope = sc.value;
   };
 
   const drawTriggerSub = () => {
@@ -662,11 +796,11 @@ function openBuilder(workflowId = null) {
             <div class="wf-wstep">
               <div class="wf-field">
                 <label class="wf-field-lbl">Scope</label>
-                <select id="wf-scope" class="wf-input wf-select">
-                  <option value="current" ${draft.scope === 'current' ? 'selected' : ''}>Projet courant</option>
-                  <option value="specific" ${draft.scope === 'specific' ? 'selected' : ''}>Projet spécifique</option>
-                  <option value="all" ${draft.scope === 'all' ? 'selected' : ''}>Tous les projets</option>
-                </select>
+                ${wfDropdown('scope', [
+                  { value: 'current', label: 'Projet courant' },
+                  { value: 'specific', label: 'Projet spécifique' },
+                  { value: 'all', label: 'Tous les projets' },
+                ], draft.scope)}
               </div>
 
               <div class="wf-field">
@@ -808,30 +942,41 @@ function openDetail(id) {
 
 /* ─── Actions ──────────────────────────────────────────────────────────────── */
 
-function save() {
-  // no-op for mock
-}
-
-function triggerWorkflow(id) {
-  const wf = state.workflows.find(w => w.id === id);
-  if (!wf) return;
-  const run = {
-    id: `run_${Date.now()}`, workflowId: id, status: 'running',
-    startedAt: "À l'instant", duration: '…', trigger: 'Manuel',
-    steps: wf.steps.map(s => ({ name: s.type, status: 'pending', duration: '' })),
+async function saveWorkflow(draft, existingId) {
+  if (!api) return;
+  const workflow = {
+    ...(existingId ? { id: existingId } : {}),
+    name: draft.name,
+    enabled: true,
+    trigger: {
+      type: draft.trigger,
+      value: draft.triggerValue || '',
+    },
+    ...(draft.trigger === 'hook' ? { hookType: draft.hookType } : {}),
+    scope: draft.scope,
+    concurrency: draft.concurrency,
+    steps: draft.steps,
   };
-  state.runs.unshift(run);
-  renderContent();
-  setTimeout(() => {
-    run.status = 'success'; run.duration = `${Math.floor(Math.random() * 30 + 5)}s`;
-    run.steps.forEach(s => { s.status = 'success'; s.duration = `${Math.floor(Math.random() * 10 + 1)}s`; });
+  const res = await api.save(workflow);
+  if (res?.success) {
+    await refreshData();
     renderContent();
-  }, 2000);
+  }
 }
 
-function toggleWorkflow(id, enabled) {
-  const wf = state.workflows.find(w => w.id === id);
-  if (wf) wf.enabled = enabled;
+async function triggerWorkflow(id) {
+  if (!api) return;
+  await api.trigger(id);
+  // Live listener will update UI when run starts
+}
+
+async function toggleWorkflow(id, enabled) {
+  if (!api) return;
+  const res = await api.enable(id, enabled);
+  if (res?.success) {
+    const wf = state.workflows.find(w => w.id === id);
+    if (wf) wf.enabled = enabled;
+  }
 }
 
 /* ─── Helpers ───────────────────────────────────────────────────────────────── */

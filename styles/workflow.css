@@ -929,19 +929,41 @@
   font-size: 12px; color: var(--text-secondary); white-space: nowrap;
 }
 
-.wf-cron-select {
-  padding: 4px 8px; background: rgba(255,255,255,.04);
+/* Custom dropdown */
+.wf-cdrop { position: relative; display: inline-flex; }
+.wf-cdrop-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; background: rgba(255,255,255,.04);
   border: 1.5px solid rgba(255,255,255,.1); border-radius: 6px;
   color: var(--text-primary); font-size: 12px; font-weight: 600;
-  cursor: pointer; transition: border-color .2s;
-  -webkit-appearance: none; appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 6px center;
-  padding-right: 22px;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+  font-family: inherit;
 }
-.wf-cron-select:hover { border-color: rgba(255,255,255,.2); }
-.wf-cron-select:focus { border-color: var(--info); outline: none; }
-.wf-cron-select option { background: var(--bg-secondary); color: var(--text-primary); }
+.wf-cdrop-btn svg { opacity: .4; flex-shrink: 0; transition: transform .15s; }
+.wf-cdrop-btn:hover { border-color: rgba(255,255,255,.2); background: rgba(255,255,255,.06); }
+.wf-cdrop.open .wf-cdrop-btn { border-color: var(--info); background: rgba(59,130,246,.08); }
+.wf-cdrop.open .wf-cdrop-btn svg { transform: rotate(180deg); opacity: .7; }
+
+.wf-cdrop-list {
+  display: none; position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+  min-width: 100%; max-height: 180px; overflow-y: auto;
+  background: var(--bg-secondary); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px; padding: 3px; z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.1) transparent;
+}
+.wf-cdrop-list::-webkit-scrollbar { width: 4px; }
+.wf-cdrop-list::-webkit-scrollbar-track { background: transparent; }
+.wf-cdrop-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
+.wf-cdrop.open .wf-cdrop-list { display: block; }
+
+.wf-cdrop-item {
+  padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 500;
+  color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+  transition: all .1s;
+}
+.wf-cdrop-item:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
+.wf-cdrop-item.active { background: rgba(59,130,246,.12); color: var(--info); font-weight: 600; }
 
 .wf-cron-preview {
   margin-top: 6px; opacity: .45; font-size: 10px;
