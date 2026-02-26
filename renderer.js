@@ -1489,6 +1489,18 @@ if (btnToggleExplorer) {
   btnToggleExplorer.onclick = () => FileExplorer.toggle();
 }
 
+// Wire lightbulb resume session button
+const btnResumeSession = document.getElementById('btn-resume-session');
+if (btnResumeSession) {
+  btnResumeSession.onclick = () => {
+    const selectedFilter = projectsState.get().selectedProjectFilter;
+    const projects = projectsState.get().projects;
+    if (selectedFilter !== null && projects[selectedFilter]) {
+      showSessionsModal(projects[selectedFilter]);
+    }
+  };
+}
+
 // Wire "+" new terminal button
 const btnNewTerminal = document.getElementById('btn-new-terminal');
 if (btnNewTerminal) {

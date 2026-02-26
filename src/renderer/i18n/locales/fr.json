@@ -82,7 +82,8 @@
     "resumeError": "Impossible de reprendre la session",
     "messages": "{count} msgs",
     "loading": "Initialisation de Claude Code...",
-    "loadingHint": "Cela peut prendre quelques secondes"
+    "loadingHint": "Cela peut prendre quelques secondes",
+    "resumeSession": "Reprendre une session Claude"
   },
   "mcp": {
     "notFound": "MCP introuvable",
