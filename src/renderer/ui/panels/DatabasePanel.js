@@ -47,6 +47,7 @@ let panelState = {
   browserPendingEdits: new Map(), // rowIdx -> { col: newVal }
   browserSearchTerm: '',
   browserSearchDebounce: null,
+  _blurCommitTimer: null, // Timer ID for pending blur commit
 };
 
 function init(context) {
@@ -529,6 +530,11 @@ function bindBrowserEvents(container) {
   // Cell click to edit
   container.querySelectorAll('.db-grid-cell:not(.editing)').forEach(cell => {
     cell.ondblclick = () => {
+      // Cancel any pending blur commit from a previous cell
+      if (panelState._blurCommitTimer) {
+        clearTimeout(panelState._blurCommitTimer);
+        panelState._blurCommitTimer = null;
+      }
       const row = parseInt(cell.dataset.row);
       const col = cell.dataset.col;
       if (col === undefined) return;
@@ -545,20 +551,28 @@ function bindBrowserEvents(container) {
   container.querySelectorAll('.db-grid-edit-input').forEach(input => {
     input.onkeydown = (e) => {
       if (e.key === 'Enter') {
+        // Cancel pending blur since we're committing now
+        if (panelState._blurCommitTimer) { clearTimeout(panelState._blurCommitTimer); panelState._blurCommitTimer = null; }
         commitCellEdit(input);
       } else if (e.key === 'Escape') {
+        if (panelState._blurCommitTimer) { clearTimeout(panelState._blurCommitTimer); panelState._blurCommitTimer = null; }
         panelState.browserEditingCell = null;
         renderContent();
       } else if (e.key === 'Tab') {
         e.preventDefault();
+        if (panelState._blurCommitTimer) { clearTimeout(panelState._blurCommitTimer); panelState._blurCommitTimer = null; }
         commitCellEdit(input);
       }
     };
     input.onblur = () => {
-      // Small delay to avoid conflicts with clicks
-      setTimeout(() => {
-        if (panelState.browserEditingCell) {
-          commitCellEdit(input);
+      // Capture values immediately before DOM may change
+      const row = parseInt(input.dataset.row);
+      const col = input.dataset.col;
+      const value = input.value;
+      panelState._blurCommitTimer = setTimeout(() => {
+        panelState._blurCommitTimer = null;
+        if (panelState.browserEditingCell && panelState.browserEditingCell.row === row && panelState.browserEditingCell.col === col) {
+          commitCellEdit({ dataset: { row, col }, value });
         }
       }, 100);
     };
@@ -1019,17 +1033,17 @@ function renderQuery(container) {
     }
   };
   if (input) {
-    input.addEventListener('keydown', (e) => {
+    input.onkeydown = (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault();
         runQuery();
       }
-    });
-    input.addEventListener('input', () => {
+    };
+    input.oninput = () => {
       state.setCurrentQuery(input.value);
       syncHighlight();
-    });
-    input.addEventListener('scroll', syncScroll);
+    };
+    input.onscroll = syncScroll;
   }
 
   // Template click handlers

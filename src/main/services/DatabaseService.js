@@ -12,10 +12,54 @@ const { dataDir } = require('../utils/paths');
 const DATABASES_FILE = path.join(dataDir, 'databases.json');
 const KEYTAR_SERVICE = 'claude-terminal-db';
 
+const MAX_CONNECTIONS = 10;
+const CONNECTION_IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+
 class DatabaseService {
   constructor() {
-    this.connections = new Map(); // id -> { config, client, status }
+    this.connections = new Map(); // id -> { config, client, status, lastUsed }
     this._schemaCache = new Map(); // id -> { tables, timestamp }
+    this._cleanupTimer = null;
+  }
+
+  /** Start periodic cleanup of idle connections (every 60s) */
+  _startCleanupTimer() {
+    if (this._cleanupTimer) return;
+    this._cleanupTimer = setInterval(() => this._evictIdle(), 60000);
+    // Don't keep the process alive for this timer
+    if (this._cleanupTimer.unref) this._cleanupTimer.unref();
+  }
+
+  /** Stop the cleanup timer */
+  _stopCleanupTimer() {
+    if (this._cleanupTimer) {
+      clearInterval(this._cleanupTimer);
+      this._cleanupTimer = null;
+    }
+  }
+
+  /** Evict connections that have been idle beyond CONNECTION_IDLE_TIMEOUT */
+  async _evictIdle() {
+    const now = Date.now();
+    const toEvict = [];
+    for (const [id, conn] of this.connections) {
+      if (now - conn.lastUsed > CONNECTION_IDLE_TIMEOUT) {
+        toEvict.push(id);
+      }
+    }
+    for (const id of toEvict) {
+      console.log(`[Database] Evicting idle connection: ${id}`);
+      await this.disconnect(id);
+    }
+    if (this.connections.size === 0) {
+      this._stopCleanupTimer();
+    }
+  }
+
+  /** Touch a connection to keep it alive */
+  _touch(id) {
+    const conn = this.connections.get(id);
+    if (conn) conn.lastUsed = Date.now();
   }
 
   /**
@@ -49,9 +93,21 @@ class DatabaseService {
       if (this.connections.has(id)) {
         await this.disconnect(id);
       }
+      // Enforce max connections — evict oldest idle if at limit
+      if (this.connections.size >= MAX_CONNECTIONS) {
+        let oldestId = null, oldestTime = Infinity;
+        for (const [cid, conn] of this.connections) {
+          if (conn.lastUsed < oldestTime) { oldestTime = conn.lastUsed; oldestId = cid; }
+        }
+        if (oldestId) {
+          console.log(`[Database] Max connections (${MAX_CONNECTIONS}) reached, evicting: ${oldestId}`);
+          await this.disconnect(oldestId);
+        }
+      }
       const client = await this._createClient(config);
       await this._ping(config.type, client);
-      this.connections.set(id, { config, client, status: 'connected' });
+      this.connections.set(id, { config, client, status: 'connected', lastUsed: Date.now() });
+      this._startCleanupTimer();
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -77,6 +133,7 @@ class DatabaseService {
    * Close all connections (for app quit)
    */
   async disconnectAll() {
+    this._stopCleanupTimer();
     const promises = [];
     for (const [id] of this.connections) {
       promises.push(this.disconnect(id));
@@ -92,6 +149,7 @@ class DatabaseService {
   async getSchema(id, { force = false } = {}) {
     const conn = this.connections.get(id);
     if (!conn) return { success: false, error: 'Not connected' };
+    this._touch(id);
 
     // Return cached schema if fresh (2 min TTL)
     const cached = this._schemaCache.get(id);
@@ -118,6 +176,7 @@ class DatabaseService {
   async executeQuery(id, sql, limit = 100) {
     const conn = this.connections.get(id);
     if (!conn) return { success: false, error: 'Not connected' };
+    this._touch(id);
 
     const start = Date.now();
     try {
