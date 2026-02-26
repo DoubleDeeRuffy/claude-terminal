@@ -35,6 +35,8 @@ const RUN_STATUS = Object.freeze({
   SKIPPED:   'skipped',
 });
 
+const MAX_CACHE_ENTRIES = 200;
+
 // ─── WorkflowService ──────────────────────────────────────────────────────────
 
 class WorkflowService {
@@ -53,6 +55,7 @@ class WorkflowService {
 
     /**
      * Cache of recent successful run results for depends_on lazy resolution.
+     * Keyed by workflowId only. Capped at MAX_CACHE_ENTRIES to prevent unbounded growth.
      * Map<workflowId, { completedAt: number, outputs: Object }>
      */
     this._resultsCache = new Map();
@@ -459,17 +462,23 @@ class WorkflowService {
       storage.saveResultPayload(run.id, { outputs: result.outputs });
     }
 
-    // Update results cache (only on success)
+    // Update results cache (only on success), keyed by workflowId for depends_on lookup
     if (status === RUN_STATUS.SUCCESS) {
-      this._resultsCache.set(run.id /* wf.id? */, {
-        completedAt: now,
-        outputs:     result.outputs || {},
-      });
-      // Also key by workflowId for depends_on lookup
       this._resultsCache.set(workflow.id, {
         completedAt: now,
         outputs:     result.outputs || {},
       });
+      // Evict oldest entries if cache exceeds limit
+      if (this._resultsCache.size > MAX_CACHE_ENTRIES) {
+        let oldest = null, oldestKey = null;
+        for (const [key, val] of this._resultsCache) {
+          if (!oldest || val.completedAt < oldest) {
+            oldest = val.completedAt;
+            oldestKey = key;
+          }
+        }
+        if (oldestKey) this._resultsCache.delete(oldestKey);
+      }
     }
 
     // Notify renderer

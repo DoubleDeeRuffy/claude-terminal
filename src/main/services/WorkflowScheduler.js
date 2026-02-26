@@ -171,6 +171,7 @@ class WorkflowScheduler {
    */
   destroy() {
     if (this._cronTimer) {
+      clearTimeout(this._cronTimer);   // works for both setTimeout and setInterval handles
       clearInterval(this._cronTimer);
       this._cronTimer = null;
     }
@@ -199,10 +200,12 @@ class WorkflowScheduler {
 
   _ensureCronTimer() {
     if (this._cronTimer) return; // already running
+    if (this._cronJobs.size === 0) return; // no cron jobs, skip timer
     // Align to next full minute, then tick every 60s
     const now   = Date.now();
     const delay = 60_000 - (now % 60_000);
-    setTimeout(() => {
+    // Assign a sentinel immediately to prevent duplicate timers during the delay
+    this._cronTimer = setTimeout(() => {
       this._tick();
       this._cronTimer = setInterval(() => this._tick(), 60_000);
     }, delay);
