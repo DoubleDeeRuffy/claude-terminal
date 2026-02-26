@@ -109,6 +109,7 @@ class CloudRelayClient {
       .replace(/\/$/, '');
 
     const url = `${wsUrl}/relay?role=desktop&token=${encodeURIComponent(this.apiKey)}`;
+    console.log('[CloudRelay] Connecting to:', wsUrl + '/relay');
 
     try {
       this.ws = new WebSocket(url, {
@@ -139,6 +140,7 @@ class CloudRelayClient {
     });
 
     this.ws.on('close', (code, reason) => {
+      console.log('[CloudRelay] Connection closed:', code, reason?.toString());
       this.connected = false;
       this._stopHeartbeat();
       this._emitStatus({ connected: false, error: code !== 1000 ? `Closed: ${code}` : undefined });
@@ -146,7 +148,7 @@ class CloudRelayClient {
     });
 
     this.ws.on('error', (err) => {
-      // 'close' will fire after this
+      console.error('[CloudRelay] WebSocket error:', err.message);
     });
   }
 
