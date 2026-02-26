@@ -635,16 +635,6 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             <div class="settings-toggle-row">
               <div class="settings-toggle-label">
-                <div>${t('settings.showTabModeToggle')}</div>
-                <div class="settings-toggle-desc">${t('settings.showTabModeToggleDesc')}</div>
-              </div>
-              <label class="settings-toggle">
-                <input type="checkbox" id="show-tab-mode-toggle" ${settings.showTabModeToggle !== false ? 'checked' : ''}>
-                <span class="settings-toggle-slider"></span>
-              </label>
-            </div>
-            <div class="settings-toggle-row" style="margin-top: 12px;">
-              <div class="settings-toggle-label">
                 <div>${t('settings.restoreTerminalSessions')}</div>
                 <div class="settings-toggle-desc">${t('settings.restoreTerminalSessionsDesc')}</div>
               </div>
@@ -657,6 +647,16 @@ async function renderSettingsTab(initialTab = 'general') {
           <div class="settings-group">
             <div class="settings-group-title">${t('settings.tabsGroup')}</div>
             <div class="settings-card">
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.showTabModeToggle')}</div>
+                  <div class="settings-toggle-desc">${t('settings.showTabModeToggleDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="show-tab-mode-toggle" ${settings.showTabModeToggle !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
                   <div>${t('settings.aiTabNaming')}</div>
