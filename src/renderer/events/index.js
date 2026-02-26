@@ -373,13 +373,13 @@ function wireSessionIdCapture() {
       if (e.source !== 'hooks') return;
       if (!e.data?.sessionId) return;
       if (!e.projectId) return;
-      const terminalId = findClaudeTerminalForProject(e.projectId);
+      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
       if (!terminalId) return;
       const { updateTerminal } = require('../state/terminals.state');
       updateTerminal(terminalId, { claudeSessionId: e.data.sessionId });
       const TerminalSessionService = require('../services/TerminalSessionService');
-      TerminalSessionService.saveTerminalSessions();
-      console.debug(`[Events] Captured session ID ${e.data.sessionId} for terminal ${terminalId}`);
+      TerminalSessionService.saveTerminalSessionsImmediate();
+      console.debug(`[Events] Captured session ID ${e.data.sessionId} for terminal ${terminalId} (last-active)`);
     })
   );
 }

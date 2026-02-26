@@ -157,6 +157,7 @@ function clearAllSessions() {
 module.exports = {
   loadSessionData,
   saveTerminalSessions,
+  saveTerminalSessionsImmediate,
   clearProjectSessions,
   clearAllSessions,
 };
