@@ -26,7 +26,9 @@
     "browse": "Parcourir",
     "errorOccurred": "Une erreur est survenue",
     "stop": "Arrêter",
-    "remove": "Retirer"
+    "remove": "Retirer",
+    "paste": "Coller",
+    "selectAll": "Tout sélectionner"
   },
   "projects": {
     "title": "Projets",
@@ -472,7 +474,16 @@
     "quickPicker": "Sélecteur rapide",
     "newProject": "Nouveau projet",
     "newTerminal": "Nouveau terminal",
-    "toggleFileExplorer": "Explorateur de fichiers"
+    "toggleFileExplorer": "Explorateur de fichiers",
+    "terminalShortcuts": "Raccourcis terminal",
+    "termCtrlC": "Copier la sélection (Ctrl+C)",
+    "termCtrlV": "Coller (Ctrl+V)",
+    "termCtrlArrow": "Saut de mot (Ctrl+\u2190/\u2192) \u2014 remplace le changement d\u0027onglet",
+    "termCtrlTab": "Changer d'onglet terminal (Ctrl+Tab)",
+    "termRightClickPaste": "Clic droit pour coller",
+    "termRightClickCopyPaste": "Clic droit copier/coller (style Windows Terminal)",
+    "termShortcutEnabled": "Activé",
+    "termShortcutDisabled": "Désactivé"
   },
   "contextMenu": {
     "newSubfolder": "Nouveau sous-dossier",
@@ -662,7 +673,9 @@
     "restoreTerminalSessions": "Mémoriser les derniers états des terminaux",
     "restoreTerminalSessionsDesc": "Restaurer les onglets de terminal et les sessions Claude de la session précédente au démarrage",
     "enable1MContext": "Contexte 1M tokens",
-    "enable1MContextDesc": "Activer la fenêtre de contexte de 1 million de tokens pour Opus et Sonnet (API uniquement, beta)"
+    "enable1MContextDesc": "Activer la fenêtre de contexte de 1 million de tokens pour Opus et Sonnet (API uniquement, beta)",
+    "terminalContextMenu": "Menu contextuel du terminal",
+    "terminalContextMenuDesc": "Afficher un menu contextuel au clic droit dans le terminal (désactiver pour le collage instantané)"
   },
   "ui": {
     "notifications": "Notifications",

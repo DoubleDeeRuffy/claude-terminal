@@ -155,6 +155,12 @@ const terminalSubstatus = new Map();     // id -> 'thinking' | 'tool_calling'
 const lastTerminalData = new Map();      // id -> timestamp of last PTY data
 const terminalContext = new Map();        // id -> { taskName, lastTool, toolCount, duration }
 
+// ── Per-project active tab tracking (in-memory, within-session only) ──
+// Track last-active terminal ID per project (so switching back to a project restores the tab)
+const lastActivePerProject = new Map();
+// Track scroll position per terminal at leave-time (for scroll restoration on project switch)
+const savedScrollPositions = new Map();
+
 /**
  * Scan terminal buffer for definitive completion signals.
  *
@@ -333,6 +339,14 @@ function parseClaudeTitle(title) {
 }
 
 /**
+ * Track when a tab was last renamed by a slash command (hooks PROMPT_SUBMIT).
+ * Used to prevent OSC title changes from overwriting the slash-command name.
+ * The cooldown prevents the race where OSC fires before hooks rename completes.
+ */
+const slashRenameTimestamps = new Map();
+const SLASH_RENAME_COOLDOWN = 30000; // 30s — protect slash name for this long
+
+/**
  * Returns true when an OSC title rename should be skipped because the tab was
  * renamed to a slash command by the user's setting.
  * Uses the module-level getSetting import to avoid any circular dependency issues.
@@ -341,7 +355,12 @@ function parseClaudeTitle(title) {
 function shouldSkipOscRename(id) {
   if (!getSetting('tabRenameOnSlashCommand')) return false;
   const td = getTerminal(id);
-  return !!(td && td.name && td.name.startsWith('/'));
+  // Check 1: tab name starts with / (slash command name)
+  if (td && td.name && td.name.startsWith('/')) return true;
+  // Check 2: cooldown — within 30s of a slash rename, block OSC overwrites
+  const ts = slashRenameTimestamps.get(id);
+  if (ts && Date.now() - ts < SLASH_RENAME_COOLDOWN) return true;
+  return false;
 }
 
 /**
@@ -375,7 +394,7 @@ function handleClaudeTitleChange(id, title, options = {}) {
 
     // Auto-name tab from Claude's task name (not tool names)
     if (parsed.taskName) {
-      if (!shouldSkipOscRename(id)) {
+      if (getSetting('aiTabNaming') !== false && !shouldSkipOscRename(id)) {
         updateTerminalTabName(id, parsed.taskName);
       }
     }
@@ -389,7 +408,7 @@ function handleClaudeTitleChange(id, title, options = {}) {
     if (parsed.taskName) {
       if (!terminalContext.has(id)) terminalContext.set(id, { taskName: null, lastTool: null, toolCount: 0, duration: null });
       terminalContext.get(id).taskName = parsed.taskName;
-      if (!shouldSkipOscRename(id)) {
+      if (getSetting('aiTabNaming') !== false && !shouldSkipOscRename(id)) {
         updateTerminalTabName(id, parsed.taskName);
       }
     }
@@ -462,12 +481,29 @@ function extractTerminalContext(terminal) {
 
 
 /**
- * Setup paste handler to prevent double-paste issue
- * xterm.js + Electron can trigger paste twice, so we handle it manually
- * @param {HTMLElement} wrapper - Terminal wrapper element
- * @param {string|number} terminalId - Terminal ID for IPC
- * @param {string} inputChannel - IPC channel for input
+ * Shared paste helper — encapsulates debounce + clipboard read + IPC dispatch.
+ * Used by setupPasteHandler, setupClipboardShortcuts, createTerminalKeyHandler,
+ * and the right-click context menu.
  */
+function performPaste(terminalId, inputChannel = 'terminal-input') {
+  const now = Date.now();
+  if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
+  lastPasteTime = now;
+  const sendPaste = (text) => {
+    if (!text) return;
+    if (inputChannel === 'fivem-input') {
+      api.fivem.input({ projectIndex: terminalId, data: text });
+    } else if (inputChannel === 'webapp-input') {
+      api.webapp.input({ projectIndex: terminalId, data: text });
+    } else {
+      api.terminal.input({ id: terminalId, data: text });
+    }
+  };
+  navigator.clipboard.readText()
+    .then(sendPaste)
+    .catch(() => api.app.clipboardRead().then(sendPaste));
+}
+
 /**
  * Setup DOM-level clipboard shortcuts (capture phase, before xterm intercepts)
  * xterm.js 6.x handles Ctrl+Shift+V internally but fails in Electron — we must intercept first.
@@ -973,8 +1009,18 @@ function updateTerminalTabName(id, name) {
   const termData = getTerminal(id);
   if (!termData) return;
 
+  // Track slash command renames for OSC overwrite protection
+  if (name && name.startsWith('/')) {
+    slashRenameTimestamps.set(id, Date.now());
+  }
+
   // Update state
   updateTerminal(id, { name });
+
+  // Phase 19: propagate tab name to session-names.json (resume dialog)
+  if (termData.claudeSessionId && name) {
+    setSessionCustomName(termData.claudeSessionId, name);
+  }
 
   // Update DOM
   const tab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
@@ -984,6 +1030,9 @@ function updateTerminalTabName(id, name) {
       nameSpan.textContent = name;
     }
   }
+  // Phase 16: persist name change (debounced)
+  const TerminalSessionService = require('../../services/TerminalSessionService');
+  TerminalSessionService.saveTerminalSessions();
 }
 
 /**
@@ -1028,6 +1077,8 @@ function updateTerminalStatus(id, status) {
         clearTimeout(safetyTimeout);
         loadingTimeouts.delete(id);
       }
+      // Schedule silence-based scroll — fires 300ms after PTY data goes quiet
+      scheduleScrollAfterRestore(id);
     }
     if (status === 'ready' && previousStatus === 'working') {
       // Skip scraping notifications when hooks are active (bus consumer handles it with richer data)
@@ -1113,6 +1164,9 @@ function startRenameTab(id) {
     newSpan.textContent = newName;
     newSpan.ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
     input.replaceWith(newSpan);
+    // Phase 16: persist user rename (debounced)
+    const TerminalSessionService = require('../../services/TerminalSessionService');
+    TerminalSessionService.saveTerminalSessions();
   };
 
   input.onblur = finishRename;
@@ -1130,6 +1184,21 @@ function setActiveTerminal(id) {
   const prevActiveId = getActiveTerminal();
   const prevTermData = prevActiveId ? getTerminal(prevActiveId) : null;
   const prevProjectId = prevTermData?.project?.id;
+
+  // Capture scroll position of the outgoing terminal before switching
+  if (prevTermData && prevActiveId !== id) {
+    try {
+      if (prevTermData.mode === 'chat') {
+        const prevWrapper = document.querySelector(`.terminal-wrapper[data-id="${prevActiveId}"]`);
+        const messagesEl = prevWrapper?.querySelector('.chat-messages');
+        if (messagesEl) {
+          savedScrollPositions.set(prevActiveId, { scrollTop: messagesEl.scrollTop });
+        }
+      } else if (prevTermData.terminal?.buffer?.active) {
+        savedScrollPositions.set(prevActiveId, { viewportY: prevTermData.terminal.buffer.active.viewportY });
+      }
+    } catch (e) { /* scroll capture failed, not critical */ }
+  }
 
   // Blur previous terminal so its hidden xterm textarea doesn't capture cursor/input
   if (prevTermData && prevTermData.terminal && prevActiveId !== id) {
@@ -1160,6 +1229,38 @@ function setActiveTerminal(id) {
     const newProjectId = termData.project?.id;
     if (prevProjectId !== newProjectId) {
       if (newProjectId) heartbeat(newProjectId, 'terminal');
+    }
+
+    // Record this terminal as last-active for its project
+    if (newProjectId) {
+      lastActivePerProject.set(newProjectId, id);
+    }
+
+    // Restore scroll position of the incoming terminal (deferred until DOM is visible)
+    const saved = savedScrollPositions.get(id);
+    if (saved) {
+      requestAnimationFrame(() => {
+        try {
+          if (termData.mode === 'chat') {
+            const wrapper = document.querySelector(`.terminal-wrapper[data-id="${id}"]`);
+            const messagesEl = wrapper?.querySelector('.chat-messages');
+            if (messagesEl && saved.scrollTop !== undefined) {
+              messagesEl.scrollTop = saved.scrollTop;
+            }
+          } else if (termData.terminal?.buffer?.active && saved.viewportY !== undefined) {
+            const delta = saved.viewportY - termData.terminal.buffer.active.viewportY;
+            if (delta !== 0) termData.terminal.scrollLines(delta);
+          }
+        } catch (e) { /* scroll restore failed, not critical */ }
+      });
+    }
+
+    // Track active Claude tab for event routing (tab rename, session ID capture)
+    if (newProjectId && termData.mode === 'terminal' && !termData.isBasic) {
+      try {
+        const { notifyTabActivated } = require('../../events');
+        notifyTabActivated(newProjectId, id);
+      } catch (e) { /* events module not ready */ }
     }
   }
 }
@@ -1225,6 +1326,9 @@ function closeTerminal(id) {
   terminalSubstatus.delete(id);
   lastTerminalData.delete(id);
   terminalContext.delete(id);
+  savedScrollPositions.delete(id);
+  // Note: do NOT delete from lastActivePerProject — the guard in filterByProject
+  // handles stale IDs via getTerminal(savedId) returning null.
   errorOverlays.delete(closedProjectIndex);
 
   // Kill and cleanup
@@ -1291,7 +1395,7 @@ async function createTerminal(project, options = {}) {
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
     const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
-    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
+    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
   }
 
   const result = await api.terminal.create({
@@ -1342,6 +1446,8 @@ async function createTerminal(project, options = {}) {
     inputBuffer: '',
     isBasic: isBasicTerminal,
     mode: 'terminal',
+    cwd: overrideCwd || project.path,
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {}),
     ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
@@ -1408,6 +1514,7 @@ async function createTerminal(project, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -1494,7 +1601,7 @@ async function createTerminal(project, options = {}) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title) {
+        if (title && getSetting('aiTabNaming') !== false) {
           // Update terminal tab name instead of window title
           updateTerminalTabName(id, title);
         }
@@ -1710,6 +1817,7 @@ function createTypeConsole(project, projectIndex) {
   // Prevent double-paste issue
   setupPasteHandler(consoleView, projectIndex, `${typeId}-input`);
   setupClipboardShortcuts(consoleView, terminal, projectIndex, `${typeId}-input`);
+  setupRightClickHandler(consoleView, terminal, projectIndex, `${typeId}-input`);
 
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
@@ -2147,7 +2255,44 @@ function filterByProject(projectIndex) {
     emptyState.style.display = 'none';
     const activeTab = document.querySelector(`.terminal-tab[data-id="${getActiveTerminal()}"]`);
     if (!activeTab || activeTab.style.display === 'none') {
-      if (firstVisibleId) setActiveTerminal(firstVisibleId);
+      let targetId = firstVisibleId;
+
+      // Try to restore the last-active tab for this project
+      const project = projects[projectIndex];
+      if (project) {
+        // Primary: in-memory per-project last-active tab (within-session switches)
+        const savedId = lastActivePerProject.get(project.id);
+        if (savedId && getTerminal(savedId)) {
+          const savedTab = tabsById.get(String(savedId));
+          if (savedTab && savedTab.style.display !== 'none') {
+            targetId = savedId;
+          }
+        }
+
+        // Secondary fallback: disk-based activeTabIndex (app restart path)
+        if (targetId === firstVisibleId) {
+          try {
+            const { loadSessionData } = require('../../services/TerminalSessionService');
+            const sessionData = loadSessionData();
+            const savedIdx = sessionData?.projects?.[project.id]?.activeTabIndex;
+            if (typeof savedIdx === 'number') {
+              // Collect visible terminal IDs in Map iteration order (matches save order)
+              const visibleIds = [];
+              terminals.forEach((td, id) => {
+                const tab = tabsById.get(String(id));
+                if (tab && tab.style.display !== 'none') {
+                  visibleIds.push(id);
+                }
+              });
+              if (savedIdx < visibleIds.length) {
+                targetId = visibleIds[savedIdx];
+              }
+            }
+          } catch (e) { /* session data unavailable, use firstVisibleId */ }
+        }
+      }
+
+      if (targetId) setActiveTerminal(targetId);
     }
   }
 }
@@ -2850,6 +2995,7 @@ async function resumeSession(project, sessionId, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -2891,7 +3037,7 @@ async function resumeSession(project, sessionId, options = {}) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title) updateTerminalTabName(id, title);
+        if (title && getSetting('aiTabNaming') !== false) updateTerminalTabName(id, title);
         updateTerminal(id, { inputBuffer: '' });
       }
     } else if (data === '\x7f' || data === '\b') {
@@ -3007,6 +3153,7 @@ async function createTerminalWithPrompt(project, prompt) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3061,7 +3208,7 @@ async function createTerminalWithPrompt(project, prompt) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title) updateTerminalTabName(id, title);
+        if (title && getSetting('aiTabNaming') !== false) updateTerminalTabName(id, title);
         updateTerminal(id, { inputBuffer: '' });
       }
     } else if (data === '\x7f' || data === '\b') {
@@ -3396,10 +3543,17 @@ async function createChatTerminal(project, options = {}) {
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
+      // Phase 19: propagate tab name to session-names.json (resume dialog)
+      if (_chatSessionId && name) {
+        setSessionCustomName(_chatSessionId, name);
+      }
       // Notify remote PWA of tab rename
       if (_chatSessionId && api.remote?.notifyTabRenamed) {
         api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
       }
+      // Phase 16: persist chat AI name (debounced)
+      const TerminalSessionService = require('../../services/TerminalSessionService');
+      TerminalSessionService.saveTerminalSessions();
     },
     onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
     onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),
@@ -3567,6 +3721,7 @@ async function switchTerminalMode(id) {
     // Setup paste handler and key handler (use ptyId for PTY input routing)
     setupPasteHandler(wrapper, ptyId, 'terminal-input');
     setupClipboardShortcuts(wrapper, terminal, ptyId, 'terminal-input');
+    setupRightClickHandler(wrapper, terminal, ptyId, 'terminal-input');
     terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, ptyId, 'terminal-input'));
 
     // Title change
@@ -3645,6 +3800,42 @@ function cleanupProjectMaps(projectIndex) {
   }
 }
 
+/**
+ * Schedule a scroll-to-bottom for a restored terminal once PTY data goes silent.
+ *
+ * After app restart or --resume, PTY replay streams data through the adaptive batcher
+ * (4–32ms per IPC batch) for an unbounded duration proportional to session history size.
+ * A fixed timeout cannot reliably cover all sessions. Instead, we poll lastTerminalData
+ * (already maintained per terminal) and scroll once 300ms of silence is observed, or
+ * after 8s unconditionally.
+ *
+ * @param {string} id - Terminal ID
+ */
+function scheduleScrollAfterRestore(id) {
+  const SILENCE_MS = 300;   // 300ms no new data = replay done
+  const MAX_WAIT_MS = 8000; // hard fallback — scroll regardless after 8s
+  const POLL_MS = 50;       // polling interval
+
+  const startTime = Date.now();
+
+  const poll = setInterval(() => {
+    const td = getTerminal(id);
+    if (!td || !td.terminal || typeof td.terminal.scrollToBottom !== 'function') {
+      clearInterval(poll);
+      return;
+    }
+
+    const lastData = lastTerminalData.get(id);
+    const silentFor = lastData ? Date.now() - lastData : Date.now() - startTime;
+    const timedOut  = Date.now() - startTime >= MAX_WAIT_MS;
+
+    if (silentFor >= SILENCE_MS || timedOut) {
+      clearInterval(poll);
+      td.terminal.scrollToBottom();
+    }
+  }, POLL_MS);
+}
+
 module.exports = {
   createTerminal,
   closeTerminal,
@@ -3691,5 +3882,7 @@ module.exports = {
   setScrapingCallback,
   updateTerminalTabName,
   // Cleanup when a project is deleted
-  cleanupProjectMaps
+  cleanupProjectMaps,
+  // Silence-based scroll scheduling for session restore
+  scheduleScrollAfterRestore
 };

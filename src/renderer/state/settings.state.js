@@ -32,10 +32,18 @@ const defaultSettings = {
   restoreTerminalSessions: true, // Restore terminal tabs from previous session on startup
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
   showDotfiles: true, // true = show dotfiles in file explorer (default), false = hide them
+  explorerNaturalSort: true, // true = sort filenames with numbers as values (file2 before file10), false = alphabetical
+  updateTitleOnProjectSwitch: true, // true = update OS taskbar title to active project name
+  showTabModeToggle: true, // Show Chat/Terminal mode-switch button on terminal tabs
   tabRenameOnSlashCommand: false, // Rename terminal tab to slash command text when submitted
+  aiTabNaming: true, // Use AI (haiku) to generate short tab names from messages and OSC title changes
   cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
   cloudAutoConnect: true, // Auto-connect to cloud relay on startup
+  terminalShortcuts: {}, // Terminal shortcut toggles (empty = all enabled by default)
+  idleTimeout: 2, // Idle timeout in minutes for time tracking
+  projectsPanelWidth: null, // Saved projects panel width (null = CSS default)
+  fileExplorerWidth: null, // Saved file explorer width (null = CSS default)
   telemetryEnabled: false, // Opt-in anonymous telemetry
   telemetryUuid: null, // Random UUID for anonymous tracking
   telemetryCategories: { app: true, features: true, errors: true }, // Granular event categories

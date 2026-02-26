@@ -26,7 +26,9 @@
     "browse": "Browse",
     "errorOccurred": "An error occurred",
     "stop": "Stop",
-    "remove": "Remove"
+    "remove": "Remove",
+    "paste": "Paste",
+    "selectAll": "Select all"
   },
   "projects": {
     "title": "Projects",
@@ -406,7 +408,16 @@
     "quickPicker": "Quick picker",
     "newProject": "New project",
     "newTerminal": "New terminal",
-    "toggleFileExplorer": "Toggle file explorer"
+    "toggleFileExplorer": "Toggle file explorer",
+    "terminalShortcuts": "Terminal Shortcuts",
+    "termCtrlC": "Copy selection (Ctrl+C)",
+    "termCtrlV": "Paste (Ctrl+V)",
+    "termCtrlArrow": "Word jump (Ctrl+\u2190/\u2192) \u2014 replaces tab switching",
+    "termCtrlTab": "Switch terminal tab (Ctrl+Tab)",
+    "termRightClickPaste": "Right-click paste",
+    "termRightClickCopyPaste": "Right-click copy/paste (Windows Terminal style)",
+    "termShortcutEnabled": "Enabled",
+    "termShortcutDisabled": "Disabled"
   },
   "contextMenu": {
     "newSubfolder": "New subfolder",
@@ -596,7 +607,9 @@
     "restoreTerminalSessions": "Remember last terminal states",
     "restoreTerminalSessionsDesc": "Restore terminal tabs and Claude sessions from the previous session on startup",
     "enable1MContext": "1M Token Context",
-    "enable1MContextDesc": "Enable 1 million token context window for Opus and Sonnet (API only, beta)"
+    "enable1MContextDesc": "Enable 1 million token context window for Opus and Sonnet (API only, beta)",
+    "terminalContextMenu": "Terminal context menu",
+    "terminalContextMenuDesc": "Show a context menu on right-click in the terminal (disable for instant paste)"
   },
   "ui": {
     "notifications": "Notifications",

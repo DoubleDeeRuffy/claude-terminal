@@ -15,6 +15,29 @@ const {
 
 let ctx = null;
 
+const ID_TO_ENABLED_KEY = {
+  ctrlC: 'shortcutCtrlCEnabled',
+  ctrlV: 'shortcutCtrlVEnabled',
+  ctrlArrow: 'shortcutCtrlArrowEnabled',
+  ctrlTab: 'shortcutCtrlTabEnabled',
+  rightClickPaste: 'shortcutRightClickPasteEnabled',
+  rightClickCopyPaste: 'shortcutRightClickCopyPasteEnabled',
+};
+
+const ID_TO_KEY_KEY = {
+  ctrlC: 'shortcutCtrlCKey',
+  ctrlV: 'shortcutCtrlVKey',
+};
+
+const TERMINAL_SHORTCUTS = {
+  ctrlC:              { key: 'Ctrl+C',          labelKey: 'shortcuts.termCtrlC',              enabledByDefault: true,  rebindable: true  },
+  ctrlV:              { key: 'Ctrl+V',          labelKey: 'shortcuts.termCtrlV',              enabledByDefault: true,  rebindable: true  },
+  ctrlArrow:          { key: 'Ctrl+Left/Right', labelKey: 'shortcuts.termCtrlArrow',          enabledByDefault: true,  rebindable: false },
+  ctrlTab:            { key: 'Ctrl+Tab',        labelKey: 'shortcuts.termCtrlTab',            enabledByDefault: true,  rebindable: false },
+  rightClickPaste:    { key: 'RightClick',      labelKey: 'shortcuts.termRightClickPaste',    enabledByDefault: true,  rebindable: false },
+  rightClickCopyPaste:{ key: 'RightClick',      labelKey: 'shortcuts.termRightClickCopyPaste',enabledByDefault: false, rebindable: false }
+};
+
 const DEFAULT_SHORTCUTS = {
   openSettings: { key: 'Ctrl+,', labelKey: 'shortcuts.openSettings' },
   closeTerminal: { key: 'Ctrl+W', labelKey: 'shortcuts.closeTerminal' },
@@ -45,6 +68,23 @@ function getShortcutKey(id) {
   return customShortcuts[id] || DEFAULT_SHORTCUTS[id]?.key || '';
 }
 
+function getTerminalShortcutLabel(id) {
+  const entry = TERMINAL_SHORTCUTS[id];
+  return entry ? t(entry.labelKey) : id;
+}
+
+function getTerminalShortcutKey(id) {
+  const flatKeyProp = ID_TO_KEY_KEY[id];
+  if (flatKeyProp) {
+    const stored = ctx.settingsState.get()[flatKeyProp];
+    // stored is a bare letter like 'C' for default, or a full key like 'Ctrl+X' when rebound
+    if (stored && stored !== TERMINAL_SHORTCUTS[id]?.key?.replace('Ctrl+', '')) {
+      return stored; // rebound — return the full stored key
+    }
+  }
+  return TERMINAL_SHORTCUTS[id]?.key || '';
+}
+
 function checkShortcutConflict(key, excludeId) {
   const normalizedKey = normalizeKey(key);
   for (const [id] of Object.entries(DEFAULT_SHORTCUTS)) {
@@ -52,6 +92,15 @@ function checkShortcutConflict(key, excludeId) {
     const currentKey = getShortcutKey(id);
     if (normalizeKey(currentKey) === normalizedKey) {
       return { id, label: getShortcutLabel(id) };
+    }
+  }
+  // Also check terminal shortcuts that are rebindable (ctrlC, ctrlV)
+  for (const [id, entry] of Object.entries(TERMINAL_SHORTCUTS)) {
+    if (id === excludeId) continue;
+    if (!entry.rebindable) continue;
+    const currentKey = getTerminalShortcutKey(id);
+    if (normalizeKey(currentKey) === normalizedKey) {
+      return { id, label: getTerminalShortcutLabel(id) };
     }
   }
   return null;
@@ -221,11 +270,128 @@ function renderShortcutsPanel() {
     </div>
   `;
 
+  // Terminal Shortcuts section
+  html += `
+    <div class="settings-group">
+      <div class="settings-group-title">${t('shortcuts.terminalShortcuts')}</div>
+      <div class="settings-card">
+      <div class="shortcuts-list">
+  `;
+
+  for (const [id, entry] of Object.entries(TERMINAL_SHORTCUTS)) {
+    const enabledFlatKey = ID_TO_ENABLED_KEY[id];
+    const storedEnabled = enabledFlatKey !== undefined ? ctx.settingsState.get()[enabledFlatKey] : undefined;
+    const isEnabled = storedEnabled !== undefined ? storedEnabled !== false : entry.enabledByDefault;
+    const currentKey = getTerminalShortcutKey(id) || entry.key;
+    const keyFlatKey = ID_TO_KEY_KEY[id];
+    const isCustomKey = keyFlatKey !== undefined && ctx.settingsState.get()[keyFlatKey] && ctx.settingsState.get()[keyFlatKey] !== 'C' && ctx.settingsState.get()[keyFlatKey] !== 'V';
+
+    html += `
+      <div class="shortcut-row terminal-shortcut-row" data-terminal-shortcut-id="${id}">
+        <div class="shortcut-label">${t(entry.labelKey)}</div>
+        <div class="shortcut-controls">
+          ${entry.rebindable
+            ? `<button type="button" class="shortcut-key-btn terminal-rebind-btn ${isCustomKey ? 'custom' : ''}" title="${t('shortcuts.clickToEdit')}">
+                ${formatKeyForDisplay(currentKey)}
+              </button>`
+            : `<span class="shortcut-key-static">${formatKeyForDisplay(currentKey)}</span>`
+          }
+          <label class="toggle-option" title="${isEnabled ? t('shortcuts.termShortcutEnabled') : t('shortcuts.termShortcutDisabled')}">
+            <input type="checkbox" class="terminal-shortcut-checkbox" data-id="${id}" ${isEnabled ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  html += `
+      </div>
+      </div>
+    </div>
+  `;
+
   return html;
 }
 
+function startTerminalShortcutCapture(id) {
+  const overlay = document.createElement('div');
+  overlay.className = 'shortcut-capture-overlay';
+  overlay.innerHTML = `
+    <div class="shortcut-capture-box">
+      <div class="shortcut-capture-title">${t('shortcuts.pressKeys')}</div>
+      <div class="shortcut-capture-preview">${t('shortcuts.waiting')}</div>
+      <div class="shortcut-capture-hint">${t('shortcuts.pressEscapeToCancel')}</div>
+      <div class="shortcut-capture-conflict" style="display: none;"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const handleKeydown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const key = getKeyFromEvent(e);
+    const preview = overlay.querySelector('.shortcut-capture-preview');
+    const conflictDiv = overlay.querySelector('.shortcut-capture-conflict');
+
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', handleKeydown, true);
+      return;
+    }
+
+    const hasModifier = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
+    const isFunctionKey = /^f\d+$/i.test(e.key);
+
+    if (!hasModifier && !isFunctionKey) {
+      preview.textContent = formatKeyForDisplay(key);
+      conflictDiv.style.display = 'block';
+      conflictDiv.textContent = t('shortcuts.modifierRequired');
+      conflictDiv.className = 'shortcut-capture-conflict warning';
+      return;
+    }
+
+    if (['ctrl', 'alt', 'shift', 'meta', 'control'].includes(e.key.toLowerCase())) {
+      preview.textContent = formatKeyForDisplay(key) + '...';
+      return;
+    }
+
+    preview.textContent = formatKeyForDisplay(key);
+
+    const conflict = checkShortcutConflict(key, id);
+    if (conflict) {
+      conflictDiv.style.display = 'block';
+      conflictDiv.textContent = t('shortcuts.conflictWith', { label: conflict.label });
+      conflictDiv.className = 'shortcut-capture-conflict error';
+      return;
+    }
+
+    conflictDiv.style.display = 'none';
+    overlay.remove();
+    document.removeEventListener('keydown', handleKeydown, true);
+
+    // Apply the rebound key to terminal shortcut settings
+    const keyFlatKey = ID_TO_KEY_KEY[id];
+    if (keyFlatKey) {
+      ctx.settingsState.setProp(keyFlatKey, key);
+      ctx.saveSettings();
+    }
+
+    // Update the button display
+    const btn = document.querySelector(`.terminal-shortcut-row[data-terminal-shortcut-id="${id}"] .terminal-rebind-btn`);
+    if (btn) {
+      btn.textContent = formatKeyForDisplay(key);
+      btn.classList.add('custom');
+    }
+  };
+
+  document.addEventListener('keydown', handleKeydown, true);
+}
+
 function setupShortcutsPanelHandlers() {
-  document.querySelectorAll('.shortcut-key-btn').forEach(btn => {
+  // Global shortcut rebind buttons (existing)
+  document.querySelectorAll('.shortcut-row:not(.terminal-shortcut-row) .shortcut-key-btn').forEach(btn => {
     btn.onclick = (e) => {
       const row = e.target.closest('.shortcut-row');
       const id = row.dataset.shortcutId;
@@ -257,6 +423,33 @@ function setupShortcutsPanelHandlers() {
       }
     };
   }
+
+  // Terminal shortcut rebind buttons
+  document.querySelectorAll('.terminal-rebind-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      const row = e.target.closest('.terminal-shortcut-row');
+      const id = row.dataset.terminalShortcutId;
+      startTerminalShortcutCapture(id);
+    };
+  });
+
+  // Terminal shortcut enable/disable toggles
+  document.querySelectorAll('.terminal-shortcut-checkbox').forEach(checkbox => {
+    checkbox.onchange = (e) => {
+      const id = e.target.dataset.id;
+      const enabled = e.target.checked;
+      const flatKey = ID_TO_ENABLED_KEY[id];
+      if (flatKey) {
+        ctx.settingsState.setProp(flatKey, enabled);
+        ctx.saveSettings();
+      }
+      // Update toggle title
+      const label = e.target.closest('.toggle-option');
+      if (label) {
+        label.title = enabled ? t('shortcuts.termShortcutEnabled') : t('shortcuts.termShortcutDisabled');
+      }
+    };
+  });
 }
 
 function registerAllShortcuts() {
@@ -317,5 +510,6 @@ module.exports = {
   setupShortcutsPanelHandlers,
   registerAllShortcuts,
   getShortcutKey,
-  formatKeyForDisplay
+  formatKeyForDisplay,
+  TERMINAL_SHORTCUTS
 };

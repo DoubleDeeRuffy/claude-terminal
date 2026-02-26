@@ -83,7 +83,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     resize: (params) => ipcRenderer.send('terminal-resize', params),
     kill: (params) => ipcRenderer.send('terminal-kill', params),
     onData: createListener('terminal-data'),
-    onExit: createListener('terminal-exit')
+    onExit: createListener('terminal-exit'),
+    setCtrlTabEnabled: (enabled) => ipcRenderer.invoke('terminal:setCtrlTabEnabled', enabled),
+    setCtrlArrowWordJumpEnabled: (enabled) => ipcRenderer.invoke('terminal:setCtrlArrowWordJumpEnabled', enabled)
   },
 
   // ==================== GIT ====================
@@ -213,7 +215,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
     setTitle: (title) => ipcRenderer.send('set-window-title', title),
-    onCtrlArrow: createListener('ctrl-arrow')
+    onCtrlArrow: createListener('ctrl-arrow'),
+    onCtrlTab: createListener('ctrl-tab')
   },
 
   app: {

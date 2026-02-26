@@ -159,6 +159,26 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   await initializeState(); // Loads settings, projects AND initializes time tracking
   initI18n(settingsState.get().language); // Initialize i18n with saved language preference
 
+  // Sync Ctrl+Tab and Ctrl+Arrow word-jump enabled states to main process on startup
+  api.terminal.setCtrlTabEnabled(getSetting('shortcutCtrlTabEnabled') !== false);
+  api.terminal.setCtrlArrowWordJumpEnabled(getSetting('shortcutCtrlArrowEnabled') !== false);
+
+  // Subscribe to settings changes to sync Ctrl+Tab and Ctrl+Arrow states to main process immediately
+  let _prevCtrlTab = getSetting('shortcutCtrlTabEnabled') !== false;
+  let _prevCtrlArrow = getSetting('shortcutCtrlArrowEnabled') !== false;
+  settingsState.subscribe(() => {
+    const _tab = getSetting('shortcutCtrlTabEnabled') !== false;
+    if (_tab !== _prevCtrlTab) {
+      _prevCtrlTab = _tab;
+      api.terminal.setCtrlTabEnabled(_tab);
+    }
+    const _arrow = getSetting('shortcutCtrlArrowEnabled') !== false;
+    if (_arrow !== _prevCtrlArrow) {
+      _prevCtrlArrow = _arrow;
+      api.terminal.setCtrlArrowWordJumpEnabled(_arrow);
+    }
+  });
+
   // Initialize Claude event bus and provider (hooks or scraping)
   initClaudeEvents();
 
@@ -1458,10 +1478,15 @@ TerminalManager.setCallbacks({
   onSwitchProject: switchProject
 });
 
-// Listen for Ctrl+Arrow forwarded from main process (bypasses Windows Snap)
+// Listen for Ctrl+Arrow forwarded from main process (bypasses Windows Snap) — Up/Down only for project switching
 api.window.onCtrlArrow((dir) => {
-  if (dir === 'left' || dir === 'right') switchTerminal(dir);
-  else if (dir === 'up' || dir === 'down') switchProject(dir);
+  if (dir === 'up' || dir === 'down') switchProject(dir);
+});
+
+// Listen for Ctrl+Tab / Ctrl+Shift+Tab forwarded from main process for terminal tab switching
+api.window.onCtrlTab((dir) => {
+  if (dir === 'next') switchTerminal('right');
+  else if (dir === 'prev') switchTerminal('left');
 });
 
 // Setup FileExplorer
