@@ -303,12 +303,13 @@ Plans:
 
 ### Phase 17: On update-installation the pinned taskbar icon gets lost. Is there a whole uninstall and install happening?
 
-**Goal:** [To be planned]
+**Goal:** Fix Windows taskbar pin loss on auto-update by setting explicit AUMID, disabling forced shortcut recreation, and guarding shortcut deletion during update runs
 **Depends on:** Phase 16
-**Plans:** 0 plans
+**Requirements:** PIN-01
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:discuss-phase 17 to break down)
+- [ ] 17-01-PLAN.md — Set explicit AppUserModelId, disable allowToChangeInstallationDirectory, guard customUnInstall shortcut deletion
 
 ### Phase 18: Disable Haiki Tab-Naming Settings toggle
 
