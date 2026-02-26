@@ -1,4 +1,5 @@
 import http from 'http';
+import path from 'path';
 import express from 'express';
 import { config } from './config';
 import { store } from './store/store';
@@ -9,6 +10,25 @@ import { authenticateApiKey } from './auth/auth';
 import { WebSocket, WebSocketServer } from 'ws';
 
 let relayServer: RelayServer;
+
+// ── In-memory log buffer for admin TUI ──
+const MAX_LOG_ENTRIES = 500;
+const logBuffer: Array<{ timestamp: number; level: string; message: string }> = [];
+
+function captureLog(level: string, ...args: any[]): void {
+  const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  logBuffer.push({ timestamp: Date.now(), level, message });
+  if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.shift();
+}
+
+// Intercept console.log/warn/error to capture logs
+const _origLog = console.log.bind(console);
+const _origWarn = console.warn.bind(console);
+const _origErr = console.error.bind(console);
+
+console.log = (...args: any[]) => { captureLog('INFO', ...args); _origLog(...args); };
+console.warn = (...args: any[]) => { captureLog('WARN', ...args); _origWarn(...args); };
+console.error = (...args: any[]) => { captureLog('ERROR', ...args); _origErr(...args); };
 
 export async function startServer(): Promise<void> {
   await store.ensureDataDirs();
@@ -28,8 +48,26 @@ export async function startServer(): Promise<void> {
     });
   });
 
+  // ── Admin endpoints (local-only) ──
+
+  app.get('/admin/rooms', (_req, res) => {
+    res.json(relayServer.listRooms());
+  });
+
+  app.get('/admin/logs', (_req, res) => {
+    res.json(logBuffer);
+  });
+
   // Cloud API routes
   app.use('/api', createCloudRouter());
+
+  // Remote UI (PWA static files)
+  const remoteUiDir = path.join(__dirname, '..', 'remote-ui');
+  app.use(express.static(remoteUiDir));
+  // SPA fallback: serve index.html for unknown routes
+  app.use((_req, res) => {
+    res.sendFile(path.join(remoteUiDir, 'index.html'));
+  });
 
   const server = http.createServer(app);
 

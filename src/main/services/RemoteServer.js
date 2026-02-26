@@ -69,8 +69,33 @@ let _lockoutUntil = 0;
 // Live time data pushed from renderer
 let _timeData = { todayMs: 0 };
 
+// ─── Cloud Relay Bridge ──────────────────────────────────────────────────────
+// CloudRelayClient reference — injected via setCloudClient()
+let _cloudClient = null;
+
+// Virtual WS-like object that routes send() calls through the cloud relay
+const _cloudWsProxy = {
+  get readyState() { return _cloudClient?.connected ? 1 : 3; },
+  send(data) {
+    if (_cloudClient?.connected) {
+      try { _cloudClient.send(typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) {
+        console.warn(`[Remote] Cloud proxy send failed: ${e.message}`);
+      }
+    }
+  },
+  close() {},
+};
+
 // Cache sessionId → projectId mapping to avoid disk reads on every chat-idle
 const _sessionProjectMap = new Map();
+
+// Cache sessionId → tab name (set by broadcastSessionStarted / broadcastTabRenamed)
+const _sessionTabNames = new Map();
+
+// Buffer of chat events per session — replayed to late-joining clients
+// Each entry is an array of { channel, data } objects
+const _sessionMessageBuffer = new Map();
+const MAX_BUFFER_PER_SESSION = 500; // cap to prevent memory issues
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -325,8 +350,10 @@ function _sendProjectsAndSessions(ws) {
     _wsSend(ws, 'projects:updated', { projects, folders, rootOrder });
 
     // Envoyer les sessions actives une par une via session:started
+    // + replay buffered messages so late-joining clients see conversation history
     const chatService = require('./ChatService');
     const activeSessions = chatService.getActiveSessions();
+    let totalBuffered = 0;
     console.log(`[Remote] Sending init data — ${projects.length} project(s), ${activeSessions.length} active session(s)`);
     for (const { sessionId, cwd } of activeSessions) {
       const project = projects.find(p => p.path && cwd && (
@@ -334,11 +361,27 @@ function _sendProjectsAndSessions(ws) {
       ));
       const projectId = project?.id || null;
       if (projectId) _sessionProjectMap.set(sessionId, projectId);
+      // Use stored tab name (from broadcastSessionStarted/broadcastTabRenamed),
+      // falling back to project name, then 'Chat'
+      const tabName = _sessionTabNames.get(sessionId) || project?.name || 'Chat';
       _wsSend(ws, 'session:started', {
         sessionId,
         projectId,
-        tabName: project?.name || 'Chat',
+        tabName,
       });
+
+      // Replay buffered chat events for this session
+      const buffer = _sessionMessageBuffer.get(sessionId);
+      console.log(`[Remote] Session ${sessionId}: buffer has ${buffer?.length || 0} event(s), all buffers: ${[..._sessionMessageBuffer.keys()].join(', ') || 'none'}`);
+      if (buffer && buffer.length > 0) {
+        totalBuffered += buffer.length;
+        for (const { channel, data } of buffer) {
+          _wsSend(ws, channel, data);
+        }
+      }
+    }
+    if (totalBuffered > 0) {
+      console.log(`[Remote] Replayed ${totalBuffered} buffered chat event(s)`);
     }
   } catch (e) {
     console.warn(`[Remote] Failed to send init data: ${e.message}`);
@@ -518,6 +561,27 @@ function _handleClientMessage(ws, token, raw) {
         break;
       }
 
+      case 'request:init': {
+        // Mobile (cloud or local) is requesting initial state
+        console.log('[Remote] ← request:init — sending hello + projects + sessions');
+        const settings = _loadSettings();
+        _wsSend(ws, 'hello', {
+          version: '1.0',
+          serverName: 'Claude Terminal',
+          chatModel: settings.chatModel || null,
+          effortLevel: settings.effortLevel || null,
+          accentColor: settings.accentColor || '#d97706',
+        });
+        setImmediate(() => {
+          _sendProjectsAndSessions(ws);
+          _wsSend(ws, 'time:update', _timeData);
+          if (_isMainWindowReady()) {
+            mainWindow.webContents.send('remote:request-time-push');
+          }
+        });
+        break;
+      }
+
       default:
         break;
     }
@@ -684,10 +748,15 @@ function _wsSend(ws, type, data) {
 
 function _broadcast(type, data) {
   const msg = JSON.stringify({ type, data });
+  // Local WS clients
   for (const ws of _connectedClients.values()) {
     if (ws.readyState === 1) {
       try { ws.send(msg); } catch (e) {}
     }
+  }
+  // Cloud relay — forward to remote mobiles connected via cloud
+  if (_cloudClient?.connected) {
+    try { _cloudClient.send(msg); } catch (e) {}
   }
 }
 
@@ -713,12 +782,14 @@ function broadcastProjectsUpdate(projects) {
 }
 
 function broadcastSessionStarted({ sessionId, projectId, tabName }) {
-  console.log(`[Remote] → broadcast session:started sessionId=${sessionId} projectId=${projectId}`);
+  console.log(`[Remote] → broadcast session:started sessionId=${sessionId} projectId=${projectId} tabName=${tabName}`);
   if (projectId) _sessionProjectMap.set(sessionId, projectId);
+  if (tabName) _sessionTabNames.set(sessionId, tabName);
   _broadcast('session:started', { sessionId, projectId, tabName: tabName || 'Chat' });
 }
 
 function broadcastTabRenamed({ sessionId, tabName }) {
+  if (tabName) _sessionTabNames.set(sessionId, tabName);
   _broadcast('session:tab-renamed', { sessionId, tabName });
 }
 
@@ -739,6 +810,75 @@ function _syncServerState() {
   } else if (!shouldRun && httpServer) {
     stop();
   }
+}
+
+// ─── ChatService Bridge ──────────────────────────────────────────────────────
+// The callback bridges ChatService events (chat-message, chat-idle, etc.)
+// to both local WS clients AND the cloud relay. It must be installed whenever
+// either the local remote server OR the cloud relay is active.
+
+let _chatBridgeInstalled = false;
+
+function _ensureChatBridge() {
+  if (_chatBridgeInstalled) return;
+  _chatBridgeInstalled = true;
+  console.log('[Remote] Installing chat bridge callback');
+
+  const chatService = require('./ChatService');
+  chatService.setRemoteEventCallback((channel, data) => {
+    const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed', 'session:tab-renamed'];
+    if (!relayed.includes(channel)) return;
+    if (channel === 'chat-user-message') {
+      console.log(`[Remote] Bridge received chat-user-message sid=${data?.sessionId} text="${(data?.text || '').slice(0, 50)}"`);
+    }
+
+    let enriched = data;
+    // Enrich chat-idle / chat-permission-request with cached projectId
+    if ((channel === 'chat-idle' || channel === 'chat-permission-request') && data?.sessionId) {
+      const cachedProjectId = _sessionProjectMap.get(data.sessionId);
+      if (cachedProjectId) {
+        enriched = { ...data, projectId: cachedProjectId };
+      }
+    }
+
+    // Buffer chat events per session for late-joining clients
+    const sid = data?.sessionId;
+    if (sid) {
+      const buffered = ['chat-message', 'chat-user-message', 'chat-permission-request', 'chat-idle', 'chat-done'];
+      if (buffered.includes(channel)) {
+        if (!_sessionMessageBuffer.has(sid)) _sessionMessageBuffer.set(sid, []);
+        const buf = _sessionMessageBuffer.get(sid);
+        buf.push({ channel, data: enriched });
+        if (buf.length > MAX_BUFFER_PER_SESSION) buf.shift();
+        if (channel !== 'chat-message') {
+          console.log(`[Remote] Buffered ${channel} for session ${sid} (buffer size: ${buf.length})`);
+        }
+      }
+      // Clean up buffers on session end
+      if (channel === 'session:closed' || channel === 'chat-error') {
+        _sessionMessageBuffer.delete(sid);
+        _sessionProjectMap.delete(sid);
+        _sessionTabNames.delete(sid);
+      }
+    }
+
+    if (channel !== 'chat-message') {
+      console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
+    }
+    _broadcast(channel, enriched);
+  });
+}
+
+function _teardownChatBridge() {
+  if (!_chatBridgeInstalled) return;
+  // Only remove if neither local server nor cloud client are registered
+  // (check _cloudClient existence, not .connected — connection may come later)
+  if (httpServer || _cloudClient) return;
+  _chatBridgeInstalled = false;
+  try {
+    const chatService = require('./ChatService');
+    chatService.setRemoteEventCallback(null);
+  } catch (e) {}
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -769,41 +909,16 @@ function start(win, port = 3712) {
     stop(); // Full cleanup including wss, callback, clients
   });
 
-  // Bridge ChatService events → connected WS clients
-  const chatService = require('./ChatService');
-  chatService.setRemoteEventCallback((channel, data) => {
-    const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed'];
-    if (relayed.includes(channel)) {
-      let enriched = data;
-      // Enrich chat-idle with cached projectId (populated at session:started)
-      if (channel === 'chat-idle' && data?.sessionId) {
-        const cachedProjectId = _sessionProjectMap.get(data.sessionId);
-        if (cachedProjectId) {
-          enriched = { ...data, projectId: cachedProjectId };
-        }
-      }
-      // Clean up session project cache on session:closed
-      if (channel === 'session:closed' && data?.sessionId) {
-        _sessionProjectMap.delete(data.sessionId);
-      }
-      console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
-      _broadcast(channel, enriched);
-    }
-  });
+  // Bridge ChatService events → connected WS clients + cloud
+  _ensureChatBridge();
 }
 
 function stop() {
-  try {
-    const chatService = require('./ChatService');
-    chatService.setRemoteEventCallback(null);
-  } catch (e) {}
-
   for (const ws of _connectedClients.values()) {
     try { ws.close(); } catch (e) {}
   }
   _connectedClients.clear();
   _sessionTokens.clear();
-  _sessionProjectMap.clear();
   _pin = null;
   _failedAttempts = 0;
   _lockoutUntil = 0;
@@ -811,12 +926,83 @@ function stop() {
   if (wss) { wss.close(); wss = null; }
   if (httpServer) { httpServer.close(); httpServer = null; }
 
+  // Only clear shared caches if no cloud client is registered
+  if (!_cloudClient) {
+    _sessionProjectMap.clear();
+    _sessionMessageBuffer.clear();
+    _sessionTabNames.clear();
+  }
+
+  // Only remove chat bridge if cloud is also disconnected
+  _teardownChatBridge();
+
   console.log('[Remote] Server stopped');
 }
 
 function setMainWindow(win) {
   mainWindow = win;
-  _syncServerState();
+  // No auto-start — user must explicitly start the server or connect cloud
+}
+
+// ─── Cloud Relay Bridge API ──────────────────────────────────────────────────
+
+/**
+ * Inject the CloudRelayClient instance so RemoteServer can bridge messages.
+ * @param {import('./CloudRelayClient').CloudRelayClient} client
+ */
+function setCloudClient(client) {
+  _cloudClient = client;
+  if (client) {
+    // Ensure chat bridge is active so events flow to cloud
+    // even if the local WS remote server isn't started
+    _ensureChatBridge();
+  } else {
+    // Cloud released — teardown bridge if local server also inactive
+    _teardownChatBridge();
+  }
+}
+
+/**
+ * Handle a message arriving from the cloud relay (mobile → relay → desktop).
+ * Routes it through the same handler as local WS messages.
+ * @param {object|string} msg - Parsed JSON message from relay
+ */
+function handleCloudMessage(msg) {
+  const raw = typeof msg === 'string' ? msg : JSON.stringify(msg);
+  _handleClientMessage(_cloudWsProxy, '__cloud__', Buffer.from(raw));
+}
+
+/**
+ * Send initial state to cloud-connected mobiles (hello, projects, sessions, time).
+ * Called when CloudRelayClient connects to the relay server.
+ */
+function sendInitToCloud() {
+  if (!_cloudClient?.connected) return;
+  console.log('[Remote] Sending init data to cloud relay');
+
+  // 1. hello
+  const settings = _loadSettings();
+  _cloudClient.send(JSON.stringify({
+    type: 'hello',
+    data: {
+      version: '1.0',
+      serverName: 'Claude Terminal',
+      chatModel: settings.chatModel || null,
+      effortLevel: settings.effortLevel || null,
+      accentColor: settings.accentColor || '#d97706',
+    },
+  }));
+
+  // 2. projects + sessions
+  _sendProjectsAndSessions(_cloudWsProxy);
+
+  // 3. time tracking
+  _cloudClient.send(JSON.stringify({ type: 'time:update', data: _timeData }));
+
+  // 4. Request fresh time data from renderer
+  if (_isMainWindowReady()) {
+    mainWindow.webContents.send('remote:request-time-push');
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -849,5 +1035,8 @@ module.exports = {
   broadcastSessionStarted,
   broadcastTabRenamed,
   setTimeData,
+  setCloudClient,
+  handleCloudMessage,
+  sendInitToCloud,
   _syncServerState,
 };

@@ -1673,6 +1673,7 @@ async function handleCommit() {
   await withLock(async () => {
     const result = await api.git.commit({ projectPath: selectedProject.path, message });
     if (result.success) {
+      api.telemetry?.sendFeature({ feature: 'git:commit', metadata: {} });
       showToast(t('gitTab.commitCreated'), 'success');
       if (msgEl) msgEl.value = '';
       await refreshChanges();
@@ -1812,6 +1813,7 @@ async function handlePull() {
     showToast(t('git.pulling'), 'info');
     const result = await api.git.pull({ projectPath: selectedProject.path });
     if (result.success) {
+      api.telemetry?.sendFeature({ feature: 'git:pull', metadata: {} });
       const isUpToDate = result.output && result.output.includes('Already up to date');
       showToast(isUpToDate ? t('git.pullUpToDate') : t('git.pullSuccess'), isUpToDate ? 'info' : 'success');
     } else if (result.hasConflicts) {
@@ -1829,6 +1831,7 @@ async function handlePush() {
     showToast(t('git.pushing'), 'info');
     const result = await api.git.push({ projectPath: selectedProject.path });
     if (result.success) {
+      api.telemetry?.sendFeature({ feature: 'git:push', metadata: {} });
       showToast(t('git.pushSuccess'), 'success');
       await loadAllData(selectedProject);
       renderGitTab();

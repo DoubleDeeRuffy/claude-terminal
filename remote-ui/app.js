@@ -210,6 +210,7 @@ function init() {
   applyStrings();
   _restoreSessions();
   setupPinEntry();
+  setupCloudKeyEntry();
   setupNavigation();
   setupChatInput();
   setupPlusMenu();
@@ -229,6 +230,10 @@ function init() {
     // Clean URL
     window.history.replaceState({}, '', window.location.pathname);
   }
+
+  // Auto-detect cloud hosting: if served from a cloud server (has /health endpoint),
+  // default to cloud mode and use current origin as relay URL
+  _detectCloudHosting();
 
   if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
     // Relay mode: skip PIN, connect directly
@@ -250,15 +255,23 @@ function init() {
 
 // ─── Screen Management ────────────────────────────────────────────────────────
 
-function _showAuth() {
+function _showAuth(showCloudError) {
   $('screen-auth').classList.remove('hidden');
   $('screen-main').classList.add('hidden');
+  // Reset PIN fields
   const pinInput = $('pin-input');
-  if (pinInput) { pinInput.value = ''; pinInput.disabled = false; pinInput.focus(); }
+  if (pinInput) { pinInput.value = ''; pinInput.disabled = false; }
   const submitBtn = $('pin-submit-btn');
   if (submitBtn) submitBtn.disabled = false;
   const errEl = $('pin-error');
   if (errEl) errEl.classList.add('hidden');
+  // Reset cloud key fields
+  const cloudKeyInput = $('cloud-key-input');
+  if (cloudKeyInput) { cloudKeyInput.value = ''; cloudKeyInput.disabled = false; }
+  const cloudSubmitBtn = $('cloud-key-submit-btn');
+  if (cloudSubmitBtn) cloudSubmitBtn.disabled = false;
+  const cloudErrEl = $('cloud-key-error');
+  if (cloudErrEl) cloudErrEl.classList.toggle('hidden', !showCloudError);
   connSetState('auth');
 }
 
@@ -322,6 +335,83 @@ async function submitPin(pin) {
   }
 }
 
+// ─── Cloud Key Entry ─────────────────────────────────────────────────────────
+
+function setupCloudKeyEntry() {
+  const keyInput = $('cloud-key-input');
+  const submitBtn = $('cloud-key-submit-btn');
+  const switchCloudBtn = $('auth-switch-cloud');
+  const switchPinBtn = $('auth-switch-pin');
+
+  if (submitBtn && keyInput) {
+    submitBtn.addEventListener('click', () => submitCloudKey(keyInput.value.trim()));
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitCloudKey(keyInput.value.trim());
+    });
+  }
+
+  if (switchCloudBtn) {
+    switchCloudBtn.addEventListener('click', () => {
+      $('auth-pin-section').classList.add('hidden');
+      $('auth-cloud-section').classList.remove('hidden');
+      const ki = $('cloud-key-input');
+      if (ki) ki.focus();
+    });
+  }
+
+  if (switchPinBtn) {
+    switchPinBtn.addEventListener('click', () => {
+      $('auth-cloud-section').classList.add('hidden');
+      $('auth-pin-section').classList.remove('hidden');
+      const pi = $('pin-input');
+      if (pi) pi.focus();
+    });
+  }
+}
+
+function submitCloudKey(apiKey) {
+  if (!apiKey) return;
+
+  const keyInput = $('cloud-key-input');
+  const submitBtn = $('cloud-key-submit-btn');
+  const errorEl = $('cloud-key-error');
+
+  if (keyInput) keyInput.disabled = true;
+  if (submitBtn) submitBtn.disabled = true;
+  if (errorEl) errorEl.classList.add('hidden');
+
+  // Use current origin as cloud URL (since we're served from the cloud server)
+  const cloudUrl = window.location.origin;
+
+  conn.mode = 'relay';
+  conn.cloudUrl = cloudUrl;
+  conn.cloudApiKey = apiKey;
+  localStorage.setItem('remote_conn_mode', 'relay');
+  localStorage.setItem('remote_cloud_url', cloudUrl);
+  localStorage.setItem('remote_cloud_api_key', apiKey);
+
+  _showMain();
+  _openWS();
+}
+
+function _detectCloudHosting() {
+  // If we're on a cloud server, auto-show cloud auth mode
+  // Detection: try /health endpoint — if it returns cloud:true, we're on a cloud server
+  fetch('/health').then(r => r.json()).then(data => {
+    if (data && data.cloud === true && conn.mode !== 'relay') {
+      // We're hosted on a cloud server — show cloud auth by default
+      const pinSection = $('auth-pin-section');
+      const cloudSection = $('auth-cloud-section');
+      if (pinSection && cloudSection) {
+        pinSection.classList.add('hidden');
+        cloudSection.classList.remove('hidden');
+        const ki = $('cloud-key-input');
+        if (ki) ki.focus();
+      }
+    }
+  }).catch(() => { /* Not on cloud, keep PIN mode */ });
+}
+
 // ─── WebSocket Connection ──────────────────────────────────────────────────────
 
 function _openWS() {
@@ -365,7 +455,8 @@ function _openWS() {
     conn.ws = null;
     // Auth failure
     if (e.code === 4401 || e.code === 4003) {
-      if (conn.mode === 'relay') {
+      const wasRelay = conn.mode === 'relay';
+      if (wasRelay) {
         conn.cloudApiKey = '';
         localStorage.removeItem('remote_cloud_api_key');
       } else {
@@ -373,7 +464,7 @@ function _openWS() {
         localStorage.removeItem('remote_session_token');
       }
       connSetState('auth');
-      _showAuth();
+      _showAuth(wasRelay);
       return;
     }
     // Too many mobiles
@@ -453,7 +544,11 @@ function handleMessage({ type, data }) {
     case 'settings:updated':     break; // ack, nothing to do
     case 'pong': break;
     // Relay-specific events
-    case 'relay:desktop-online':  connSetState('connected'); break;
+    case 'relay:desktop-online':
+      connSetState('connected');
+      // Ask the desktop to send init data (projects, sessions, time)
+      wsSend('request:init', {});
+      break;
     case 'relay:desktop-offline': _onDesktopOffline(); break;
     case 'relay:kicked':          _onRelayKicked(); break;
   }

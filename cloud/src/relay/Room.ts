@@ -28,6 +28,10 @@ export class Room {
     return this.mobiles.size;
   }
 
+  get desktopConnectedAt(): number | null {
+    return this.desktop?.connectedAt ?? null;
+  }
+
   addDesktop(ws: WebSocket): boolean {
     if (this.desktop) {
       // Kick previous desktop

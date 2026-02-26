@@ -270,90 +270,67 @@ class DatabaseService {
   // ==================== MCP Provisioning ====================
 
   /**
-   * Write MCP server config to project's .claude/settings.local.json
-   * @param {string} projectPath
-   * @param {Object} config - DB connection config
-   * @returns {Object} { success, mcpName? }
+   * Provision the unified claude-terminal MCP in global ~/.claude.json.
+   * Called once at app startup. The MCP server reads databases.json itself,
+   * so we only need to pass CT_DATA_DIR, NODE_PATH, and DB passwords.
+   * @returns {Object} { success }
    */
-  async provisionMcpServer(projectPath, config) {
+  async provisionGlobalMcp() {
     try {
-      const mcpName = `claude-terminal-db-${config.name || config.id}`.replace(/[^a-zA-Z0-9-_]/g, '-');
-      const settingsDir = path.join(projectPath, '.claude');
-      const settingsFile = path.join(settingsDir, 'settings.local.json');
+      const homeDir = require('os').homedir();
+      const claudeFile = path.join(homeDir, '.claude.json');
 
-      // Ensure .claude directory exists
-      if (!fs.existsSync(settingsDir)) {
-        fs.mkdirSync(settingsDir, { recursive: true });
-      }
-
-      // Read existing settings
-      let settings = {};
-      if (fs.existsSync(settingsFile)) {
+      let config = {};
+      if (fs.existsSync(claudeFile)) {
         try {
-          settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          config = JSON.parse(fs.readFileSync(claudeFile, 'utf8'));
         } catch (e) { /* start fresh */ }
       }
 
-      if (!settings.mcpServers) settings.mcpServers = {};
+      if (!config.mcpServers) config.mcpServers = {};
 
-      // Determine MCP server script path
-      const mcpServerScript = this._getMcpServerPath();
+      // Build env vars
+      const env = {
+        CT_DATA_DIR: dataDir,
+        NODE_PATH: this._getNodeModulesPath(),
+      };
 
-      // Build env vars for the MCP server
-      const env = { DB_TYPE: config.type };
-      if (config.type === 'sqlite') {
-        env.DB_PATH = config.filePath;
-      } else if (config.type === 'mongodb' && config.connectionString) {
-        env.DB_CONNECTION_STRING = config.connectionString;
-      } else {
-        if (config.host) env.DB_HOST = config.host;
-        if (config.port) env.DB_PORT = String(config.port);
-        if (config.database) env.DB_NAME = config.database;
-        if (config.username) env.DB_USER = config.username;
-        if (config.password) env.DB_PASSWORD = config.password;
+      // Add password env vars for all connections
+      const connections = await this.loadConnections();
+      for (const conn of connections) {
+        if (conn.type !== 'sqlite' && conn.type !== 'mongodb') {
+          const cred = await this.getCredential(conn.id);
+          if (cred.success && cred.password) {
+            env[`CT_DB_PASS_${conn.id}`] = cred.password;
+          }
+        }
       }
 
-      // Add NODE_PATH so the MCP server can find our bundled drivers
-      env.NODE_PATH = this._getNodeModulesPath();
-
-      settings.mcpServers[mcpName] = {
+      config.mcpServers['claude-terminal'] = {
+        type: 'stdio',
         command: 'node',
-        args: [mcpServerScript],
+        args: [this._getMcpServerPath()],
         env
       };
 
-      // Atomic write
-      const tmpFile = settingsFile + '.tmp';
-      fs.writeFileSync(tmpFile, JSON.stringify(settings, null, 2), 'utf8');
-      fs.renameSync(tmpFile, settingsFile);
-
-      return { success: true, mcpName };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Remove MCP server config from project's .claude/settings.local.json
-   * @param {string} projectPath
-   * @param {string} mcpName
-   * @returns {Object} { success }
-   */
-  async deprovisionMcpServer(projectPath, mcpName) {
-    try {
-      const settingsFile = path.join(projectPath, '.claude', 'settings.local.json');
-      if (!fs.existsSync(settingsFile)) return { success: true };
-
-      const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-      if (settings.mcpServers && settings.mcpServers[mcpName]) {
-        delete settings.mcpServers[mcpName];
-        const tmpFile = settingsFile + '.tmp';
-        fs.writeFileSync(tmpFile, JSON.stringify(settings, null, 2), 'utf8');
-        fs.renameSync(tmpFile, settingsFile);
+      // Clean up old per-connection entries
+      for (const key of Object.keys(config.mcpServers)) {
+        if (key.startsWith('claude-terminal-db-')) {
+          delete config.mcpServers[key];
+        }
       }
 
+      const tmpFile = claudeFile + '.tmp';
+      fs.writeFileSync(tmpFile, JSON.stringify(config, null, 2), 'utf8');
+      fs.renameSync(tmpFile, claudeFile);
+
+      // Cleanup: remove stale entries from ~/.claude/settings.json (migration)
+      this._cleanupSettingsJson(homeDir);
+
+      console.log('[Database] Global MCP provisioned in ~/.claude.json');
       return { success: true };
     } catch (error) {
+      console.error('[Database] Failed to provision global MCP:', error.message);
       return { success: false, error: error.message };
     }
   }
@@ -826,9 +803,9 @@ class DatabaseService {
 
   _getMcpServerPath() {
     if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'mcp-servers', 'database-mcp-server.js');
+      return path.join(process.resourcesPath, 'mcp-servers', 'claude-terminal-mcp.js');
     }
-    return path.join(__dirname, '..', '..', '..', 'resources', 'mcp-servers', 'database-mcp-server.js');
+    return path.join(__dirname, '..', '..', '..', 'resources', 'mcp-servers', 'claude-terminal-mcp.js');
   }
 
   _getNodeModulesPath() {
@@ -837,6 +814,29 @@ class DatabaseService {
       return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
     }
     return path.join(__dirname, '..', '..', '..', 'node_modules');
+  }
+
+  /**
+   * Remove stale claude-terminal / claude-terminal-db-* entries from
+   * ~/.claude/settings.json (migration from old provisioning approach).
+   */
+  _cleanupSettingsJson(homeDir) {
+    try {
+      const settingsFile = path.join(homeDir, '.claude', 'settings.json');
+      if (!fs.existsSync(settingsFile)) return;
+      const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+      if (!settings.mcpServers) return;
+      let changed = false;
+      for (const key of Object.keys(settings.mcpServers)) {
+        if (key === 'claude-terminal' || key.startsWith('claude-terminal-db-')) {
+          delete settings.mcpServers[key];
+          changed = true;
+        }
+      }
+      if (changed) {
+        fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+      }
+    } catch (e) { /* non-critical */ }
   }
 }
 

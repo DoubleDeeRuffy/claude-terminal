@@ -5,6 +5,7 @@
  */
 
 const { escapeHtml } = require('../../utils');
+const { highlight } = require('../../utils/syntaxHighlight');
 const { t } = require('../../i18n');
 const { showConfirm } = require('../components/Modal');
 
@@ -26,6 +27,8 @@ let panelState = {
   browserSortDir: 'ASC',
   browserEditingCell: null, // { row, col, original }
   browserPendingEdits: new Map(), // rowIdx -> { col: newVal }
+  browserSearchTerm: '',
+  browserSearchDebounce: null,
 };
 
 function init(context) {
@@ -145,7 +148,6 @@ function buildConnectionCard(conn, status) {
         <div class="database-card-title-row">
           <span class="database-type-badge ${conn.type}">${escapeHtml(conn.type.toUpperCase())}</span>
           <span class="database-card-title">${escapeHtml(conn.name || conn.id)}</span>
-          ${conn.mcpProvisioned ? `<span class="database-mcp-badge">${t('database.mcpProvisioned')}</span>` : ''}
         </div>
         <span class="database-status-badge ${status}">${t('database.' + status)}</span>
       </div>
@@ -163,13 +165,6 @@ function buildConnectionCard(conn, status) {
           </button>` :
           `<button class="btn-database primary" data-action="connect" data-id="${escapeHtml(conn.id)}" title="${t('database.connect')}">
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8 5v14l11-7z"/></svg>
-          </button>`}
-        ${conn.mcpProvisioned ?
-          `<button class="btn-database" data-action="deprovision" data-id="${escapeHtml(conn.id)}" title="${t('database.deprovisionMcp')}">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
-          </button>` :
-          `<button class="btn-database" data-action="provision" data-id="${escapeHtml(conn.id)}" title="${t('database.provisionMcp')}">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 15h14v3H5z"/></svg>
           </button>`}
         <button class="btn-database" data-action="edit" data-id="${escapeHtml(conn.id)}" title="${t('database.editConnection')}">
           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -218,8 +213,6 @@ function bindConnectionEvents(container) {
         case 'disconnect': await disconnectDatabase(id); break;
         case 'edit': showConnectionForm(id); break;
         case 'delete': await deleteConnection(id); break;
-        case 'provision': await provisionMcp(id); break;
-        case 'deprovision': await deprovisionMcp(id); break;
         case 'import-detected': importDetected(btn.dataset.detected); break;
       }
     };
@@ -380,12 +373,21 @@ function renderBrowserDataPanel(tableName, tableMeta, isMongo, columnLabel) {
   const fromRow = rowsShown > 0 ? page * pageSize + 1 : 0;
   const toRow = fromRow + rowsShown - 1;
 
+  const searchTerm = panelState.browserSearchTerm;
+
   return `
     <div class="db-browser-panel">
       <div class="db-browser-toolbar">
         <div class="db-browser-toolbar-left">
           <span class="db-browser-table-title">${escapeHtml(tableName)}</span>
           <span class="db-browser-row-info">${totalCount > 0 ? `${fromRow}-${toRow} / ${totalCount}` : ''}</span>
+        </div>
+        <div class="db-browser-toolbar-search">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="text" class="db-browser-toolbar-search-input" id="db-browser-search" placeholder="${t('database.browserSearchPlaceholder')}" value="${escapeHtml(searchTerm)}">
+          ${searchTerm ? `<button class="db-browser-toolbar-search-clear" id="db-browser-search-clear" title="${t('database.browserSearchClear')}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>` : ''}
         </div>
         <div class="db-browser-toolbar-right">
           <button class="db-browser-btn" id="db-browser-refresh" title="${t('database.browserRefresh')}">
@@ -437,11 +439,49 @@ function bindBrowserEvents(container) {
         panelState.browserData = null;
         panelState.browserEditingCell = null;
         panelState.browserPendingEdits.clear();
+        panelState.browserSearchTerm = '';
         renderContent();
         loadTableData(tableName);
       }
     };
   });
+
+  // Data search
+  const searchInput = container.querySelector('#db-browser-search');
+  if (searchInput) {
+    searchInput.oninput = () => {
+      panelState.browserSearchTerm = searchInput.value;
+      clearTimeout(panelState.browserSearchDebounce);
+      panelState.browserSearchDebounce = setTimeout(() => {
+        panelState.browserPage = 0;
+        loadTableData(panelState.browserSelectedTable);
+      }, 400);
+    };
+    searchInput.onkeydown = (e) => {
+      if (e.key === 'Escape') {
+        if (panelState.browserSearchTerm) {
+          panelState.browserSearchTerm = '';
+          panelState.browserPage = 0;
+          renderContent();
+          loadTableData(panelState.browserSelectedTable);
+          e.stopPropagation();
+        }
+      } else if (e.key === 'Enter') {
+        clearTimeout(panelState.browserSearchDebounce);
+        panelState.browserPage = 0;
+        loadTableData(panelState.browserSelectedTable);
+      }
+    };
+  }
+  const searchClearBtn = container.querySelector('#db-browser-search-clear');
+  if (searchClearBtn) {
+    searchClearBtn.onclick = () => {
+      panelState.browserSearchTerm = '';
+      panelState.browserPage = 0;
+      renderContent();
+      loadTableData(panelState.browserSelectedTable);
+    };
+  }
 
   // Refresh
   const refreshBtn = container.querySelector('#db-browser-refresh');
@@ -741,14 +781,39 @@ async function loadTableData(tableName) {
   const sortCol = panelState.browserSortCol;
   const sortDir = panelState.browserSortDir;
 
+  // Build search WHERE clause
+  const searchTerm = panelState.browserSearchTerm.trim();
+  let searchWhere = '';
+  if (searchTerm && !isMongo) {
+    const state2 = require('../../state');
+    const schema = state2.getDatabaseSchema(activeId);
+    const tableMeta = schema?.tables?.find(t => t.name === tableName);
+    if (tableMeta && tableMeta.columns.length > 0) {
+      const escaped = searchTerm.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
+      const conditions = tableMeta.columns.map(col => {
+        return `CAST(\`${col.name}\` AS CHAR) LIKE '%${escaped}%'`;
+      });
+      searchWhere = ` WHERE (${conditions.join(' OR ')})`;
+    }
+  }
+
   let sql, countSql;
   if (isMongo) {
-    sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+    // Basic text search for MongoDB
+    if (searchTerm) {
+      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      sql = `db.${tableName}.find({ $or: [${(() => {
+        // Use a generic text search across string fields
+        return `{ $where: "JSON.stringify(this).indexOf('${escaped.replace(/'/g, "\\'")}') !== -1" }`;
+      })()}] }).limit(${pageSize}).skip(${offset})`;
+    } else {
+      sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+    }
     countSql = null;
   } else {
     const orderBy = sortCol ? ` ORDER BY \`${sortCol}\` ${sortDir}` : '';
-    sql = `SELECT * FROM \`${tableName}\`${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
-    countSql = `SELECT COUNT(*) as cnt FROM \`${tableName}\``;
+    sql = `SELECT * FROM \`${tableName}\`${searchWhere}${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
+    countSql = `SELECT COUNT(*) as cnt FROM \`${tableName}\`${searchWhere}`;
   }
 
   try {
@@ -854,11 +919,24 @@ function renderQuery(container) {
       </div>`;
     } else {
       const stmtInfo = queryResult.statementsRun ? ` (${queryResult.statementsRun} statements)` : '';
-      resultsHtml = `<div class="db-query-success">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-        ${t('database.querySuccess', { count: queryResult.rowCount || 0, duration: queryResult.duration || 0 })}${stmtInfo}
-      </div>`;
-      resultsHtml += buildResultsTable(queryResult);
+      const isDml = queryResult.rows && queryResult.rows.length === 1 && queryResult.columns &&
+        (queryResult.columns.includes('affectedRows') || queryResult.columns.includes('changes'));
+
+      if (isDml) {
+        const row = queryResult.rows[0];
+        const affected = row.affectedRows !== undefined ? row.affectedRows : row.changes;
+        resultsHtml = `<div class="db-query-dml-result">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          <span class="db-query-dml-text">${t('database.queryAffected', { count: affected })}${stmtInfo}</span>
+          <span class="db-query-dml-time">${queryResult.duration || 0}ms</span>
+        </div>`;
+      } else {
+        resultsHtml = `<div class="db-query-success">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          ${t('database.querySuccess', { count: queryResult.rowCount || 0, duration: queryResult.duration || 0 })}${stmtInfo}
+        </div>`;
+        resultsHtml += buildResultsTable(queryResult);
+      }
     }
   }
 
@@ -867,7 +945,10 @@ function renderQuery(container) {
       <div class="db-query-top">
         <div class="db-query-templates">${templatesHtml}</div>
         <div class="db-query-editor-wrap">
-          <textarea class="database-query-editor" id="database-query-input" placeholder="${escapeHtml(placeholder)}" spellcheck="false">${escapeHtml(currentQuery)}</textarea>
+          <div class="db-query-highlight-wrap">
+            <pre class="db-query-highlight" id="database-query-highlight" aria-hidden="true"><code>${currentQuery ? highlight(currentQuery, isMongo ? 'js' : 'sql') + '\n' : '\n'}</code></pre>
+            <textarea class="database-query-editor" id="database-query-input" placeholder="${escapeHtml(placeholder)}" spellcheck="false">${escapeHtml(currentQuery)}</textarea>
+          </div>
           <div class="db-query-actions">
             <button class="db-query-run" id="database-run-btn" ${panelState.queryRunning ? 'disabled' : ''}>
               ${panelState.queryRunning
@@ -899,6 +980,19 @@ function renderQuery(container) {
   };
 
   const input = document.getElementById('database-query-input');
+  const highlightEl = document.getElementById('database-query-highlight');
+  const syncHighlight = () => {
+    if (highlightEl && input) {
+      const code = highlightEl.querySelector('code');
+      if (code) code.innerHTML = input.value ? highlight(input.value, isMongo ? 'js' : 'sql') + '\n' : '\n';
+    }
+  };
+  const syncScroll = () => {
+    if (highlightEl && input) {
+      highlightEl.scrollTop = input.scrollTop;
+      highlightEl.scrollLeft = input.scrollLeft;
+    }
+  };
   if (input) {
     input.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
@@ -908,7 +1002,9 @@ function renderQuery(container) {
     });
     input.addEventListener('input', () => {
       state.setCurrentQuery(input.value);
+      syncHighlight();
     });
+    input.addEventListener('scroll', syncScroll);
   }
 
   // Template click handlers
@@ -922,6 +1018,7 @@ function renderQuery(container) {
         textarea.value = tpl.sql;
         textarea.focus();
         state.setCurrentQuery(tpl.sql);
+        syncHighlight();
       }
     };
   });
@@ -1124,14 +1221,6 @@ async function deleteConnection(id) {
     await ctx.api.database.disconnect({ id });
   }
 
-  // Deprovision MCP if active
-  if (conn && conn.mcpProvisioned && conn.projectId) {
-    const project = getProject(conn.projectId);
-    if (project) {
-      await ctx.api.database.deprovisionMcp({ projectPath: project.path, mcpName: conn.mcpName });
-    }
-  }
-
   // Delete credential
   await ctx.api.database.setCredential({ id, password: '' }).catch(() => {});
 
@@ -1140,52 +1229,6 @@ async function deleteConnection(id) {
   renderContent();
 }
 
-async function provisionMcp(id) {
-  const state = require('../../state');
-  const conn = state.getDatabaseConnection(id);
-  if (!conn) return;
-
-  // Need a project path
-  const projectPath = conn.projectId ? getProject(conn.projectId)?.path : null;
-  if (!projectPath) {
-    ctx.showToast({ type: 'error', title: 'Link to a project first' });
-    return;
-  }
-
-  // Get password for MCP env
-  let config = { ...conn };
-  if (conn.type !== 'sqlite') {
-    const cred = await ctx.api.database.getCredential({ id });
-    if (cred.success && cred.password) config.password = cred.password;
-  }
-
-  const result = await ctx.api.database.provisionMcp({ projectPath, config });
-  if (result.success) {
-    state.updateDatabaseConnection(id, { mcpProvisioned: true, mcpName: result.mcpName });
-    await saveConnections();
-    ctx.showToast({ type: 'success', title: t('database.mcpEnabled') });
-  } else {
-    ctx.showToast({ type: 'error', title: result.error });
-  }
-
-  renderContent();
-}
-
-async function deprovisionMcp(id) {
-  const state = require('../../state');
-  const conn = state.getDatabaseConnection(id);
-  if (!conn || !conn.mcpName) return;
-
-  const projectPath = conn.projectId ? getProject(conn.projectId)?.path : null;
-  if (projectPath) {
-    await ctx.api.database.deprovisionMcp({ projectPath, mcpName: conn.mcpName });
-  }
-
-  state.updateDatabaseConnection(id, { mcpProvisioned: false, mcpName: null });
-  await saveConnections();
-  ctx.showToast({ type: 'info', title: t('database.mcpDisabled') });
-  renderContent();
-}
 
 async function runAutoDetect() {
   const state = require('../../state');
@@ -1420,6 +1463,8 @@ async function saveConnections() {
   const state = require('../../state');
   const connections = state.getDatabaseConnections();
   await ctx.api.database.saveConnections({ connections });
+  // Refresh global MCP config (passwords env vars, connection list)
+  await ctx.api.database.refreshMcp().catch(() => {});
 }
 
 function getProject(id) {

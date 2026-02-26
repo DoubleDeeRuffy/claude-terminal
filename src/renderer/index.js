@@ -90,6 +90,18 @@ async function initialize() {
     }
   );
 
+  // Listen for MCP-triggered quick actions
+  const api = window.electron_api;
+  if (api?.project?.onQuickActionRun) {
+    api.project.onQuickActionRun((data) => {
+      const { projectId, actionId } = data;
+      if (!projectId || !actionId) return;
+      const project = state.getProject(projectId);
+      if (!project) return;
+      ui.QuickActions.executeQuickAction(project, actionId);
+    });
+  }
+
   // Initialize Claude event bus and provider
   events.initClaudeEvents();
 
@@ -107,6 +119,8 @@ async function initialize() {
   });
 
 }
+
+// Telemetry consent modal is handled in renderer.js (main entry point)
 
 // Export everything for use in renderer.js
 module.exports = {

@@ -4,6 +4,7 @@
 
 const { ipcMain } = require('electron');
 const remoteServer = require('../services/RemoteServer');
+const { cloudRelayClient } = require('../services/CloudRelayClient');
 
 function registerRemoteHandlers() {
   // Get current PIN (auto-generates if expired)
@@ -34,9 +35,13 @@ function registerRemoteHandlers() {
     }
   });
 
-  // Manually start the server
+  // Manually start the server — stop cloud first (mutual exclusion)
   ipcMain.handle('remote:start-server', () => {
     try {
+      if (cloudRelayClient.connected) {
+        cloudRelayClient.disconnect();
+        remoteServer.setCloudClient(null);
+      }
       remoteServer._syncServerState();
       return { success: true, ...remoteServer.getServerInfo() };
     } catch (err) {

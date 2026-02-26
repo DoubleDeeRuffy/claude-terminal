@@ -540,6 +540,55 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
           </div>
           <div class="settings-group">
+            <div class="settings-group-title">${t('settings.telemetryGroup')}</div>
+            <div class="settings-card">
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.telemetryEnabled')}</div>
+                  <div class="settings-toggle-desc">${t('settings.telemetryEnabledDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="telemetry-enabled-toggle" ${settings.telemetryEnabled ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+              ${settings.telemetryEnabled ? `
+              <div style="border-top: 1px solid var(--border-color); margin-top: 8px; padding-top: 8px;">
+                <div class="settings-toggle-row">
+                  <div class="settings-toggle-label">
+                    <div>${t('settings.telemetryCategoryApp')}</div>
+                    <div class="settings-toggle-desc">${t('settings.telemetryCategoryAppDesc')}</div>
+                  </div>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="telemetry-cat-app" ${settings.telemetryCategories?.app !== false ? 'checked' : ''}>
+                    <span class="settings-toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="settings-toggle-row">
+                  <div class="settings-toggle-label">
+                    <div>${t('settings.telemetryCategoryFeatures')}</div>
+                    <div class="settings-toggle-desc">${t('settings.telemetryCategoryFeaturesDesc')}</div>
+                  </div>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="telemetry-cat-features" ${settings.telemetryCategories?.features !== false ? 'checked' : ''}>
+                    <span class="settings-toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="settings-toggle-row">
+                  <div class="settings-toggle-label">
+                    <div>${t('settings.telemetryCategoryErrors')}</div>
+                    <div class="settings-toggle-desc">${t('settings.telemetryCategoryErrorsDesc')}</div>
+                  </div>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="telemetry-cat-errors" ${settings.telemetryCategories?.errors !== false ? 'checked' : ''}>
+                    <span class="settings-toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+              ` : ''}
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="settings-group-title">${t('settings.quickActionPresets')}</div>
             <div class="settings-card">
             <div class="settings-desc" style="margin-bottom: 10px; padding: 8px 16px 0;">${t('settings.quickActionPresetsDesc')}</div>
@@ -1187,6 +1236,16 @@ async function renderSettingsTab(initialTab = 'general') {
 
     const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
     const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 2);
+    const telemetryEnabledToggle = document.getElementById('telemetry-enabled-toggle');
+    const newTelemetryEnabled = telemetryEnabledToggle ? telemetryEnabledToggle.checked : false;
+    const telemetryCatApp = document.getElementById('telemetry-cat-app');
+    const telemetryCatFeatures = document.getElementById('telemetry-cat-features');
+    const telemetryCatErrors = document.getElementById('telemetry-cat-errors');
+    const newTelemetryCategories = {
+      app: telemetryCatApp ? telemetryCatApp.checked : true,
+      features: telemetryCatFeatures ? telemetryCatFeatures.checked : true,
+      errors: telemetryCatErrors ? telemetryCatErrors.checked : true
+    };
 
     const editorDropdown = document.getElementById('editor-dropdown');
     const newSettings = {
@@ -1209,7 +1268,9 @@ async function renderSettingsTab(initialTab = 'general') {
       showTabModeToggle: newShowTabModeToggle,
       aiTabNaming: newAiTabNaming,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
-      idleTimeout: newIdleTimeout
+      idleTimeout: newIdleTimeout,
+      telemetryEnabled: newTelemetryEnabled,
+      telemetryCategories: newTelemetryCategories
     };
 
     container.querySelectorAll('.dynamic-setting-toggle').forEach(toggle => {
@@ -1273,6 +1334,14 @@ async function renderSettingsTab(initialTab = 'general') {
   container.querySelectorAll('.execution-mode-card, .terminal-mode-card, .theme-card, .color-swatch').forEach(el => {
     el.addEventListener('click', () => setTimeout(autoSave, 50));
   });
+
+  // Re-render settings when telemetry master toggle changes (to show/hide sub-toggles)
+  const telemetryMasterToggle = document.getElementById('telemetry-enabled-toggle');
+  if (telemetryMasterToggle) {
+    telemetryMasterToggle.addEventListener('change', () => {
+      setTimeout(() => renderSettingsTab('general'), 100);
+    });
+  }
 }
 
 module.exports = { init, switchToSettingsTab, renderSettingsTab };

@@ -276,7 +276,8 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== PROJECT ====================
   project: {
     scanTodos: (projectPath) => ipcRenderer.invoke('scan-todos', projectPath),
-    stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath)
+    stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath),
+    onQuickActionRun: createListener('quickaction:run'),
   },
 
   // ==================== CLAUDE ====================
@@ -328,6 +329,13 @@ contextBridge.exposeInMainWorld('electron_api', {
     onOpenChatTab: createListener('remote:open-chat-tab'),
     onRequestTimePush: createListener('remote:request-time-push'),
     onUserMessage: createListener('remote:user-message'),
+  },
+
+  // ==================== TELEMETRY ====================
+  telemetry: {
+    getStatus: () => ipcRenderer.invoke('telemetry:get-status'),
+    sendEvent: (params) => ipcRenderer.invoke('telemetry:send-event', params),
+    sendFeature: (params) => ipcRenderer.invoke('telemetry:send-feature', params),
   },
 
   // ==================== CLOUD RELAY ====================
@@ -391,8 +399,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     detect:          (params)  => ipcRenderer.invoke('database-detect', params),
     saveConnections: (params)  => ipcRenderer.invoke('database-save-connections', params),
     loadConnections: ()        => ipcRenderer.invoke('database-load-connections'),
-    provisionMcp:    (params)  => ipcRenderer.invoke('database-provision-mcp', params),
-    deprovisionMcp:  (params)  => ipcRenderer.invoke('database-deprovision-mcp', params),
+    refreshMcp:      ()        => ipcRenderer.invoke('database-refresh-mcp'),
     getCredential:   (params)  => ipcRenderer.invoke('database-get-credential', params),
     setCredential:   (params)  => ipcRenderer.invoke('database-set-credential', params),
   },

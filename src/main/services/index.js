@@ -2,6 +2,8 @@
  * Main Process Services - Central Export
  */
 
+const fs = require('fs');
+const path = require('path');
 const terminalService = require('./TerminalService');
 const mcpService = require('./McpService');
 const fivemService = require('./FivemService');
@@ -14,6 +16,7 @@ const hookEventServer = require('./HookEventServer');
 const minecraftService = require('../../project-types/minecraft/main/MinecraftService');
 const remoteServer = require('./RemoteServer');
 const workflowService = require('./WorkflowService');
+const databaseService = require('./DatabaseService');
 
 /**
  * Initialize all services with main window reference
@@ -35,6 +38,91 @@ function initializeServices(mainWindow) {
   workflowService.setMainWindow(mainWindow);
   workflowService.setDeps({ chatService });
   workflowService.init();
+
+  // Provision unified MCP in global Claude settings
+  databaseService.provisionGlobalMcp().catch(() => {});
+
+  // Poll for MCP trigger files (quick actions, FiveM, WebApp)
+  _startMcpTriggerPolling(mainWindow);
+}
+
+// ── MCP trigger file polling ─────────────────────────────────────────────────
+// All MCP tools that need async control (start/stop servers, run commands)
+// write JSON trigger files. This poller picks them up and executes them.
+
+let _mcpPollTimer = null;
+
+function _resolveProjectIndex(projectId) {
+  const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+  try {
+    if (!fs.existsSync(projFile)) return -1;
+    const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+    return (data.projects || []).findIndex(p => p.id === projectId);
+  } catch (_) { return -1; }
+}
+
+function _pollTriggerDir(dir, handler) {
+  try {
+    if (!fs.existsSync(dir)) return;
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      try {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        fs.unlinkSync(filePath);
+        handler(data);
+      } catch (e) {
+        try { fs.unlinkSync(filePath); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+function _startMcpTriggerPolling(mainWindow) {
+  const dataDir = path.join(require('os').homedir(), '.claude-terminal');
+
+  _mcpPollTimer = setInterval(() => {
+    // Quick actions
+    _pollTriggerDir(path.join(dataDir, 'quickactions', 'triggers'), (data) => {
+      if (data.projectId && data.command && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('quickaction:run', data);
+        console.log(`[Services] MCP quick action: ${data.actionName} on ${data.projectId}`);
+      }
+    });
+
+    // FiveM
+    _pollTriggerDir(path.join(dataDir, 'fivem', 'triggers'), (data) => {
+      if (!data.projectId) return;
+      const projectIndex = _resolveProjectIndex(data.projectId);
+      if (projectIndex < 0) return;
+
+      if (data.type === 'start') {
+        console.log(`[Services] MCP FiveM start: ${data.projectId}`);
+        fivemService.start({ projectIndex, projectPath: data.projectPath, runCommand: data.runCommand });
+      } else if (data.type === 'stop') {
+        console.log(`[Services] MCP FiveM stop: ${data.projectId}`);
+        fivemService.stop({ projectIndex });
+      } else if (data.type === 'command' && data.command) {
+        console.log(`[Services] MCP FiveM command: "${data.command}" on ${data.projectId}`);
+        fivemService.sendCommand(projectIndex, data.command);
+      }
+    });
+
+    // WebApp
+    _pollTriggerDir(path.join(dataDir, 'webapp', 'triggers'), (data) => {
+      if (!data.projectId) return;
+      const projectIndex = _resolveProjectIndex(data.projectId);
+      if (projectIndex < 0) return;
+
+      if (data.type === 'start') {
+        console.log(`[Services] MCP WebApp start: ${data.projectId}`);
+        webAppService.start({ projectIndex, projectPath: data.projectPath, devCommand: data.devCommand });
+      } else if (data.type === 'stop') {
+        console.log(`[Services] MCP WebApp stop: ${data.projectId}`);
+        webAppService.stop({ projectIndex });
+      }
+    });
+  }, 2000);
 }
 
 /**
@@ -51,6 +139,7 @@ function cleanupServices() {
   hookEventServer.stop();
   remoteServer.stop();
   workflowService.destroy();
+  if (_mcpPollTimer) clearInterval(_mcpPollTimer);
 }
 
 module.exports = {

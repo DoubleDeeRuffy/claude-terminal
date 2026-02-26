@@ -558,6 +558,66 @@
   gap: 10px;
   min-width: 0;
 }
+.db-browser-toolbar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 280px;
+  min-width: 120px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  height: 28px;
+  transition: border-color 0.15s ease;
+}
+.db-browser-toolbar-search:focus-within {
+  border-color: var(--accent);
+}
+.db-browser-toolbar-search svg {
+  width: 13px;
+  height: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.db-browser-toolbar-search-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--font-2xs);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  min-width: 0;
+  height: 100%;
+}
+.db-browser-toolbar-search-input::placeholder {
+  color: var(--text-muted);
+}
+.db-browser-toolbar-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.12s ease;
+}
+.db-browser-toolbar-search-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+.db-browser-toolbar-search-clear svg {
+  width: 10px;
+  height: 10px;
+}
 .db-browser-toolbar-right {
   display: flex;
   align-items: center;
@@ -1090,16 +1150,63 @@
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-/* Textarea inside the wrapper — removes its own border */
-.db-query-editor-wrap .database-query-editor {
+/* ===== Syntax Highlight Overlay ===== */
+.db-query-highlight-wrap {
+  position: relative;
+}
+/* Shared font metrics for textarea + highlight layer */
+.db-query-highlight-wrap .database-query-editor,
+.db-query-highlight-wrap .db-query-highlight {
+  margin: 0;
+  padding: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  tab-size: 2;
   border: none;
   border-radius: 0;
+}
+/* Highlight layer sits behind the textarea */
+.db-query-highlight-wrap .db-query-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--text-primary);
+  background: transparent;
+  overflow: hidden;
+  z-index: 0;
+}
+.db-query-highlight-wrap .db-query-highlight code {
+  font: inherit;
+  color: inherit;
+}
+/* Textarea is transparent text, visible caret */
+.db-query-highlight-wrap .database-query-editor {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  color: transparent;
+  caret-color: var(--text-primary);
+  background: transparent;
+  resize: vertical;
   min-height: 100px;
   max-height: 260px;
+  overflow: auto;
 }
-.db-query-editor-wrap .database-query-editor:focus {
+.db-query-highlight-wrap .database-query-editor::selection {
+  background: rgba(217, 119, 6, 0.25);
+  color: transparent;
+}
+.db-query-highlight-wrap .database-query-editor:focus {
   border-color: transparent;
   box-shadow: none;
+}
+.db-query-highlight-wrap .database-query-editor::placeholder {
+  color: var(--text-muted);
 }
 
 /* ===== Action Bar ===== */
@@ -1230,6 +1337,33 @@
   color: var(--danger);
 }
 
+/* DML result (compact badge for INSERT/UPDATE/DELETE/ALTER) */
+.db-query-dml-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  border-radius: var(--radius);
+  color: var(--success);
+}
+.db-query-dml-result svg {
+  flex-shrink: 0;
+}
+.db-query-dml-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.db-query-dml-time {
+  font-size: 10px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
 /* Success state */
 .db-query-success {
   display: flex;
@@ -1259,7 +1393,7 @@
   font-family: 'Cascadia Code', monospace;
   font-size: var(--font-sm);
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: 1.6;
   outline: none;
   transition: border-color 0.15s;
   tab-size: 2;

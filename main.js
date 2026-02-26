@@ -79,6 +79,7 @@ function bootstrapApp() {
     registerNotificationHandlers
   } = require('./src/main/windows/NotificationWindow');
   const { updaterService } = require('./src/main/services');
+  const telemetryService = require('./src/main/services/TelemetryService');
 
   // Handle second instance attempt - show existing window
   app.on('second-instance', () => {
@@ -121,6 +122,9 @@ function bootstrapApp() {
     }
 
     updaterService.checkForUpdates(app.isPackaged);
+
+    // Send anonymous telemetry startup ping (if opted-in)
+    telemetryService.sendStartupPing();
   }
 
   /**
@@ -188,6 +192,7 @@ function bootstrapApp() {
   app.whenReady().then(initializeApp);
   app.on('will-quit', cleanup);
   app.on('before-quit', () => {
+    telemetryService.sendQuitPing();
     setQuitting(true);
     const mainWindow = getMainWindow();
     if (mainWindow && !mainWindow.isDestroyed()) {

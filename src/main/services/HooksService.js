@@ -42,7 +42,10 @@ const HOOK_DEFINITIONS = [
   { key: 'PermissionRequest', hasMatcher: true },
   { key: 'Setup', hasMatcher: true },
   { key: 'TeammateIdle', hasMatcher: false },
-  { key: 'TaskCompleted', hasMatcher: false }
+  { key: 'TaskCompleted', hasMatcher: false },
+  { key: 'ConfigChange', hasMatcher: true },
+  { key: 'WorktreeCreate', hasMatcher: false },
+  { key: 'WorktreeRemove', hasMatcher: false }
 ];
 
 /**

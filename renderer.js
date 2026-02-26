@@ -2937,6 +2937,77 @@ function showHooksConsentModal() {
 // Show hooks consent after a short delay for existing users
 setTimeout(showHooksConsentModal, 2000);
 
+// ========== TELEMETRY CONSENT MODAL (for existing users) ==========
+function showTelemetryConsentModal() {
+  if (getSetting('telemetryConsentShown')) return;
+
+  const content = `
+    <div style="padding: 4px 0;">
+      <p style="margin-bottom: 16px; line-height: 1.6; color: var(--text-secondary); font-size: 13px;">
+        ${t('telemetry.consentDescription')}
+      </p>
+      <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+        <div style="flex:1; padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 10px;">
+          <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; color: var(--accent);">
+            ${t('telemetry.whatWeCollect')}
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect1')}</div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect2')}</div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect3')}</div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect4')}</div>
+        </div>
+        <div style="flex:1; padding: 12px 14px; background: rgba(34,197,94,0.05); border: 1px solid rgba(34,197,94,0.2); border-radius: 10px;">
+          <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; color: #22c55e;">
+            ${t('telemetry.whatWeDoNotCollect')}
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10007; ${t('telemetry.notCollect1')}</div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10007; ${t('telemetry.notCollect2')}</div>
+          <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10007; ${t('telemetry.notCollect3')}</div>
+        </div>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted);">
+        ${t('telemetry.consentChangeSettings')}
+      </p>
+    </div>
+  `;
+
+  const modal = ModalComponent.createModal({
+    id: 'telemetry-consent-modal',
+    title: t('telemetry.consentTitle'),
+    content,
+    size: 'medium',
+    buttons: [
+      {
+        label: t('telemetry.consentDecline'),
+        action: 'decline',
+        onClick: (m) => {
+          setSetting('telemetryConsentShown', true);
+          setSetting('telemetryEnabled', false);
+          ModalComponent.closeModal(m);
+        }
+      },
+      {
+        label: t('telemetry.consentAccept'),
+        action: 'accept',
+        primary: true,
+        onClick: (m) => {
+          setSetting('telemetryConsentShown', true);
+          setSetting('telemetryEnabled', true);
+          ModalComponent.closeModal(m);
+        }
+      }
+    ],
+    onClose: () => {
+      setSetting('telemetryConsentShown', true);
+      setSetting('telemetryEnabled', false);
+    }
+  });
+  ModalComponent.showModal(modal);
+}
+
+// Show telemetry consent after hooks consent (stagger by 3s)
+setTimeout(showTelemetryConsentModal, 3500);
+
 // ========== SKILLS/AGENTS CREATION MODAL ==========
 let createModalType = 'skill'; // 'skill' or 'agent'
 

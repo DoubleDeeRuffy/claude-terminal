@@ -2387,6 +2387,75 @@
   border-color: var(--accent);
 }
 
+/* ── Cloud Install ── */
+.rp-cloud-install {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.rp-cloud-install-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+.rp-cloud-install-header svg { opacity: 0.6; }
+.rp-cloud-install-cmd {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rp-cloud-install-cmd code {
+  flex: 1;
+  padding: 10px 14px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow-x: auto;
+  user-select: all;
+  line-height: 1.5;
+}
+.rp-cloud-install-copy {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 10px;
+  transition: color 0.15s, background 0.15s;
+}
+.rp-cloud-install-copy:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.rp-cloud-install-copy.copied {
+  color: var(--success);
+}
+.rp-cloud-install-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
 /* ── Cloud Zone ── */
 .rp-cloud-card {
   background: var(--bg-secondary);
