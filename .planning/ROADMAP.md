@@ -161,7 +161,7 @@ Plans:
 
 **Goal:** Fix claudeSessionId and cwd not being stored on termData at creation time, causing session resume to fail after app restart
 **Depends on:** Phase 6
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 6.4-01-PLAN.md — Add claudeSessionId and cwd fields to termData object in createTerminal
@@ -351,3 +351,12 @@ Plans:
 
 Plans:
 - [ ] 19-01-PLAN.md — Propagate tab names to session-names.json from both rename paths, fix metadata accent color
+
+### Phase 20: Bugfix-Swap-Projects-Selected-Tab
+
+**Goal:** [To be planned]
+**Depends on:** Phase 19
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:discuss-phase 20 to break down)

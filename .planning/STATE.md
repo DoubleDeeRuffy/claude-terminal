@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 12 — Dashboard Support For DotNet Projects (COMPLETE)
+**Current focus:** Phase 6.4 — Bugfix: claudeSessionId not persisted across restarts (COMPLETE)
 
 ## Current Position
 
-Phase: 12 (12-dashboard-support-for-dotnet-projects) — COMPLETE
+Phase: 6.4 (6.4-bugfix-session-resume-claudesessionid-not-persisted-across-restarts) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 12-01 complete — dotnet project type plugin with SDK-specific badge and stats; DashboardService one-level-deep csharp detection
-Last activity: 2026-02-26 - Completed plan 12-01: dotnet plugin (index.js, DotNetDashboard.js, i18n) + DashboardService csharp fallback
+Status: Plan 6.4-01 complete — added claudeSessionId and cwd fields to termData object literal in createTerminal() fixing session persistence across restarts
+Last activity: 2026-02-26 - Completed plan 6.4-01: two-field fix in TerminalManager.js termData object literal
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -71,6 +71,7 @@ Progress: [███████████████████████
 | Phase 6.2 P02 | 8 | 2 tasks | 2 files |
 | Phase 19-10-1-tab-renaming-for-resume-dialog P01 | 2 | 2 tasks | 2 files |
 | Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
+| Phase 6.4 P01 | 5 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -162,6 +163,7 @@ Recent decisions affecting current work:
 - [Phase 19-01]: 19-01: accent color at 0.85 opacity for metadata text, 1.0 for SVG icons in resume dialog
 - [Phase 12-01]: DotNetDashboard uses lazy access to window.electron_nodeModules inside function bodies per established preload timing pattern
 - [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
+- [Phase 6.4]: 6.4-01: cwd and claudeSessionId added directly to termData object literal (not via updateTerminal) to avoid state notification with incomplete data
 
 ### Pending Todos
 
@@ -193,6 +195,7 @@ Recent decisions affecting current work:
 - Phase 6.3 inserted after Phase 6: Remember active task on Project scope to restore it on project-swap and app restart (URGENT)
 - Phase 19 added: 10.1 Tab-Renaming-For-Resume-Dialog
 - Phase 6.4 inserted after Phase 6: Bugfix — session resume claudeSessionId not persisted across restarts (URGENT)
+- Phase 20 added: Bugfix-Swap-Projects-Selected-Tab
 
 ### Blockers/Concerns
 
