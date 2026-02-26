@@ -1635,6 +1635,7 @@ async function createTerminal(project, options = {}) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input') && !e.target.closest('.tab-mode-toggle')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
 
   // Mode toggle button
   const modeToggleBtn = tab.querySelector('.tab-mode-toggle');
@@ -1871,6 +1872,7 @@ function createTypeConsole(project, projectIndex) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTypeConsole(id, projectIndex, typeId); };
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTypeConsole(id, projectIndex, typeId); } };
 
   setupTabDragDrop(tab);
 
@@ -3068,6 +3070,7 @@ async function resumeSession(project, sessionId, options = {}) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
 
   // Enable drag & drop reordering
   setupTabDragDrop(tab);
@@ -3238,6 +3241,7 @@ async function createTerminalWithPrompt(project, prompt) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
 
   // Enable drag & drop reordering
   setupTabDragDrop(tab);
@@ -3381,6 +3385,7 @@ function openFileTab(filePath, project) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
 
   // Enable drag & drop reordering
   setupTabDragDrop(tab);
@@ -3586,6 +3591,7 @@ async function createChatTerminal(project, options = {}) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input') && !e.target.closest('.tab-mode-toggle')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
   const modeToggleBtn = tab.querySelector('.tab-mode-toggle');
   if (modeToggleBtn) {
     modeToggleBtn.onclick = (e) => { e.stopPropagation(); switchTerminalMode(id); };
