@@ -88,9 +88,6 @@ async function initialize() {
   // Initialize Claude event bus and provider
   events.initClaudeEvents();
 
-  // Show telemetry consent modal for existing users (one-time)
-  showTelemetryConsentIfNeeded();
-
   // Load disk-cached dashboard data then refresh from APIs in background
   services.DashboardService.loadAllDiskCaches().then(() => {
     setTimeout(() => {
@@ -106,76 +103,7 @@ async function initialize() {
 
 }
 
-/**
- * Show telemetry consent modal for existing users who haven't been asked yet.
- * Only shows once — sets telemetryConsentShown = true regardless of choice.
- */
-function showTelemetryConsentIfNeeded() {
-  const settings = state.getSettings();
-  if (settings.telemetryConsentShown) return;
-
-  // Delay slightly so the UI is fully rendered
-  setTimeout(() => {
-    const { t } = i18n;
-    const { createModal, showModal, closeModal } = ui.Modal;
-
-    const modal = createModal({
-      id: 'telemetry-consent-modal',
-      title: t('telemetry.consentTitle'),
-      size: 'medium',
-      content: `
-        <div style="padding: 4px 0;">
-          <p style="margin-bottom: 16px; line-height: 1.6; color: var(--text-secondary); font-size: 13px;">
-            ${t('telemetry.consentDescription')}
-          </p>
-          <div style="display: flex; gap: 12px; margin-bottom: 12px;">
-            <div style="flex:1; padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 10px;">
-              <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; color: var(--accent);">
-                ${t('telemetry.whatWeCollect')}
-              </div>
-              <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect1')}</div>
-              <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect2')}</div>
-              <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10003; ${t('telemetry.collect3')}</div>
-            </div>
-            <div style="flex:1; padding: 12px 14px; background: rgba(34,197,94,0.05); border: 1px solid rgba(34,197,94,0.2); border-radius: 10px;">
-              <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; color: #22c55e;">
-                ${t('telemetry.whatWeDoNotCollect')}
-              </div>
-              <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10007; ${t('telemetry.notCollect1')}</div>
-              <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10007; ${t('telemetry.notCollect2')}</div>
-              <div style="font-size: 12px; color: var(--text-secondary); padding: 2px 0;">&#10007; ${t('telemetry.notCollect3')}</div>
-            </div>
-          </div>
-          <p style="font-size: 12px; color: var(--text-muted);">
-            ${t('telemetry.consentChangeSettings')}
-          </p>
-        </div>
-      `,
-      buttons: [
-        {
-          label: t('telemetry.consentDecline'),
-          action: 'decline',
-          onClick: (m) => {
-            state.setSetting('telemetryConsentShown', true);
-            closeModal(m);
-          }
-        },
-        {
-          label: t('telemetry.consentAccept'),
-          action: 'accept',
-          primary: true,
-          onClick: (m) => {
-            state.setSetting('telemetryEnabled', true);
-            state.setSetting('telemetryConsentShown', true);
-            closeModal(m);
-          }
-        }
-      ]
-    });
-
-    showModal(modal);
-  }, 2000);
-}
+// Telemetry consent modal is handled in renderer.js (main entry point)
 
 // Export everything for use in renderer.js
 module.exports = {
