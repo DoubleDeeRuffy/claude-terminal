@@ -13,9 +13,9 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Install Claude Code CLI (required by Agent SDK for headless sessions)
+# Install git (for project push/pull) and Claude Code CLI (for headless sessions)
 # Use NODE_OPTIONS to cap memory during install (prevents OOM on small VPS)
-RUN apt-get update -qq && apt-get install -y -qq curl && \
+RUN apt-get update -qq && apt-get install -y -qq curl git && \
     NODE_OPTIONS="--max-old-space-size=512" curl -fsSL https://claude.ai/install.sh | bash && \
     apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 ENV PATH="/root/.local/bin:$PATH"

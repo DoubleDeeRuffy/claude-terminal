@@ -9,5 +9,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./data/claude:/home/node/.claude
+      - ./data/gitconfig:/root/.gitconfig
+      - ./data/git-credentials:/root/.git-credentials
     env_file: .env
     restart: unless-stopped

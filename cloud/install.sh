@@ -118,6 +118,9 @@ echo ""
 # ══════════════════════════════════════════════
 
 mkdir -p data/users data/claude
+# Create git config files so Docker mounts them as files, not directories
+touch data/gitconfig data/git-credentials
+chmod 600 data/git-credentials
 
 echo -e "  ${CYAN}Building and starting containers...${NC}"
 docker compose up -d --build
@@ -170,7 +173,68 @@ fi
 echo ""
 
 # ══════════════════════════════════════════════
-# 6. Create user
+# 6. Git & GitHub setup (inside container)
+# ══════════════════════════════════════════════
+
+echo -e "  ${BOLD}Git & GitHub Setup${NC}"
+echo ""
+echo -e "  ${DIM}Configure git inside the container so headless sessions${NC}"
+echo -e "  ${DIM}can commit, push, and pull on your projects.${NC}"
+echo ""
+read -p "  Configure Git? (Y/n): " GIT_CHOICE
+GIT_CHOICE=${GIT_CHOICE:-Y}
+
+if [ "$GIT_CHOICE" = "Y" ] || [ "$GIT_CHOICE" = "y" ]; then
+  # Git user name
+  GIT_NAME=""
+  while [ -z "$GIT_NAME" ]; do
+    read -p "  Git name (e.g. John Doe): " GIT_NAME
+    if [ -z "$GIT_NAME" ]; then
+      echo -e "  ${RED}Name is required${NC}"
+    fi
+  done
+
+  # Git email
+  GIT_EMAIL=""
+  while [ -z "$GIT_EMAIL" ]; do
+    read -p "  Git email: " GIT_EMAIL
+    if [ -z "$GIT_EMAIL" ]; then
+      echo -e "  ${RED}Email is required${NC}"
+    fi
+  done
+
+  docker exec ct-cloud git config --global user.name "$GIT_NAME"
+  docker exec ct-cloud git config --global user.email "$GIT_EMAIL"
+  echo -e "  ${GREEN}✓ Git identity configured${NC}"
+
+  # GitHub token
+  echo ""
+  echo -e "  ${DIM}A GitHub token lets Claude push/pull on your repos.${NC}"
+  echo -e "  ${DIM}Create one at: https://github.com/settings/tokens${NC}"
+  echo -e "  ${DIM}Scopes needed: repo (Full control of private repositories)${NC}"
+  echo ""
+  read -p "  GitHub token (press Enter to skip): " GH_TOKEN
+
+  if [ -n "$GH_TOKEN" ]; then
+    # Store token via git credential helper
+    docker exec ct-cloud git config --global credential.helper store
+    docker exec ct-cloud bash -c "echo 'https://oauth2:${GH_TOKEN}@github.com' > /root/.git-credentials && chmod 600 /root/.git-credentials"
+    echo -e "  ${GREEN}✓ GitHub token saved${NC}"
+  else
+    echo -e "  ${DIM}Skipped — you can add a token later:${NC}"
+    echo -e "  ${DIM}  docker exec ct-cloud git config --global credential.helper store${NC}"
+    echo -e "  ${DIM}  docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.git-credentials\"${NC}"
+  fi
+else
+  echo -e "  ${DIM}Skipped — configure later:${NC}"
+  echo -e "  ${DIM}  docker exec ct-cloud git config --global user.name \"Your Name\"${NC}"
+  echo -e "  ${DIM}  docker exec ct-cloud git config --global user.email \"you@example.com\"${NC}"
+fi
+
+echo ""
+
+# ══════════════════════════════════════════════
+# 7. Create user
 # ══════════════════════════════════════════════
 
 USERNAME=""
@@ -194,7 +258,7 @@ API_KEY=$(echo "$API_OUTPUT" | grep -oP 'API Key: \K.*' || true)
 echo ""
 
 # ══════════════════════════════════════════════
-# 7. Reverse proxy
+# 8. Reverse proxy
 # ══════════════════════════════════════════════
 
 echo -e "  ${BOLD}Reverse proxy setup${NC}"
@@ -317,7 +381,7 @@ esac
 echo ""
 
 # ══════════════════════════════════════════════
-# 8. SSL with Let's Encrypt
+# 9. SSL with Let's Encrypt
 # ══════════════════════════════════════════════
 
 if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
@@ -387,7 +451,7 @@ if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
 fi
 
 # ══════════════════════════════════════════════
-# 9. Auto-update
+# 10. Auto-update
 # ══════════════════════════════════════════════
 
 echo -e "  ${BOLD}Auto-update${NC}"
@@ -437,6 +501,7 @@ echo ""
 echo -e "  ${DIM}────────────────────────────────────${NC}"
 echo -e "  ${DIM}Manage users:  docker exec ct-cloud node dist/cli.js user add <name>${NC}"
 echo -e "  ${DIM}Claude auth:   docker exec -it ct-cloud claude login${NC}"
+echo -e "  ${DIM}Git token:     docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.git-credentials\"${NC}"
 echo -e "  ${DIM}View logs:     docker compose -f $INSTALL_DIR/cloud/docker-compose.yml logs -f${NC}"
 echo -e "  ${DIM}Manual update: $INSTALL_DIR/cloud/update.sh${NC}"
 echo -e "  ${DIM}Update logs:   /var/log/ct-cloud-update.log${NC}"
