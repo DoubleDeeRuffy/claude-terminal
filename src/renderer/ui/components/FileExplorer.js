@@ -112,10 +112,22 @@ function setRootPath(projectPath) {
   searchResults = [];
 
   // Restore saved expanded paths for the new project
+  // Only mark them as expanded - getOrLoadFolder() will handle async loading during render
   if (rootPath && savedExpandedPaths.has(rootPath)) {
     const paths = savedExpandedPaths.get(rootPath);
     for (const p of paths) {
-      expandedFolders.set(p, { children: [], loaded: false });
+      const entry = { children: [], loaded: false, loading: true };
+      expandedFolders.set(p, entry);
+      readDirectoryAsync(p).then(children => {
+        entry.children = children;
+        entry.loaded = true;
+        entry.loading = false;
+        render();
+      }).catch(() => {
+        entry.loaded = true;
+        entry.loading = false;
+        render();
+      });
     }
   }
 
