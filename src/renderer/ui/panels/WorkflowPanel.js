@@ -25,13 +25,13 @@ const HOOK_TYPES = [
 ];
 
 const STEP_TYPES = [
-  { type: 'agent',     label: 'Agent',     color: 'accent',   icon: svgAgent()   },
-  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell()   },
-  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit()     },
-  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp()    },
-  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify()  },
-  { type: 'wait',      label: 'Wait',      color: 'muted',    icon: svgWait()    },
-  { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond()    },
+  { type: 'agent',     label: 'Agent',     color: 'accent',   icon: svgAgent(),  desc: 'Prompt Claude' },
+  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),  desc: 'Commande bash' },
+  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),    desc: 'Opération git' },
+  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),   desc: 'Requête API' },
+  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify(), desc: 'Notification' },
+  { type: 'wait',      label: 'Wait',      color: 'muted',    icon: svgWait(),   desc: 'Temporisation' },
+  { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),   desc: 'Branchement' },
 ];
 
 const TRIGGER_CONFIG = {
@@ -635,6 +635,9 @@ function openBuilder(workflowId = null) {
       const picker = overlay.querySelector('.wf-picker');
       if (picker) picker.classList.toggle('wf-picker--open');
     });
+    overlay.querySelector('#wf-picker-close')?.addEventListener('click', () => {
+      overlay.querySelector('.wf-picker')?.classList.remove('wf-picker--open');
+    });
     overlay.querySelectorAll('[data-pick]').forEach(btn => {
       btn.addEventListener('click', () => {
         draft.steps.push({ id: `step_${draft.steps.length + 1}`, type: btn.dataset.pick });
@@ -659,7 +662,7 @@ function openBuilder(workflowId = null) {
   };
 
   const rebindSteps = () => {
-    overlay.querySelectorAll('.wf-step-row-del').forEach(btn => {
+    overlay.querySelectorAll('.wf-step-node-del').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = parseInt(btn.dataset.idx);
         draft.steps.splice(idx, 1);
@@ -717,6 +720,8 @@ function openBuilder(workflowId = null) {
   const drawStepsList = () => {
     const list = overlay.querySelector('#wf-steps-list');
     if (!list) return;
+    const countEl = overlay.querySelector('#wf-step-count');
+    if (countEl) countEl.textContent = `${draft.steps.length} étape${draft.steps.length !== 1 ? 's' : ''}`;
     if (!draft.steps.length) {
       list.innerHTML = `<div class="wf-steps-empty">${svgEmpty()} <span>Aucun step — ajoutez-en ci-dessous</span></div>`;
       return;
@@ -724,12 +729,15 @@ function openBuilder(workflowId = null) {
     list.innerHTML = draft.steps.map((s, i) => {
       const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
       return `
-        <div class="wf-step-row">
-          <span class="wf-step-row-num">${i + 1}</span>
-          <span class="wf-step-row-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-          <span class="wf-step-row-type">${escapeHtml(s.type)}</span>
-          <span class="wf-step-row-id">\$${escapeHtml(s.id)}</span>
-          <button class="wf-step-row-del" data-idx="${i}">${svgX(11)}</button>
+        ${i > 0 ? '<div class="wf-pipe-connector"><svg width="2" height="20" viewBox="0 0 2 20"><line x1="1" y1="0" x2="1" y2="20" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="3 3"/></svg></div>' : ''}
+        <div class="wf-step-node" style="--step-delay: ${i * 40}ms" data-color="${info.color}">
+          <div class="wf-step-node-idx"><span>${i + 1}</span></div>
+          <span class="wf-step-node-chip wf-chip wf-chip--${info.color}">${info.icon}</span>
+          <div class="wf-step-node-body">
+            <span class="wf-step-node-type">${escapeHtml(info.label)}</span>
+            <span class="wf-step-node-id">${escapeHtml(s.id)}</span>
+          </div>
+          <button class="wf-step-node-del" data-idx="${i}">${svgX(11)}</button>
         </div>
       `;
     }).join('');
@@ -778,24 +786,33 @@ function openBuilder(workflowId = null) {
           ` : ''}
 
           ${step === 2 ? `
-            <div class="wf-wstep">
-              <div class="wf-field">
-                <label class="wf-field-lbl">Séquence d'étapes</label>
+            <div class="wf-wstep wf-wstep--pipeline">
+              <div class="wf-pipeline-zone">
+                <div class="wf-pipeline-hd">
+                  <label class="wf-field-lbl">Pipeline</label>
+                  <span class="wf-pipeline-count" id="wf-step-count">0 étapes</span>
+                </div>
                 <div id="wf-steps-list" class="wf-steps-list"></div>
                 <button id="wf-add-step" class="wf-add-step-btn">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
                   Ajouter une étape
                 </button>
-                <div class="wf-picker">
-                  <div class="wf-picker-title">Choisir le type</div>
-                  <div class="wf-picker-grid">
-                    ${STEP_TYPES.map(s => `
-                      <button class="wf-pick-item" data-pick="${s.type}">
-                        <span class="wf-chip wf-chip--${s.color}">${s.icon}</span>
-                        <span>${s.label}</span>
-                      </button>
-                    `).join('')}
-                  </div>
+              </div>
+              <div class="wf-picker">
+                <div class="wf-picker-hd">
+                  <span class="wf-picker-title">Choisir un type</span>
+                  <button class="wf-picker-close" id="wf-picker-close">${svgX(14)}</button>
+                </div>
+                <div class="wf-picker-grid">
+                  ${STEP_TYPES.map(s => `
+                    <button class="wf-pick-card" data-pick="${s.type}" data-color="${s.color}">
+                      <span class="wf-pick-card-icon wf-chip wf-chip--${s.color}">${s.icon}</span>
+                      <div class="wf-pick-card-txt">
+                        <span class="wf-pick-card-label">${s.label}</span>
+                        <span class="wf-pick-card-desc">${s.desc}</span>
+                      </div>
+                    </button>
+                  `).join('')}
                 </div>
               </div>
             </div>
