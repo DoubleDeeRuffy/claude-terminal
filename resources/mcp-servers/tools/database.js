@@ -275,6 +275,274 @@ async function describeTable(client, type, tableName) {
   return 'Unsupported database type';
 }
 
+// -- Export -------------------------------------------------------------------
+
+async function exportQuery(client, type, sql, format) {
+  const trimmed = sql.trim();
+  let rows;
+
+  if (type === 'sqlite') {
+    rows = client.prepare(trimmed).all().slice(0, MAX_ROWS);
+  } else if (type === 'mysql') {
+    const [result] = await client.execute(trimmed);
+    rows = Array.isArray(result) ? result.slice(0, MAX_ROWS) : [];
+  } else if (type === 'postgresql') {
+    const result = await client.query(trimmed);
+    rows = (result.rows || []).slice(0, MAX_ROWS);
+  } else {
+    return 'Export not supported for this database type';
+  }
+
+  if (!rows || rows.length === 0) return 'No results to export';
+
+  if (format === 'json') {
+    return JSON.stringify(rows, null, 2);
+  }
+
+  // CSV
+  const columns = Object.keys(rows[0]);
+  const escape = (v) => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [columns.join(',')];
+  for (const row of rows) {
+    lines.push(columns.map(c => escape(row[c])).join(','));
+  }
+  return lines.join('\n');
+}
+
+// -- Full schema --------------------------------------------------------------
+
+async function getFullSchema(client, type) {
+  if (type === 'sqlite') {
+    const tables = client.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+    const sections = [];
+    for (const { name } of tables) {
+      const cols = client.prepare(`PRAGMA table_info('${name}')`).all();
+      const fks = client.prepare(`PRAGMA foreign_key_list('${name}')`).all();
+      const idxs = client.prepare(`PRAGMA index_list('${name}')`).all();
+
+      let s = `## ${name}\n`;
+      s += cols.map(c => {
+        const p = [`  ${c.name} ${c.type || 'ANY'}`];
+        if (c.pk) p.push('PK');
+        if (c.notnull) p.push('NOT NULL');
+        if (c.dflt_value !== null) p.push(`DEFAULT ${c.dflt_value}`);
+        return p.join(' | ');
+      }).join('\n');
+
+      if (fks.length) {
+        s += '\n  Foreign Keys:';
+        for (const fk of fks) s += `\n    ${fk.from} → ${fk.table}(${fk.to})`;
+      }
+      if (idxs.length) {
+        s += '\n  Indexes:';
+        for (const idx of idxs) {
+          const iCols = client.prepare(`PRAGMA index_info('${idx.name}')`).all();
+          s += `\n    ${idx.name}${idx.unique ? ' (UNIQUE)' : ''}: ${iCols.map(i => i.name).join(', ')}`;
+        }
+      }
+      sections.push(s);
+    }
+    return sections.join('\n\n') || 'No tables found';
+  }
+
+  if (type === 'mysql') {
+    const [tables] = await client.execute('SHOW TABLES');
+    const key = Object.keys(tables[0] || {})[0];
+    const sections = [];
+    for (const row of tables) {
+      const tn = row[key];
+      const [cols] = await client.execute(`SHOW FULL COLUMNS FROM \`${tn}\``);
+      const [fksRaw] = await client.execute(
+        `SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+         FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+         WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL`, [tn]);
+      const [idxsRaw] = await client.execute(`SHOW INDEX FROM \`${tn}\``);
+
+      let s = `## ${tn}\n`;
+      s += cols.map(c => {
+        const p = [`  ${c.Field} ${c.Type}`];
+        if (c.Key === 'PRI') p.push('PK');
+        if (c.Null === 'NO') p.push('NOT NULL');
+        if (c.Default !== null) p.push(`DEFAULT ${c.Default}`);
+        return p.join(' | ');
+      }).join('\n');
+
+      if (fksRaw.length) {
+        s += '\n  Foreign Keys:';
+        for (const fk of fksRaw) s += `\n    ${fk.COLUMN_NAME} → ${fk.REFERENCED_TABLE_NAME}(${fk.REFERENCED_COLUMN_NAME})`;
+      }
+
+      // Group indexes by name
+      const idxMap = new Map();
+      for (const idx of idxsRaw) {
+        if (!idxMap.has(idx.Key_name)) idxMap.set(idx.Key_name, { unique: !idx.Non_unique, cols: [] });
+        idxMap.get(idx.Key_name).cols.push(idx.Column_name);
+      }
+      if (idxMap.size > 1 || (idxMap.size === 1 && !idxMap.has('PRIMARY'))) {
+        s += '\n  Indexes:';
+        for (const [name, info] of idxMap) {
+          if (name === 'PRIMARY') continue;
+          s += `\n    ${name}${info.unique ? ' (UNIQUE)' : ''}: ${info.cols.join(', ')}`;
+        }
+      }
+      sections.push(s);
+    }
+    return sections.join('\n\n') || 'No tables found';
+  }
+
+  if (type === 'postgresql') {
+    const tablesRes = await client.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+    );
+    const sections = [];
+    for (const { table_name: tn } of tablesRes.rows) {
+      const colRes = await client.query(
+        `SELECT column_name, data_type, is_nullable, column_default,
+                (SELECT EXISTS(
+                  SELECT 1 FROM information_schema.table_constraints tc
+                  JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+                  WHERE tc.table_name = c.table_name AND kcu.column_name = c.column_name
+                  AND tc.constraint_type = 'PRIMARY KEY'
+                )) as is_pk
+         FROM information_schema.columns c
+         WHERE table_name = $1 AND table_schema = 'public'
+         ORDER BY ordinal_position`, [tn]);
+
+      const fkRes = await client.query(
+        `SELECT kcu.column_name, ccu.table_name AS ref_table, ccu.column_name AS ref_column
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+         JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+         WHERE tc.table_name = $1 AND tc.constraint_type = 'FOREIGN KEY'`, [tn]);
+
+      const idxRes = await client.query(
+        `SELECT indexname, indexdef FROM pg_indexes WHERE tablename = $1 AND schemaname = 'public'`, [tn]);
+
+      let s = `## ${tn}\n`;
+      s += colRes.rows.map(c => {
+        const p = [`  ${c.column_name} ${c.data_type}`];
+        if (c.is_pk) p.push('PK');
+        if (c.is_nullable === 'NO') p.push('NOT NULL');
+        if (c.column_default) p.push(`DEFAULT ${c.column_default}`);
+        return p.join(' | ');
+      }).join('\n');
+
+      if (fkRes.rows.length) {
+        s += '\n  Foreign Keys:';
+        for (const fk of fkRes.rows) s += `\n    ${fk.column_name} → ${fk.ref_table}(${fk.ref_column})`;
+      }
+
+      const nonPkIdx = idxRes.rows.filter(i => !i.indexname.endsWith('_pkey'));
+      if (nonPkIdx.length) {
+        s += '\n  Indexes:';
+        for (const idx of nonPkIdx) {
+          const unique = idx.indexdef.includes('UNIQUE') ? ' (UNIQUE)' : '';
+          const colMatch = idx.indexdef.match(/\((.+)\)/);
+          s += `\n    ${idx.indexname}${unique}: ${colMatch ? colMatch[1] : '?'}`;
+        }
+      }
+      sections.push(s);
+    }
+    return sections.join('\n\n') || 'No tables found';
+  }
+
+  if (type === 'mongodb') {
+    const collections = await client.db.listCollections().toArray();
+    const sections = [];
+    for (const col of collections) {
+      const indexes = await client.db.collection(col.name).indexes();
+      let s = `## ${col.name}`;
+      if (indexes.length > 1) {
+        s += '\n  Indexes:';
+        for (const idx of indexes) {
+          if (idx.name === '_id_') continue;
+          const keys = Object.entries(idx.key).map(([k, v]) => `${k}:${v}`).join(', ');
+          s += `\n    ${idx.name}${idx.unique ? ' (UNIQUE)' : ''}: ${keys}`;
+        }
+      }
+      sections.push(s);
+    }
+    return sections.join('\n\n') || 'No collections found';
+  }
+
+  return 'Unsupported database type';
+}
+
+// -- Stats --------------------------------------------------------------------
+
+async function getStats(client, type) {
+  if (type === 'sqlite') {
+    const tables = client.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+    const lines = [];
+    let totalRows = 0;
+    for (const { name } of tables) {
+      const row = client.prepare(`SELECT COUNT(*) as cnt FROM "${name}"`).get();
+      lines.push(`${name}: ${row.cnt.toLocaleString()} rows`);
+      totalRows += row.cnt;
+    }
+    const pageSize = client.pragma('page_size', { simple: true });
+    const pageCount = client.pragma('page_count', { simple: true });
+    const sizeBytes = pageSize * pageCount;
+    const sizeMB = (sizeBytes / 1024 / 1024).toFixed(2);
+    return `Database size: ${sizeMB} MB\nTotal rows: ${totalRows.toLocaleString()}\nTables: ${tables.length}\n${'─'.repeat(40)}\n${lines.join('\n')}`;
+  }
+
+  if (type === 'mysql') {
+    const [tables] = await client.execute('SHOW TABLES');
+    const key = Object.keys(tables[0] || {})[0];
+    const lines = [];
+    let totalRows = 0;
+    for (const row of tables) {
+      const tn = row[key];
+      const [cnt] = await client.execute(`SELECT COUNT(*) as cnt FROM \`${tn}\``);
+      const count = Number(cnt[0].cnt);
+      lines.push(`${tn}: ${count.toLocaleString()} rows`);
+      totalRows += count;
+    }
+    // DB size
+    const [sizeRes] = await client.execute(
+      `SELECT SUM(data_length + index_length) as size FROM information_schema.tables WHERE table_schema = DATABASE()`);
+    const sizeMB = ((Number(sizeRes[0].size) || 0) / 1024 / 1024).toFixed(2);
+    return `Database size: ${sizeMB} MB\nTotal rows: ${totalRows.toLocaleString()}\nTables: ${tables.length}\n${'─'.repeat(40)}\n${lines.join('\n')}`;
+  }
+
+  if (type === 'postgresql') {
+    const tablesRes = await client.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name");
+    const lines = [];
+    let totalRows = 0;
+    for (const { table_name: tn } of tablesRes.rows) {
+      const cnt = await client.query(`SELECT COUNT(*) as cnt FROM "${tn}"`);
+      const count = Number(cnt.rows[0].cnt);
+      lines.push(`${tn}: ${count.toLocaleString()} rows`);
+      totalRows += count;
+    }
+    const sizeRes = await client.query("SELECT pg_database_size(current_database()) as size");
+    const sizeMB = (Number(sizeRes.rows[0].size) / 1024 / 1024).toFixed(2);
+    return `Database size: ${sizeMB} MB\nTotal rows: ${totalRows.toLocaleString()}\nTables: ${tablesRes.rows.length}\n${'─'.repeat(40)}\n${lines.join('\n')}`;
+  }
+
+  if (type === 'mongodb') {
+    const stats = await client.db.stats();
+    const collections = await client.db.listCollections().toArray();
+    const lines = [];
+    let totalDocs = 0;
+    for (const col of collections) {
+      const count = await client.db.collection(col.name).countDocuments();
+      lines.push(`${col.name}: ${count.toLocaleString()} documents`);
+      totalDocs += count;
+    }
+    const sizeMB = ((stats.dataSize || 0) / 1024 / 1024).toFixed(2);
+    return `Database size: ${sizeMB} MB\nTotal documents: ${totalDocs.toLocaleString()}\nCollections: ${collections.length}\n${'─'.repeat(40)}\n${lines.join('\n')}`;
+  }
+
+  return 'Unsupported database type';
+}
+
 // -- Formatting ---------------------------------------------------------------
 
 function formatRows(rows) {
@@ -331,6 +599,41 @@ const tools = [
       required: ['connection', 'sql'],
     },
   },
+  {
+    name: 'db_export',
+    description: 'Execute a SQL query and return results as CSV or JSON. Useful for exporting data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        connection: { type: 'string', description: 'Connection name or ID' },
+        sql: { type: 'string', description: 'SQL SELECT query to export' },
+        format: { type: 'string', enum: ['csv', 'json'], description: 'Output format (default: csv)' },
+      },
+      required: ['connection', 'sql'],
+    },
+  },
+  {
+    name: 'db_schema_full',
+    description: 'Dump the complete database schema: all tables with columns, types, primary keys, foreign keys, and indexes. Returns everything in one call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        connection: { type: 'string', description: 'Connection name or ID' },
+      },
+      required: ['connection'],
+    },
+  },
+  {
+    name: 'db_stats',
+    description: 'Get database statistics: row count per table, total rows, database size, and table count.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        connection: { type: 'string', description: 'Connection name or ID' },
+      },
+      required: ['connection'],
+    },
+  },
 ];
 
 // -- Tool handler -------------------------------------------------------------
@@ -375,6 +678,28 @@ async function handle(name, args) {
       if (!args.sql) return fail('Missing required parameter: sql');
       const { client, type } = await getClient(args.connection);
       const result = await executeQuery(client, type, args.sql);
+      return ok(result);
+    }
+
+    if (name === 'db_export') {
+      if (!args.connection) return fail('Missing required parameter: connection');
+      if (!args.sql) return fail('Missing required parameter: sql');
+      const { client, type } = await getClient(args.connection);
+      const result = await exportQuery(client, type, args.sql, args.format || 'csv');
+      return ok(result);
+    }
+
+    if (name === 'db_schema_full') {
+      if (!args.connection) return fail('Missing required parameter: connection');
+      const { client, type } = await getClient(args.connection);
+      const result = await getFullSchema(client, type);
+      return ok(result);
+    }
+
+    if (name === 'db_stats') {
+      if (!args.connection) return fail('Missing required parameter: connection');
+      const { client, type } = await getClient(args.connection);
+      const result = await getStats(client, type);
       return ok(result);
     }
 
