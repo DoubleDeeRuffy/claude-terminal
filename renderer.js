@@ -181,8 +181,10 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
           await TerminalManager.createTerminal(project, {
             runClaude: !tab.isBasic,
             cwd,
+            mode: tab.mode || null,
             skipPermissions: settingsState.get().skipPermissions,
             resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
+            name: tab.name || null,
           });
         }
 
