@@ -68,6 +68,7 @@ Progress: [███████████████████████
 | Phase 17 P01 | 4 | 2 tasks | 3 files |
 | Phase 6.2 P01 | 1 | 1 tasks | 2 files |
 | Phase 6.3 P01 | 2 | 2 tasks | 2 files |
+| Phase 6.2 P02 | 8 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,7 @@ Recent decisions affecting current work:
 - [Phase 6.3]: 6.3-01: activeTabIndex computed as tabs.length - 1 at push time in same loop as cwd — guaranteed correct index
 - [Phase 6.3]: 6.3-01: Lazy require for loadSessionData in filterByProject avoids circular dep (Phase 04/05/6.1 pattern)
 - [Phase 6.3]: 6.3-01: Bounds-check savedIdx < visibleIds.length — silent fallback to firstVisibleId on out-of-range, no crash
+- [Phase 6.2]: 6.2-02: scheduleScrollAfterRestore polls lastTerminalData for 300ms silence (50ms interval, 8s hard fallback) — per-terminal independent polling replaces shared setTimeout(200)
 
 ### Pending Todos
 
@@ -184,6 +186,7 @@ Recent decisions affecting current work:
 - Phase 18 added: Disable Haiki Tab-Naming Settings toggle
 - Phase 6.3 inserted after Phase 6: Remember active task on Project scope to restore it on project-swap and app restart (URGENT)
 - Phase 19 added: 10.1 Tab-Renaming-For-Resume-Dialog
+- Phase 6.4 inserted after Phase 6: Bugfix — session resume claudeSessionId not persisted across restarts (URGENT)
 
 ### Blockers/Concerns
 
@@ -201,5 +204,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 6.2-01-PLAN.md
-Resume file: .planning/phases/6.3-remember-active-task-on-project-scope-to-restore-it-on-project-swap-and-app-restart/6.3-CONTEXT.md
+Stopped at: Completed 6.2-02-PLAN.md
+Resume file: .planning/phases/6.2-scroll-to-the-very-end-on-session-resume-in-every-tab/6.2-02-SUMMARY.md

@@ -157,6 +157,15 @@ Plans:
 - [x] 06-02-PLAN.md — Thread resumeSessionId through createTerminal and restore loop, add resume failure watchdog
 - [ ] 06-03-PLAN.md — Gap closure: forward resumeSessionId in chat mode, save/restore tab mode, fix init order
 
+### Phase 6.4: bugfix-session-resume-claudeSessionId-not-persisted-across-restarts (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Depends on:** Phase 6
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:discuss-phase 6.4 to break down)
+
 ### Phase 6.3: Remember active task on Project scope to restore it on project-swap and app restart (INSERTED)
 
 **Goal:** Persist the active terminal tab per project and restore it on project-swap and app restart so users land on exactly the tab they were last working in
@@ -172,7 +181,7 @@ Plans:
 **Goal:** All restored terminal tabs scroll to the very bottom after app restart so users see the most recent output, not a mid-session scroll position
 **Depends on:** Phase 6
 **Requirements:** SESS-01
-**Plans:** 2 plans (1 gap closure)
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 6.2-01-PLAN.md — Add post-restore scroll-all loop in renderer.js and loading→ready scroll hook in TerminalManager.js
