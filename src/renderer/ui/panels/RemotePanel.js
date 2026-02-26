@@ -1,6 +1,7 @@
 /**
  * RemotePanel
- * Settings UI for the Remote Control feature (mobile PWA, PIN auth).
+ * Redesigned connection hub — two clear zones: Local (Wi-Fi) and Cloud (Internet).
+ * Guided flow with visual hierarchy, step numbering, and contextual help.
  */
 
 const { t } = require('../../i18n');
@@ -12,130 +13,186 @@ let _pinRefreshInterval = null;
 function buildHtml(settings) {
   const remoteEnabled = settings.remoteEnabled || false;
   const remotePort = settings.remotePort || 3712;
+  const showLocal = remoteEnabled ? '' : 'display:none';
 
   return `
-    <div class="settings-group">
-      <div class="settings-group-title">${t('remote.sectionGeneral')}</div>
-      <div class="settings-card">
-        <div class="settings-toggle-row">
-          <div class="settings-toggle-label">
-            <div>${t('remote.enable')}</div>
-            <div class="settings-toggle-desc">${t('remote.enableDesc')}</div>
-          </div>
-          <label class="settings-toggle">
-            <input type="checkbox" id="remote-enabled-toggle" ${remoteEnabled ? 'checked' : ''}>
-            <span class="settings-toggle-slider"></span>
-          </label>
+    <!-- ═══ Master Toggle ═══ -->
+    <div class="rp-master-toggle">
+      <div class="rp-master-toggle-content">
+        <div class="rp-master-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
         </div>
-        <div class="settings-row" id="remote-port-row" style="${remoteEnabled ? '' : 'display:none'}">
-          <div class="settings-label">
-            <div>${t('remote.port')}</div>
-            <div class="settings-desc">${t('remote.portDesc')}</div>
-          </div>
-          <input type="number" id="remote-port-input" class="remote-port-input" value="${remotePort}" min="1024" max="65535">
-        </div>
-        <div class="settings-row" id="remote-iface-row" style="${remoteEnabled ? '' : 'display:none'}">
-          <div class="settings-label">
-            <div>${t('remote.networkInterface')}</div>
-            <div class="settings-desc">${t('remote.networkInterfaceDesc')}</div>
-          </div>
-          <select id="remote-iface-select" class="remote-iface-select">
-            <option value="">${t('remote.networkInterfaceAuto')}</option>
-          </select>
+        <div class="rp-master-text">
+          <div class="rp-master-title">${t('remote.enable')}</div>
+          <div class="rp-master-desc">${t('remote.enableDesc')}</div>
         </div>
       </div>
+      <label class="settings-toggle">
+        <input type="checkbox" id="remote-enabled-toggle" ${remoteEnabled ? 'checked' : ''}>
+        <span class="settings-toggle-slider"></span>
+      </label>
     </div>
 
-    <div class="settings-group" id="remote-server-group" style="${remoteEnabled ? '' : 'display:none'}">
-      <div class="settings-group-title">${t('remote.sectionStatus')}</div>
-      <div class="settings-card">
-        <div class="settings-row">
-          <div class="settings-label">
-            <div>${t('remote.serverStatus')}</div>
-          </div>
-          <div class="remote-status-row">
-            <span class="remote-status-badge" id="remote-status-badge">
-              <span class="remote-status-dot"></span>
-              <span id="remote-status-text">${t('remote.serverStopped')}</span>
-            </span>
-            <button class="btn-sm btn-primary" id="remote-toggle-server-btn">${t('remote.startServer')}</button>
-          </div>
-        </div>
+    <!-- ═══ Connection Modes ═══ -->
+    <div id="rp-connection-zones" style="${showLocal}">
+
+      <!-- ─── MODE TABS ─── -->
+      <div class="rp-mode-tabs">
+        <button class="rp-mode-tab active" data-mode="local">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
+          ${t('remote.modeLocal')}
+        </button>
+        <button class="rp-mode-tab" data-mode="cloud">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+          </svg>
+          ${t('remote.modeCloud')}
+        </button>
       </div>
-    </div>
 
-    <div class="settings-group" id="remote-qr-group" style="${remoteEnabled ? '' : 'display:none'}">
-      <div class="settings-group-title">${t('remote.sectionQrCode') || 'QR Code'}</div>
-      <div class="settings-card">
-        <div class="remote-qr-block">
-          <canvas id="remote-qr-canvas"></canvas>
-          <div class="remote-qr-url" id="remote-qr-url"></div>
-          <div class="remote-qr-hint">${t('remote.qrHint') || 'Scan with your phone to connect'}</div>
+      <!-- ═══ LOCAL ZONE ═══ -->
+      <div class="rp-zone" id="rp-zone-local">
+
+        <!-- How it works -->
+        <div class="rp-info-banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <span>${t('remote.localInfoBanner')}</span>
         </div>
+
+        <!-- Server status + action -->
+        <div class="rp-server-card">
+          <div class="rp-server-header">
+            <div class="rp-server-status-area">
+              <span class="rp-status-indicator" id="remote-status-indicator"></span>
+              <span class="rp-server-status-label" id="remote-status-text">${t('remote.serverStopped')}</span>
+            </div>
+            <button class="rp-server-btn" id="remote-toggle-server-btn">${t('remote.startServer')}</button>
+          </div>
+          <div class="rp-server-url" id="rp-server-url-display"></div>
+        </div>
+
+        <!-- QR + PIN side by side -->
+        <div class="rp-pair-zone" id="rp-pair-zone" style="display:none">
+          <div class="rp-pair-title">${t('remote.pairTitle')}</div>
+          <div class="rp-pair-grid">
+
+            <!-- QR Column -->
+            <div class="rp-pair-col rp-qr-col">
+              <div class="rp-pair-step-label">${t('remote.stepScan')}</div>
+              <div class="rp-qr-wrapper">
+                <canvas id="remote-qr-canvas"></canvas>
+              </div>
+              <div class="rp-qr-url-mini" id="remote-qr-url"></div>
+            </div>
+
+            <!-- Divider -->
+            <div class="rp-pair-divider">
+              <span>${t('remote.or')}</span>
+            </div>
+
+            <!-- PIN Column -->
+            <div class="rp-pair-col rp-pin-col">
+              <div class="rp-pair-step-label">${t('remote.stepPin')}</div>
+              <div class="rp-pin-display" id="remote-pin-display">
+                <span class="rp-pin-digit" id="pin-d0">-</span>
+                <span class="rp-pin-digit" id="pin-d1">-</span>
+                <span class="rp-pin-sep"></span>
+                <span class="rp-pin-digit" id="pin-d2">-</span>
+                <span class="rp-pin-digit" id="pin-d3">-</span>
+              </div>
+              <div class="rp-pin-countdown" id="remote-pin-countdown"></div>
+              <button class="rp-pin-refresh" id="remote-pin-refresh-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                ${t('remote.pinRefresh')}
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Advanced settings (collapsed) -->
+        <details class="rp-advanced">
+          <summary>${t('remote.advancedSettings')}</summary>
+          <div class="rp-advanced-body">
+            <div class="rp-advanced-row">
+              <div class="rp-advanced-label">${t('remote.port')}</div>
+              <input type="number" id="remote-port-input" class="rp-input-sm" value="${remotePort}" min="1024" max="65535">
+            </div>
+            <div class="rp-advanced-row">
+              <div class="rp-advanced-label">${t('remote.networkInterface')}</div>
+              <select id="remote-iface-select" class="rp-select-sm">
+                <option value="">${t('remote.networkInterfaceAuto')}</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
       </div>
-    </div>
 
-    <div class="settings-group" id="remote-pin-group" style="${remoteEnabled ? '' : 'display:none'}">
-      <div class="settings-group-title">${t('remote.sectionPin')}</div>
-      <div class="settings-card">
-        <div class="remote-pin-block">
-          <div class="remote-pin-label">${t('remote.pinLabel')}</div>
-          <div class="remote-pin-display" id="remote-pin-display">
-            <span class="remote-pin-digit" id="pin-d0">-</span>
-            <span class="remote-pin-digit" id="pin-d1">-</span>
-            <span class="remote-pin-sep">·</span>
-            <span class="remote-pin-digit" id="pin-d2">-</span>
-            <span class="remote-pin-digit" id="pin-d3">-</span>
-          </div>
-          <div class="remote-pin-countdown" id="remote-pin-countdown"></div>
-          <div class="remote-pin-hint">${t('remote.pinHint')}</div>
-          <button class="btn-sm btn-secondary" id="remote-pin-refresh-btn">${t('remote.pinRefresh')}</button>
+      <!-- ═══ CLOUD ZONE ═══ -->
+      <div class="rp-zone" id="rp-zone-cloud" style="display:none">
+
+        <!-- Info banner -->
+        <div class="rp-info-banner rp-info-cloud">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          <span>${t('cloud.infoBanner')}</span>
         </div>
+
+        <!-- Connection form -->
+        <div class="rp-cloud-card">
+          <div class="rp-cloud-field">
+            <label for="cloud-server-url">${t('cloud.serverUrl')}</label>
+            <input type="text" id="cloud-server-url" class="rp-cloud-input" value="${settings.cloudServerUrl || ''}" placeholder="${t('cloud.serverUrlPlaceholder')}">
+          </div>
+          <div class="rp-cloud-field">
+            <label for="cloud-api-key">${t('cloud.apiKey')}</label>
+            <div class="rp-cloud-key-row">
+              <input type="password" id="cloud-api-key" class="rp-cloud-input rp-cloud-key-input" value="${settings.cloudApiKey || ''}" placeholder="${t('cloud.apiKeyPlaceholder')}">
+              <button class="rp-key-toggle" id="cloud-key-toggle" type="button" title="Toggle visibility">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+            <div class="rp-cloud-field-hint">${t('cloud.apiKeyDesc')}</div>
+          </div>
+        </div>
+
+        <!-- Status + Actions -->
+        <div class="rp-cloud-footer">
+          <div class="rp-cloud-auto">
+            <label class="settings-toggle rp-mini-toggle">
+              <input type="checkbox" id="cloud-auto-connect" ${settings.cloudAutoConnect !== false ? 'checked' : ''}>
+              <span class="settings-toggle-slider"></span>
+            </label>
+            <span class="rp-cloud-auto-label">${t('cloud.autoConnect')}</span>
+          </div>
+          <div class="rp-cloud-actions">
+            <span class="rp-status-indicator" id="cloud-status-indicator"></span>
+            <span class="rp-cloud-status-text" id="cloud-status-text">${t('cloud.disconnected')}</span>
+            <button class="rp-server-btn" id="cloud-connect-btn">${t('cloud.connect')}</button>
+          </div>
+        </div>
+
       </div>
-    </div>
 
-    <div class="settings-group">
-      <div class="settings-group-title">${t('cloud.sectionTitle')}</div>
-      <div class="settings-card">
-        <div class="settings-row">
-          <div class="settings-label">
-            <div>${t('cloud.serverUrl')}</div>
-            <div class="settings-desc">${t('cloud.serverUrlDesc')}</div>
-          </div>
-          <input type="text" id="cloud-server-url" class="settings-input" value="${settings.cloudServerUrl || ''}" placeholder="${t('cloud.serverUrlPlaceholder')}">
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <div>${t('cloud.apiKey')}</div>
-            <div class="settings-desc">${t('cloud.apiKeyDesc')}</div>
-          </div>
-          <input type="password" id="cloud-api-key" class="settings-input" value="${settings.cloudApiKey || ''}" placeholder="${t('cloud.apiKeyPlaceholder')}">
-        </div>
-        <div class="settings-toggle-row">
-          <div class="settings-toggle-label">
-            <div>${t('cloud.autoConnect')}</div>
-            <div class="settings-toggle-desc">${t('cloud.autoConnectDesc')}</div>
-          </div>
-          <label class="settings-toggle">
-            <input type="checkbox" id="cloud-auto-connect" ${settings.cloudAutoConnect !== false ? 'checked' : ''}>
-            <span class="settings-toggle-slider"></span>
-          </label>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <div>${t('cloud.status')}</div>
-          </div>
-          <div class="remote-status-row">
-            <span class="remote-status-badge" id="cloud-status-badge">
-              <span class="remote-status-dot"></span>
-              <span id="cloud-status-text">${t('cloud.disconnected')}</span>
-            </span>
-            <button class="btn-sm btn-primary" id="cloud-connect-btn">${t('cloud.connect')}</button>
-          </div>
-        </div>
-      </div>
     </div>
-
   `;
 }
 
@@ -144,16 +201,26 @@ function setupHandlers(context) {
   _ctx = context;
 
   const toggle = document.getElementById('remote-enabled-toggle');
+  const zones = document.getElementById('rp-connection-zones');
   const portInput = document.getElementById('remote-port-input');
-  const portRow = document.getElementById('remote-port-row');
-  const ifaceRow = document.getElementById('remote-iface-row');
   const ifaceSelect = document.getElementById('remote-iface-select');
-  const serverGroup = document.getElementById('remote-server-group');
-  const qrGroup = document.getElementById('remote-qr-group');
-  const pinGroup = document.getElementById('remote-pin-group');
   const refreshBtn = document.getElementById('remote-pin-refresh-btn');
 
   if (!toggle) return;
+
+  // ── Mode tabs ──
+  const modeTabs = document.querySelectorAll('.rp-mode-tab');
+  const zoneLocal = document.getElementById('rp-zone-local');
+  const zoneCloud = document.getElementById('rp-zone-cloud');
+  modeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      modeTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const mode = tab.dataset.mode;
+      if (zoneLocal) zoneLocal.style.display = mode === 'local' ? '' : 'none';
+      if (zoneCloud) zoneCloud.style.display = mode === 'cloud' ? '' : 'none';
+    });
+  });
 
   async function populateIfaceSelect() {
     if (!ifaceSelect) return;
@@ -173,16 +240,13 @@ function setupHandlers(context) {
     } catch (e) {}
   }
 
+  // ── Master toggle ──
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
     _ctx.settingsState.setProp('remoteEnabled', enabled);
     _ctx.saveSettings();
 
-    portRow.style.display = enabled ? '' : 'none';
-    ifaceRow.style.display = enabled ? '' : 'none';
-    serverGroup.style.display = enabled ? '' : 'none';
-    if (qrGroup) qrGroup.style.display = enabled ? '' : 'none';
-    pinGroup.style.display = enabled ? '' : 'none';
+    if (zones) zones.style.display = enabled ? '' : 'none';
 
     if (enabled) {
       await populateIfaceSelect();
@@ -211,8 +275,10 @@ function setupHandlers(context) {
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', async () => {
+      refreshBtn.classList.add('spinning');
       await window.electron_api.remote.generatePin();
       await _loadAndShowPin();
+      setTimeout(() => refreshBtn.classList.remove('spinning'), 400);
     });
   }
 
@@ -255,21 +321,31 @@ function setupHandlers(context) {
   const cloudKeyInput = document.getElementById('cloud-api-key');
   const cloudAutoToggle = document.getElementById('cloud-auto-connect');
   const cloudConnectBtn = document.getElementById('cloud-connect-btn');
-  const cloudStatusBadge = document.getElementById('cloud-status-badge');
+  const cloudStatusIndicator = document.getElementById('cloud-status-indicator');
   const cloudStatusText = document.getElementById('cloud-status-text');
+  const cloudKeyToggle = document.getElementById('cloud-key-toggle');
+
+  // Key visibility toggle
+  if (cloudKeyToggle && cloudKeyInput) {
+    cloudKeyToggle.addEventListener('click', () => {
+      const isPassword = cloudKeyInput.type === 'password';
+      cloudKeyInput.type = isPassword ? 'text' : 'password';
+      cloudKeyToggle.classList.toggle('revealed', isPassword);
+    });
+  }
 
   function updateCloudStatusUI(connected) {
-    if (!cloudStatusBadge || !cloudStatusText || !cloudConnectBtn) return;
+    if (!cloudStatusIndicator || !cloudStatusText || !cloudConnectBtn) return;
     if (connected) {
-      cloudStatusBadge.classList.add('running');
-      cloudStatusBadge.classList.remove('stopped');
+      cloudStatusIndicator.classList.add('online');
       cloudStatusText.textContent = t('cloud.connected');
       cloudConnectBtn.textContent = t('cloud.disconnect');
+      cloudConnectBtn.classList.add('rp-btn-danger');
     } else {
-      cloudStatusBadge.classList.remove('running');
-      cloudStatusBadge.classList.add('stopped');
+      cloudStatusIndicator.classList.remove('online');
       cloudStatusText.textContent = t('cloud.disconnected');
       cloudConnectBtn.textContent = t('cloud.connect');
+      cloudConnectBtn.classList.remove('rp-btn-danger');
     }
   }
 
@@ -330,7 +406,6 @@ function setupHandlers(context) {
 
 async function _startPinPolling() {
   _stopPinPolling();
-  // Generate a fresh PIN when the panel becomes visible
   await window.electron_api.remote.generatePin();
   _loadAndShowPin();
   _pinRefreshInterval = setInterval(() => {
@@ -347,7 +422,6 @@ async function _loadAndShowPin() {
   try {
     const result = await window.electron_api.remote.getPin();
     if (!result.success) return;
-    // If PIN expired or was used (and replaced), auto-refresh display
     if (!result.pin || Date.now() >= result.expiresAt) {
       await window.electron_api.remote.generatePin();
       const fresh = await window.electron_api.remote.getPin();
@@ -378,28 +452,43 @@ function _showPin(pin, expiresAt) {
 }
 
 async function refreshServerStatus() {
-  const badge = document.getElementById('remote-status-badge');
+  const indicator = document.getElementById('remote-status-indicator');
   const statusText = document.getElementById('remote-status-text');
   const toggleBtn = document.getElementById('remote-toggle-server-btn');
-  if (!badge || !statusText) return;
+  const urlDisplay = document.getElementById('rp-server-url-display');
+  const pairZone = document.getElementById('rp-pair-zone');
+  if (!indicator || !statusText) return;
   try {
     const info = await window.electron_api.remote.getServerInfo();
     if (info.running) {
-      badge.classList.add('running');
-      badge.classList.remove('stopped');
-      statusText.textContent = info.address || t('remote.serverRunning');
-      if (toggleBtn) toggleBtn.textContent = t('remote.stopServer');
+      indicator.classList.add('online');
+      statusText.textContent = t('remote.serverRunning');
+      if (toggleBtn) {
+        toggleBtn.textContent = t('remote.stopServer');
+        toggleBtn.classList.add('rp-btn-danger');
+      }
+      if (urlDisplay) urlDisplay.textContent = info.address || '';
+      if (pairZone) pairZone.style.display = '';
       _renderQrCode(info.address);
     } else {
-      badge.classList.remove('running');
-      badge.classList.add('stopped');
+      indicator.classList.remove('online');
       statusText.textContent = t('remote.serverStopped');
-      if (toggleBtn) toggleBtn.textContent = t('remote.startServer');
+      if (toggleBtn) {
+        toggleBtn.textContent = t('remote.startServer');
+        toggleBtn.classList.remove('rp-btn-danger');
+      }
+      if (urlDisplay) urlDisplay.textContent = '';
+      if (pairZone) pairZone.style.display = 'none';
       _renderQrCode(null);
     }
   } catch (e) {
     statusText.textContent = t('remote.serverStopped');
-    if (toggleBtn) toggleBtn.textContent = t('remote.startServer');
+    if (toggleBtn) {
+      toggleBtn.textContent = t('remote.startServer');
+      toggleBtn.classList.remove('rp-btn-danger');
+    }
+    if (urlDisplay) urlDisplay.textContent = '';
+    if (pairZone) pairZone.style.display = 'none';
     _renderQrCode(null);
   }
 }
@@ -424,7 +513,7 @@ function _renderQrCode(url) {
   if (urlEl) urlEl.textContent = url;
 
   QRCode.toCanvas(canvas, url, {
-    width: 180,
+    width: 150,
     margin: 2,
     color: { dark: '#e0e0e0', light: '#00000000' },
     errorCorrectionLevel: 'M',
