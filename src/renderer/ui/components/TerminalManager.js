@@ -155,6 +155,12 @@ const terminalSubstatus = new Map();     // id -> 'thinking' | 'tool_calling'
 const lastTerminalData = new Map();      // id -> timestamp of last PTY data
 const terminalContext = new Map();        // id -> { taskName, lastTool, toolCount, duration }
 
+// ── Per-project active tab tracking (in-memory, within-session only) ──
+// Track last-active terminal ID per project (so switching back to a project restores the tab)
+const lastActivePerProject = new Map();
+// Track scroll position per terminal at leave-time (for scroll restoration on project switch)
+const savedScrollPositions = new Map();
+
 /**
  * Scan terminal buffer for definitive completion signals.
  *
@@ -1179,6 +1185,21 @@ function setActiveTerminal(id) {
   const prevTermData = prevActiveId ? getTerminal(prevActiveId) : null;
   const prevProjectId = prevTermData?.project?.id;
 
+  // Capture scroll position of the outgoing terminal before switching
+  if (prevTermData && prevActiveId !== id) {
+    try {
+      if (prevTermData.mode === 'chat') {
+        const prevWrapper = document.querySelector(`.terminal-wrapper[data-id="${prevActiveId}"]`);
+        const messagesEl = prevWrapper?.querySelector('.chat-messages');
+        if (messagesEl) {
+          savedScrollPositions.set(prevActiveId, { scrollTop: messagesEl.scrollTop });
+        }
+      } else if (prevTermData.terminal?.buffer?.active) {
+        savedScrollPositions.set(prevActiveId, { viewportY: prevTermData.terminal.buffer.active.viewportY });
+      }
+    } catch (e) { /* scroll capture failed, not critical */ }
+  }
+
   // Blur previous terminal so its hidden xterm textarea doesn't capture cursor/input
   if (prevTermData && prevTermData.terminal && prevActiveId !== id) {
     try { prevTermData.terminal.blur(); } catch (e) {}
@@ -1208,6 +1229,30 @@ function setActiveTerminal(id) {
     const newProjectId = termData.project?.id;
     if (prevProjectId !== newProjectId) {
       if (newProjectId) heartbeat(newProjectId, 'terminal');
+    }
+
+    // Record this terminal as last-active for its project
+    if (newProjectId) {
+      lastActivePerProject.set(newProjectId, id);
+    }
+
+    // Restore scroll position of the incoming terminal (deferred until DOM is visible)
+    const saved = savedScrollPositions.get(id);
+    if (saved) {
+      requestAnimationFrame(() => {
+        try {
+          if (termData.mode === 'chat') {
+            const wrapper = document.querySelector(`.terminal-wrapper[data-id="${id}"]`);
+            const messagesEl = wrapper?.querySelector('.chat-messages');
+            if (messagesEl && saved.scrollTop !== undefined) {
+              messagesEl.scrollTop = saved.scrollTop;
+            }
+          } else if (termData.terminal?.buffer?.active && saved.viewportY !== undefined) {
+            const delta = saved.viewportY - termData.terminal.buffer.active.viewportY;
+            if (delta !== 0) termData.terminal.scrollLines(delta);
+          }
+        } catch (e) { /* scroll restore failed, not critical */ }
+      });
     }
 
     // Track active Claude tab for event routing (tab rename, session ID capture)
@@ -1281,6 +1326,9 @@ function closeTerminal(id) {
   terminalSubstatus.delete(id);
   lastTerminalData.delete(id);
   terminalContext.delete(id);
+  savedScrollPositions.delete(id);
+  // Note: do NOT delete from lastActivePerProject — the guard in filterByProject
+  // handles stale IDs via getTerminal(savedId) returning null.
   errorOverlays.delete(closedProjectIndex);
 
   // Kill and cleanup
