@@ -61,6 +61,11 @@ function discoverAll() {
   } catch (e) {
     console.warn('[Registry] Failed to load minecraft type:', e.message);
   }
+  try {
+    register(require('./dotnet'));
+  } catch (e) {
+    console.warn('[Registry] Failed to load dotnet type:', e.message);
+  }
 
   console.debug(`[Registry] Discovered ${types.size} project type(s): ${[...types.keys()].join(', ')}`);
 }

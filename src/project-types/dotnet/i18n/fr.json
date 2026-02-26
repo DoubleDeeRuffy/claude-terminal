@@ -1,0 +1,14 @@
+{
+  "dotnet": {
+    "framework": "Framework",
+    "projects": "{count} projets",
+    "project": "1 projet",
+    "badgeLabel": ".NET"
+  },
+  "newProject": {
+    "types": {
+      "dotnet": ".NET / C#",
+      "dotnetDesc": "Projet C# avec .sln ou .csproj"
+    }
+  }
+}
