@@ -410,6 +410,13 @@ function renderPanel() {
 function renderContent() {
   const el = document.getElementById('wf-content');
   if (!el) return;
+  // Update badge counts
+  const panel = document.getElementById('workflow-panel');
+  if (panel) {
+    const badges = panel.querySelectorAll('.wf-badge');
+    if (badges[0]) badges[0].textContent = state.workflows.length;
+    if (badges[1]) badges[1].textContent = state.runs.length;
+  }
   if (state.activeTab === 'workflows') renderWorkflowList(el);
   else if (state.activeTab === 'runs') renderRunHistory(el);
   else if (state.activeTab === 'hub') WorkflowMarketplace.render(el);
@@ -492,7 +499,7 @@ function cardHtml(wf) {
           <div class="wf-card-stats">
             ${runCount > 0 ? `<span class="wf-card-stat">${svgRuns()} ${runCount} run${runCount > 1 ? 's' : ''}</span>` : ''}
             ${runCount > 0 ? `<span class="wf-card-stat wf-card-stat--rate">${Math.round(successCount / runCount * 100)}%</span>` : ''}
-            ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${escapeHtml(lastRun.duration)}</span>` : ''}
+            ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
           <button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>
         </div>
@@ -532,8 +539,8 @@ function renderRunHistory(el) {
                 <div class="wf-run-header-left">
                   <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
                   <div class="wf-run-meta">
-                    <span class="wf-run-time">${svgClock(9)} ${escapeHtml(run.startedAt)}</span>
-                    <span class="wf-run-duration">${svgTimer()} ${escapeHtml(run.duration)}</span>
+                    <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
+                    <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
                   </div>
                 </div>
                 <div class="wf-run-header-right">
@@ -542,12 +549,13 @@ function renderRunHistory(el) {
                 </div>
               </div>
               <div class="wf-run-pipeline">
-                ${run.steps.map((s, i) => {
-                  const info = STEP_TYPES.find(x => x.type === s.name) || STEP_TYPES[0];
+                ${(run.steps || []).map((s, i) => {
+                  const sType = (s.type || s.name || '').split('.')[0];
+                  const info = STEP_TYPES.find(x => x.type === sType) || STEP_TYPES[0];
                   return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
                     <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                    <span class="wf-run-pipe-name">${escapeHtml(s.name)}</span>
-                    <span class="wf-run-pipe-dur">${escapeHtml(s.duration)}</span>
+                    <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
+                    <span class="wf-run-pipe-dur">${fmtDuration(s.duration)}</span>
                     <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
                   </div>${i < run.steps.length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
                 }).join('')}
@@ -922,7 +930,7 @@ function openDetail(id) {
                 <div class="wf-run-body">
                   <div class="wf-run-top">
                     <span class="wf-status-pill wf-status-pill--${run.status}">${statusLabel(run.status)}</span>
-                    <span class="wf-run-meta-inline">${svgClock()} ${escapeHtml(run.startedAt)} · ${svgTimer()} ${escapeHtml(run.duration)}</span>
+                    <span class="wf-run-meta-inline">${svgClock()} ${fmtTime(run.startedAt)} · ${svgTimer()} ${fmtDuration(run.duration)}</span>
                   </div>
                 </div>
               </div>
@@ -981,6 +989,35 @@ async function toggleWorkflow(id, enabled) {
 
 /* ─── Helpers ───────────────────────────────────────────────────────────────── */
 
+/** Format ISO date to relative/short string */
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "À l'instant";
+    if (diffMin < 60) return `Il y a ${diffMin} min`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `Il y a ${diffH}h`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD === 1) return `Hier ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    if (diffD < 7) return `Il y a ${diffD}j`;
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  } catch { return String(iso); }
+}
+
+/** Format duration (seconds number or string) */
+function fmtDuration(val) {
+  if (val == null) return '…';
+  const s = typeof val === 'number' ? val : parseInt(val);
+  if (isNaN(s)) return String(val);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
+}
+
 function statusDot(s) {
   return `<span class="wf-dot wf-dot--${s}"></span>`;
 }
@@ -1009,80 +1046,5 @@ function svgScope() { return `<svg width="11" height="11" viewBox="0 0 24 24" fi
 function svgConc() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>`; }
 function svgEmpty() { return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
 function svgRuns() { return `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`; }
-
-/* ─── Mock data ─────────────────────────────────────────────────────────────── */
-
-function getMockWorkflows() {
-  return [
-    {
-      id: 'wf_1', name: 'Daily Code Review', enabled: true,
-      trigger: { type: 'cron', value: '0 8 * * *' },
-      scope: 'current', concurrency: 'skip',
-      steps: [
-        { id: 'review', type: 'agent' },
-        { id: 'fix', type: 'agent', condition: '$review.issues_found' },
-        { id: 'test', type: 'shell' },
-        { id: 'push', type: 'git', condition: '$test.exitCode == 0' },
-        { id: 'alert', type: 'notify' },
-      ],
-    },
-    {
-      id: 'wf_2', name: 'Auto Test on Hook', enabled: true,
-      trigger: { type: 'hook', value: '' }, hookType: 'PostToolUse',
-      scope: 'current', concurrency: 'queue',
-      steps: [
-        { id: 'test', type: 'shell' },
-        { id: 'notify', type: 'notify', condition: '$test.exitCode != 0' },
-      ],
-    },
-    {
-      id: 'wf_3', name: 'Changelog + Discord', enabled: false,
-      trigger: { type: 'on_workflow', value: 'Daily Code Review' },
-      scope: 'current', concurrency: 'skip',
-      steps: [
-        { id: 'changelog', type: 'agent' },
-        { id: 'post', type: 'http' },
-      ],
-    },
-  ];
-}
-
-function getMockRuns() {
-  return [
-    {
-      id: 'run_1', workflowId: 'wf_1', status: 'success',
-      startedAt: "Aujourd'hui 08:00", duration: '42s', trigger: 'Cron',
-      steps: [
-        { name: 'agent', status: 'success', duration: '28s' },
-        { name: 'agent', status: 'success', duration: '8s' },
-        { name: 'shell', status: 'success', duration: '4s' },
-        { name: 'git',   status: 'success', duration: '1s' },
-        { name: 'notify',status: 'success', duration: '0s' },
-      ],
-    },
-    {
-      id: 'run_2', workflowId: 'wf_2', status: 'failed',
-      startedAt: 'Hier 17:32', duration: '12s', trigger: 'Hook',
-      steps: [
-        { name: 'shell',  status: 'failed',  duration: '12s' },
-        { name: 'notify', status: 'skipped', duration: '0s' },
-      ],
-    },
-    {
-      id: 'run_3', workflowId: 'wf_1', status: 'success',
-      startedAt: 'Hier 08:00', duration: '38s', trigger: 'Cron',
-      steps: [
-        { name: 'agent',  status: 'success', duration: '24s' },
-        { name: 'shell',  status: 'success', duration: '6s' },
-        { name: 'notify', status: 'success', duration: '0s' },
-      ],
-    },
-    {
-      id: 'run_4', workflowId: 'wf_2', status: 'success',
-      startedAt: 'Il y a 2j', duration: '9s', trigger: 'Hook',
-      steps: [{ name: 'shell', status: 'success', duration: '9s' }],
-    },
-  ];
-}
 
 module.exports = { init, load };
