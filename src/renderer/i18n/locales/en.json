@@ -549,6 +549,15 @@
     "explorerGroup": "Explorer",
     "showDotfiles": "Show dotfiles",
     "showDotfilesDesc": "Show hidden files and folders (starting with a dot) in the file explorer",
+    "telemetryGroup": "Telemetry",
+    "telemetryEnabled": "Anonymous telemetry",
+    "telemetryEnabledDesc": "Help improve Claude Terminal by sharing anonymous usage data",
+    "telemetryCategoryApp": "Application events",
+    "telemetryCategoryAppDesc": "App start and quit events",
+    "telemetryCategoryFeatures": "Feature usage",
+    "telemetryCategoryFeaturesDesc": "Terminal, chat, git and other feature usage",
+    "telemetryCategoryErrors": "Error reports",
+    "telemetryCategoryErrorsDesc": "Uncaught errors and crashes",
     "launchAtStartup": "Launch at startup",
     "launchAtStartupDesc": "Start automatically with Windows",
     "compactProjects": "Compact projects view",
@@ -1235,5 +1244,20 @@
     "browserInsertBtn": "Insert",
     "browserInsertEmpty": "Fill in at least one field",
     "browserEditNotSupported": "Inline editing is not supported for MongoDB"
+  },
+  "telemetry": {
+    "consentTitle": "Help Improve Claude Terminal",
+    "consentDescription": "We'd like to collect anonymous usage data to help improve Claude Terminal. This is completely optional and can be disabled at any time in Settings.",
+    "consentAccept": "Enable Telemetry",
+    "consentDecline": "No Thanks",
+    "consentChangeSettings": "You can change this setting at any time in Settings.",
+    "whatWeCollect": "What we collect",
+    "collect1": "Random anonymous ID (UUID)",
+    "collect2": "App version and OS type",
+    "collect3": "Feature usage patterns",
+    "whatWeDoNotCollect": "What we do NOT collect",
+    "notCollect1": "IP addresses or location",
+    "notCollect2": "Project names or file paths",
+    "notCollect3": "Terminal commands or chat messages"
   }
 }

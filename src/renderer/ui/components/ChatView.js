@@ -1435,6 +1435,7 @@ function createChatView(wrapperEl, project, options = {}) {
 
     sendLock = true;
     if (project?.id) heartbeat(project.id, 'chat');
+    api.telemetry?.sendFeature({ feature: 'chat:message', metadata: {} });
 
     // Reset scroll detection when user sends a message
     resetScrollDetection();

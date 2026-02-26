@@ -615,6 +615,15 @@
     "explorerGroup": "Explorateur",
     "showDotfiles": "Afficher les dotfiles",
     "showDotfilesDesc": "Afficher les fichiers et dossiers cachés (commençant par un point) dans l'explorateur de fichiers",
+    "telemetryGroup": "Télémétrie",
+    "telemetryEnabled": "Télémétrie anonyme",
+    "telemetryEnabledDesc": "Aidez à améliorer Claude Terminal en partageant des données d'utilisation anonymes",
+    "telemetryCategoryApp": "Événements application",
+    "telemetryCategoryAppDesc": "Démarrage et fermeture de l'application",
+    "telemetryCategoryFeatures": "Utilisation des fonctionnalités",
+    "telemetryCategoryFeaturesDesc": "Terminal, chat, git et autres fonctionnalités",
+    "telemetryCategoryErrors": "Rapports d'erreurs",
+    "telemetryCategoryErrorsDesc": "Erreurs non capturées et plantages",
     "launchAtStartup": "Lancer au démarrage",
     "launchAtStartupDesc": "Démarrer automatiquement avec Windows",
     "compactProjects": "Vue compacte des projets",
@@ -1235,5 +1244,20 @@
     "browserInsertBtn": "Insérer",
     "browserInsertEmpty": "Remplissez au moins un champ",
     "browserEditNotSupported": "L'édition en ligne n'est pas supportée pour MongoDB"
+  },
+  "telemetry": {
+    "consentTitle": "Aidez à améliorer Claude Terminal",
+    "consentDescription": "Nous aimerions collecter des données d'utilisation anonymes pour améliorer Claude Terminal. C'est complètement optionnel et peut être désactivé à tout moment dans les Paramètres.",
+    "consentAccept": "Activer la télémétrie",
+    "consentDecline": "Non merci",
+    "consentChangeSettings": "Vous pouvez modifier ce paramètre à tout moment dans les Paramètres.",
+    "whatWeCollect": "Ce que nous collectons",
+    "collect1": "Identifiant anonyme aléatoire (UUID)",
+    "collect2": "Version de l'application et type d'OS",
+    "collect3": "Utilisation des fonctionnalités",
+    "whatWeDoNotCollect": "Ce que nous ne collectons PAS",
+    "notCollect1": "Adresses IP ou localisation",
+    "notCollect2": "Noms de projets ou chemins de fichiers",
+    "notCollect3": "Commandes terminal ou messages de chat"
   }
 }

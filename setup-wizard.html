@@ -652,29 +652,34 @@
     /* ============================================ */
     /* HOOKS STEP                                   */
     /* ============================================ */
-    [data-step="5"] {
+    [data-step="5"],
+    [data-step="6"] {
       padding: 12px 60px 8px;
       overflow-y: auto;
     }
 
-    [data-step="5"] .step-icon {
+    [data-step="5"] .step-icon,
+    [data-step="6"] .step-icon {
       width: 52px;
       height: 52px;
       margin-bottom: 12px;
       border-radius: 14px;
     }
 
-    [data-step="5"] .step-icon svg {
+    [data-step="5"] .step-icon svg,
+    [data-step="6"] .step-icon svg {
       width: 26px;
       height: 26px;
     }
 
-    [data-step="5"] .step-title {
+    [data-step="5"] .step-title,
+    [data-step="6"] .step-title {
       margin-bottom: 4px;
       font-size: 24px;
     }
 
-    [data-step="5"] .step-subtitle {
+    [data-step="5"] .step-subtitle,
+    [data-step="6"] .step-subtitle {
       margin-bottom: 16px;
       font-size: 13px;
     }
@@ -969,8 +974,48 @@
         </div>
       </div>
 
-      <!-- Step 7: Done -->
+      <!-- Step 7: Telemetry -->
       <div class="step" data-step="6">
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+        </div>
+        <div class="step-title" data-i18n="setup.telemetry.title">Help Improve Claude Terminal</div>
+        <div class="step-subtitle" data-i18n="setup.telemetry.subtitle">Share anonymous usage data to help us improve the app</div>
+        <div class="hooks-info">
+          <p class="hooks-description" data-i18n="setup.telemetry.description">We'd like to collect anonymous usage data. This is completely optional, uses a random ID, and we never store IP addresses or personal information.</p>
+          <div class="hooks-data-columns">
+            <div class="hooks-data-col hooks-data-captured">
+              <h4 data-i18n="setup.telemetry.dataTitle">What is collected</h4>
+              <div class="hooks-data-item captured"><span class="hooks-icon">&#10003;</span> <span data-i18n="setup.telemetry.data1">Random anonymous ID (UUID)</span></div>
+              <div class="hooks-data-item captured"><span class="hooks-icon">&#10003;</span> <span data-i18n="setup.telemetry.data2">App version and OS type</span></div>
+              <div class="hooks-data-item captured"><span class="hooks-icon">&#10003;</span> <span data-i18n="setup.telemetry.data3">Feature usage (terminal, chat, git)</span></div>
+              <div class="hooks-data-item captured"><span class="hooks-icon">&#10003;</span> <span data-i18n="setup.telemetry.data4">Error reports</span></div>
+            </div>
+            <div class="hooks-data-col hooks-data-not-captured">
+              <h4 data-i18n="setup.telemetry.noDataTitle">What is NOT collected</h4>
+              <div class="hooks-data-item not-captured"><span class="hooks-icon">&#10007;</span> <span data-i18n="setup.telemetry.noData1">IP addresses or location</span></div>
+              <div class="hooks-data-item not-captured"><span class="hooks-icon">&#10007;</span> <span data-i18n="setup.telemetry.noData2">Project names or file paths</span></div>
+              <div class="hooks-data-item not-captured"><span class="hooks-icon">&#10007;</span> <span data-i18n="setup.telemetry.noData3">Terminal commands or chat messages</span></div>
+              <div class="hooks-data-item not-captured"><span class="hooks-icon">&#10007;</span> <span data-i18n="setup.telemetry.noData4">Any personal information</span></div>
+            </div>
+          </div>
+          <div class="preference-item" style="margin-top: 10px;">
+            <div class="preference-info">
+              <div class="preference-label" data-i18n="setup.telemetry.enable">Enable anonymous telemetry</div>
+              <div class="preference-desc" data-i18n="setup.telemetry.enableDesc">Can be changed later in settings</div>
+            </div>
+            <div class="preference-control">
+              <label class="toggle">
+                <input type="checkbox" id="pref-telemetry">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 8: Done -->
+      <div class="step" data-step="7">
         <div class="done-checkmark">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
         </div>
@@ -1071,6 +1116,22 @@
         'setup.hooks.noData3': 'Personal data or API keys',
         'setup.hooks.enable': 'Enable Smart Hooks',
         'setup.hooks.enableDesc': 'Can be changed later in settings',
+        'setup.telemetry.title': 'Help Improve Claude Terminal',
+        'setup.telemetry.subtitle': 'Share anonymous usage data to help us improve the app',
+        'setup.telemetry.description': "We'd like to collect anonymous usage data. This is completely optional, uses a random ID, and we never store IP addresses or personal information.",
+        'setup.telemetry.dataTitle': 'What is collected',
+        'setup.telemetry.data1': 'Random anonymous ID (UUID)',
+        'setup.telemetry.data2': 'App version and OS type',
+        'setup.telemetry.data3': 'Feature usage (terminal, chat, git)',
+        'setup.telemetry.data4': 'Error reports',
+        'setup.telemetry.noDataTitle': 'What is NOT collected',
+        'setup.telemetry.noData1': 'IP addresses or location',
+        'setup.telemetry.noData2': 'Project names or file paths',
+        'setup.telemetry.noData3': 'Terminal commands or chat messages',
+        'setup.telemetry.noData4': 'Any personal information',
+        'setup.telemetry.enable': 'Enable anonymous telemetry',
+        'setup.telemetry.enableDesc': 'Can be changed later in settings',
+        'setup.done.telemetryLabel': 'Telemetry',
         'setup.nav.next': 'Next',
         'setup.nav.previous': 'Previous',
         'setup.nav.step': 'Step {current} of {total}'
@@ -1129,6 +1190,22 @@
         'setup.hooks.noData3': 'Donnees personnelles ou cles API',
         'setup.hooks.enable': 'Activer les hooks intelligents',
         'setup.hooks.enableDesc': 'Modifiable plus tard dans les parametres',
+        'setup.telemetry.title': 'Aidez a ameliorer Claude Terminal',
+        'setup.telemetry.subtitle': 'Partagez des donnees anonymes pour nous aider a ameliorer l\'app',
+        'setup.telemetry.description': 'Nous aimerions collecter des donnees d\'utilisation anonymes. C\'est completement optionnel, utilise un identifiant aleatoire, et nous ne stockons jamais d\'adresse IP ou d\'information personnelle.',
+        'setup.telemetry.dataTitle': 'Ce qui est collecte',
+        'setup.telemetry.data1': 'Identifiant anonyme aleatoire (UUID)',
+        'setup.telemetry.data2': 'Version de l\'app et type d\'OS',
+        'setup.telemetry.data3': 'Utilisation des fonctionnalites (terminal, chat, git)',
+        'setup.telemetry.data4': 'Rapports d\'erreurs',
+        'setup.telemetry.noDataTitle': 'Ce qui N\'EST PAS collecte',
+        'setup.telemetry.noData1': 'Adresses IP ou localisation',
+        'setup.telemetry.noData2': 'Noms de projets ou chemins de fichiers',
+        'setup.telemetry.noData3': 'Commandes terminal ou messages de chat',
+        'setup.telemetry.noData4': 'Aucune information personnelle',
+        'setup.telemetry.enable': 'Activer la telemetrie anonyme',
+        'setup.telemetry.enableDesc': 'Modifiable plus tard dans les parametres',
+        'setup.done.telemetryLabel': 'Telemetrie',
         'setup.nav.next': 'Suivant',
         'setup.nav.previous': 'Precedent',
         'setup.nav.step': 'Etape {current} sur {total}'
@@ -1160,7 +1237,7 @@
     // ============================================
     // STATE
     // ============================================
-    const TOTAL_STEPS = 7;
+    const TOTAL_STEPS = 8;
     let currentStep = 0;
     let selectedLang = navigator.language.startsWith('fr') ? 'fr' : 'en';
     let selectedColor = '#d97706';
@@ -1397,6 +1474,7 @@
       const startup = document.getElementById('pref-startup').checked;
       const notifications = document.getElementById('pref-notifications').checked;
       const hooksEnabled = document.getElementById('pref-hooks').checked;
+      const telemetryEnabled = document.getElementById('pref-telemetry').checked;
       const terminalMode = document.querySelector('.terminal-mode-card.selected')?.dataset.mode || 'terminal';
       const terminalModeNames = { terminal: 'Terminal', chat: 'Chat UI' };
 
@@ -1434,6 +1512,10 @@
           <span class="done-summary-label">${t('setup.done.hooksLabel')}</span>
           <span class="done-summary-value">${hooksEnabled ? t('setup.done.enabled') : t('setup.done.disabled')}</span>
         </div>
+        <div class="done-summary-row">
+          <span class="done-summary-label">${t('setup.done.telemetryLabel')}</span>
+          <span class="done-summary-value">${telemetryEnabled ? t('setup.done.enabled') : t('setup.done.disabled')}</span>
+        </div>
       `;
     }
 
@@ -1450,6 +1532,8 @@
         notificationsEnabled: document.getElementById('pref-notifications').checked,
         hooksEnabled: document.getElementById('pref-hooks').checked,
         hooksConsentShown: true,
+        telemetryEnabled: document.getElementById('pref-telemetry').checked,
+        telemetryConsentShown: true,
         setupCompleted: true
       };
     }
