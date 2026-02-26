@@ -2203,7 +2203,33 @@ function filterByProject(projectIndex) {
     emptyState.style.display = 'none';
     const activeTab = document.querySelector(`.terminal-tab[data-id="${getActiveTerminal()}"]`);
     if (!activeTab || activeTab.style.display === 'none') {
-      if (firstVisibleId) setActiveTerminal(firstVisibleId);
+      let targetId = firstVisibleId;
+
+      // Try to restore the last-active tab for this project
+      const project = projects[projectIndex];
+      if (project) {
+        try {
+          const { loadSessionData } = require('../../services/TerminalSessionService');
+          const sessionData = loadSessionData();
+          const savedIdx = sessionData?.projects?.[project.id]?.activeTabIndex;
+          if (typeof savedIdx === 'number') {
+            // Collect visible terminal IDs in Map iteration order (matches save order)
+            const visibleIds = [];
+            const terminals = terminalsState.get().terminals;
+            terminals.forEach((td, id) => {
+              const tab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
+              if (tab && tab.style.display !== 'none') {
+                visibleIds.push(id);
+              }
+            });
+            if (savedIdx < visibleIds.length) {
+              targetId = visibleIds[savedIdx];
+            }
+          }
+        } catch (e) { /* session data unavailable, use firstVisibleId */ }
+      }
+
+      if (targetId) setActiveTerminal(targetId);
     }
   }
 }
