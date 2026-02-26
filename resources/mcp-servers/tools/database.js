@@ -156,16 +156,21 @@ async function executeQuery(client, type, sql) {
 
 // -- Schema operations --------------------------------------------------------
 
-async function listTables(client, type) {
+async function listTables(client, type, filter) {
+  const match = filter
+    ? (name) => name.toLowerCase().includes(filter.toLowerCase())
+    : () => true;
+
   if (type === 'sqlite') {
-    const tables = client.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+    let tables = client.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+    tables = tables.filter(t => match(t.name));
     const result = [];
     for (const { name } of tables) {
       const columns = client.prepare(`PRAGMA table_info('${name}')`).all();
       const colStr = columns.map(c => c.name).join(', ');
       result.push(`${name}: ${colStr}`);
     }
-    return result.join('\n') || 'No tables found';
+    return result.join('\n') || (filter ? `No tables matching "${filter}"` : 'No tables found');
   }
 
   if (type === 'mysql') {
@@ -174,11 +179,12 @@ async function listTables(client, type) {
     const result = [];
     for (const row of tables) {
       const tableName = row[key];
+      if (!match(tableName)) continue;
       const [columns] = await client.execute(`SHOW COLUMNS FROM \`${tableName}\``);
       const colStr = columns.map(c => c.Field).join(', ');
       result.push(`${tableName}: ${colStr}`);
     }
-    return result.join('\n') || 'No tables found';
+    return result.join('\n') || (filter ? `No tables matching "${filter}"` : 'No tables found');
   }
 
   if (type === 'postgresql') {
@@ -187,6 +193,7 @@ async function listTables(client, type) {
     );
     const result = [];
     for (const { table_name: tn } of tablesRes.rows) {
+      if (!match(tn)) continue;
       const colRes = await client.query(
         'SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position',
         [tn]
@@ -194,12 +201,13 @@ async function listTables(client, type) {
       const colStr = colRes.rows.map(c => c.column_name).join(', ');
       result.push(`${tn}: ${colStr}`);
     }
-    return result.join('\n') || 'No tables found';
+    return result.join('\n') || (filter ? `No tables matching "${filter}"` : 'No tables found');
   }
 
   if (type === 'mongodb') {
-    const collections = await client.db.listCollections().toArray();
-    return collections.map(c => c.name).join('\n') || 'No collections found';
+    let collections = await client.db.listCollections().toArray();
+    collections = collections.filter(c => match(c.name));
+    return collections.map(c => c.name).join('\n') || (filter ? `No collections matching "${filter}"` : 'No collections found');
   }
 
   return 'Unsupported database type';
@@ -289,11 +297,12 @@ const tools = [
   },
   {
     name: 'db_list_tables',
-    description: 'List all tables (or MongoDB collections) in a database connection, with their column names.',
+    description: 'List tables (or MongoDB collections) in a database connection, with their column names. Use filter to search by name.',
     inputSchema: {
       type: 'object',
       properties: {
         connection: { type: 'string', description: 'Connection name or ID (from db_list_connections)' },
+        filter: { type: 'string', description: 'Optional name filter (case-insensitive substring match)' },
       },
       required: ['connection'],
     },
@@ -349,7 +358,7 @@ async function handle(name, args) {
     if (name === 'db_list_tables') {
       if (!args.connection) return fail('Missing required parameter: connection');
       const { client, type } = await getClient(args.connection);
-      const result = await listTables(client, type);
+      const result = await listTables(client, type, args.filter);
       return ok(result);
     }
 
