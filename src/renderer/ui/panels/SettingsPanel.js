@@ -655,11 +655,21 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
           </div>
           <div class="settings-group">
-            <div class="settings-group-title">${t('settings.terminalGroup')}</div>
+            <div class="settings-group-title">${t('settings.tabsGroup')}</div>
             <div class="settings-card">
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
-                  <div>${t('settings.tabRenameOnSlashCommand')}</div>
+                  <div>${t('settings.aiTabNaming')}</div>
+                  <div class="settings-toggle-desc">${t('settings.aiTabNamingDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="ai-tab-naming-toggle" ${settings.aiTabNaming !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.tabRenameOnSlashCommandTerminal')}</div>
                   <div class="settings-toggle-desc">${t('settings.tabRenameOnSlashCommandDesc')}</div>
                 </div>
                 <label class="settings-toggle">
@@ -667,6 +677,11 @@ async function renderSettingsTab(initialTab = 'general') {
                   <span class="settings-toggle-slider"></span>
                 </label>
               </div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">${t('settings.terminalGroup')}</div>
+            <div class="settings-card">
               <div class="settings-row">
                 <div class="settings-label">
                   <div>${t('settings.idleTimeout')}</div>
@@ -1167,6 +1182,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newUpdateTitleOnProjectSwitch = updateTitleToggle ? updateTitleToggle.checked : true;
     const showTabModeToggleEl = document.getElementById('show-tab-mode-toggle');
     const newShowTabModeToggle = showTabModeToggleEl ? showTabModeToggleEl.checked : true;
+    const aiTabNamingToggle = document.getElementById('ai-tab-naming-toggle');
+    const newAiTabNaming = aiTabNamingToggle ? aiTabNamingToggle.checked : true;
 
     const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
     const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 2);
@@ -1190,6 +1207,7 @@ async function renderSettingsTab(initialTab = 'general') {
       explorerNaturalSort: newExplorerNaturalSort,
       updateTitleOnProjectSwitch: newUpdateTitleOnProjectSwitch,
       showTabModeToggle: newShowTabModeToggle,
+      aiTabNaming: newAiTabNaming,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
       idleTimeout: newIdleTimeout
     };
