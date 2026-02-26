@@ -12,28 +12,25 @@ const remoteServer = require('../services/RemoteServer');
 let mainWindow = null;
 
 function registerCloudHandlers() {
-  // Inject cloud client into RemoteServer for bidirectional bridging
-  remoteServer.setCloudClient(cloudRelayClient);
-
-  // Route cloud relay messages → RemoteServer message handler
-  // (mobile → cloud relay → desktop → RemoteServer._handleClientMessage)
+  // Wire callbacks once (they just register listeners, not start anything)
   cloudRelayClient.onMessage((msg) => {
     remoteServer.handleCloudMessage(msg);
   });
 
-  // On cloud connect/disconnect, send init data + notify renderer UI
   cloudRelayClient.onStatusChange((status) => {
     if (status.connected) {
       remoteServer.sendInitToCloud();
     }
-    // Forward to renderer for Remote Panel UI
+    // Note: we do NOT call setCloudClient(null) here on disconnect because
+    // CloudRelayClient auto-reconnects. Only explicit cloud:disconnect clears it.
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cloud:status-changed', status);
     }
   });
 
-  // Connect to cloud relay
+  // Connect to cloud relay — inject client into RemoteServer on demand
   ipcMain.handle('cloud:connect', async (_event, { serverUrl, apiKey }) => {
+    remoteServer.setCloudClient(cloudRelayClient);
     cloudRelayClient.connect(serverUrl, apiKey);
     return { ok: true };
   });
@@ -41,6 +38,7 @@ function registerCloudHandlers() {
   // Disconnect from cloud relay
   ipcMain.handle('cloud:disconnect', async () => {
     cloudRelayClient.disconnect();
+    remoteServer.setCloudClient(null);
     return { ok: true };
   });
 

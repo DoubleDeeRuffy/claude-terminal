@@ -941,7 +941,7 @@ function stop() {
 
 function setMainWindow(win) {
   mainWindow = win;
-  _syncServerState();
+  // No auto-start — user must explicitly start the server or connect cloud
 }
 
 // ─── Cloud Relay Bridge API ──────────────────────────────────────────────────
@@ -952,9 +952,14 @@ function setMainWindow(win) {
  */
 function setCloudClient(client) {
   _cloudClient = client;
-  // Ensure chat bridge is active so events flow to cloud even
-  // if the local WS remote server isn't started
-  if (client) _ensureChatBridge();
+  if (client) {
+    // Ensure chat bridge is active so events flow to cloud
+    // even if the local WS remote server isn't started
+    _ensureChatBridge();
+  } else {
+    // Cloud released — teardown bridge if local server also inactive
+    _teardownChatBridge();
+  }
 }
 
 /**
