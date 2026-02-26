@@ -653,6 +653,8 @@
     "terminalGroup": "Terminal",
     "tabRenameOnSlashCommand": "Renommer l'onglet sur commande slash",
     "tabRenameOnSlashCommandDesc": "Renomme automatiquement l'onglet terminal avec la dernière commande slash exécutée (ex. /gsd:verify-work 12)",
+    "aiTabNaming": "Nommage IA des onglets",
+    "aiTabNamingDesc": "Utiliser l'IA pour générer des noms courts pour les onglets à partir des messages",
     "hooks": {
       "title": "Hooks intelligents",
       "enable": "Activer les hooks intelligents",
