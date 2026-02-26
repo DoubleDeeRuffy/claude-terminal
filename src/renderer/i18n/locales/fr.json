@@ -1168,7 +1168,7 @@
     "connecting": "Connexion...",
     "infoBanner": "Connectez-vous depuis n'importe où via internet. Nécessite un serveur relay auto-hébergé — aucune donnée ne transite par nos serveurs.",
     "installTitle": "Installation rapide",
-    "installHint": "Lancez cette commande sur votre serveur (Docker requis). Puis créez un utilisateur avec : docker exec ct-cloud node dist/cli.js user add <nom>",
+    "installHint": "Lancez cette commande sur votre serveur Linux — installe Docker automatiquement, build le relay et crée votre premier utilisateur.",
     "copyCmd": "Copier la commande"
   },
   "database": {
