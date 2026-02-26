@@ -36,6 +36,7 @@ const defaultSettings = {
   updateTitleOnProjectSwitch: true, // true = update OS taskbar title to active project name
   showTabModeToggle: true, // Show Chat/Terminal mode-switch button on terminal tabs
   tabRenameOnSlashCommand: false, // Rename terminal tab to slash command text when submitted
+  aiTabNaming: true, // Use AI (haiku) to generate short tab names from messages and OSC title changes
   cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
   cloudAutoConnect: true, // Auto-connect to cloud relay on startup

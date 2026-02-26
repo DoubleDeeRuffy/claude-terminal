@@ -388,7 +388,7 @@ function handleClaudeTitleChange(id, title, options = {}) {
 
     // Auto-name tab from Claude's task name (not tool names)
     if (parsed.taskName) {
-      if (!shouldSkipOscRename(id)) {
+      if (getSetting('aiTabNaming') !== false && !shouldSkipOscRename(id)) {
         updateTerminalTabName(id, parsed.taskName);
       }
     }
@@ -402,7 +402,7 @@ function handleClaudeTitleChange(id, title, options = {}) {
     if (parsed.taskName) {
       if (!terminalContext.has(id)) terminalContext.set(id, { taskName: null, lastTool: null, toolCount: 0, duration: null });
       terminalContext.get(id).taskName = parsed.taskName;
-      if (!shouldSkipOscRename(id)) {
+      if (getSetting('aiTabNaming') !== false && !shouldSkipOscRename(id)) {
         updateTerminalTabName(id, parsed.taskName);
       }
     }
