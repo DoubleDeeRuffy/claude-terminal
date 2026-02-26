@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 6.2 — Scroll to Bottom on Session Resume (COMPLETE)
+**Current focus:** Phase 6.3 — Remember Active Tab Per Project (COMPLETE)
 
 ## Current Position
 
-Phase: 6.2 (scroll-to-the-very-end-on-session-resume-in-every-tab) — COMPLETE
+Phase: 6.3 (remember-active-task-on-project-scope-to-restore-it-on-project-swap-and-app-restart) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 6.2-01 complete — scrollToBottom on all restored terminals via 200ms loop + loading->ready hook in TerminalManager
-Last activity: 2026-02-26 - Completed plan 6.2-01: post-restore scroll loop in renderer.js + loading->ready scrollToBottom in TerminalManager.js
+Status: Plan 6.3-01 complete — activeTabIndex saved per project in TerminalSessionService + restored by filterByProject with bounds-check fallback
+Last activity: 2026-02-26 - Completed plan 6.3-01: activeTabIndex persistence in TerminalSessionService + active tab restore in TerminalManager.js
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -67,6 +67,7 @@ Progress: [███████████████████████
 | Phase 16 P01 | 8 | 2 tasks | 3 files |
 | Phase 17 P01 | 4 | 2 tasks | 3 files |
 | Phase 6.2 P01 | 1 | 1 tasks | 2 files |
+| Phase 6.3 P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,9 @@ Recent decisions affecting current work:
 - [Phase 17]: allowToChangeInstallationDirectory: false — prevents NSIS keepShortcuts=false path that forces shortcut recreation on every update
 - [Phase 17]: isUpdated guard in customUnInstall wraps Delete shortcut line — desktop shortcut only removed on actual uninstall, not update runs
 - [Phase 6.2]: 6.2-01: 200ms delay for post-restore scroll ensures fitAddon.fit() completes; scrollToBottom on loading->ready fires after history replay; broader behavior accepted
+- [Phase 6.3]: 6.3-01: activeTabIndex computed as tabs.length - 1 at push time in same loop as cwd — guaranteed correct index
+- [Phase 6.3]: 6.3-01: Lazy require for loadSessionData in filterByProject avoids circular dep (Phase 04/05/6.1 pattern)
+- [Phase 6.3]: 6.3-01: Bounds-check savedIdx < visibleIds.length — silent fallback to firstVisibleId on out-of-range, no crash
 
 ### Pending Todos
 

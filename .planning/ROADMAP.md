@@ -162,7 +162,7 @@ Plans:
 **Goal:** Persist the active terminal tab per project and restore it on project-swap and app restart so users land on exactly the tab they were last working in
 **Depends on:** Phase 6
 **Requirements:** SESS-01, SESS-02
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 6.3-01-PLAN.md — Persist activeTabIndex in TerminalSessionService and restore in filterByProject
