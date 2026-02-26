@@ -229,6 +229,21 @@ function buildHtml(settings) {
           <span>${t('cloud.infoBanner')}</span>
         </div>
 
+        <!-- Install command -->
+        <div class="rp-cloud-install">
+          <div class="rp-cloud-install-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><line x1="6" y1="9" x2="6" y2="9.01"/><line x1="10" y1="9" x2="18" y2="9"/></svg>
+            <span>${t('cloud.installTitle')}</span>
+          </div>
+          <div class="rp-cloud-install-cmd">
+            <code id="cloud-install-cmd">curl -fsSL https://raw.githubusercontent.com/Sterll/claude-terminal/main/cloud/install.sh | bash</code>
+            <button class="rp-cloud-install-copy" id="cloud-install-copy" title="${t('cloud.copyCmd')}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+          <div class="rp-cloud-install-hint">${t('cloud.installHint')}</div>
+        </div>
+
         <!-- Connection form -->
         <div class="rp-cloud-card">
           <div class="rp-cloud-field">
@@ -411,6 +426,18 @@ function setupHandlers(context) {
     }
     if (_ctx.settingsState.get().remoteEnabled) refreshServerStatus();
   }, 10000);
+
+  // ── Cloud Install copy ──
+  const installCopyBtn = document.getElementById('cloud-install-copy');
+  const installCmd = document.getElementById('cloud-install-cmd');
+  if (installCopyBtn && installCmd) {
+    installCopyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(installCmd.textContent).then(() => {
+        installCopyBtn.classList.add('copied');
+        setTimeout(() => installCopyBtn.classList.remove('copied'), 1500);
+      });
+    });
+  }
 
   // ── Cloud Relay ──
   const cloudUrlInput = document.getElementById('cloud-server-url');
