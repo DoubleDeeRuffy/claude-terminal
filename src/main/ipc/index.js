@@ -25,6 +25,7 @@ const { registerRemoteHandlers } = require('./remote.ipc');
 const { registerWorkflowHandlers } = require('./workflow.ipc');
 const { registerCloudHandlers, setCloudMainWindow } = require('./cloud.ipc');
 const { registerDatabaseHandlers } = require('./database.ipc');
+const { registerTelemetryHandlers } = require('./telemetry.ipc');
 
 /**
  * Register all IPC handlers
@@ -58,6 +59,7 @@ function registerAllHandlers(mainWindow) {
   registerWorkflowHandlers(mainWindow);
   registerCloudHandlers();
   registerDatabaseHandlers();
+  registerTelemetryHandlers();
 }
 
 module.exports = {
