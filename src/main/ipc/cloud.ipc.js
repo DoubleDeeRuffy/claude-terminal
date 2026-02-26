@@ -28,8 +28,11 @@ function registerCloudHandlers() {
     }
   });
 
-  // Connect to cloud relay — inject client into RemoteServer on demand
+  // Connect to cloud relay — stop local server first (mutual exclusion)
   ipcMain.handle('cloud:connect', async (_event, { serverUrl, apiKey }) => {
+    if (remoteServer.getServerInfo().running) {
+      remoteServer.stop();
+    }
     remoteServer.setCloudClient(cloudRelayClient);
     cloudRelayClient.connect(serverUrl, apiKey);
     return { ok: true };
