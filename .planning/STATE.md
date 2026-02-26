@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 14 — Add resume session button near new terminal button with lightbulb icon
+**Current focus:** Phase 18 — Disable Haiku Tab-Naming Settings Toggle
 
 ## Current Position
 
-Phase: 14 (add-resume-session-button) — COMPLETE
+Phase: 18 (disable-haiki-tab-naming-settings-toggle) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 14-01 complete — lightbulb resume-session button in terminals-filter bar with i18n tooltip and showSessionsModal wiring
-Last activity: 2026-02-26 - Completed plan 14-01: lightbulb button + CSS + i18n + click handler
+Status: Plan 18-01 complete — AI tab naming toggle in new Tabs settings group, guards on all 4 rename call sites, EN+FR i18n
+Last activity: 2026-02-26 - Completed plan 18-01: aiTabNaming setting + ChatView/TerminalManager guards + Tabs settings group + i18n
 
-Progress: [████████████████████████████] 100% (Phase 14, Plan 1/1)
+Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [███████████████████████
 | Phase 2.1 P02 | 20 | 2 tasks | 6 files |
 | Phase 13 P01 | 8 | 2 tasks | 6 files |
 | Phase 14 P01 | 8 | 2 tasks | 5 files |
+| Phase 18 P01 | 10 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,10 @@ Recent decisions affecting current work:
 - [Phase 2.1]: 2.1-02: Lazy require for setCtrlArrowWordJumpEnabled in IPC handler avoids circular dep (same pattern as setCtrlTabEnabled)
 - [Phase 13]: showTabModeToggle uses !== false guard so undefined/missing key defaults to showing button (safe upgrade path)
 - [Phase 14]: btn-resume-session placed before btn-new-terminal in HTML; CSS rules duplicated not shared; no disable logic as showSessionsModal handles empty state
+- [Phase 18]: aiTabNaming defaults to true with !== false guard — safe upgrade path, existing users see no behavior change
+- [Phase 18]: Guard on outer if condition of ChatView generateTabName blocks — both instant truncation and async haiku call skipped when disabled
+- [Phase 18]: aiTabNaming guard added alongside shouldSkipOscRename in TerminalManager — keeps AI naming toggle and slash-command cooldown as separate concerns
+- [Phase 18]: Slash-command rename toggle relocated from terminalGroup to new tabsGroup with relabeled i18n key (tabRenameOnSlashCommandTerminal)
 
 ### Pending Todos
 

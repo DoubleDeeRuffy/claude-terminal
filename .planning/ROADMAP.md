@@ -314,7 +314,7 @@ Plans:
 **Goal:** Users can disable automatic AI-powered tab name generation via a settings toggle in a new Tabs group, affecting both chat-mode haiku naming and terminal-mode OSC rename
 **Depends on:** Phase 17
 **Requirements:** TAB-NAME-01
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 18-01-PLAN.md — Add aiTabNaming setting, guard ChatView and TerminalManager rename call sites, create Tabs settings group with toggle and relocated slash-command toggle, i18n
