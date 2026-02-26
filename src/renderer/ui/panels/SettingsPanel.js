@@ -678,6 +678,16 @@ async function renderSettingsTab(initialTab = 'general') {
             <div class="settings-card">
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
+                  <div>${t('settings.showTabModeToggle')}</div>
+                  <div class="settings-toggle-desc">${t('settings.showTabModeToggleDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="show-tab-mode-toggle" ${settings.showTabModeToggle !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
                   <div>${t('settings.tabRenameOnSlashCommand')}</div>
                   <div class="settings-toggle-desc">${t('settings.tabRenameOnSlashCommandDesc')}</div>
                 </div>
@@ -1160,6 +1170,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newEnable1MContext = context1MToggle ? context1MToggle.checked : settings.enable1MContext || false;
     const showDotfilesToggle = document.getElementById('show-dotfiles-toggle');
     const newShowDotfiles = showDotfilesToggle ? showDotfilesToggle.checked : true;
+    const showTabModeToggleEl = document.getElementById('show-tab-mode-toggle');
+    const newShowTabModeToggle = showTabModeToggleEl ? showTabModeToggleEl.checked : true;
     const telemetryEnabledToggle = document.getElementById('telemetry-enabled-toggle');
     const newTelemetryEnabled = telemetryEnabledToggle ? telemetryEnabledToggle.checked : false;
     const telemetryCatApp = document.getElementById('telemetry-cat-app');
@@ -1187,6 +1199,7 @@ async function renderSettingsTab(initialTab = 'general') {
       hooksEnabled: newHooksEnabled,
       enable1MContext: newEnable1MContext,
       showDotfiles: newShowDotfiles,
+      showTabModeToggle: newShowTabModeToggle,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
       telemetryEnabled: newTelemetryEnabled,
       telemetryCategories: newTelemetryCategories
@@ -1209,6 +1222,7 @@ async function renderSettingsTab(initialTab = 'general') {
 
     document.body.classList.toggle('compact-projects', newCompactProjects);
     document.body.classList.toggle('reduce-motion', newReduceMotion);
+    document.body.classList.toggle('hide-tab-mode-toggle', !newShowTabModeToggle);
     ctx.applyAccentColor(newSettings.accentColor);
 
     if (newTerminalTheme !== settings.terminalTheme) {

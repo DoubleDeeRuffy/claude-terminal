@@ -32,6 +32,7 @@ const defaultSettings = {
   restoreTerminalSessions: true, // Restore terminal tabs from previous session on startup
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
   showDotfiles: true, // true = show dotfiles in file explorer (default), false = hide them
+  showTabModeToggle: true, // Show Chat/Terminal mode-switch button on terminal tabs
   tabRenameOnSlashCommand: false, // Rename terminal tab to slash command text when submitted
   cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
