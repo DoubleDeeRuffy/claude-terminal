@@ -2260,25 +2260,36 @@ function filterByProject(projectIndex) {
       // Try to restore the last-active tab for this project
       const project = projects[projectIndex];
       if (project) {
-        try {
-          const { loadSessionData } = require('../../services/TerminalSessionService');
-          const sessionData = loadSessionData();
-          const savedIdx = sessionData?.projects?.[project.id]?.activeTabIndex;
-          if (typeof savedIdx === 'number') {
-            // Collect visible terminal IDs in Map iteration order (matches save order)
-            const visibleIds = [];
-            const terminals = terminalsState.get().terminals;
-            terminals.forEach((td, id) => {
-              const tab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
-              if (tab && tab.style.display !== 'none') {
-                visibleIds.push(id);
-              }
-            });
-            if (savedIdx < visibleIds.length) {
-              targetId = visibleIds[savedIdx];
-            }
+        // Primary: in-memory per-project last-active tab (within-session switches)
+        const savedId = lastActivePerProject.get(project.id);
+        if (savedId && getTerminal(savedId)) {
+          const savedTab = tabsById.get(String(savedId));
+          if (savedTab && savedTab.style.display !== 'none') {
+            targetId = savedId;
           }
-        } catch (e) { /* session data unavailable, use firstVisibleId */ }
+        }
+
+        // Secondary fallback: disk-based activeTabIndex (app restart path)
+        if (targetId === firstVisibleId) {
+          try {
+            const { loadSessionData } = require('../../services/TerminalSessionService');
+            const sessionData = loadSessionData();
+            const savedIdx = sessionData?.projects?.[project.id]?.activeTabIndex;
+            if (typeof savedIdx === 'number') {
+              // Collect visible terminal IDs in Map iteration order (matches save order)
+              const visibleIds = [];
+              terminals.forEach((td, id) => {
+                const tab = tabsById.get(String(id));
+                if (tab && tab.style.display !== 'none') {
+                  visibleIds.push(id);
+                }
+              });
+              if (savedIdx < visibleIds.length) {
+                targetId = visibleIds[savedIdx];
+              }
+            }
+          } catch (e) { /* session data unavailable, use firstVisibleId */ }
+        }
       }
 
       if (targetId) setActiveTerminal(targetId);
