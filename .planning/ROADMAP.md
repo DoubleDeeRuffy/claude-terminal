@@ -159,12 +159,12 @@ Plans:
 
 ### Phase 6.4: bugfix-session-resume-claudeSessionId-not-persisted-across-restarts (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
+**Goal:** Fix claudeSessionId and cwd not being stored on termData at creation time, causing session resume to fail after app restart
 **Depends on:** Phase 6
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:discuss-phase 6.4 to break down)
+- [ ] 6.4-01-PLAN.md — Add claudeSessionId and cwd fields to termData object in createTerminal
 
 ### Phase 6.3: Remember active task on Project scope to restore it on project-swap and app restart (INSERTED)
 
