@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 13 — Implement a setting to disable Chat/Terminal SwitchButton on Tabs
+**Current focus:** Phase 14 — Add resume session button near new terminal button with lightbulb icon
 
 ## Current Position
 
-Phase: 13 (showTabModeToggle setting) — COMPLETE
+Phase: 14 (add-resume-session-button) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 13-01 complete — showTabModeToggle setting with CSS body class, SettingsPanel toggle, startup persistence, and i18n in EN/FR
-Last activity: 2026-02-26 - Completed plan 13-01: showTabModeToggle setting + CSS body class + SettingsPanel toggle
+Status: Plan 14-01 complete — lightbulb resume-session button in terminals-filter bar with i18n tooltip and showSessionsModal wiring
+Last activity: 2026-02-26 - Completed plan 14-01: lightbulb button + CSS + i18n + click handler
 
-Progress: [████████████████████████████] 100% (Phase 13, Plan 1/1)
+Progress: [████████████████████████████] 100% (Phase 14, Plan 1/1)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [███████████████████████
 | Phase 10-adjust-tab-renaming P02 | 6 | 2 tasks | 4 files |
 | Phase 2.1 P02 | 20 | 2 tasks | 6 files |
 | Phase 13 P01 | 8 | 2 tasks | 6 files |
+| Phase 14 P01 | 8 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,7 @@ Recent decisions affecting current work:
 - [Phase 2.1]: 2.1-02: Always preventDefault on Ctrl+Left/Right to block Windows Snap; two-mode routing based on word-jump flag
 - [Phase 2.1]: 2.1-02: Lazy require for setCtrlArrowWordJumpEnabled in IPC handler avoids circular dep (same pattern as setCtrlTabEnabled)
 - [Phase 13]: showTabModeToggle uses !== false guard so undefined/missing key defaults to showing button (safe upgrade path)
+- [Phase 14]: btn-resume-session placed before btn-new-terminal in HTML; CSS rules duplicated not shared; no disable logic as showSessionsModal handles empty state
 
 ### Pending Todos
 
@@ -177,5 +179,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 13-01-PLAN.md (showTabModeToggle setting + CSS body class + SettingsPanel toggle)
-Resume file: .planning/phases/13-implement-a-setting-to-disable-chat-terminal-switchbutton-on-tabs/13-01-SUMMARY.md
+Stopped at: Completed 14-01-PLAN.md (lightbulb resume-session button in terminals-filter bar)
+Resume file: .planning/phases/14-add-resume-session-button-near-new-terminal-button-with-lightbulb-icon/14-01-SUMMARY.md
