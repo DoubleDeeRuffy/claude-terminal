@@ -1398,6 +1398,8 @@ async function createTerminal(project, options = {}) {
     inputBuffer: '',
     isBasic: isBasicTerminal,
     mode: 'terminal',
+    cwd: overrideCwd || project.path,
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {}),
     ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
