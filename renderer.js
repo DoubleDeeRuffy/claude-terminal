@@ -225,15 +225,12 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
         }
       }
 
-      // Scroll all restored terminals to bottom after fit completes
-      setTimeout(() => {
-        const terminals = terminalsState.get().terminals;
-        terminals.forEach((td, id) => {
-          if (td.terminal && typeof td.terminal.scrollToBottom === 'function') {
-            td.terminal.scrollToBottom();
-          }
-        });
-      }, 200);
+      // Schedule silence-based scroll per restored terminal (waits for PTY replay to finish)
+      terminalsState.get().terminals.forEach((td, id) => {
+        if (td.terminal && typeof td.terminal.scrollToBottom === 'function') {
+          TerminalManager.scheduleScrollAfterRestore(id);
+        }
+      });
     }
   } catch (err) {
     console.error('[SessionRestore] Error restoring terminal sessions:', err);
