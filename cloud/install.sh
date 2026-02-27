@@ -77,241 +77,151 @@ echo ""
 # 2. Clone / Update — detect existing install
 # ══════════════════════════════════════════════
 
-if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/cloud/.env" ]; then
-  IS_UPDATE=true
-
-  echo -e "  ${CYAN}${BOLD}Existing installation detected${NC}"
-  echo ""
-
-  # Pull latest source
+if [ -d "$INSTALL_DIR/.git" ]; then
+  # Pull latest source first
   echo -e "  ${DIM}Pulling latest changes...${NC}"
   cd "$INSTALL_DIR" && git pull --quiet 2>/dev/null || true
   cd cloud
   echo -e "  ${GREEN}✓ Source updated${NC}"
   echo ""
 
-  # ── Audit current state ──
+  # Detect if this is a fully configured install (has .env = setup was completed)
+  if [ -f .env ]; then
+    IS_UPDATE=true
 
-  # Domain
-  DOMAIN=$(grep '^PUBLIC_URL=' .env 2>/dev/null | sed 's|^PUBLIC_URL=https\?://||' || true)
+    echo -e "  ${CYAN}${BOLD}Existing installation detected${NC}"
+    echo ""
 
-  # Container running?
-  CONTAINER_UP=$(docker ps --filter name=ct-cloud --format '{{.Status}}' 2>/dev/null || true)
+    # ── Audit current state ──
+    DOMAIN=$(grep '^PUBLIC_URL=' .env 2>/dev/null | sed 's|^PUBLIC_URL=https\?://||' || true)
+    CONTAINER_UP=$(docker ps --filter name=ct-cloud --format '{{.Status}}' 2>/dev/null || true)
 
-  # Claude credentials
-  HAS_CREDS="no"
-  if [ -n "$CONTAINER_UP" ]; then
-    HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && echo "yes" || echo "no")
-  fi
+    HAS_CREDS="no"
+    HAS_GIT_NAME="no"
+    HAS_GIT_TOKEN="no"
+    GIT_NAME_VAL=""
+    GIT_EMAIL_VAL=""
+    USERS=""
+    if [ -n "$CONTAINER_UP" ]; then
+      HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && echo "yes" || echo "no")
+      GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
+      GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
+      [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
+      HAS_GIT_TOKEN=$(docker exec ct-cloud test -s /root/.git-credentials 2>/dev/null && echo "yes" || echo "no")
+      USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
+    fi
 
-  # Git config
-  HAS_GIT_NAME="no"
-  HAS_GIT_TOKEN="no"
-  GIT_NAME_VAL=""
-  GIT_EMAIL_VAL=""
-  if [ -n "$CONTAINER_UP" ]; then
-    GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
-    GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
-    [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-    HAS_GIT_TOKEN=$(docker exec ct-cloud test -s /root/.git-credentials 2>/dev/null && echo "yes" || echo "no")
-  fi
+    HAS_NGINX="no"
+    HAS_APACHE="no"
+    [ -f /etc/nginx/sites-available/ct-cloud ] && HAS_NGINX="yes"
+    ([ -f /etc/apache2/sites-available/ct-cloud.conf ] || [ -f /etc/httpd/conf.d/ct-cloud.conf ]) && HAS_APACHE="yes"
 
-  # Users
-  USERS=""
-  if [ -n "$CONTAINER_UP" ]; then
-    USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
-  fi
+    HAS_SSL="no"
+    if [ -n "$DOMAIN" ]; then
+      (certbot certificates -d "$DOMAIN" 2>/dev/null | grep -q "Certificate Name" 2>/dev/null) && HAS_SSL="yes"
+    fi
 
-  # Reverse proxy
-  HAS_NGINX="no"
-  HAS_APACHE="no"
-  [ -f /etc/nginx/sites-available/ct-cloud ] && HAS_NGINX="yes"
-  ([ -f /etc/apache2/sites-available/ct-cloud.conf ] || [ -f /etc/httpd/conf.d/ct-cloud.conf ]) && HAS_APACHE="yes"
+    HAS_CRON="no"
+    (crontab -l 2>/dev/null | grep -q 'ct-cloud/cloud/update.sh') && HAS_CRON="yes"
 
-  # SSL
-  HAS_SSL="no"
-  if [ -n "$DOMAIN" ]; then
-    (certbot certificates -d "$DOMAIN" 2>/dev/null | grep -q "Certificate Name" 2>/dev/null) && HAS_SSL="yes"
-  fi
+    # ── Display status ──
+    echo -e "  ${BOLD}Current configuration:${NC}"
+    echo ""
+    [ -n "$DOMAIN" ] && echo -e "  ${GREEN}✓${NC} Domain         ${BOLD}$DOMAIN${NC}" || echo -e "  ${RED}✗${NC} Domain         ${DIM}not set${NC}"
+    [ -n "$CONTAINER_UP" ] && echo -e "  ${GREEN}✓${NC} Container      ${DIM}running${NC}" || echo -e "  ${RED}✗${NC} Container      ${DIM}not running${NC}"
+    [ "$HAS_CREDS" = "yes" ] && echo -e "  ${GREEN}✓${NC} Claude auth    ${DIM}authenticated${NC}" || echo -e "  ${YELLOW}✗${NC} Claude auth    ${DIM}not configured${NC}"
+    [ "$HAS_GIT_NAME" = "yes" ] && echo -e "  ${GREEN}✓${NC} Git identity   ${DIM}$GIT_NAME_VAL <$GIT_EMAIL_VAL>${NC}" || echo -e "  ${YELLOW}✗${NC} Git identity   ${DIM}not configured${NC}"
+    [ "$HAS_GIT_TOKEN" = "yes" ] && echo -e "  ${GREEN}✓${NC} GitHub token   ${DIM}configured${NC}" || echo -e "  ${YELLOW}✗${NC} GitHub token   ${DIM}not configured${NC}"
+    [ -n "$USERS" ] && echo -e "  ${GREEN}✓${NC} Users          ${DIM}$USERS${NC}" || echo -e "  ${YELLOW}✗${NC} Users          ${DIM}none${NC}"
+    if [ "$HAS_NGINX" = "yes" ]; then echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Nginx${NC}"
+    elif [ "$HAS_APACHE" = "yes" ]; then echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Apache${NC}"
+    else echo -e "  ${YELLOW}✗${NC} Reverse proxy  ${DIM}not detected${NC}"; fi
+    [ "$HAS_SSL" = "yes" ] && echo -e "  ${GREEN}✓${NC} SSL            ${DIM}active${NC}" || echo -e "  ${YELLOW}✗${NC} SSL            ${DIM}not configured${NC}"
+    [ "$HAS_CRON" = "yes" ] && echo -e "  ${GREEN}✓${NC} Auto-update    ${DIM}enabled${NC}" || echo -e "  ${YELLOW}✗${NC} Auto-update    ${DIM}disabled${NC}"
 
-  # Auto-update cron
-  HAS_CRON="no"
-  (crontab -l 2>/dev/null | grep -q 'ct-cloud/cloud/update.sh') && HAS_CRON="yes"
+    echo ""
+    echo -e "  ${BOLD}What would you like to do?${NC}"
+    echo ""
+    echo -e "  ${DIM}1${NC}) Update & rebuild   ${DIM}(pull latest + rebuild container)${NC}"
+    echo -e "  ${DIM}2${NC}) Configure missing  ${DIM}(setup only unconfigured items)${NC}"
+    echo -e "  ${DIM}3${NC}) Full reconfigure   ${DIM}(redo all setup steps)${NC}"
+    echo -e "  ${DIM}4${NC}) Add user           ${DIM}(create a new API user)${NC}"
+    echo -e "  ${DIM}5${NC}) Exit"
+    echo ""
+    read -p "  Choice [1-5]: " UPDATE_ACTION
+    UPDATE_ACTION=${UPDATE_ACTION:-1}
 
-  # ── Display status ──
-
-  echo -e "  ${BOLD}Current configuration:${NC}"
-  echo ""
-
-  # Domain
-  if [ -n "$DOMAIN" ]; then
-    echo -e "  ${GREEN}✓${NC} Domain         ${BOLD}$DOMAIN${NC}"
-  else
-    echo -e "  ${RED}✗${NC} Domain         ${DIM}not set${NC}"
-  fi
-
-  # Container
-  if [ -n "$CONTAINER_UP" ]; then
-    echo -e "  ${GREEN}✓${NC} Container      ${DIM}running${NC}"
-  else
-    echo -e "  ${RED}✗${NC} Container      ${DIM}not running${NC}"
-  fi
-
-  # Claude auth
-  if [ "$HAS_CREDS" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} Claude auth    ${DIM}authenticated${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} Claude auth    ${DIM}not configured${NC}"
-  fi
-
-  # Git identity
-  if [ "$HAS_GIT_NAME" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} Git identity   ${DIM}$GIT_NAME_VAL <$GIT_EMAIL_VAL>${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} Git identity   ${DIM}not configured${NC}"
-  fi
-
-  # GitHub token
-  if [ "$HAS_GIT_TOKEN" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} GitHub token   ${DIM}configured${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} GitHub token   ${DIM}not configured${NC}"
-  fi
-
-  # Users
-  if [ -n "$USERS" ]; then
-    echo -e "  ${GREEN}✓${NC} Users          ${DIM}$USERS${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} Users          ${DIM}none${NC}"
-  fi
-
-  # Reverse proxy
-  if [ "$HAS_NGINX" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Nginx${NC}"
-  elif [ "$HAS_APACHE" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Apache${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} Reverse proxy  ${DIM}not detected${NC}"
-  fi
-
-  # SSL
-  if [ "$HAS_SSL" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} SSL            ${DIM}active${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} SSL            ${DIM}not configured${NC}"
-  fi
-
-  # Auto-update
-  if [ "$HAS_CRON" = "yes" ]; then
-    echo -e "  ${GREEN}✓${NC} Auto-update    ${DIM}enabled${NC}"
-  else
-    echo -e "  ${YELLOW}✗${NC} Auto-update    ${DIM}disabled${NC}"
-  fi
-
-  echo ""
-  echo -e "  ${BOLD}What would you like to do?${NC}"
-  echo ""
-  echo -e "  ${DIM}1${NC}) Update & rebuild   ${DIM}(pull latest + rebuild container)${NC}"
-  echo -e "  ${DIM}2${NC}) Configure missing  ${DIM}(setup only unconfigured items)${NC}"
-  echo -e "  ${DIM}3${NC}) Full reconfigure   ${DIM}(redo all setup steps)${NC}"
-  echo -e "  ${DIM}4${NC}) Add user           ${DIM}(create a new API user)${NC}"
-  echo -e "  ${DIM}5${NC}) Exit"
-  echo ""
-  read -p "  Choice [1-5]: " UPDATE_ACTION
-  UPDATE_ACTION=${UPDATE_ACTION:-1}
-
-  case "$UPDATE_ACTION" in
-    1)
-      # Just rebuild
-      echo ""
-      mkdir -p data/users data/claude
-      touch data/gitconfig data/git-credentials
-      chmod 600 data/git-credentials 2>/dev/null || true
-      echo -e "  ${CYAN}Rebuilding containers...${NC}"
-      docker compose up -d --build
-      sleep 3
-      echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
-      echo ""
-
-      # Show what's still missing
-      _missing=false
-      if [ "$HAS_CREDS" = "no" ]; then
-        echo -e "  ${YELLOW}Reminder:${NC} Claude auth still needed"
-        echo -e "  ${DIM}  docker exec -it ct-cloud claude login${NC}"
-        _missing=true
-      fi
-      if [ "$HAS_GIT_NAME" = "no" ]; then
-        echo -e "  ${YELLOW}Reminder:${NC} Git identity not configured"
-        echo -e "  ${DIM}  docker exec ct-cloud git config --global user.name \"Your Name\"${NC}"
-        echo -e "  ${DIM}  docker exec ct-cloud git config --global user.email \"you@example.com\"${NC}"
-        _missing=true
-      fi
-      if [ "$HAS_GIT_TOKEN" = "no" ]; then
-        echo -e "  ${YELLOW}Reminder:${NC} GitHub token not configured"
-        echo -e "  ${DIM}  docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.git-credentials\"${NC}"
-        _missing=true
-      fi
-      if [ "$_missing" = true ]; then
+    case "$UPDATE_ACTION" in
+      1)
         echo ""
-        echo -e "  ${DIM}Run the installer again and choose \"Configure missing\" to set these up.${NC}"
-      fi
+        mkdir -p data/users data/claude
+        touch data/gitconfig data/git-credentials
+        chmod 600 data/git-credentials 2>/dev/null || true
+        echo -e "  ${CYAN}Rebuilding containers...${NC}"
+        docker compose up -d --build
+        sleep 3
+        echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
+        echo ""
 
-      echo ""
-      echo -e "  ${GREEN}${BOLD}Update complete!${NC}"
-      echo ""
-      exit 0
-      ;;
-    4)
-      # Just add user
-      echo ""
-      U_NAME=""
-      while [ -z "$U_NAME" ]; do
-        read -p "  Username (a-z, 0-9, _, -): " U_NAME
-        if [ -z "$U_NAME" ]; then
-          echo -e "  ${RED}Username is required${NC}"
-        elif ! echo "$U_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-          echo -e "  ${RED}Invalid characters${NC}"
-          U_NAME=""
-        fi
-      done
-      echo ""
-      docker exec ct-cloud node dist/cli.js user add "$U_NAME"
-      echo ""
-      exit 0
-      ;;
-    5)
-      echo -e "  ${DIM}Bye!${NC}"
-      exit 0
-      ;;
-    2)
-      # Configure missing — we'll fall through to the setup sections below
-      # but skip steps that are already configured
-      SKIP_CONFIGURED=true
-      ;;
-    3)
-      # Full reconfigure — fall through, configure everything
-      SKIP_CONFIGURED=false
-      ;;
-    *)
-      echo -e "  ${RED}Invalid choice${NC}"
-      exit 1
-      ;;
-  esac
+        _missing=false
+        [ "$HAS_CREDS" = "no" ] && echo -e "  ${YELLOW}Reminder:${NC} Claude auth still needed — docker exec -it ct-cloud claude login" && _missing=true
+        [ "$HAS_GIT_NAME" = "no" ] && echo -e "  ${YELLOW}Reminder:${NC} Git identity not configured" && _missing=true
+        [ "$HAS_GIT_TOKEN" = "no" ] && echo -e "  ${YELLOW}Reminder:${NC} GitHub token not configured" && _missing=true
+        [ "$_missing" = true ] && echo "" && echo -e "  ${DIM}Run installer again → \"Configure missing\" to set these up.${NC}"
 
-  echo ""
+        echo ""
+        echo -e "  ${GREEN}${BOLD}Update complete!${NC}"
+        echo ""
+        exit 0
+        ;;
+      4)
+        echo ""
+        U_NAME=""
+        while [ -z "$U_NAME" ]; do
+          read -p "  Username (a-z, 0-9, _, -): " U_NAME
+          if [ -z "$U_NAME" ]; then
+            echo -e "  ${RED}Username is required${NC}"
+          elif ! echo "$U_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+            echo -e "  ${RED}Invalid characters${NC}"
+            U_NAME=""
+          fi
+        done
+        echo ""
+        docker exec ct-cloud node dist/cli.js user add "$U_NAME"
+        echo ""
+        exit 0
+        ;;
+      5)
+        echo -e "  ${DIM}Bye!${NC}"
+        exit 0
+        ;;
+      2) SKIP_CONFIGURED=true ;;
+      3) SKIP_CONFIGURED=false ;;
+      *) echo -e "  ${RED}Invalid choice${NC}"; exit 1 ;;
+    esac
 
-  # Rebuild first (in case source was updated)
-  mkdir -p data/users data/claude
-  touch data/gitconfig data/git-credentials
-  chmod 600 data/git-credentials 2>/dev/null || true
-  echo -e "  ${CYAN}Rebuilding containers...${NC}"
-  docker compose up -d --build
-  sleep 3
-  echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
-  echo ""
+    echo ""
+
+    # Rebuild (source may have changed)
+    mkdir -p data/users data/claude
+    touch data/gitconfig data/git-credentials
+    chmod 600 data/git-credentials 2>/dev/null || true
+    echo -e "  ${CYAN}Rebuilding containers...${NC}"
+    docker compose up -d --build
+    sleep 3
+    echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
+    echo ""
+
+  else
+    # .git exists but .env missing — source cloned but never configured
+    IS_UPDATE=false
+    SKIP_CONFIGURED=false
+    echo -e "  ${YELLOW}Source found but not yet configured — running full setup${NC}"
+    echo ""
+  fi
 
 else
-  # ── Fresh install ──
+  # ── Fresh install — no existing directory ──
   IS_UPDATE=false
   SKIP_CONFIGURED=false
 
