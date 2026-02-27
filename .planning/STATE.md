@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-02-27T15:10:46.665Z"
+progress:
+  total_phases: 29
+  completed_phases: 27
+  total_plans: 38
+  completed_plans: 38
+---
+
 # Project State
 
 ## Project Reference
@@ -5,14 +18,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 20 — Bugfix: swap projects resets to first tab instead of remembering last-active (COMPLETE)
+**Current focus:** Phase 23 — Remember last active tab on tab closing (COMPLETE)
 
 ## Current Position
 
-Phase: 20 (20-bugfix-swap-projects-selected-tab) — COMPLETE
+Phase: 23 (23-remember-last-active-tab-on-tab-closing) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 20-01 complete — added lastActivePerProject and savedScrollPositions Maps in TerminalManager.js to restore last-active tab and scroll position on project switch
-Last activity: 2026-02-26 - Completed plan 20-01: in-memory tab and scroll tracking for project switches
+Status: Plan 23-01 complete — added tabActivationHistory Map and walk-back in closeTerminal for browser-like tab-close UX
+Last activity: 2026-02-27 - Completed plan 23-01: per-project activation history stack for tab-close behavior
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -73,6 +86,7 @@ Progress: [███████████████████████
 | Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
 | Phase 6.4 P01 | 5 | 2 tasks | 1 files |
 | Phase 20-bugfix-swap-projects-selected-tab P01 | 2 | 2 tasks | 1 files |
+| Phase 23 P01 | 2 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -166,6 +180,7 @@ Recent decisions affecting current work:
 - [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
 - [Phase 6.4]: 6.4-01: cwd and claudeSessionId added directly to termData object literal (not via updateTerminal) to avoid state notification with incomplete data
 - [Phase 20-bugfix-swap-projects-selected-tab]: 20-01: lastActivePerProject Map tracks last-active terminal ID per project in-memory; filterByProject uses Map as primary restore source, disk activeTabIndex as secondary fallback
+- [Phase 23]: tabActivationHistory Map declared at module level — follows Phase 20 in-memory tracking pattern; push inside existing if (newProjectId) guard in setActiveTerminal; original forEach neighbor scan kept as fallback for empty history
 
 ### Pending Todos
 
@@ -214,6 +229,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: Completed 12-01-PLAN.md
-Resume file: .planning/phases/12-dashboard-support-for-dotnet-projects/12-01-SUMMARY.md
+Last session: 2026-02-27
+Stopped at: Completed 23-01-PLAN.md
+Resume file: .planning/phases/23-remember-last-active-tab-on-tab-closing/23-01-SUMMARY.md
