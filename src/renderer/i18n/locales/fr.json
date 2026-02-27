@@ -570,6 +570,8 @@
     "checking": "Vérification...",
     "upToDate": "À jour",
     "defaultTerminalMode": "Mode terminal par défaut",
+    "showTabModeToggle": "Afficher le bouton de changement de mode",
+    "showTabModeToggleDesc": "Afficher le bouton Chat/Terminal sur les onglets (visible au survol)",
     "modeTerminal": "Terminal",
     "modeTerminalDesc": "Terminal classique avec xterm.js",
     "modeChat": "Chat UI",

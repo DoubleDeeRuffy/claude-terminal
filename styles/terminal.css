@@ -1552,3 +1552,7 @@
   width: 13px;
   height: 13px;
 }
+
+body.hide-tab-mode-toggle .tab-mode-toggle {
+  display: none !important;
+}

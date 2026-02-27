@@ -504,6 +504,8 @@
     "checking": "Checking...",
     "upToDate": "Up to date",
     "defaultTerminalMode": "Default terminal mode",
+    "showTabModeToggle": "Show mode switch on tabs",
+    "showTabModeToggleDesc": "Show the Chat/Terminal switch button on terminal tabs (hover to reveal)",
     "modeTerminal": "Terminal",
     "modeTerminalDesc": "Classic terminal with xterm.js",
     "modeChat": "Chat UI",
