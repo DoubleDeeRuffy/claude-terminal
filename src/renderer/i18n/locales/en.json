@@ -1188,7 +1188,22 @@
     "syncApply": "Apply",
     "syncSkip": "Skip",
     "syncApplied": "Changes applied successfully",
-    "resyncBtn": "Re-sync to cloud"
+    "resyncBtn": "Re-sync to cloud",
+    "userTitle": "Your profile",
+    "userGitName": "Git name",
+    "userGitEmail": "Git email",
+    "userClaudeAuthed": "Claude authenticated",
+    "userClaudeNotAuthed": "Claude not configured",
+    "userSave": "Save",
+    "userSaved": "Saved",
+    "userSaveError": "Failed to save",
+    "sessionsTitle": "Cloud sessions",
+    "sessionsEmpty": "No active sessions",
+    "sessionsRefresh": "Refresh",
+    "sessionStop": "Stop",
+    "sessionRunning": "Running",
+    "sessionIdle": "Idle",
+    "sessionError": "Error"
   },
   "database": {
     "title": "Database",

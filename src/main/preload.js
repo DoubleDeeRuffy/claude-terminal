@@ -353,6 +353,10 @@ contextBridge.exposeInMainWorld('electron_api', {
     takeoverSession: (params) => ipcRenderer.invoke('cloud:takeover-session', params),
     onHeadlessActive: createListener('cloud:headless-active'),
     onPendingChanges: createListener('cloud:pending-changes'),
+    getUser: () => ipcRenderer.invoke('cloud:get-user'),
+    updateUser: (params) => ipcRenderer.invoke('cloud:update-user', params),
+    getSessions: () => ipcRenderer.invoke('cloud:get-sessions'),
+    stopSession: (params) => ipcRenderer.invoke('cloud:stop-session', params),
   },
 
   // ==================== USAGE ====================

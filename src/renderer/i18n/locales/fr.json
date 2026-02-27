@@ -1188,7 +1188,22 @@
     "syncApply": "Appliquer",
     "syncSkip": "Ignorer",
     "syncApplied": "Changements appliqués",
-    "resyncBtn": "Re-synchroniser dans le cloud"
+    "resyncBtn": "Re-synchroniser dans le cloud",
+    "userTitle": "Votre profil",
+    "userGitName": "Nom Git",
+    "userGitEmail": "Email Git",
+    "userClaudeAuthed": "Claude authentifié",
+    "userClaudeNotAuthed": "Claude non configuré",
+    "userSave": "Enregistrer",
+    "userSaved": "Enregistré",
+    "userSaveError": "Échec de la sauvegarde",
+    "sessionsTitle": "Sessions cloud",
+    "sessionsEmpty": "Aucune session active",
+    "sessionsRefresh": "Actualiser",
+    "sessionStop": "Arrêter",
+    "sessionRunning": "En cours",
+    "sessionIdle": "Inactif",
+    "sessionError": "Erreur"
   },
   "database": {
     "title": "Base de données",

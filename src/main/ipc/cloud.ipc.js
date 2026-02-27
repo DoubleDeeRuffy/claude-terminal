@@ -149,6 +149,47 @@ function registerCloudHandlers() {
     }
   });
 
+  // ── User profile ──
+
+  ipcMain.handle('cloud:get-user', async () => {
+    const { url, key } = _getCloudConfig();
+    const resp = await fetch(`${url}/api/me`, {
+      headers: { 'Authorization': `Bearer ${key}` },
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    return resp.json();
+  });
+
+  ipcMain.handle('cloud:update-user', async (_event, { gitName, gitEmail }) => {
+    const { url, key } = _getCloudConfig();
+    const resp = await fetch(`${url}/api/me`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gitName, gitEmail }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    return resp.json();
+  });
+
+  // ── Cloud sessions ──
+
+  ipcMain.handle('cloud:get-sessions', async () => {
+    const { url, key } = _getCloudConfig();
+    const resp = await fetch(`${url}/api/sessions`, {
+      headers: { 'Authorization': `Bearer ${key}` },
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    return resp.json();
+  });
+
+  ipcMain.handle('cloud:stop-session', async (_event, { sessionId }) => {
+    const { url, key } = _getCloudConfig();
+    const headers = { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' };
+    await fetch(`${url}/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST', headers });
+    await fetch(`${url}/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', headers });
+    return { ok: true };
+  });
+
   // ── Cloud projects list ──
 
   ipcMain.handle('cloud:get-projects', async () => {

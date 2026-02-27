@@ -280,6 +280,55 @@ function buildHtml(settings) {
           </div>
         </div>
 
+        <!-- ═══ User Panel (visible when connected) ═══ -->
+        <div class="rp-cloud-user-panel" id="rp-cloud-user-panel" style="display:none">
+          <div class="rp-cloud-divider"></div>
+
+          <!-- Profile -->
+          <div class="rp-cloud-section-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+            <span>${t('cloud.userTitle')}</span>
+          </div>
+
+          <div class="rp-cloud-card">
+            <div class="rp-cloud-user-header">
+              <span class="rp-cloud-user-name" id="cloud-user-display-name">\u2014</span>
+              <span class="rp-badge" id="cloud-user-claude-badge">\u2014</span>
+            </div>
+
+            <div class="rp-cloud-field">
+              <label for="cloud-user-git-name">${t('cloud.userGitName')}</label>
+              <input type="text" id="cloud-user-git-name" class="rp-cloud-input" placeholder="John Doe">
+            </div>
+            <div class="rp-cloud-field">
+              <label for="cloud-user-git-email">${t('cloud.userGitEmail')}</label>
+              <input type="text" id="cloud-user-git-email" class="rp-cloud-input" placeholder="john@example.com">
+            </div>
+            <div class="rp-cloud-user-actions">
+              <span class="rp-cloud-user-save-status" id="cloud-user-save-status"></span>
+              <button class="rp-server-btn rp-btn-sm" id="cloud-user-save-btn">${t('cloud.userSave')}</button>
+            </div>
+          </div>
+
+          <!-- Sessions -->
+          <div class="rp-cloud-section-header" style="margin-top:16px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+            </svg>
+            <span>${t('cloud.sessionsTitle')}</span>
+            <button class="rp-btn-icon" id="cloud-sessions-refresh" title="${t('cloud.sessionsRefresh')}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </button>
+          </div>
+          <div id="cloud-sessions-list" class="rp-cloud-sessions-list">
+            <div class="rp-cloud-sessions-empty">${t('cloud.sessionsEmpty')}</div>
+          </div>
+        </div>
+
       </div>
 
     </div>
@@ -457,6 +506,9 @@ function setupHandlers(context) {
     });
   }
 
+  const cloudUserPanel = document.getElementById('rp-cloud-user-panel');
+  let _cloudSessionsInterval = null;
+
   function updateCloudStatusUI(connected) {
     if (!cloudStatusIndicator || !cloudStatusText || !cloudConnectBtn) return;
     if (connected) {
@@ -464,12 +516,95 @@ function setupHandlers(context) {
       cloudStatusText.textContent = t('cloud.connected');
       cloudConnectBtn.textContent = t('cloud.disconnect');
       cloudConnectBtn.classList.add('rp-btn-danger');
+      // Show user panel + load data
+      if (cloudUserPanel) cloudUserPanel.style.display = '';
+      _loadCloudUser();
+      _loadCloudSessions();
+      _startSessionsPolling();
     } else {
       cloudStatusIndicator.classList.remove('online');
       cloudStatusText.textContent = t('cloud.disconnected');
       cloudConnectBtn.textContent = t('cloud.connect');
       cloudConnectBtn.classList.remove('rp-btn-danger');
+      // Hide user panel
+      if (cloudUserPanel) cloudUserPanel.style.display = 'none';
+      _stopSessionsPolling();
     }
+  }
+
+  async function _loadCloudUser() {
+    try {
+      const user = await window.electron_api.cloud.getUser();
+      const nameEl = document.getElementById('cloud-user-display-name');
+      const badgeEl = document.getElementById('cloud-user-claude-badge');
+      const gitNameInput = document.getElementById('cloud-user-git-name');
+      const gitEmailInput = document.getElementById('cloud-user-git-email');
+      if (nameEl) nameEl.textContent = user.name || '\u2014';
+      if (badgeEl) {
+        if (user.claudeAuthed) {
+          badgeEl.textContent = t('cloud.userClaudeAuthed');
+          badgeEl.className = 'rp-badge success';
+        } else {
+          badgeEl.textContent = t('cloud.userClaudeNotAuthed');
+          badgeEl.className = 'rp-badge warning';
+        }
+      }
+      if (gitNameInput) gitNameInput.value = user.gitName || '';
+      if (gitEmailInput) gitEmailInput.value = user.gitEmail || '';
+    } catch (e) {}
+  }
+
+  async function _loadCloudSessions() {
+    const listEl = document.getElementById('cloud-sessions-list');
+    if (!listEl) return;
+    try {
+      const { sessions } = await window.electron_api.cloud.getSessions();
+      if (!sessions || sessions.length === 0) {
+        listEl.innerHTML = `<div class="rp-cloud-sessions-empty">${t('cloud.sessionsEmpty')}</div>`;
+        return;
+      }
+      listEl.innerHTML = sessions.map(s => {
+        const statusClass = s.status === 'running' ? 'running' : s.status === 'error' ? 'error' : 'idle';
+        const statusLabel = s.status === 'running' ? t('cloud.sessionRunning') : s.status === 'error' ? t('cloud.sessionError') : t('cloud.sessionIdle');
+        const stopBtn = s.status === 'running'
+          ? `<button class="rp-btn-sm rp-btn-danger rp-cloud-session-stop" data-id="${s.id}">${t('cloud.sessionStop')}</button>`
+          : `<button class="rp-btn-sm rp-cloud-session-stop" data-id="${s.id}" title="Delete">\u2715</button>`;
+        return `<div class="rp-cloud-session-item">
+          <div class="rp-cloud-session-info">
+            <span class="rp-cloud-session-project">${s.projectName}</span>
+            <span class="rp-cloud-session-status ${statusClass}">${statusLabel}</span>
+          </div>
+          ${stopBtn}
+        </div>`;
+      }).join('');
+
+      // Wire stop buttons
+      listEl.querySelectorAll('.rp-cloud-session-stop').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          try {
+            await window.electron_api.cloud.stopSession({ sessionId: btn.dataset.id });
+            await _loadCloudSessions();
+          } catch (e) {
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (e) {
+      listEl.innerHTML = `<div class="rp-cloud-sessions-empty">${t('cloud.sessionsEmpty')}</div>`;
+    }
+  }
+
+  function _startSessionsPolling() {
+    _stopSessionsPolling();
+    _cloudSessionsInterval = setInterval(() => {
+      if (!document.getElementById('cloud-sessions-list')) { _stopSessionsPolling(); return; }
+      _loadCloudSessions();
+    }, 15000);
+  }
+
+  function _stopSessionsPolling() {
+    if (_cloudSessionsInterval) { clearInterval(_cloudSessionsInterval); _cloudSessionsInterval = null; }
   }
 
   if (cloudUrlInput) {
@@ -511,6 +646,43 @@ function setupHandlers(context) {
       } finally {
         cloudConnectBtn.disabled = false;
       }
+    });
+  }
+
+  // ── Cloud user profile save ──
+  const cloudUserSaveBtn = document.getElementById('cloud-user-save-btn');
+  const cloudUserSaveStatus = document.getElementById('cloud-user-save-status');
+  if (cloudUserSaveBtn) {
+    cloudUserSaveBtn.addEventListener('click', async () => {
+      cloudUserSaveBtn.disabled = true;
+      const gitName = document.getElementById('cloud-user-git-name')?.value.trim();
+      const gitEmail = document.getElementById('cloud-user-git-email')?.value.trim();
+      try {
+        await window.electron_api.cloud.updateUser({ gitName, gitEmail });
+        if (cloudUserSaveStatus) {
+          cloudUserSaveStatus.textContent = t('cloud.userSaved');
+          cloudUserSaveStatus.className = 'rp-cloud-user-save-status success';
+          setTimeout(() => { cloudUserSaveStatus.textContent = ''; cloudUserSaveStatus.className = 'rp-cloud-user-save-status'; }, 2000);
+        }
+      } catch (e) {
+        if (cloudUserSaveStatus) {
+          cloudUserSaveStatus.textContent = t('cloud.userSaveError');
+          cloudUserSaveStatus.className = 'rp-cloud-user-save-status error';
+          setTimeout(() => { cloudUserSaveStatus.textContent = ''; cloudUserSaveStatus.className = 'rp-cloud-user-save-status'; }, 3000);
+        }
+      } finally {
+        cloudUserSaveBtn.disabled = false;
+      }
+    });
+  }
+
+  // ── Cloud sessions refresh ──
+  const cloudSessionsRefresh = document.getElementById('cloud-sessions-refresh');
+  if (cloudSessionsRefresh) {
+    cloudSessionsRefresh.addEventListener('click', async () => {
+      cloudSessionsRefresh.classList.add('spinning');
+      await _loadCloudSessions();
+      setTimeout(() => cloudSessionsRefresh.classList.remove('spinning'), 400);
     });
   }
 
