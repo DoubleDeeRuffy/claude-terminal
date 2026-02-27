@@ -102,12 +102,13 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     GIT_NAME_VAL=""
     GIT_EMAIL_VAL=""
     USERS=""
+    # Check credentials from host-side mounted volumes (no docker exec needed)
+    [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
+    GIT_NAME_VAL=$(grep 'name\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+    GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+    [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
+    [ -s data/git-credentials ] && HAS_GIT_TOKEN="yes"
     if [ -n "$CONTAINER_UP" ]; then
-      HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && echo "yes" || echo "no")
-      GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
-      GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
-      [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-      HAS_GIT_TOKEN=$(docker exec ct-cloud test -s /root/.git-credentials 2>/dev/null && echo "yes" || echo "no")
       USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
     fi
 
@@ -288,8 +289,9 @@ fi
 # 5. Claude Code authentication
 # ══════════════════════════════════════════════
 
-# Re-check credentials (container may have been rebuilt)
-HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && echo "yes" || echo "no")
+# Re-check credentials (from host-side volume, no docker exec needed)
+HAS_CREDS="no"
+[ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
 
 if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_CREDS" = "yes" ]; then
   echo -e "  ${GREEN}✓ Claude credentials${NC} ${DIM}(already configured)${NC}"
@@ -320,7 +322,8 @@ else
       docker exec -it ct-cloud claude login 2>&1 || true
       echo ""
 
-      HAS_CREDS=$(docker exec ct-cloud test -f /root/.claude/.credentials.json && echo "yes" || echo "no")
+      HAS_CREDS="no"
+      [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
       if [ "$HAS_CREDS" = "yes" ]; then
         echo -e "  ${GREEN}✓ Claude authenticated successfully${NC}"
       else
@@ -340,12 +343,13 @@ echo ""
 # 6. Git & GitHub setup (inside container)
 # ══════════════════════════════════════════════
 
-# Re-check git config (container may have been rebuilt)
-GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
-GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
+# Re-check git config (from host-side volumes, no docker exec needed)
+GIT_NAME_VAL=$(grep 'name\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
 HAS_GIT_NAME="no"
 [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-HAS_GIT_TOKEN=$(docker exec ct-cloud test -s /root/.git-credentials 2>/dev/null && echo "yes" || echo "no")
+HAS_GIT_TOKEN="no"
+[ -s data/git-credentials ] && HAS_GIT_TOKEN="yes"
 
 if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_GIT_NAME" = "yes" ] && [ "$HAS_GIT_TOKEN" = "yes" ]; then
   echo -e "  ${GREEN}✓ Git identity${NC} ${DIM}($GIT_NAME_VAL <$GIT_EMAIL_VAL>)${NC}"
