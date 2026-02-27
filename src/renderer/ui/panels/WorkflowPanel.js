@@ -34,6 +34,25 @@ const STEP_TYPES = [
   { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),   desc: 'Branchement' },
 ];
 
+const STEP_FIELDS = {
+  shell:     [{ key: 'command', label: 'Commande', placeholder: 'npm run build', mono: true }],
+  agent:     [
+    { key: 'prompt', label: 'Prompt', placeholder: 'Analyse le code et corrige les erreurs...', textarea: true },
+    { key: 'model', label: 'Modèle', placeholder: 'claude-sonnet-4-5-20250929 (optionnel)' },
+  ],
+  git:       [{ key: 'command', label: 'Commande git', placeholder: 'pull / push / commit -m "msg"', mono: true }],
+  http:      [
+    { key: 'url', label: 'URL', placeholder: 'https://api.example.com/endpoint', mono: true },
+    { key: 'method', label: 'Méthode', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'] },
+  ],
+  notify:    [
+    { key: 'title', label: 'Titre', placeholder: 'Build terminé' },
+    { key: 'message', label: 'Message', placeholder: 'Le build $project est OK', textarea: true },
+  ],
+  wait:      [{ key: 'duration', label: 'Durée', placeholder: '30s / 5m / 1h' }],
+  condition: [{ key: 'expression', label: 'Expression', placeholder: '$ctx.branch == main', mono: true }],
+};
+
 const TRIGGER_CONFIG = {
   cron: {
     label: 'Cron',
@@ -589,7 +608,8 @@ function openBuilder(workflowId = null) {
     hookType: wf?.hookType || 'PostToolUse',
     scope: wf?.scope || 'current',
     concurrency: wf?.concurrency || 'skip',
-    steps: wf?.steps ? [...wf.steps] : [],
+    steps: wf?.steps ? wf.steps.map(s => ({ ...s })) : [],
+    _editingIdx: -1,
   };
 
   let step = 1;
@@ -649,10 +669,15 @@ function openBuilder(workflowId = null) {
     });
     overlay.querySelectorAll('[data-pick]').forEach(btn => {
       btn.addEventListener('click', () => {
-        draft.steps.push({ id: `step_${draft.steps.length + 1}`, type: btn.dataset.pick });
+        syncStepInputs();
+        const newIdx = draft.steps.length;
+        draft.steps.push({ id: `step_${newIdx + 1}`, type: btn.dataset.pick });
+        draft._editingIdx = newIdx;
         overlay.querySelector('.wf-picker')?.classList.remove('wf-picker--open');
         drawStepsList();
         rebindSteps();
+        const firstInput = overlay.querySelector('.wf-step-edit .wf-step-edit-input');
+        if (firstInput) setTimeout(() => firstInput.focus(), 50);
       });
     });
     rebindSteps();
@@ -671,19 +696,63 @@ function openBuilder(workflowId = null) {
   };
 
   const rebindSteps = () => {
+    // Delete buttons
     overlay.querySelectorAll('.wf-step-node-del').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const idx = parseInt(btn.dataset.idx);
         draft.steps.splice(idx, 1);
+        if (draft._editingIdx === idx) draft._editingIdx = -1;
+        else if (draft._editingIdx > idx) draft._editingIdx--;
         drawStepsList();
         rebindSteps();
       });
+    });
+
+    // Click on step row to toggle edit
+    overlay.querySelectorAll('.wf-step-node-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.wf-step-node-del')) return;
+        const node = row.closest('.wf-step-node');
+        const idx = parseInt(node.dataset.stepIdx);
+        syncStepInputs();
+        draft._editingIdx = draft._editingIdx === idx ? -1 : idx;
+        drawStepsList();
+        rebindSteps();
+        // Focus first input in edit panel
+        if (draft._editingIdx >= 0) {
+          const firstInput = overlay.querySelector('.wf-step-edit .wf-step-edit-input');
+          if (firstInput) setTimeout(() => firstInput.focus(), 50);
+        }
+      });
+    });
+
+    // Bind edit inputs to draft
+    overlay.querySelectorAll('.wf-step-edit-input').forEach(input => {
+      const handler = () => {
+        const idx = parseInt(input.dataset.stepIdx);
+        const key = input.dataset.key;
+        if (draft.steps[idx]) draft.steps[idx][key] = input.value;
+      };
+      input.addEventListener('input', handler);
+      input.addEventListener('change', handler);
+      // Stop click propagation so clicking input doesn't close edit
+      input.addEventListener('click', e => e.stopPropagation());
+    });
+  };
+
+  const syncStepInputs = () => {
+    overlay.querySelectorAll('.wf-step-edit-input').forEach(input => {
+      const idx = parseInt(input.dataset.stepIdx);
+      const key = input.dataset.key;
+      if (draft.steps[idx]) draft.steps[idx][key] = input.value;
     });
   };
 
   const sync = () => {
     const n = overlay.querySelector('#wf-name'); if (n) draft.name = n.value;
     const tv = overlay.querySelector('#wf-trigger-value'); if (tv) draft.triggerValue = tv.value;
+    syncStepInputs();
   };
 
   const drawTriggerSub = () => {
@@ -726,6 +795,36 @@ function openBuilder(workflowId = null) {
     });
   };
 
+  const buildStepEditHtml = (s, idx) => {
+    const baseType = (s.type || '').split('.')[0];
+    const fields = STEP_FIELDS[baseType];
+    if (!fields || !fields.length) return '<div class="wf-step-edit-empty">Aucune configuration requise</div>';
+    return fields.map(f => {
+      const val = s[f.key] || '';
+      if (f.type === 'select') {
+        return `
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${f.label}</label>
+            <select class="wf-input wf-step-edit-input" data-step-idx="${idx}" data-key="${f.key}">
+              ${f.options.map(o => `<option value="${o}" ${val === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
+          </div>`;
+      }
+      if (f.textarea) {
+        return `
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${f.label}</label>
+            <textarea class="wf-input wf-step-edit-input ${f.mono ? 'wf-input--mono' : ''}" data-step-idx="${idx}" data-key="${f.key}" placeholder="${f.placeholder || ''}" rows="3">${escapeHtml(val)}</textarea>
+          </div>`;
+      }
+      return `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <input class="wf-input wf-step-edit-input ${f.mono ? 'wf-input--mono' : ''}" data-step-idx="${idx}" data-key="${f.key}" placeholder="${f.placeholder || ''}" value="${escapeHtml(val)}">
+        </div>`;
+    }).join('');
+  };
+
   const drawStepsList = () => {
     const list = overlay.querySelector('#wf-steps-list');
     if (!list) return;
@@ -737,16 +836,24 @@ function openBuilder(workflowId = null) {
     }
     list.innerHTML = draft.steps.map((s, i) => {
       const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
+      const isEditing = draft._editingIdx === i;
+      const hasConfig = s.command || s.prompt || s.url || s.title || s.duration || s.expression;
+      const summary = s.command || s.prompt || s.url || s.title || s.expression || '';
+      const shortSummary = summary.length > 50 ? summary.slice(0, 50) + '…' : summary;
       return `
         ${i > 0 ? '<div class="wf-pipe-connector"><svg width="2" height="20" viewBox="0 0 2 20"><line x1="1" y1="0" x2="1" y2="20" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="3 3"/></svg></div>' : ''}
-        <div class="wf-step-node" style="--step-delay: ${i * 40}ms" data-color="${info.color}">
-          <div class="wf-step-node-idx"><span>${i + 1}</span></div>
-          <span class="wf-step-node-chip wf-chip wf-chip--${info.color}">${info.icon}</span>
-          <div class="wf-step-node-body">
-            <span class="wf-step-node-type">${escapeHtml(info.label)}</span>
-            <span class="wf-step-node-id">${escapeHtml(s.id)}</span>
+        <div class="wf-step-node ${isEditing ? 'editing' : ''}" style="--step-delay: ${i * 40}ms" data-color="${info.color}" data-step-idx="${i}">
+          <div class="wf-step-node-row">
+            <div class="wf-step-node-idx"><span>${i + 1}</span></div>
+            <span class="wf-step-node-chip wf-chip wf-chip--${info.color}">${info.icon}</span>
+            <div class="wf-step-node-body">
+              <span class="wf-step-node-type">${escapeHtml(info.label)}</span>
+              <span class="wf-step-node-id">${escapeHtml(s.id)}</span>
+              ${!isEditing && shortSummary ? `<span class="wf-step-node-summary">${escapeHtml(shortSummary)}</span>` : ''}
+            </div>
+            <button class="wf-step-node-del" data-idx="${i}">${svgX(11)}</button>
           </div>
-          <button class="wf-step-node-del" data-idx="${i}">${svgX(11)}</button>
+          ${isEditing ? `<div class="wf-step-edit">${buildStepEditHtml(s, i)}</div>` : ''}
         </div>
       `;
     }).join('');
