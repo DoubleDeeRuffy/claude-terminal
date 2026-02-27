@@ -11,7 +11,7 @@ const os = require('os');
 const { randomUUID } = require('crypto');
 const { settingsFile } = require('../utils/paths');
 
-const TELEMETRY_URL = process.env.TELEMETRY_URL || 'https://telemetry.claude-terminal.com';
+const TELEMETRY_URL = process.env.TELEMETRY_URL || 'https://telemetry.claudeterminal.dev';
 const PING_PATH = '/api/v1/ping';
 const TIMEOUT = 5000;
 
