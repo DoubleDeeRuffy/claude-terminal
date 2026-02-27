@@ -1,5 +1,7 @@
 const { escapeHtml } = require('../../utils');
 const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
+const { getAgents } = require('../../services/AgentService');
+const { getSkills } = require('../../services/SkillService');
 
 let ctx = null;
 
@@ -25,7 +27,7 @@ const HOOK_TYPES = [
 ];
 
 const STEP_TYPES = [
-  { type: 'agent',     label: 'Agent',     color: 'accent',   icon: svgAgent(),  desc: 'Prompt Claude' },
+  { type: 'claude',    label: 'Claude',    color: 'accent',   icon: svgClaude(), desc: 'Prompt, Agent ou Skill' },
   { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),  desc: 'Commande bash' },
   { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),    desc: 'Opération git' },
   { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),   desc: 'Requête API' },
@@ -34,23 +36,80 @@ const STEP_TYPES = [
   { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),   desc: 'Branchement' },
 ];
 
+const GIT_ACTIONS = [
+  { value: 'pull',     label: 'Pull',     desc: 'Récupérer les changements distants' },
+  { value: 'push',     label: 'Push',     desc: 'Pousser les commits locaux' },
+  { value: 'commit',   label: 'Commit',   desc: 'Créer un commit', extra: [{ key: 'message', label: 'Message de commit', placeholder: 'feat: add new feature', mono: true }] },
+  { value: 'checkout', label: 'Checkout', desc: 'Changer de branche', extra: [{ key: 'branch', label: 'Branche', placeholder: 'main / develop / feature/...', mono: true }] },
+  { value: 'merge',    label: 'Merge',    desc: 'Fusionner une branche', extra: [{ key: 'branch', label: 'Branche source', placeholder: 'feature/my-branch', mono: true }] },
+  { value: 'stash',    label: 'Stash',    desc: 'Mettre de côté les changements' },
+  { value: 'stash-pop',label: 'Stash Pop',desc: 'Restaurer les changements mis de côté' },
+  { value: 'reset',    label: 'Reset',    desc: 'Annuler les changements non commités' },
+];
+
+const WAIT_UNITS = [
+  { value: 's', label: 'Secondes' },
+  { value: 'm', label: 'Minutes' },
+  { value: 'h', label: 'Heures' },
+];
+
+const CONDITION_VARS = [
+  { value: '$ctx.branch',      label: 'Branche actuelle' },
+  { value: '$ctx.exitCode',    label: 'Code de sortie' },
+  { value: '$ctx.project',     label: 'Nom du projet' },
+  { value: '$ctx.prevStatus',  label: 'Statut step précédent' },
+  { value: '$env.',            label: 'Variable d\'env', extra: [{ key: 'envVar', label: 'Nom', placeholder: 'NODE_ENV', mono: true }] },
+];
+
+const CONDITION_OPS = [
+  { value: '==', label: '==' },
+  { value: '!=', label: '!=' },
+  { value: 'contains', label: 'contient' },
+  { value: 'starts_with', label: 'commence par' },
+  { value: 'matches', label: 'regex' },
+];
+
 const STEP_FIELDS = {
-  shell:     [{ key: 'command', label: 'Commande', placeholder: 'npm run build', mono: true }],
-  agent:     [
-    { key: 'prompt', label: 'Prompt', placeholder: 'Analyse le code et corrige les erreurs...', textarea: true },
-    { key: 'model', label: 'Modèle', placeholder: 'claude-sonnet-4-5-20250929 (optionnel)' },
+  shell: [
+    { key: 'command', label: 'Commande', placeholder: 'npm run build', mono: true },
   ],
-  git:       [{ key: 'command', label: 'Commande git', placeholder: 'pull / push / commit -m "msg"', mono: true }],
-  http:      [
+  claude: [
+    { key: 'mode', label: 'Mode', type: 'claude-mode-tabs' },
+    { key: 'prompt', label: 'Prompt', type: 'variable-textarea', showIf: (s) => !s.mode || s.mode === 'prompt' },
+    { key: 'agentId', label: 'Agent', type: 'agent-picker', showIf: (s) => s.mode === 'agent' },
+    { key: 'skillId', label: 'Skill', type: 'skill-picker', showIf: (s) => s.mode === 'skill' },
+    { key: 'prompt', label: 'Instructions additionnelles', placeholder: 'Contexte supplémentaire (optionnel)', textarea: true, showIf: (s) => s.mode === 'agent' || s.mode === 'skill' },
+    { key: 'model', label: 'Modèle', type: 'model-select' },
+    { key: 'effort', label: 'Effort', type: 'effort-select' },
+    { key: 'outputSchema', label: 'Sortie structurée', type: 'structured-output' },
+  ],
+  agent: 'claude',
+  git: [
+    { key: 'action', label: 'Action', type: 'action-select', actions: GIT_ACTIONS },
+  ],
+  http: [
+    { key: 'method', label: 'Méthode', type: 'select', options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default: 'GET' },
     { key: 'url', label: 'URL', placeholder: 'https://api.example.com/endpoint', mono: true },
-    { key: 'method', label: 'Méthode', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'] },
+    { key: 'headers', label: 'Headers', placeholder: 'Content-Type: application/json', textarea: true, mono: true, showIf: (s) => ['POST', 'PUT', 'PATCH'].includes(s.method) },
+    { key: 'body', label: 'Body', placeholder: '{ "key": "value" }', textarea: true, mono: true, showIf: (s) => ['POST', 'PUT', 'PATCH'].includes(s.method) },
   ],
-  notify:    [
+  notify: [
     { key: 'title', label: 'Titre', placeholder: 'Build terminé' },
     { key: 'message', label: 'Message', placeholder: 'Le build $project est OK', textarea: true },
   ],
-  wait:      [{ key: 'duration', label: 'Durée', placeholder: '30s / 5m / 1h' }],
-  condition: [{ key: 'expression', label: 'Expression', placeholder: '$ctx.branch == main', mono: true }],
+  wait: [
+    { key: 'duration', label: 'Durée', type: 'duration-picker' },
+  ],
+  condition: [
+    { key: 'condition', label: 'Condition', type: 'condition-builder' },
+  ],
+};
+
+// Resolve step type with backward compat (agent → claude)
+const STEP_TYPE_ALIASES = { agent: 'claude' };
+const findStepType = (type) => {
+  const resolved = STEP_TYPE_ALIASES[type] || type;
+  return STEP_TYPES.find(x => x.type === resolved) || STEP_TYPES[0];
 };
 
 const TRIGGER_CONFIG = {
@@ -509,7 +568,7 @@ function cardHtml(wf) {
         </div>
         <div class="wf-card-pipeline">
           ${(wf.steps || []).map((s, i) => {
-            const info = STEP_TYPES.find(x => x.type === (s.type || '').split('.')[0]) || STEP_TYPES[0];
+            const info = findStepType((s.type || '').split('.')[0]);
             const stepStatus = lastRun ? (lastRun.steps?.[i]?.status || '') : '';
             return `<div class="wf-pipe-step ${stepStatus ? 'wf-pipe-step--' + stepStatus : ''}" title="${escapeHtml(s.type || '')}">
               <span class="wf-chip wf-chip--${info.color}">${info.icon}</span>
@@ -580,7 +639,7 @@ function renderRunHistory(el) {
               <div class="wf-run-pipeline">
                 ${(run.steps || []).map((s, i) => {
                   const sType = (s.type || s.name || '').split('.')[0];
-                  const info = STEP_TYPES.find(x => x.type === sType) || STEP_TYPES[0];
+                  const info = findStepType(sType);
                   return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
                     <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
                     <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
@@ -736,8 +795,215 @@ function openBuilder(workflowId = null) {
       };
       input.addEventListener('input', handler);
       input.addEventListener('change', handler);
-      // Stop click propagation so clicking input doesn't close edit
       input.addEventListener('click', e => e.stopPropagation());
+    });
+
+    // Bind agent picker cards
+    overlay.querySelectorAll('.wf-agent-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(card.dataset.stepIdx);
+        const agentId = card.dataset.agentId;
+        if (draft.steps[idx]) draft.steps[idx].agentId = agentId;
+        const grid = card.closest('.wf-agent-grid');
+        grid.querySelectorAll('.wf-agent-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    // Bind action cards (git actions, etc.)
+    overlay.querySelectorAll('.wf-action-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(card.dataset.stepIdx);
+        const key = card.dataset.key;
+        const action = card.dataset.action;
+        if (draft.steps[idx]) draft.steps[idx][key] = action;
+        // Re-render to show/hide extra fields
+        drawStepsList();
+        rebindSteps();
+      });
+    });
+
+    // Bind duration picker
+    overlay.querySelectorAll('.wf-duration-value, .wf-duration-unit').forEach(input => {
+      const handler = () => {
+        const idx = parseInt(input.dataset.stepIdx);
+        const row = input.closest('.wf-duration-row');
+        const v = row.querySelector('.wf-duration-value').value;
+        const u = row.querySelector('.wf-duration-unit').value;
+        if (draft.steps[idx] && v) draft.steps[idx].duration = `${v}${u}`;
+      };
+      input.addEventListener('input', handler);
+      input.addEventListener('change', handler);
+      input.addEventListener('click', e => e.stopPropagation());
+    });
+
+    // Bind condition builder
+    overlay.querySelectorAll('.wf-cond-var, .wf-cond-op, .wf-cond-val').forEach(input => {
+      const handler = () => {
+        const idx = parseInt(input.dataset.stepIdx);
+        const container = input.closest('.wf-step-edit-field');
+        const variable = container.querySelector('.wf-cond-var').value;
+        const op = container.querySelector('.wf-cond-op').value;
+        const val = container.querySelector('.wf-cond-val').value;
+        if (draft.steps[idx]) {
+          draft.steps[idx].__cond_var = variable;
+          draft.steps[idx].__cond_op = op;
+          draft.steps[idx].__cond_val = val;
+          // Also build readable expression
+          draft.steps[idx].expression = `${variable} ${op} ${val}`;
+        }
+      };
+      input.addEventListener('input', handler);
+      input.addEventListener('change', handler);
+      input.addEventListener('click', e => e.stopPropagation());
+      // Re-render on var change to show/hide env field
+      if (input.classList.contains('wf-cond-var')) {
+        input.addEventListener('change', () => {
+          const idx = parseInt(input.dataset.stepIdx);
+          handler(); // sync first
+          drawStepsList();
+          rebindSteps();
+        });
+      }
+    });
+
+    // Bind HTTP method change — re-render to show/hide body/headers
+    overlay.querySelectorAll('.wf-step-edit-input[data-key="method"]').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const idx = parseInt(sel.dataset.stepIdx);
+        if (draft.steps[idx]) {
+          draft.steps[idx].method = sel.value;
+          syncStepInputs();
+          drawStepsList();
+          rebindSteps();
+        }
+      });
+    });
+
+    // Bind Claude mode tabs
+    overlay.querySelectorAll('.wf-claude-mode-tab').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.stepIdx);
+        const mode = btn.dataset.mode;
+        if (draft.steps[idx]) {
+          draft.steps[idx].mode = mode;
+          if (mode === 'prompt') { delete draft.steps[idx].agentId; delete draft.steps[idx].skillId; }
+          if (mode === 'agent')  { delete draft.steps[idx].skillId; }
+          if (mode === 'skill')  { delete draft.steps[idx].agentId; }
+        }
+        syncStepInputs();
+        drawStepsList();
+        rebindSteps();
+      });
+    });
+
+    // Bind skill picker cards
+    overlay.querySelectorAll('.wf-skill-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(card.dataset.stepIdx);
+        const skillId = card.dataset.skillId;
+        if (draft.steps[idx]) draft.steps[idx].skillId = skillId;
+        const grid = card.closest('.wf-agent-grid');
+        grid.querySelectorAll('.wf-skill-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    // Bind variable insert buttons
+    overlay.querySelectorAll('.wf-var-insert-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = btn.dataset.stepIdx;
+        const dropdown = overlay.querySelector(`.wf-var-dropdown[data-step-idx="${idx}"]`);
+        if (dropdown) dropdown.style.display = dropdown.style.display === 'none' ? 'flex' : 'none';
+      });
+    });
+
+    // Bind variable item selection
+    overlay.querySelectorAll('.wf-var-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const varKey = item.dataset.varKey;
+        const dropdown = item.closest('.wf-var-dropdown');
+        const idx = dropdown.dataset.stepIdx;
+        const textarea = overlay.querySelector(`.wf-var-textarea[data-step-idx="${idx}"]`);
+        if (textarea) {
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const text = textarea.value;
+          textarea.value = text.slice(0, start) + varKey + text.slice(end);
+          textarea.selectionStart = textarea.selectionEnd = start + varKey.length;
+          textarea.focus();
+          const stepIdx = parseInt(idx);
+          if (draft.steps[stepIdx]) draft.steps[stepIdx].prompt = textarea.value;
+        }
+        dropdown.style.display = 'none';
+      });
+    });
+
+    // Bind schema toggle
+    overlay.querySelectorAll('.wf-schema-enabled').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(cb.dataset.stepIdx);
+        if (draft.steps[idx]) {
+          draft.steps[idx]._schemaEnabled = cb.checked;
+          if (cb.checked && (!draft.steps[idx].outputSchema || !draft.steps[idx].outputSchema.length)) {
+            draft.steps[idx].outputSchema = [{ name: '', type: 'string' }];
+          }
+          if (!cb.checked) draft.steps[idx].outputSchema = [];
+        }
+        syncStepInputs();
+        drawStepsList();
+        rebindSteps();
+      });
+    });
+
+    // Bind schema add field
+    overlay.querySelectorAll('.wf-schema-add').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.stepIdx);
+        if (!draft.steps[idx].outputSchema) draft.steps[idx].outputSchema = [];
+        draft.steps[idx].outputSchema.push({ name: '', type: 'string' });
+        drawStepsList();
+        rebindSteps();
+      });
+    });
+
+    // Bind schema name/type inputs
+    overlay.querySelectorAll('.wf-schema-name, .wf-schema-type').forEach(input => {
+      const handler = () => {
+        const idx = parseInt(input.dataset.stepIdx);
+        const fi = parseInt(input.dataset.fieldIdx);
+        if (!draft.steps[idx]?.outputSchema?.[fi]) return;
+        if (input.classList.contains('wf-schema-name')) {
+          draft.steps[idx].outputSchema[fi].name = input.value;
+        } else {
+          draft.steps[idx].outputSchema[fi].type = input.value;
+        }
+      };
+      input.addEventListener('input', handler);
+      input.addEventListener('change', handler);
+      input.addEventListener('click', (e) => e.stopPropagation());
+    });
+
+    // Bind schema delete field
+    overlay.querySelectorAll('.wf-schema-del').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.stepIdx);
+        const fi = parseInt(btn.dataset.fieldIdx);
+        if (draft.steps[idx]?.outputSchema) {
+          draft.steps[idx].outputSchema.splice(fi, 1);
+          drawStepsList();
+          rebindSteps();
+        }
+      });
     });
   };
 
@@ -795,12 +1061,257 @@ function openBuilder(workflowId = null) {
     });
   };
 
+  const getAvailableVars = (draft, currentIdx) => {
+    const vars = [
+      { group: 'Contexte', items: [
+        { key: '$ctx.project', label: 'Nom du projet' },
+        { key: '$ctx.branch', label: 'Branche git' },
+        { key: '$ctx.date', label: 'Date courante' },
+        { key: '$ctx.lastCommit', label: 'Dernier commit' },
+        { key: '$ctx.trigger', label: 'Déclencheur' },
+      ]},
+      { group: 'Environnement', items: [
+        { key: '$env.NODE_ENV', label: 'NODE_ENV' },
+        { key: '$env.HOME', label: 'HOME' },
+        { key: '$env.PATH', label: 'PATH' },
+      ]},
+    ];
+    const prevSteps = draft.steps.slice(0, currentIdx);
+    if (prevSteps.length) {
+      const items = [];
+      for (const ps of prevSteps) {
+        items.push({ key: `$${ps.id}.output`, label: `${ps.id} — sortie` });
+        items.push({ key: `$${ps.id}.exitCode`, label: `${ps.id} — code retour` });
+        if (ps.outputSchema?.length) {
+          for (const field of ps.outputSchema) {
+            if (field.name) items.push({ key: `$${ps.id}.${field.name}`, label: `${ps.id} — ${field.name}` });
+          }
+        }
+      }
+      vars.push({ group: 'Steps précédents', items });
+    }
+    return vars;
+  };
+
   const buildStepEditHtml = (s, idx) => {
     const baseType = (s.type || '').split('.')[0];
-    const fields = STEP_FIELDS[baseType];
+    let fields = STEP_FIELDS[baseType];
+    // Follow alias (e.g. agent → claude)
+    if (typeof fields === 'string') fields = STEP_FIELDS[fields];
     if (!fields || !fields.length) return '<div class="wf-step-edit-empty">Aucune configuration requise</div>';
     return fields.map(f => {
-      const val = s[f.key] || '';
+      // Skip fields with showIf that evaluates to false
+      if (f.showIf && !f.showIf(s)) return '';
+      const val = s[f.key] || f.default || '';
+
+      // Claude mode tabs — Prompt | Agent | Skill
+      if (f.type === 'claude-mode-tabs') {
+        const modes = [
+          { id: 'prompt', label: 'Prompt', icon: svgPrompt(14), desc: 'Texte libre' },
+          { id: 'agent',  label: 'Agent',  icon: svgAgent(14),  desc: 'Agent Claude' },
+          { id: 'skill',  label: 'Skill',  icon: svgSkill(14),  desc: 'Skill installée' },
+        ];
+        return `<div class="wf-step-edit-field">
+          <div class="wf-claude-mode-tabs">
+            ${modes.map(m => `
+              <button class="wf-claude-mode-tab ${(s.mode || 'prompt') === m.id ? 'active' : ''}"
+                      data-step-idx="${idx}" data-mode="${m.id}">
+                ${m.icon}
+                <span class="wf-claude-mode-label">${m.label}</span>
+                <span class="wf-claude-mode-desc">${m.desc}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>`;
+      }
+
+      // Variable textarea — prompt with $ variable insertion
+      if (f.type === 'variable-textarea') {
+        const availVars = getAvailableVars(draft, idx);
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-var-textarea-wrapper">
+            <textarea class="wf-input wf-step-edit-input wf-var-textarea" data-step-idx="${idx}" data-key="prompt"
+                      placeholder="Décrivez ce que Claude doit faire..." rows="4">${escapeHtml(s.prompt || '')}</textarea>
+            <button class="wf-var-insert-btn" data-step-idx="${idx}" title="Insérer une variable">$</button>
+          </div>
+          <div class="wf-var-dropdown" style="display:none" data-step-idx="${idx}">
+            ${availVars.map(g => `
+              <div class="wf-var-group-label">${escapeHtml(g.group)}</div>
+              ${g.items.map(v => `
+                <button class="wf-var-item" data-var-key="${escapeHtml(v.key)}">
+                  <span>${escapeHtml(v.label)}</span>
+                  <span class="wf-var-item-key">${escapeHtml(v.key)}</span>
+                </button>
+              `).join('')}
+            `).join('')}
+          </div>
+        </div>`;
+      }
+
+      // Skill picker — grid of detected skills
+      if (f.type === 'skill-picker') {
+        const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
+        if (!skills.length) {
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${f.label}</label>
+            <div class="wf-agent-empty">Aucune skill détectée dans ~/.claude/skills/</div>
+          </div>`;
+        }
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-agent-grid">
+            ${skills.map(sk => `
+              <button class="wf-agent-card wf-skill-card ${val === sk.id ? 'active' : ''}"
+                      data-skill-id="${escapeHtml(sk.id)}" data-step-idx="${idx}">
+                <span class="wf-agent-card-name">${escapeHtml(sk.name)}</span>
+                <span class="wf-agent-card-desc">${escapeHtml(sk.description || '')}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>`;
+      }
+
+      // Model select
+      if (f.type === 'model-select') {
+        const models = [
+          { value: '', label: 'Par défaut' },
+          { value: 'sonnet', label: 'Sonnet' },
+          { value: 'opus', label: 'Opus' },
+          { value: 'haiku', label: 'Haiku' },
+        ];
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <select class="wf-input wf-step-edit-input" data-step-idx="${idx}" data-key="model">
+            ${models.map(m => `<option value="${m.value}" ${(s.model || '') === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}
+          </select>
+        </div>`;
+      }
+
+      // Effort select
+      if (f.type === 'effort-select') {
+        const efforts = [
+          { value: '', label: 'Par défaut' },
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+        ];
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <select class="wf-input wf-step-edit-input" data-step-idx="${idx}" data-key="effort">
+            ${efforts.map(e => `<option value="${e.value}" ${(s.effort || '') === e.value ? 'selected' : ''}>${e.label}</option>`).join('')}
+          </select>
+        </div>`;
+      }
+
+      // Structured output schema builder
+      if (f.type === 'structured-output') {
+        const schema = s.outputSchema || [];
+        const enabled = schema.length > 0 || s._schemaEnabled;
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-schema-toggle">
+            <label class="wf-switch wf-switch--sm"><input type="checkbox" class="wf-schema-enabled" data-step-idx="${idx}" ${enabled ? 'checked' : ''}><span class="wf-switch-track"></span></label>
+            <span class="wf-schema-toggle-label">Définir un schéma de sortie JSON</span>
+          </div>
+          ${enabled ? `
+            <div class="wf-schema-fields" data-step-idx="${idx}">
+              ${schema.map((field, fi) => `
+                <div class="wf-schema-row" data-field-idx="${fi}">
+                  <input class="wf-input wf-step-edit-input wf-schema-name" placeholder="nom" value="${escapeHtml(field.name || '')}" data-step-idx="${idx}" data-field-idx="${fi}">
+                  <select class="wf-input wf-step-edit-input wf-schema-type" data-step-idx="${idx}" data-field-idx="${fi}">
+                    ${['string', 'number', 'boolean', 'array', 'object'].map(t => `<option value="${t}" ${field.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                  </select>
+                  <button class="wf-schema-del" data-step-idx="${idx}" data-field-idx="${fi}">${svgX(10)}</button>
+                </div>
+              `).join('')}
+              <button class="wf-schema-add" data-step-idx="${idx}">+ Ajouter un champ</button>
+            </div>
+          ` : ''}
+        </div>`;
+      }
+
+      // Agent picker — grid of detected agents
+      if (f.type === 'agent-picker') {
+        const agents = getAgents() || [];
+        if (!agents.length) {
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${f.label}</label>
+            <div class="wf-agent-empty">Aucun agent détecté dans ~/.claude/agents/</div>
+          </div>`;
+        }
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-agent-grid">
+            ${agents.map(a => `
+              <button class="wf-agent-card ${val === a.id ? 'active' : ''}" data-agent-id="${escapeHtml(a.id)}" data-step-idx="${idx}">
+                <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
+                <span class="wf-agent-card-desc">${escapeHtml(a.description || '')}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>`;
+      }
+
+      // Action select — grid of action cards with optional extra fields
+      if (f.type === 'action-select') {
+        const currentAction = f.actions.find(a => a.value === val);
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-action-grid">
+            ${f.actions.map(a => `
+              <button class="wf-action-card ${val === a.value ? 'active' : ''}" data-action="${escapeHtml(a.value)}" data-step-idx="${idx}" data-key="${f.key}">
+                <span class="wf-action-card-label">${escapeHtml(a.label)}</span>
+                <span class="wf-action-card-desc">${escapeHtml(a.desc)}</span>
+              </button>
+            `).join('')}
+          </div>
+          ${currentAction && currentAction.extra ? currentAction.extra.map(ex => `
+            <div class="wf-step-edit-field wf-extra-field" style="margin-top:8px">
+              <label class="wf-step-edit-label">${ex.label}</label>
+              <input class="wf-input wf-step-edit-input ${ex.mono ? 'wf-input--mono' : ''}" data-step-idx="${idx}" data-key="${ex.key}" placeholder="${ex.placeholder || ''}" value="${escapeHtml(s[ex.key] || '')}">
+            </div>
+          `).join('') : ''}
+        </div>`;
+      }
+
+      // Duration picker — number + unit select inline
+      if (f.type === 'duration-picker') {
+        const parsed = parseDuration(val);
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-duration-row">
+            <input type="number" class="wf-input wf-step-edit-input wf-duration-value" data-step-idx="${idx}" data-key="__dur_val" placeholder="30" min="1" value="${parsed.value || ''}">
+            <select class="wf-input wf-step-edit-input wf-duration-unit" data-step-idx="${idx}" data-key="__dur_unit">
+              ${WAIT_UNITS.map(u => `<option value="${u.value}" ${parsed.unit === u.value ? 'selected' : ''}>${u.label}</option>`).join('')}
+            </select>
+          </div>
+        </div>`;
+      }
+
+      // Condition builder — variable + operator + value
+      if (f.type === 'condition-builder') {
+        const parsed = parseCondition(s);
+        return `<div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${f.label}</label>
+          <div class="wf-condition-row">
+            <select class="wf-input wf-step-edit-input wf-cond-var" data-step-idx="${idx}" data-key="__cond_var">
+              ${CONDITION_VARS.map(v => `<option value="${v.value}" ${parsed.variable === v.value ? 'selected' : ''}>${v.label}</option>`).join('')}
+            </select>
+            <select class="wf-input wf-step-edit-input wf-cond-op" data-step-idx="${idx}" data-key="__cond_op">
+              ${CONDITION_OPS.map(o => `<option value="${o.value}" ${parsed.op === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+            </select>
+            <input class="wf-input wf-step-edit-input wf-cond-val" data-step-idx="${idx}" data-key="__cond_val" placeholder="valeur" value="${escapeHtml(parsed.val)}">
+          </div>
+          ${parsed.variable === '$env.' ? `
+            <div class="wf-step-edit-field wf-extra-field" style="margin-top:6px">
+              <label class="wf-step-edit-label">Nom de la variable</label>
+              <input class="wf-input wf-step-edit-input wf-input--mono" data-step-idx="${idx}" data-key="envVar" placeholder="NODE_ENV" value="${escapeHtml(s.envVar || '')}">
+            </div>
+          ` : ''}
+        </div>`;
+      }
+
       if (f.type === 'select') {
         return `
           <div class="wf-step-edit-field">
@@ -825,6 +1336,74 @@ function openBuilder(workflowId = null) {
     }).join('');
   };
 
+  // Parse "30s" / "5m" / "1h" into { value, unit }
+  const parseDuration = (str) => {
+    if (!str) return { value: '', unit: 's' };
+    const m = String(str).match(/^(\d+)\s*(s|m|h)$/i);
+    return m ? { value: m[1], unit: m[2].toLowerCase() } : { value: str, unit: 's' };
+  };
+
+  // Parse condition from step data
+  const parseCondition = (s) => {
+    if (s.__cond_var) return { variable: s.__cond_var, op: s.__cond_op || '==', val: s.__cond_val || '' };
+    // Try to parse from expression string
+    const expr = s.expression || '';
+    for (const v of CONDITION_VARS) {
+      if (expr.startsWith(v.value)) {
+        const rest = expr.slice(v.value.length).trim();
+        for (const op of CONDITION_OPS) {
+          if (rest.startsWith(op.value)) {
+            return { variable: v.value, op: op.value, val: rest.slice(op.value.length).trim() };
+          }
+        }
+      }
+    }
+    return { variable: '$ctx.branch', op: '==', val: '' };
+  };
+
+  const getStepSummary = (s) => {
+    const baseType = (s.type || '').split('.')[0];
+    switch (baseType) {
+      case 'claude':
+      case 'agent': {
+        const mode = s.mode || 'prompt';
+        if (mode === 'agent') {
+          if (!s.agentId) return '';
+          const agents = getAgents() || [];
+          const ag = agents.find(a => a.id === s.agentId);
+          return `Agent: ${ag ? ag.name : s.agentId}`;
+        }
+        if (mode === 'skill') {
+          if (!s.skillId) return '';
+          const skills = getSkills() || [];
+          const sk = skills.find(x => x.id === s.skillId);
+          return `Skill: ${sk ? sk.name : s.skillId}`;
+        }
+        return s.prompt ? (s.prompt.length > 60 ? s.prompt.slice(0, 60) + '…' : s.prompt) : '';
+      }
+      case 'git': {
+        if (!s.action) return '';
+        const act = GIT_ACTIONS.find(a => a.value === s.action);
+        const label = act ? act.label : s.action;
+        if (s.action === 'commit' && s.message) return `${label}: ${s.message}`;
+        if ((s.action === 'checkout' || s.action === 'merge') && s.branch) return `${label} → ${s.branch}`;
+        return label;
+      }
+      case 'http':
+        return s.url ? `${s.method || 'GET'} ${s.url}` : '';
+      case 'wait':
+        return s.duration || '';
+      case 'condition':
+        return s.expression || '';
+      case 'notify':
+        return s.title || '';
+      case 'shell':
+        return s.command || '';
+      default:
+        return '';
+    }
+  };
+
   const drawStepsList = () => {
     const list = overlay.querySelector('#wf-steps-list');
     if (!list) return;
@@ -835,10 +1414,10 @@ function openBuilder(workflowId = null) {
       return;
     }
     list.innerHTML = draft.steps.map((s, i) => {
-      const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
+      const info = findStepType(s.type.split('.')[0]);
       const isEditing = draft._editingIdx === i;
-      const hasConfig = s.command || s.prompt || s.url || s.title || s.duration || s.expression;
-      const summary = s.command || s.prompt || s.url || s.title || s.expression || '';
+      const hasConfig = s.command || s.prompt || s.url || s.title || s.duration || s.expression || s.agentId || s.action;
+      const summary = getStepSummary(s);
       const shortSummary = summary.length > 50 ? summary.slice(0, 50) + '…' : summary;
       return `
         ${i > 0 ? '<div class="wf-pipe-connector"><svg width="2" height="20" viewBox="0 0 2 20"><line x1="1" y1="0" x2="1" y2="20" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="3 3"/></svg></div>' : ''}
@@ -1040,7 +1619,7 @@ function openDetail(id) {
           <div class="wf-detail-sec-title">Séquence</div>
           <div class="wf-detail-steps">
             ${(wf.steps || []).map((s, i) => {
-              const info = STEP_TYPES.find(x => x.type === (s.type || '').split('.')[0]) || STEP_TYPES[0];
+              const info = findStepType((s.type || '').split('.')[0]);
               return `
                 <div class="wf-det-step">
                   <span class="wf-det-step-n">${i + 1}</span>
@@ -1180,5 +1759,8 @@ function svgScope() { return `<svg width="11" height="11" viewBox="0 0 24 24" fi
 function svgConc() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>`; }
 function svgEmpty() { return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
 function svgRuns() { return `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`; }
+function svgClaude(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7v1a7 7 0 0 0 14 0V9a7 7 0 0 0-7-7z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/><path d="M8 18v2a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2"/></svg>`; }
+function svgPrompt(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`; }
+function svgSkill(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`; }
 
 module.exports = { init, load };

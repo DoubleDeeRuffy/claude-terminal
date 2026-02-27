@@ -1160,6 +1160,347 @@ select.wf-step-edit-input {
   padding-right: 24px !important;
 }
 
+/* ── Agent picker grid ── */
+.wf-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+}
+.wf-agent-card {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  transition: all .15s var(--wf-ease);
+}
+.wf-agent-card:hover {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.12);
+  color: var(--text-primary);
+}
+.wf-agent-card.active {
+  background: rgba(167,139,250,.08);
+  border-color: rgba(167,139,250,.4);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(167,139,250,.15);
+}
+.wf-agent-card-name {
+  font-size: 11px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wf-agent-card-desc {
+  font-size: 9px; color: var(--text-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; line-height: 1.35;
+}
+.wf-agent-empty {
+  font-size: 10px; color: var(--text-muted); opacity: .5;
+  font-style: italic; padding: 6px 0;
+}
+
+/* ── Action select grid (git actions etc.) ── */
+.wf-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 5px;
+}
+.wf-action-card {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 7px 9px;
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  transition: all .15s var(--wf-ease);
+}
+.wf-action-card:hover {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.12);
+  color: var(--text-primary);
+}
+.wf-action-card.active {
+  background: rgba(167,139,250,.08);
+  border-color: rgba(167,139,250,.4);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(167,139,250,.15);
+}
+.wf-action-card-label {
+  font-size: 11px; font-weight: 600;
+}
+.wf-action-card-desc {
+  font-size: 9px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+/* ── Duration picker ── */
+.wf-duration-row {
+  display: flex; gap: 6px; align-items: center;
+}
+.wf-duration-value {
+  flex: 1; max-width: 100px;
+}
+.wf-duration-unit {
+  flex: 1; max-width: 140px;
+}
+
+/* ── Condition builder ── */
+.wf-condition-row {
+  display: flex; gap: 6px; align-items: center;
+}
+.wf-cond-var { flex: 2; }
+.wf-cond-op  { flex: 0 0 auto; min-width: 90px; }
+.wf-cond-val { flex: 2; }
+
+/* ── Extra fields (animated) ── */
+.wf-extra-field {
+  animation: wfSlideIn .2s var(--wf-ease);
+}
+@keyframes wfSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Claude mode tabs (Prompt / Agent / Skill) ── */
+.wf-claude-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.wf-claude-mode-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 6px 8px;
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all .15s var(--wf-ease);
+  text-align: center;
+}
+.wf-claude-mode-tab:hover {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.12);
+  color: var(--text-primary);
+}
+.wf-claude-mode-tab.active {
+  background: rgba(217,119,6,.08);
+  border-color: rgba(217,119,6,.4);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(217,119,6,.15);
+}
+.wf-claude-mode-tab svg {
+  width: 18px; height: 18px;
+  opacity: .6;
+  transition: opacity .15s;
+}
+.wf-claude-mode-tab.active svg { opacity: 1; }
+.wf-claude-mode-tab-label {
+  font-size: 10px; font-weight: 600;
+}
+.wf-claude-mode-tab-desc {
+  font-size: 8.5px; color: var(--text-muted);
+  line-height: 1.3;
+}
+
+/* ── Variable textarea wrapper ── */
+.wf-var-textarea-wrapper {
+  position: relative;
+}
+.wf-var-textarea-wrapper textarea.wf-step-edit-input {
+  padding-right: 32px !important;
+}
+.wf-var-insert-btn {
+  position: absolute; top: 4px; right: 4px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 12px; font-weight: 700;
+  cursor: pointer;
+  transition: all .15s var(--wf-ease);
+  z-index: 2;
+  line-height: 1;
+}
+.wf-var-insert-btn:hover {
+  background: rgba(217,119,6,.15);
+  border-color: rgba(217,119,6,.3);
+  color: var(--accent);
+}
+
+/* ── Variable dropdown ── */
+.wf-var-dropdown {
+  display: none;
+  position: absolute; top: 28px; right: 4px;
+  width: 240px; max-height: 220px;
+  overflow-y: auto;
+  background: #1a1a1a;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  z-index: 10;
+  padding: 4px;
+  animation: wfSlideIn .15s var(--wf-ease);
+}
+.wf-var-dropdown.open { display: block; }
+.wf-var-group-label {
+  font-size: 8.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted); opacity: .6;
+  padding: 6px 8px 3px;
+}
+.wf-var-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .1s;
+}
+.wf-var-item:hover {
+  background: rgba(255,255,255,.06);
+}
+.wf-var-item-key {
+  font-size: 10.5px; font-weight: 600;
+  color: var(--accent);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+.wf-var-item-desc {
+  font-size: 9px; color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ── Skill picker (reuses agent-card style) ── */
+.wf-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+}
+.wf-skill-card {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  transition: all .15s var(--wf-ease);
+}
+.wf-skill-card:hover {
+  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.12);
+  color: var(--text-primary);
+}
+.wf-skill-card.active {
+  background: rgba(217,119,6,.08);
+  border-color: rgba(217,119,6,.4);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(217,119,6,.15);
+}
+.wf-skill-card-name {
+  font-size: 11px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wf-skill-card-desc {
+  font-size: 9px; color: var(--text-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; line-height: 1.35;
+}
+
+/* ── Model & Effort selects ── */
+.wf-model-select,
+.wf-effort-select {
+  max-width: 200px;
+}
+
+/* ── Structured output schema builder ── */
+.wf-schema-toggle {
+  display: flex; align-items: center; gap: 8px;
+}
+.wf-schema-toggle-switch {
+  position: relative;
+  width: 32px; height: 18px;
+  background: rgba(255,255,255,.08);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.wf-schema-toggle-switch::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform .2s var(--wf-ease), background .2s;
+}
+.wf-schema-toggle-switch.on {
+  background: rgba(217,119,6,.25);
+}
+.wf-schema-toggle-switch.on::after {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+.wf-schema-toggle-label {
+  font-size: 10px; font-weight: 600;
+  color: var(--text-secondary);
+}
+.wf-schema-fields {
+  display: flex; flex-direction: column; gap: 5px;
+  margin-top: 6px;
+  animation: wfSlideIn .2s var(--wf-ease);
+}
+.wf-schema-row {
+  display: flex; gap: 5px; align-items: center;
+}
+.wf-schema-name {
+  flex: 2;
+}
+.wf-schema-type {
+  flex: 1; min-width: 90px;
+}
+.wf-schema-del {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.wf-schema-del:hover {
+  background: rgba(239,68,68,.1);
+  border-color: rgba(239,68,68,.3);
+  color: #f87171;
+}
+.wf-schema-add {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 6px;
+  background: transparent;
+  border: 1.5px dashed rgba(255,255,255,.06);
+  border-radius: 6px;
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .2s var(--wf-ease);
+}
+.wf-schema-add:hover {
+  border-color: rgba(217,119,6,.3);
+  color: var(--accent);
+  background: rgba(217,119,6,.04);
+}
+
 .wf-add-step-btn {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   padding: 11px;

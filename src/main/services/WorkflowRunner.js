@@ -335,7 +335,30 @@ function runWaitStep(config, signal, waitCallbacks, runId, stepId) {
  * @param {Object}   chatService  - main ChatService singleton
  * @param {Function} onMessage    - called with each SDK message (for logging)
  */
+/**
+ * Build a JSON Schema object from user-defined output fields.
+ * @param {Array<{name:string, type:string}>} fields
+ * @returns {Object} JSON Schema
+ */
+function buildJsonSchema(fields) {
+  const properties = {};
+  const required = [];
+  for (const field of fields) {
+    if (!field.name) continue;
+    required.push(field.name);
+    switch (field.type) {
+      case 'number':  properties[field.name] = { type: 'number' }; break;
+      case 'boolean': properties[field.name] = { type: 'boolean' }; break;
+      case 'array':   properties[field.name] = { type: 'array', items: { type: 'string' } }; break;
+      case 'object':  properties[field.name] = { type: 'object' }; break;
+      default:        properties[field.name] = { type: 'string' }; break;
+    }
+  }
+  return { type: 'object', properties, required, additionalProperties: false };
+}
+
 async function runAgentStep(config, vars, signal, chatService, onMessage) {
+  const mode     = config.mode || 'prompt';
   const prompt   = resolveVars(config.prompt || '', vars);
   const cwd      = resolveVars(config.cwd || process.cwd(), vars);
   const model    = config.model || null;
@@ -344,9 +367,33 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
 
   if (signal?.aborted) throw new Error('Cancelled');
 
+  // Build session options based on mode
+  const sessionOpts = {
+    cwd,
+    prompt,
+    permissionMode: 'bypassPermissions',
+    model,
+    effort,
+    maxTurns,
+  };
+
+  // Skill mode: pass skill to SDK
+  if (mode === 'skill' && config.skillId) {
+    sessionOpts.skills = [config.skillId];
+  }
+
+  // Structured output: build JSON schema from field definitions
+  if (config.outputSchema && config.outputSchema.length > 0) {
+    const validFields = config.outputSchema.filter(f => f.name);
+    if (validFields.length > 0) {
+      sessionOpts.outputFormat = { type: 'json_schema', schema: buildJsonSchema(validFields) };
+    }
+  }
+
   return new Promise((resolve, reject) => {
     let sessionId;
     let stdout = '';
+    let structuredOutput = null;
     let cleanup;
 
     const onAbort = () => {
@@ -371,11 +418,20 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
           }
         }
       }
+      // Capture structured output from result message
+      if (channel === 'chat-message' && data.message?.type === 'result' && data.message?.structured_output) {
+        structuredOutput = data.message.structured_output;
+      }
       if (channel === 'chat-done') {
         signal?.removeEventListener('abort', onAbort);
         unregisterInterceptor?.();
         cleanup?.();
-        resolve({ output: stdout.trim(), success: true });
+        const result = { output: stdout.trim(), success: true };
+        // Merge structured output fields into step result (accessible as $stepId.fieldName)
+        if (structuredOutput && typeof structuredOutput === 'object') {
+          Object.assign(result, structuredOutput);
+        }
+        resolve(result);
       }
       if (channel === 'chat-error') {
         signal?.removeEventListener('abort', onAbort);
@@ -385,20 +441,10 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
       }
     };
 
-    chatService.startSession({
-      cwd,
-      prompt,
-      permissionMode: 'bypassPermissions',
-      model,
-      effort,
-      maxTurns,
-    }).then(id => {
+    chatService.startSession(sessionOpts).then(id => {
       sessionId = id;
-      // Register per-session interceptor (safe for parallel execution)
       unregisterInterceptor = chatService.addSessionInterceptor(id, interceptor);
-      cleanup = () => {
-        // nothing extra — session closed by chat-done/error
-      };
+      cleanup = () => {};
     }).catch(err => {
       signal?.removeEventListener('abort', onAbort);
       unregisterInterceptor?.();
@@ -614,7 +660,7 @@ class WorkflowRunner {
 
     // ── Built-in universal steps ──────────────────────────────────────────────
 
-    if (type === 'agent') {
+    if (type === 'agent' || type === 'claude') {
       return runAgentStep(step, vars, signal, this._chatService, (msg) => {
         this._send('workflow-agent-message', { runId, stepId: step.id, message: msg });
       });
