@@ -2916,7 +2916,7 @@ async function resumeSession(project, sessionId, options = {}) {
   const mode = getSetting('defaultTerminalMode') || 'terminal';
   if (mode === 'chat') {
     console.log(`[TerminalManager] Resuming in chat mode — sessionId: ${sessionId}`);
-    return createChatTerminal(project, { skipPermissions, resumeSessionId: sessionId });
+    return createChatTerminal(project, { skipPermissions, resumeSessionId: sessionId, name: sessionName });
   }
 
   const result = await api.terminal.create({
@@ -2959,7 +2959,7 @@ async function resumeSession(project, sessionId, options = {}) {
     fitAddon,
     project,
     projectIndex,
-    name: t('terminals.resuming'),
+    name: sessionName || t('terminals.resuming'),
     status: 'working',
     inputBuffer: '',
     isBasic: false
@@ -2977,7 +2977,7 @@ async function resumeSession(project, sessionId, options = {}) {
   tab.dataset.id = id;
   tab.innerHTML = `
     <span class="status-dot"></span>
-    <span class="tab-name">${escapeHtml(t('terminals.resuming'))}</span>
+    <span class="tab-name">${escapeHtml(sessionName || t('terminals.resuming'))}</span>
     <button class="tab-close"><svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></button>`;
   tabsContainer.appendChild(tab);
 
