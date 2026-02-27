@@ -1151,6 +1151,9 @@
     "helpSecurityPoint3": "Aucun serveur tiers — tout reste chez vous"
   },
   "cloud": {
+    "tabTitle": "Cloud",
+    "pendingBadge": "{count} fichier(s) en attente de sync",
+    "panelDisconnected": "Connectez-vous au serveur cloud pour synchroniser vos projets.",
     "sectionTitle": "Cloud Relay",
     "serverUrl": "URL du serveur",
     "serverUrlPlaceholder": "https://cloud.example.com",

@@ -1151,6 +1151,9 @@
     "helpSecurityPoint3": "No third-party servers — everything stays with you"
   },
   "cloud": {
+    "tabTitle": "Cloud",
+    "pendingBadge": "{count} file(s) pending sync",
+    "panelDisconnected": "Connect to your cloud server to sync projects and manage sessions.",
     "sectionTitle": "Cloud Relay",
     "serverUrl": "Server URL",
     "serverUrlPlaceholder": "https://cloud.example.com",

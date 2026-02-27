@@ -423,9 +423,29 @@ body.compact-projects .project-item:not(.active):hover {
   animation: cloud-pulse 1.5s ease-in-out infinite;
 }
 
+.project-cloud-badge.pending {
+  color: var(--warning);
+  cursor: pointer;
+  animation: cloud-pending-pulse 2s ease-in-out infinite;
+}
+
+.project-cloud-badge.pending svg {
+  width: 14px;
+  height: 14px;
+}
+
+.project-cloud-badge.pending:hover {
+  color: var(--accent-hover);
+}
+
 @keyframes cloud-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+
+@keyframes cloud-pending-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .project-actions {
