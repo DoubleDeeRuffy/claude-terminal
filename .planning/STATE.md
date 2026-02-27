@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-27T09:45:26.960Z"
+last_updated: "2026-02-27T09:49:56.477Z"
 progress:
   total_phases: 32
-  completed_phases: 27
+  completed_phases: 28
   total_plans: 41
-  completed_plans: 39
+  completed_plans: 40
 ---
 
 # Project State
@@ -22,10 +22,10 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 
 ## Current Position
 
-Phase: 21 (21-integrated-markdown-viewer) — In Progress
-Plan: 1 of 2 complete
-Status: Plan 21-01 complete — added markdown rendering branch to openFileTab with Marked instance, TOC sidebar, rendered/source toggle, Ctrl+click link gating, and full CSS theming
-Last activity: 2026-02-27 - Completed plan 21-01: markdown viewer rendering engine integrated into file tab system
+Phase: 21 (21-integrated-markdown-viewer) — Complete
+Plan: 2 of 2 complete
+Status: Plan 21-02 complete — file watcher IPC with ref-counting, live reload with scroll/TOC/source sync, Ctrl+F search bar, and double-click-to-editor wired
+Last activity: 2026-02-27 - Completed plan 21-02: markdown viewer live reload, Ctrl+F search, and double-click-to-editor integrated
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -87,6 +87,7 @@ Progress: [███████████████████████
 | Phase 6.4 P01 | 5 | 2 tasks | 1 files |
 | Phase 20-bugfix-swap-projects-selected-tab P01 | 2 | 2 tasks | 1 files |
 | Phase 21 P01 | 189 | 2 tasks | 4 files |
+| Phase Phase 21 PP02 | 5 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -183,6 +184,9 @@ Recent decisions affecting current work:
 - [Phase 21]: Use new Marked() instance (not global marked.use()) to avoid config conflict with ChatView
 - [Phase 21]: setSetting('mdViewerTocExpanded') persists TOC collapse state using \!== false guard for safe defaults
 - [Phase 21]: mdCleanup set to null on tab creation — Plan 21-02 will set it to file-watcher teardown function
+- [Phase Phase 21]: fs.watch persistent:false prevents watcher from keeping Electron process alive after all windows close
+- [Phase Phase 21]: Ref-counting on fileWatchers Map allows safe sharing of one fs.watch instance across multiple markdown tabs for the same file
+- [Phase Phase 21]: termData.mdCleanup stores teardown closure — called in closeTerminal to unsubscribe listener, call unwatchFile, and clear debounce timer
 
 ### Pending Todos
 
@@ -235,5 +239,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 21-01-PLAN.md
-Resume file: .planning/phases/21-integrated-markdown-viewer/21-01-SUMMARY.md
+Stopped at: Completed 21-02-PLAN.md
+Resume file: .planning/phases/21-integrated-markdown-viewer/21-02-SUMMARY.md
