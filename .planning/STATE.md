@@ -272,5 +272,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 22-02-PLAN.md
-Resume file: .planning/phases/22-explorer-filewatcher/22-02-SUMMARY.md
+Stopped at: Completed 14.1-02-PLAN.md
+Resume file: .planning/phases/14.1-resumed-session-tab-naming/14.1-02-SUMMARY.md
