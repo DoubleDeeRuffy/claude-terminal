@@ -2853,7 +2853,10 @@ async function renderSessionsPanel(project, emptyState) {
       const sessionId = card.dataset.sid;
       if (!sessionId) return;
       const skipPermissions = getSetting('skipPermissions') || false;
-      resumeSession(project, sessionId, { skipPermissions });
+      const session = sessionMap.get(sessionId);
+      // Only pass name if it was explicitly set (haiku AI, slash command, or manual rename)
+      const sessionName = (session?.isRenamed && session?.displayTitle) ? session.displayTitle : null;
+      resumeSession(project, sessionId, { skipPermissions, name: sessionName });
     });
 
     // New conversation button
@@ -2919,13 +2922,13 @@ async function renderSessionsPanel(project, emptyState) {
  * Resume a Claude session
  */
 async function resumeSession(project, sessionId, options = {}) {
-  const { skipPermissions = false } = options;
+  const { skipPermissions = false, name: sessionName = null } = options;
 
   // If chat mode is active, resume via SDK
   const mode = getSetting('defaultTerminalMode') || 'terminal';
   if (mode === 'chat') {
     console.log(`[TerminalManager] Resuming in chat mode — sessionId: ${sessionId}`);
-    return createChatTerminal(project, { skipPermissions, resumeSessionId: sessionId });
+    return createChatTerminal(project, { skipPermissions, resumeSessionId: sessionId, name: sessionName });
   }
 
   const result = await api.terminal.create({
@@ -2968,7 +2971,7 @@ async function resumeSession(project, sessionId, options = {}) {
     fitAddon,
     project,
     projectIndex,
-    name: t('terminals.resuming'),
+    name: sessionName || t('terminals.resuming'),
     status: 'working',
     inputBuffer: '',
     isBasic: false
@@ -2986,7 +2989,7 @@ async function resumeSession(project, sessionId, options = {}) {
   tab.dataset.id = id;
   tab.innerHTML = `
     <span class="status-dot"></span>
-    <span class="tab-name">${escapeHtml(t('terminals.resuming'))}</span>
+    <span class="tab-name">${escapeHtml(sessionName || t('terminals.resuming'))}</span>
     <button class="tab-close"><svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></button>`;
   tabsContainer.appendChild(tab);
 
