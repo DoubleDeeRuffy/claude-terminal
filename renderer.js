@@ -1567,7 +1567,9 @@ projectsState.subscribe(() => {
 
 // ========== FILE WATCHER ==========
 api.explorer.onChanges((changes) => {
-  FileExplorer.applyWatcherChanges(changes);
+  FileExplorer.applyWatcherChanges(changes).catch(() => {
+    // Silently ignore — stale path, race condition, etc.
+  });
 });
 
 api.explorer.onWatchLimitWarning((totalPaths) => {
