@@ -1223,6 +1223,10 @@ function setActiveTerminal(id) {
     } else if (termData.type !== 'file') {
       termData.fitAddon.fit();
       termData.terminal.focus();
+      // Auto-scroll to bottom on tab/project switch (Phase 20.1)
+      if (getSetting('autoScrollOnSwitch') !== false) {
+        termData.terminal.scrollToBottom();
+      }
     }
 
     // Handle project switch for time tracking
@@ -1248,8 +1252,11 @@ function setActiveTerminal(id) {
               messagesEl.scrollTop = saved.scrollTop;
             }
           } else if (termData.terminal?.buffer?.active && saved.viewportY !== undefined) {
-            const delta = saved.viewportY - termData.terminal.buffer.active.viewportY;
-            if (delta !== 0) termData.terminal.scrollLines(delta);
+            // Only restore xterm scroll position if auto-scroll-on-switch is disabled
+            if (getSetting('autoScrollOnSwitch') === false) {
+              const delta = saved.viewportY - termData.terminal.buffer.active.viewportY;
+              if (delta !== 0) termData.terminal.scrollLines(delta);
+            }
           }
         } catch (e) { /* scroll restore failed, not critical */ }
       });

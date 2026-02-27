@@ -669,6 +669,8 @@
     "aiTabNamingDesc": "Utiliser l'IA pour générer des noms courts pour les onglets à partir des messages",
     "tabRenameOnSlashCommandTerminal": "Terminal : renommer l'onglet sur commande slash",
     "terminalGroup": "Terminal",
+    "autoScrollOnSwitch": "Défilement auto vers le bas au changement d'onglet",
+    "autoScrollOnSwitchDesc": "Défiler automatiquement les terminaux vers la dernière sortie lors du changement d'onglet ou de projet",
     "tabRenameOnSlashCommand": "Renommer l'onglet sur commande slash",
     "tabRenameOnSlashCommandDesc": "Renomme automatiquement l'onglet terminal avec la dernière commande slash exécutée (ex. /gsd:verify-work 12)",
     "idleTimeout": "Délai d'inactivité",
