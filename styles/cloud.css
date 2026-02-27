@@ -3,99 +3,182 @@
    ═══════════════════════════════════════════════════════════════ */
 
 .cloud-panel {
-  padding: 24px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  max-width: 640px;
-}
-
-/* ── Install Banner ── */
-.cp-install {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
-}
-
-.cp-install-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--font-xs);
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 10px;
-}
-
-.cp-install-header svg { opacity: 0.6; }
-
-.cp-install-cmd {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
   overflow: hidden;
 }
 
-.cp-install-cmd code {
-  flex: 1;
-  padding: 10px 14px;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: var(--font-xs);
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow-x: auto;
-  user-select: all;
-  line-height: 1.5;
+/* ── Top Bar ── */
+.cp-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  gap: 16px;
 }
 
-.cp-install-copy {
-  flex-shrink: 0;
+.cp-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cp-topbar-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--accent-dim);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 100%;
-  background: transparent;
-  border: none;
-  border-left: 1px solid var(--border-color);
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 10px;
-  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
 }
 
-.cp-install-copy:hover {
+.cp-topbar-icon svg {
+  color: var(--accent);
+}
+
+.cp-topbar-title {
+  font-size: var(--font-md);
+  font-weight: 700;
   color: var(--text-primary);
-  background: var(--bg-hover);
 }
 
-.cp-install-copy.copied {
-  color: var(--success);
-}
-
-.cp-install-hint {
-  font-size: 10px;
+.cp-topbar-subtitle {
+  font-size: var(--font-2xs);
   color: var(--text-muted);
-  margin-top: 8px;
-  line-height: 1.4;
+  margin-top: 1px;
 }
 
-/* ── Connection Card ── */
-.cp-card {
-  background: var(--bg-secondary);
+.cp-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.cp-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  background: var(--bg-hover);
+  color: var(--text-muted);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 14px;
+  transition: all 0.25s;
+}
+
+.cp-status-pill.online {
+  background: rgba(34, 197, 94, 0.08);
+  color: var(--success);
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.cp-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition: all 0.25s;
+}
+
+.cp-status-pill.online .cp-status-dot {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+.cp-connect-btn {
+  padding: 6px 16px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cp-connect-btn:hover {
+  background: var(--bg-active);
+}
+
+.cp-connect-btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.cp-connect-btn.connected {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.cp-connect-btn.connected:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ── Body ── */
+.cp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+/* ── Disconnected State (centered) ── */
+.cp-disconnected {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  gap: 28px;
+  max-width: 520px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.cp-disconnected-hero {
+  text-align: center;
+}
+
+.cp-disconnected-hero svg {
+  opacity: 0.15;
+  margin-bottom: 16px;
+}
+
+.cp-disconnected-hero h2 {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.cp-disconnected-hero p {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Form Card ── */
+.cp-form-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 22px 24px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .cp-field {
@@ -113,7 +196,7 @@
 }
 
 .cp-input {
-  padding: 9px 14px;
+  padding: 10px 14px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -176,17 +259,11 @@
   line-height: 1.4;
 }
 
-/* ── Status Footer ── */
-.cp-footer {
+.cp-form-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 18px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  margin-bottom: 14px;
+  padding-top: 4px;
 }
 
 .cp-auto {
@@ -200,78 +277,186 @@
   color: var(--text-secondary);
 }
 
-.cp-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* ── Install Banner (collapsed) ── */
+.cp-install-collapsible {
+  width: 100%;
 }
 
-.cp-status-text {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-/* ── Disconnected Message ── */
-.cp-disconnected-msg {
-  text-align: center;
-  padding: 32px 16px;
-  color: var(--text-muted);
-  font-size: var(--font-sm);
-  line-height: 1.5;
-}
-
-.cp-disconnected-msg svg {
-  display: block;
-  margin: 0 auto 12px;
-  opacity: 0.3;
-}
-
-/* ── Divider ── */
-.cp-divider {
-  border-top: 1px solid var(--border-color);
-  margin: 16px 0;
-}
-
-/* ── Info Banner ── */
-.cp-info-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: var(--font-xs);
-  color: var(--success);
-  background: rgba(34, 197, 94, 0.06);
-  border: 1px solid rgba(34, 197, 94, 0.12);
-  margin-bottom: 14px;
-}
-
-/* ── Section Headers ── */
-.cp-section-header {
+.cp-install-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  padding: 8px 0;
+  transition: color 0.15s;
+}
+
+.cp-install-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.cp-install-toggle svg {
+  transition: transform 0.2s;
+}
+
+.cp-install-toggle.open svg {
+  transform: rotate(90deg);
+}
+
+.cp-install-content {
+  display: none;
+  margin-top: 8px;
+}
+
+.cp-install-content.open {
+  display: block;
+}
+
+.cp-install-cmd {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cp-install-cmd code {
+  flex: 1;
+  padding: 10px 14px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow-x: auto;
+  user-select: all;
+  line-height: 1.5;
+}
+
+.cp-install-copy {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 10px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.cp-install-copy:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.cp-install-copy.copied {
+  color: var(--success);
+}
+
+.cp-install-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+/* ── Connected Layout (grid) ── */
+.cp-connected-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  min-height: 100%;
+  align-content: start;
+}
+
+@media (max-width: 900px) {
+  .cp-connected-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cp-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* ── Section Card ── */
+.cp-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.cp-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color);
   font-size: var(--font-sm);
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 10px;
 }
 
 .cp-section-header svg {
-  opacity: 0.6;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.cp-section-header .cp-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-section-body {
+  padding: 14px 18px;
 }
 
 /* ── User Profile ── */
-.cp-user-header {
+.cp-user-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cp-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: var(--font-base);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.cp-user-meta {
+  min-width: 0;
+  flex: 1;
 }
 
 .cp-user-name {
-  font-size: var(--font-base);
+  font-size: var(--font-sm);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -281,20 +466,27 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
   background: var(--bg-hover);
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .cp-badge.success {
-  background: rgba(34, 197, 94, 0.15);
+  background: rgba(34, 197, 94, 0.12);
   color: var(--success);
 }
 
 .cp-badge.warning {
-  background: rgba(245, 158, 11, 0.15);
+  background: rgba(245, 158, 11, 0.12);
   color: var(--warning);
+}
+
+.cp-user-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .cp-user-actions {
@@ -302,7 +494,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 10px;
+  padding-top: 4px;
 }
 
 .cp-user-save-status {
@@ -316,9 +508,10 @@
 
 /* ── Buttons ── */
 .cp-btn-sm {
-  padding: 4px 12px;
+  padding: 5px 14px;
   font-size: var(--font-xs);
-  border-radius: var(--radius-sm);
+  font-weight: 500;
+  border-radius: 6px;
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -337,23 +530,22 @@
 
 .cp-btn-danger {
   color: var(--danger) !important;
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.25);
 }
 
 .cp-btn-danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.08);
 }
 
 .cp-btn-icon {
   background: none;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 4px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   display: flex;
   align-items: center;
-  margin-left: auto;
   transition: color 0.15s, background 0.15s;
 }
 
@@ -372,9 +564,10 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 9px 14px;
   font-size: var(--font-xs);
-  border-radius: var(--radius);
+  font-weight: 500;
+  border-radius: 8px;
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -387,13 +580,8 @@
 }
 
 .cp-btn-full:disabled, .cp-btn-full.loading {
-  opacity: 0.6;
+  opacity: 0.5;
   pointer-events: none;
-}
-
-/* Use the rp-server-btn style that already exists in settings.css */
-.cloud-panel .rp-server-btn {
-  /* inherits from settings.css */
 }
 
 /* ── Sessions List ── */
@@ -407,10 +595,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border-radius: 8px;
   border: 1px solid var(--border-color);
+  gap: 10px;
 }
 
 .cp-session-info {
@@ -418,6 +607,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1;
 }
 
 .cp-session-project {
@@ -430,15 +620,16 @@
 }
 
 .cp-session-status {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
   border-radius: 8px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .cp-session-status.running {
-  background: rgba(217, 119, 6, 0.15);
+  background: rgba(217, 119, 6, 0.12);
   color: var(--accent);
 }
 
@@ -448,7 +639,7 @@
 }
 
 .cp-session-status.error {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.12);
   color: var(--danger);
 }
 
@@ -456,7 +647,7 @@
   font-size: var(--font-xs);
   color: var(--text-muted);
   text-align: center;
-  padding: 16px 0;
+  padding: 20px 0;
 }
 
 /* ── Sync Section ── */
@@ -473,10 +664,11 @@
 }
 
 .cp-sync-project {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  margin-bottom: 6px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color);
 }
 
 .cp-sync-project-header {
@@ -490,23 +682,28 @@
   font-size: var(--font-sm);
   color: var(--text-primary);
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cp-sync-count {
   font-size: var(--font-2xs);
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .cp-sync-files {
-  margin-top: 6px;
+  margin-top: 8px;
   padding-left: 4px;
 }
 
 .cp-sync-file {
   font-size: var(--font-2xs);
   color: var(--text-secondary);
-  font-family: monospace;
-  padding: 1px 0;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  padding: 2px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -517,6 +714,11 @@
   color: var(--text-muted);
   font-style: italic;
   padding-top: 2px;
+}
+
+.cp-sync-check {
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-color);
 }
 
 /* ── Sidebar Tab Badge ── */
@@ -533,16 +735,34 @@
   margin-left: 4px;
 }
 
-/* ── Status Indicator (reused from remote) ── */
-.cp-status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex-shrink: 0;
+/* ── Connection Config (collapsed in connected state) ── */
+.cp-connection-details summary {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.cp-status-indicator.online {
-  background: var(--success);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+.cp-connection-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.cp-connection-details summary svg {
+  transition: transform 0.2s;
+}
+
+.cp-connection-details[open] summary svg {
+  transform: rotate(90deg);
+}
+
+.cp-connection-details .cp-detail-fields {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
