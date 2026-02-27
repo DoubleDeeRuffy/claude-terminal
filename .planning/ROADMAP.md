@@ -390,5 +390,5 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 22-01-PLAN.md — Create chokidar watcher in main process with IPC handlers and preload bridge
+- [x] 22-01-PLAN.md — Create chokidar watcher in main process with IPC handlers and preload bridge
 - [ ] 22-02-PLAN.md — Wire watcher to FileExplorer incremental patches and project-switch lifecycle

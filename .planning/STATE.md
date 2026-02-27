@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-27T10:33:45.311Z"
+last_updated: "2026-02-27T10:45:09Z"
 progress:
   total_phases: 32
   completed_phases: 28
-  total_plans: 41
-  completed_plans: 39
+  total_plans: 43
+  completed_plans: 40
 ---
 
 # Project State
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 20.1 — Always ScrollToEnd on Switching Tabs or Projects (COMPLETE)
+**Current focus:** Phase 22 — Explorer Filewatcher (Plan 01 complete)
 
 ## Current Position
 
-Phase: 20.1 (20.1-always-scrolltoend-on-switching-tabs-or-projects) — COMPLETE
-Plan: 1 of 1 complete
-Status: Plan 20.1-01 complete — added scrollToBottom in setActiveTerminal for xterm tabs, autoScrollOnSwitch settings toggle, and i18n keys
-Last activity: 2026-02-27 - Completed plan 20.1-01: auto-scroll-to-bottom on tab/project switch with settings toggle
+Phase: 22 (22-explorer-filewatcher) — IN PROGRESS
+Plan: 1 of 2 complete
+Status: Plan 22-01 complete — chokidar file watcher backend, IPC handlers, preload bridge explorer namespace
+Last activity: 2026-02-27 - Completed plan 22-01: chokidar main-process file watcher with debounced IPC events
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -86,6 +86,7 @@ Progress: [███████████████████████
 | Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
 | Phase 6.4 P01 | 5 | 2 tasks | 1 files |
 | Phase 20-bugfix-swap-projects-selected-tab P01 | 2 | 2 tasks | 1 files |
+| Phase 22 P01 | 12 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -179,6 +180,7 @@ Recent decisions affecting current work:
 - [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
 - [Phase 6.4]: 6.4-01: cwd and claudeSessionId added directly to termData object literal (not via updateTerminal) to avoid state notification with incomplete data
 - [Phase 20-bugfix-swap-projects-selected-tab]: 20-01: lastActivePerProject Map tracks last-active terminal ID per project in-memory; filterByProject uses Map as primary restore source, disk activeTabIndex as secondary fallback
+- [Phase 22]: 22-01: chokidar@^4 (pure JS) installed with --ignore-scripts to avoid triggering better-sqlite3 native rebuild; watchId integer guard discards stale debounce callbacks from closed watchers; persistent: false and ignoreInitial: true; 350ms debounce within plan's 300-500ms range; SOFT_LIMIT=10000 paths triggers watchLimitWarning IPC
 
 ### Pending Todos
 
@@ -230,6 +232,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: Completed 12-01-PLAN.md
-Resume file: .planning/phases/12-dashboard-support-for-dotnet-projects/12-01-SUMMARY.md
+Last session: 2026-02-27
+Stopped at: Completed 22-01-PLAN.md
+Resume file: .planning/phases/22-explorer-filewatcher/22-01-SUMMARY.md
