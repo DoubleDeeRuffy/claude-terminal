@@ -294,6 +294,16 @@ Plans:
 Plans:
 - [ ] 14-01-PLAN.md — Add resume session button (HTML, CSS, click handler, i18n) in terminals-filter bar
 
+### Phase 14.1: resumed-session-tab-naming (INSERTED)
+
+**Goal:** Thread the saved session name from the resume dialog through to the tab name when resuming a Claude session, so resumed tabs display their original name instead of staying as "Resume..."
+**Requirements**: SESS-RESUME-01, TAB-RESUME-01
+**Depends on:** Phase 14
+**Plans:** 1 plan
+
+Plans:
+- [ ] 14.1-01-PLAN.md — Thread displayTitle from resume dialog sessionMap through resumeSession to tab creation in both terminal and chat modes
+
 ### Phase 15: Remember Projects width accross app restarts
 
 **Goal:** [To be planned]
