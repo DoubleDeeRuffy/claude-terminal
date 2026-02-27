@@ -88,29 +88,35 @@ export async function startServer(): Promise<void> {
     if (streamMatch) {
       const sessionId = streamMatch[1];
       const token = url.searchParams.get('token');
+      console.log(`[WS Upgrade] Session stream request for ${sessionId}, hasToken=${!!token}`);
 
       if (!token) {
+        console.log(`[WS Upgrade] No token, destroying socket`);
         socket.destroy();
         return;
       }
 
       authenticateApiKey(token).then(userName => {
         if (!userName || !sessionManager.isUserSession(sessionId, userName)) {
+          console.log(`[WS Upgrade] Auth failed or session not owned: user=${userName}`);
           socket.destroy();
           return;
         }
 
+        console.log(`[WS Upgrade] Auth OK for user=${userName}, upgrading...`);
         sessionWss.handleUpgrade(req, socket, head, ws => {
           const ok = sessionManager.addStreamClient(sessionId, ws);
           if (!ok) {
+            console.log(`[WS Upgrade] Session ${sessionId} not found after upgrade`);
             ws.close(4004, 'Session not found');
           }
         });
-      }).catch(() => socket.destroy());
+      }).catch((err) => { console.error(`[WS Upgrade] Auth error:`, err); socket.destroy(); });
       return;
     }
 
     // Unknown upgrade path
+    console.log(`[WS Upgrade] Unknown path: ${url.pathname}, destroying`);
     socket.destroy();
   });
 

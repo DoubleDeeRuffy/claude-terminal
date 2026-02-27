@@ -9,6 +9,29 @@
  *  - result        → turn completion (cost, tokens, final text)
  */
 
+// ─── Debug overlay (temporary) ───────────────────────────────────────────────
+
+const _debugLog = (() => {
+  let el = null;
+  const lines = [];
+  function ensure() {
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'debug-overlay';
+    el.style.cssText = 'position:fixed;bottom:70px;left:0;right:0;z-index:9999;max-height:140px;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font:11px/1.4 monospace;padding:6px 10px;pointer-events:auto;';
+    document.body.appendChild(el);
+  }
+  return function(...args) {
+    ensure();
+    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    lines.push(msg);
+    if (lines.length > 30) lines.shift();
+    el.textContent = lines.join('\n');
+    el.scrollTop = el.scrollHeight;
+    console.log(...args);
+  };
+})();
+
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 
 const _isFr = navigator.language.toLowerCase().startsWith('fr');
@@ -2896,6 +2919,7 @@ async function _startHeadlessSession(projectName, prompt) {
     }
 
     const { sessionId } = await resp.json();
+    _debugLog('[Headless] Session created:', sessionId);
     state._headlessSessionId = sessionId;
     state.cloudSessionMode = true;
 
@@ -2922,7 +2946,7 @@ async function _startHeadlessSession(projectName, prompt) {
     setInputState('sending');
 
   } catch (err) {
-    console.error('[Headless] Failed to create session:', err);
+    _debugLog('[Headless] Failed to create session:', err?.message || err);
     if (text) text.textContent = STRINGS.headlessError;
     setTimeout(() => {
       if (state.desktopOffline) {
@@ -2939,24 +2963,35 @@ function _openHeadlessStream(sessionId) {
 
   const base = conn.cloudUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:').replace(/\/$/, '');
   const wsUrl = `${base}/api/sessions/${encodeURIComponent(sessionId)}/stream?token=${encodeURIComponent(conn.cloudApiKey)}`;
+  _debugLog('[Headless] Opening stream WS:', wsUrl);
   const ws = new WebSocket(wsUrl);
   state._headlessStreamWs = ws;
+
+  ws.onopen = () => {
+    _debugLog('[Headless] Stream WS connected');
+  };
 
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
+      _debugLog('[Headless] Event:', msg.type, msg.event?.type || '');
       _handleHeadlessEvent(msg);
-    } catch (e) {}
+    } catch (e) {
+      _debugLog('[Headless] Parse error:', e);
+    }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
+    _debugLog('[Headless] Stream WS closed:', ev.code, ev.reason);
     state._headlessStreamWs = null;
     if (state.cloudSessionMode) {
       setInputState('idle');
     }
   };
 
-  ws.onerror = () => {};
+  ws.onerror = (err) => {
+    _debugLog('[Headless] Stream WS error');
+  };
 }
 
 function _handleHeadlessEvent(msg) {
