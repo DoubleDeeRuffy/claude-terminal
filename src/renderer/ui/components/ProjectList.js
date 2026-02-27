@@ -164,16 +164,16 @@ function _renderCloudBadge(projectId) {
   if (!st) return '';
 
   if (st.uploading || st.autoSyncing) {
-    return '<span class="project-cloud-badge uploading" title="Cloud upload...">&#9729;</span>';
+    return '<span class="project-cloud-badge uploading" title="Cloud upload...">&#8679;</span>';
   }
   if (st.lastError) {
     const ago = _formatTimeAgo(st.lastError.timestamp);
-    const tip = `Sync error (${ago}): ${st.lastError.message}`;
-    return `<span class="project-cloud-badge error" title="${escapeHtml(tip)}">&#9729;</span>`;
+    const tip = `${t('cloud.syncErrorTooltip', { ago, error: st.lastError.message })}`;
+    return `<span class="project-cloud-badge error" title="${escapeHtml(tip)}">&#9888;</span>`;
   }
   if (st.synced) {
-    const tip = st.lastSync ? `Cloud synced \u2022 ${_formatTimeAgo(st.lastSync)}` : 'Cloud synced';
-    return `<span class="project-cloud-badge synced" title="${escapeHtml(tip)}">&#9729;</span>`;
+    const tip = st.lastSync ? `${t('cloud.syncedTooltip')} \u2022 ${_formatTimeAgo(st.lastSync)}` : t('cloud.syncedTooltip');
+    return `<span class="project-cloud-badge synced" title="${escapeHtml(tip)}">&#10003;</span>`;
   }
   return '';
 }
@@ -181,13 +181,13 @@ function _renderCloudBadge(projectId) {
 function _formatTimeAgo(ts) {
   const diff = Date.now() - ts;
   const sec = Math.floor(diff / 1000);
-  if (sec < 60) return 'just now';
+  if (sec < 60) return t('cloud.timeJustNow');
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return t('cloud.timeMinAgo', { count: min });
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return t('cloud.timeHourAgo', { count: hr });
   const days = Math.floor(hr / 24);
-  return `${days}d ago`;
+  return t('cloud.timeDayAgo', { count: days });
 }
 
 /**
@@ -226,8 +226,13 @@ function renderProjectHtml(project, depth) {
         </button>`;
   } else if (cloudStatus?.lastError) {
     const errAgo = _formatTimeAgo(cloudStatus.lastError.timestamp);
-    cloudSyncBtn = `<button class="btn-action-icon btn-cloud-sync error" data-project-id="${project.id}" title="Sync error (${errAgo}): ${escapeHtml(cloudStatus.lastError.message)}">
+    cloudSyncBtn = `<button class="btn-action-icon btn-cloud-sync error" data-project-id="${project.id}" title="${escapeHtml(t('cloud.syncErrorTooltip', { ago: errAgo, error: cloudStatus.lastError.message }))}">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>`;
+  } else if (cloudConnected && !cloudStatus?.synced) {
+    // Direct upload button when project is not yet synced to cloud
+    cloudSyncBtn = `<button class="btn-action-icon btn-cloud-upload-direct" data-project-id="${project.id}" title="${t('cloud.uploadTitle')}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         </button>`;
   }
 
@@ -808,7 +813,7 @@ function attachListeners(list) {
         const project = getProject(projectId);
         closeAllMoreActionsMenus();
         if (project) showProjectSettings(project);
-      } else if (btn.classList.contains('btn-cloud-upload')) {
+      } else if (btn.classList.contains('btn-cloud-upload') || btn.classList.contains('btn-cloud-upload-direct')) {
         closeAllMoreActionsMenus();
         if (callbacks.onCloudUpload) callbacks.onCloudUpload(projectId);
       } else if (btn.classList.contains('btn-cloud-sync')) {

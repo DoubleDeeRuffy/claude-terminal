@@ -1409,7 +1409,11 @@ async function refreshCloudProjects() {
       }
     }
     ProjectList.render();
-  } catch { /* cloud unavailable, ignore */ }
+  } catch (err) {
+    if (err?.message?.includes('timed out') || err?.message?.includes('ECONNREFUSED') || err?.message?.includes('fetch')) {
+      showToast({ type: 'warning', title: t('cloud.networkErrorTitle'), message: t('cloud.networkErrorMessage'), duration: 5000 });
+    }
+  }
 }
 
 async function cloudUploadProject(projectId) {
@@ -1537,6 +1541,10 @@ function _showConflictModal(conflicts) {
           </div>
           <div class="modal-body">
             <p class="conflict-description">${t('cloud.conflictDescription')}</p>
+            <div class="conflict-select-all" style="display:flex;gap:8px;margin-bottom:8px;">
+              <button class="btn-secondary btn-sm" id="conflict-all-cloud" style="font-size:var(--font-xs);padding:4px 10px;">${t('cloud.conflictAllCloud')}</button>
+              <button class="btn-secondary btn-sm" id="conflict-all-local" style="font-size:var(--font-xs);padding:4px 10px;">${t('cloud.conflictAllLocal')}</button>
+            </div>
             <div class="conflict-file-list">${fileListHtml}</div>
           </div>
           <div class="modal-footer">
@@ -1555,6 +1563,14 @@ function _showConflictModal(conflicts) {
     document.getElementById('conflict-modal-close')?.addEventListener('click', () => { cleanup(); resolve(null); });
     document.getElementById('conflict-cancel')?.addEventListener('click', () => { cleanup(); resolve(null); });
     overlay?.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+    // Select All buttons
+    document.getElementById('conflict-all-cloud')?.addEventListener('click', () => {
+      overlay.querySelectorAll('input[type="radio"][value="cloud"]').forEach(r => { r.checked = true; });
+    });
+    document.getElementById('conflict-all-local')?.addEventListener('click', () => {
+      overlay.querySelectorAll('input[type="radio"][value="local"]').forEach(r => { r.checked = true; });
+    });
 
     document.getElementById('conflict-apply')?.addEventListener('click', () => {
       const resolutions = {};
@@ -1624,6 +1640,8 @@ async function _checkAllProjectsDiff() {
     if (!statuses || typeof statuses !== 'object') return;
     const localProjects = projectsState.get().projects || [];
 
+    // Collect all diffs first (no modals yet)
+    const projectDiffs = [];
     for (const [projectId, meta] of Object.entries(statuses)) {
       if (!meta.registered) continue;
       const project = localProjects.find(p => p.id === projectId);
@@ -1633,20 +1651,28 @@ async function _checkAllProjectsDiff() {
       try {
         const diff = await api.cloud.compareFiles({ projectName, localProjectPath: project.path });
         if (diff.onlyLocal.length === 0 && diff.onlyCloud.length === 0 && diff.sizeDiff.length === 0) continue;
+        projectDiffs.push({ projectId, project, projectName, diff });
+      } catch { /* skip this project */ }
+    }
 
-        // Show diff modal
-        const action = await _showDiffModal(projectName, diff);
+    if (projectDiffs.length === 0) return;
+
+    // Show a single batched diff modal for all projects
+    const actions = await _showBatchDiffModal(projectDiffs);
+    if (!actions) return; // cancelled
+
+    for (const { projectId, projectName, action } of actions) {
+      const project = localProjects.find(p => p.id === projectId);
+      if (!project) continue;
+      try {
         if (action === 'push') {
-          // Upload local to cloud (full resync)
           await cloudUploadProject(projectId);
         } else if (action === 'pull') {
-          // Download cloud to local
           await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
           cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
           ProjectList.render();
           showToast({ type: 'success', title: t('cloud.syncApplied'), message: projectName });
         }
-        // 'skip' = do nothing
       } catch { /* skip this project */ }
     }
   } catch { /* ignore */ }
@@ -1697,6 +1723,78 @@ function _showDiffModal(projectName, diff) {
     overlay.querySelector('.diff-btn-skip').onclick = () => { overlay.remove(); resolve('skip'); };
     overlay.querySelector('.diff-btn-pull').onclick = () => { overlay.remove(); resolve('pull'); };
     overlay.querySelector('.diff-btn-push').onclick = () => { overlay.remove(); resolve('push'); };
+
+    document.body.appendChild(overlay);
+  });
+}
+
+/**
+ * Show a single batched diff modal for multiple projects at startup.
+ * Each project gets a row with a Push/Pull/Skip action selector.
+ */
+function _showBatchDiffModal(projectDiffs) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+
+    const rowsHtml = projectDiffs.map((pd, i) => {
+      const total = pd.diff.onlyLocal.length + pd.diff.onlyCloud.length + pd.diff.sizeDiff.length;
+      const details = [];
+      if (pd.diff.onlyLocal.length) details.push(`<span style="color:var(--success);">${pd.diff.onlyLocal.length} ${t('cloud.diffLocalOnly')}</span>`);
+      if (pd.diff.onlyCloud.length) details.push(`<span style="color:var(--info);">${pd.diff.onlyCloud.length} ${t('cloud.diffCloudOnly')}</span>`);
+      if (pd.diff.sizeDiff.length) details.push(`<span style="color:var(--warning);">${pd.diff.sizeDiff.length} ${t('cloud.diffModified')}</span>`);
+      return `
+        <div class="batch-diff-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border-color);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${pd.projectName}</div>
+            <div style="font-size:var(--font-xs);color:var(--text-secondary);margin-top:2px;">${t('cloud.diffCount', { count: total })} — ${details.join(', ')}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;margin-left:12px;">
+            <label style="display:flex;align-items:center;gap:3px;font-size:var(--font-xs);cursor:pointer;color:var(--text-secondary);">
+              <input type="radio" name="batch-diff-${i}" value="skip" checked style="accent-color:var(--text-muted);"> ${t('cloud.diffSkip')}
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:var(--font-xs);cursor:pointer;color:var(--info);">
+              <input type="radio" name="batch-diff-${i}" value="pull" style="accent-color:var(--info);"> ${t('cloud.diffUseCloud')}
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:var(--font-xs);cursor:pointer;color:var(--success);">
+              <input type="radio" name="batch-diff-${i}" value="push" style="accent-color:var(--success);"> ${t('cloud.diffUseLocal')}
+            </label>
+          </div>
+        </div>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="modal-container modal-large" style="max-width:650px;">
+        <div class="modal-header">
+          <h3>${t('cloud.diffBatchTitle', { count: projectDiffs.length })}</h3>
+          <button class="modal-close batch-diff-close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:0;">
+          <p style="padding:12px 16px;margin:0;color:var(--text-secondary);font-size:var(--font-sm);">${t('cloud.diffBatchDescription')}</p>
+          <div style="max-height:400px;overflow-y:auto;">
+            ${rowsHtml}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary batch-diff-cancel">${t('common.cancel')}</button>
+          <button class="btn-primary batch-diff-apply">${t('cloud.conflictApply')}</button>
+        </div>
+      </div>`;
+
+    const cleanup = () => overlay.remove();
+
+    overlay.querySelector('.batch-diff-close').onclick = () => { cleanup(); resolve(null); };
+    overlay.querySelector('.batch-diff-cancel').onclick = () => { cleanup(); resolve(null); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+    overlay.querySelector('.batch-diff-apply').onclick = () => {
+      const results = projectDiffs.map((pd, i) => {
+        const selected = overlay.querySelector(`input[name="batch-diff-${i}"]:checked`);
+        return { projectId: pd.projectId, projectName: pd.projectName, action: selected?.value || 'skip' };
+      }).filter(r => r.action !== 'skip');
+      cleanup();
+      resolve(results);
+    };
 
     document.body.appendChild(overlay);
   });
@@ -1753,6 +1851,8 @@ if (api.cloud?.onAutoSyncStatus) {
     const existing = cloudUploadStatus.get(projectId) || {};
     if (status === 'uploading') {
       cloudUploadStatus.set(projectId, { ...existing, autoSyncing: true, lastError: null });
+      const proj = projectsState.get().projects?.find(p => p.id === projectId);
+      showToast({ type: 'info', title: t('cloud.autoSyncUploading'), message: proj?.name || projectId, duration: 3000 });
     } else if (status === 'synced') {
       cloudUploadStatus.set(projectId, { ...existing, synced: true, autoSyncing: false, lastSync: Date.now(), lastError: null });
       showToast({ type: 'success', title: t('cloud.autoSyncComplete'), message: t('cloud.autoSyncFiles', { count: fileCount }) });
