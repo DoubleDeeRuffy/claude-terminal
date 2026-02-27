@@ -162,6 +162,7 @@ function restoreState(savedState) {
         readDirectoryAsync(folderPath).then(children => {
           const e = expandedFolders.get(folderPath);
           if (e) { e.children = children; e.loaded = true; e.loading = false; }
+          api.explorer.watchDir(folderPath);
           remaining--;
           render();
           if (remaining === 0) _applyScrollTop(scrollTop);
@@ -177,6 +178,7 @@ function restoreState(savedState) {
         entry.loading = true;
         readDirectoryAsync(folderPath).then(children => {
           entry.children = children; entry.loaded = true; entry.loading = false;
+          api.explorer.watchDir(folderPath);
           remaining--;
           render();
           if (remaining === 0) _applyScrollTop(scrollTop);
@@ -239,6 +241,7 @@ function setRootPath(projectPath, savedState = null) {
           entry.children = children;
           entry.loaded = true;
           entry.loading = false;
+          api.explorer.watchDir(p);
           render();
         }).catch(() => {
           entry.loaded = true;
@@ -1298,6 +1301,9 @@ function attachListeners() {
   const btnCollapse = document.getElementById('btn-collapse-explorer');
   if (btnCollapse) {
     btnCollapse.onclick = () => {
+      for (const p of expandedFolders.keys()) {
+        api.explorer.unwatchDir(p);
+      }
       expandedFolders.clear();
       selectedFiles.clear();
       lastSelectedFile = null;
@@ -1308,6 +1314,9 @@ function attachListeners() {
   const btnRefresh = document.getElementById('btn-refresh-explorer');
   if (btnRefresh) {
     btnRefresh.onclick = () => {
+      for (const p of expandedFolders.keys()) {
+        api.explorer.unwatchDir(p);
+      }
       expandedFolders.clear();
       render();
       refreshGitStatus();
@@ -1359,10 +1368,12 @@ function toggleFolder(folderPath) {
   const entry = expandedFolders.get(folderPath);
   if (entry && entry.loaded) {
     expandedFolders.delete(folderPath);
+    api.explorer.unwatchDir(folderPath);
     render();
   } else if (!entry) {
     // Not loaded yet - start loading
     getOrLoadFolder(folderPath);
+    api.explorer.watchDir(folderPath);
     render(); // Show loading state immediately
   }
   // If entry exists but still loading, do nothing - render will happen when loaded

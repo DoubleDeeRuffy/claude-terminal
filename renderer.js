@@ -1588,7 +1588,7 @@ projectsState.subscribe(() => {
     const sessionData = loadSessionData();
     const explorerState = sessionData?.projects?.[project.id]?.explorer || null;
     FileExplorer.setRootPath(project.path, explorerState);
-    api.explorer.startWatch(project.path);
+    api.explorer.watchDir(project.path);
   } else {
     FileExplorer.hide();
     api.explorer.stopWatch();
