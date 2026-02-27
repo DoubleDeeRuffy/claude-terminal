@@ -701,7 +701,10 @@ function openEditor(workflowId = null) {
           ${nodeTypes.map(st => `
             <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}">
               <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
-              <span class="wf-palette-label">${st.label}</span>
+              <div class="wf-palette-text">
+                <span class="wf-palette-label">${st.label}</span>
+                <span class="wf-palette-desc">${st.desc}</span>
+              </div>
             </div>
           `).join('')}
         </div>
@@ -710,7 +713,8 @@ function openEditor(workflowId = null) {
         </div>
         <div class="wf-editor-properties" id="wf-ed-properties">
           <div class="wf-props-empty">
-            <p class="wf-props-empty-text">Sélectionnez un node pour voir ses propriétés</p>
+            <svg class="wf-props-empty-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            <p class="wf-props-empty-text">Sélectionnez un node<br>pour voir ses propriétés</p>
           </div>
         </div>
       </div>
@@ -766,7 +770,13 @@ function openEditor(workflowId = null) {
       // Show workflow options when no node selected
       propsEl.innerHTML = `
         <div class="wf-props-section">
-          <div class="wf-props-title">Options du workflow</div>
+          <div class="wf-props-header wf-props-header--workflow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <div class="wf-props-header-text">
+              <div class="wf-props-title">Configuration</div>
+              <div class="wf-props-subtitle">Options globales du workflow</div>
+            </div>
+          </div>
           <div class="wf-step-edit-field">
             <label class="wf-step-edit-label">Scope</label>
             <select class="wf-step-edit-input wf-props-input" data-prop="scope">
@@ -1012,10 +1022,14 @@ function openEditor(workflowId = null) {
     }
 
     propsEl.innerHTML = `
-      <div class="wf-props-section">
+      <div class="wf-props-section" data-node-color="${typeInfo.color}">
         <div class="wf-props-header">
           <span class="wf-chip wf-chip--${typeInfo.color}">${typeInfo.icon}</span>
-          <span class="wf-props-title">${typeInfo.label}</span>
+          <div class="wf-props-header-text">
+            <div class="wf-props-title">${typeInfo.label}</div>
+            <div class="wf-props-subtitle">${typeInfo.desc}</div>
+          </div>
+          <span class="wf-props-badge wf-props-badge--${typeInfo.color}">${nodeType.toUpperCase()}</span>
         </div>
         ${fieldsHtml}
       </div>

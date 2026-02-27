@@ -2490,106 +2490,126 @@ select.wf-step-edit-input {
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Editor shell ─────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   NODE GRAPH EDITOR — Premium Dark UI
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .wf-editor {
   display: flex; flex-direction: column;
   height: 100%;
-  background: var(--bg-primary);
-  animation: wfFadeIn .2s var(--wf-ease);
+  background: #090909;
+  animation: wfFadeIn .25s var(--wf-ease);
 }
 
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 .wf-editor-toolbar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--wf-border);
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px;
+  height: 42px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
   flex-shrink: 0;
-  background: rgba(255,255,255,.015);
+  background: linear-gradient(180deg, rgba(255,255,255,.025) 0%, transparent 100%);
 }
 .wf-editor-back {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 5px;
   padding: 5px 10px;
   font-size: 11px; font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   background: transparent;
-  border: 1px solid rgba(255,255,255,.06);
+  border: none;
   border-radius: 6px;
   cursor: pointer;
   transition: all .15s;
 }
 .wf-editor-back:hover {
   color: var(--text-primary);
-  border-color: rgba(255,255,255,.15);
-  background: rgba(255,255,255,.04);
+  background: rgba(255,255,255,.06);
 }
 .wf-editor-name {
   flex: 1;
-  max-width: 280px;
+  max-width: 300px;
   font-size: 13px !important;
   font-weight: 600 !important;
   background: transparent !important;
   border: 1px solid transparent !important;
-  padding: 4px 8px !important;
-  border-radius: 6px !important;
+  padding: 5px 10px !important;
+  border-radius: 8px !important;
   color: var(--text-primary) !important;
-  transition: border-color .15s;
+  transition: all .2s;
+  letter-spacing: -.01em;
+}
+.wf-editor-name::placeholder { color: var(--text-muted); font-weight: 400; }
+.wf-editor-name:hover {
+  background: rgba(255,255,255,.03) !important;
+  border-color: rgba(255,255,255,.06) !important;
 }
 .wf-editor-name:focus {
-  border-color: rgba(255,255,255,.15) !important;
-  background: rgba(0,0,0,.2) !important;
+  border-color: var(--accent) !important;
+  background: rgba(0,0,0,.3) !important;
   outline: none;
+  box-shadow: 0 0 0 3px rgba(217,119,6,.1);
 }
 .wf-editor-toolbar-sep {
-  width: 1px; height: 20px;
+  width: 1px; height: 18px;
   background: rgba(255,255,255,.06);
   flex-shrink: 0;
+  margin: 0 2px;
 }
 .wf-editor-zoom {
-  display: flex; align-items: center; gap: 2px;
+  display: flex; align-items: center; gap: 1px;
+  background: rgba(255,255,255,.03);
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,.04);
 }
 .wf-editor-zoom button {
-  width: 26px; height: 26px;
+  width: 28px; height: 26px;
   display: flex; align-items: center; justify-content: center;
   background: transparent;
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 5px;
-  color: var(--text-secondary);
-  font-size: 13px; font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 14px; font-weight: 500;
   cursor: pointer;
-  transition: all .15s;
+  transition: all .12s;
 }
 .wf-editor-zoom button:hover {
-  background: rgba(255,255,255,.06);
+  background: rgba(255,255,255,.08);
   color: var(--text-primary);
 }
 .wf-editor-zoom span {
   font-size: 10px; color: var(--text-muted);
-  min-width: 36px; text-align: center;
+  min-width: 38px; text-align: center;
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  user-select: none;
 }
 .wf-editor-btn {
   display: flex; align-items: center; gap: 5px;
-  padding: 5px 12px;
+  padding: 5px 14px;
   font-size: 11px; font-weight: 600;
   color: var(--text-secondary);
-  background: transparent;
+  background: rgba(255,255,255,.04);
   border: 1px solid rgba(255,255,255,.06);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all .15s;
+  letter-spacing: .01em;
 }
 .wf-editor-btn:hover {
-  background: rgba(255,255,255,.04);
+  background: rgba(255,255,255,.08);
   color: var(--text-primary);
-  border-color: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.1);
 }
 .wf-editor-btn--primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: transparent;
   color: #fff;
+  box-shadow: 0 1px 8px rgba(217,119,6,.2);
 }
 .wf-editor-btn--primary:hover {
   background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  box-shadow: 0 2px 12px rgba(217,119,6,.3);
   color: #fff;
 }
 
@@ -2603,43 +2623,76 @@ select.wf-step-edit-input {
 
 /* ── Palette (left) ───────────────────────────────────────────────────────── */
 .wf-editor-palette {
-  width: 160px;
+  width: 180px;
   flex-shrink: 0;
-  border-right: 1px solid var(--wf-border);
-  padding: 10px 8px;
+  border-right: 1px solid rgba(255,255,255,.04);
+  padding: 12px 8px 12px 10px;
   overflow-y: auto;
-  display: flex; flex-direction: column; gap: 3px;
-  background: rgba(255,255,255,.01);
+  display: flex; flex-direction: column; gap: 2px;
+  background: rgba(255,255,255,.012);
 }
 .wf-palette-title {
   font-size: 9px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .06em;
-  color: var(--text-muted); opacity: .6;
-  padding: 0 6px 6px;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-muted); opacity: .5;
+  padding: 2px 8px 10px;
 }
 .wf-palette-item {
-  display: flex; align-items: center; gap: 7px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all .15s var(--wf-ease);
+  border: 1px solid transparent;
+  position: relative;
+}
+.wf-palette-item::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  top: 50%; transform: translateY(-50%);
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background .15s;
 }
 .wf-palette-item:hover {
   background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.04);
+}
+.wf-palette-item:hover::after {
+  background: var(--accent);
 }
 .wf-palette-item:active {
   background: rgba(255,255,255,.08);
-  transform: scale(.98);
+  transform: scale(.97);
+  border-color: rgba(255,255,255,.08);
 }
 .wf-palette-icon {
   flex-shrink: 0;
 }
+.wf-palette-text {
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
 .wf-palette-label {
-  font-size: 11px; font-weight: 500;
+  font-size: 11.5px; font-weight: 500;
   color: var(--text-secondary);
+  letter-spacing: .01em;
 }
 .wf-palette-item:hover .wf-palette-label {
   color: var(--text-primary);
+}
+.wf-palette-desc {
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0;
+  margin-top: 1px;
+  transition: opacity .15s;
+  line-height: 1.2;
+}
+.wf-palette-item:hover .wf-palette-desc {
+  opacity: .7;
 }
 
 /* ── Canvas (center) ──────────────────────────────────────────────────────── */
@@ -2648,80 +2701,351 @@ select.wf-step-edit-input {
   position: relative;
   overflow: hidden;
   min-width: 0;
+  background: #0a0a0a;
 }
 .wf-editor-canvas-wrap canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
 }
+/* Subtle grid overlay via CSS (visible at high zoom) */
+.wf-editor-canvas-wrap::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .08;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.4) .5px, transparent .5px);
+  background-size: 20px 20px;
+}
 
 /* ── Properties (right) ───────────────────────────────────────────────────── */
 .wf-editor-properties {
-  width: 280px;
+  width: 300px;
   flex-shrink: 0;
-  border-left: 1px solid var(--wf-border);
-  padding: 12px;
+  border-left: 1px solid rgba(255,255,255,.05);
+  padding: 16px;
   overflow-y: auto;
-  background: rgba(255,255,255,.01);
+  background: #0e0e10;
+  position: relative;
 }
+.wf-editor-properties::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(217,119,6,.15), transparent);
+}
+.wf-editor-properties::-webkit-scrollbar { width: 3px; }
+.wf-editor-properties::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 3px; }
+
 .wf-props-empty {
-  display: flex; align-items: center; justify-content: center;
-  height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; gap: 12px;
+}
+.wf-props-empty-icon {
+  color: var(--text-muted); opacity: .15;
+  width: 36px; height: 36px;
 }
 .wf-props-empty-text {
   font-size: 11px; color: var(--text-muted);
-  text-align: center; opacity: .5;
+  text-align: center; opacity: .35;
+  line-height: 1.6;
+  letter-spacing: .01em;
 }
+
+/* ── Properties: section & header ── */
 .wf-props-section {
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 14px;
+  animation: wfPropsIn .25s ease;
 }
+@keyframes wfPropsIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .wf-props-header {
-  display: flex; align-items: center; gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255,255,255,.04);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.02);
+  border: 1px solid rgba(255,255,255,.04);
+  margin-bottom: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.wf-props-header::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--text-muted);
+  border-radius: 0 2px 2px 0;
+}
+/* Color the left stripe by node type */
+.wf-props-section[data-node-color="accent"] .wf-props-header::before  { background: var(--wf-accent); }
+.wf-props-section[data-node-color="info"] .wf-props-header::before    { background: var(--wf-info); }
+.wf-props-section[data-node-color="purple"] .wf-props-header::before  { background: var(--wf-purple); }
+.wf-props-section[data-node-color="cyan"] .wf-props-header::before    { background: var(--wf-cyan); }
+.wf-props-section[data-node-color="warning"] .wf-props-header::before { background: var(--wf-warning); }
+.wf-props-section[data-node-color="muted"] .wf-props-header::before   { background: var(--text-muted); }
+.wf-props-section[data-node-color="success"] .wf-props-header::before { background: var(--wf-success); }
+
+.wf-props-header--workflow {
+  gap: 8px;
+}
+.wf-props-header--workflow > svg {
+  width: 18px; height: 18px; flex-shrink: 0;
+  color: var(--text-muted); opacity: .5;
+}
+.wf-props-header--workflow::before {
+  background: rgba(255,255,255,.15);
+}
+
+.wf-props-header .wf-chip {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.wf-props-header-text {
+  flex: 1; min-width: 0;
 }
 .wf-props-title {
-  font-size: 13px; font-weight: 600;
+  font-size: 13px; font-weight: 700;
+  color: #f0f0f0;
+  letter-spacing: -.02em;
+}
+.wf-props-subtitle {
+  font-size: 10px; color: var(--text-muted);
+  margin-top: 2px; opacity: .6;
+}
+
+/* Type badge (top-right of header) */
+.wf-props-badge {
+  font-size: 8px; font-weight: 800;
+  letter-spacing: .08em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  opacity: .6;
+}
+.wf-props-badge--accent  { background: rgba(217,119,6,.12);  color: var(--wf-accent); }
+.wf-props-badge--info    { background: rgba(96,165,250,.12);  color: var(--wf-info); }
+.wf-props-badge--purple  { background: rgba(167,139,250,.12); color: var(--wf-purple); }
+.wf-props-badge--cyan    { background: rgba(34,211,238,.12);  color: var(--wf-cyan); }
+.wf-props-badge--warning { background: rgba(251,191,36,.12);  color: var(--wf-warning); }
+.wf-props-badge--muted   { background: rgba(255,255,255,.06); color: var(--text-muted); }
+.wf-props-badge--success { background: rgba(74,222,128,.12);  color: var(--wf-success); }
+
+/* ── Properties: field layout ── */
+.wf-editor-properties .wf-step-edit-field {
+  margin-bottom: 4px;
+}
+.wf-editor-properties .wf-step-edit-label {
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em;
+  color: rgba(255,255,255,.35);
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* ── Properties: inputs, selects, textareas ── */
+.wf-editor-properties .wf-step-edit-input,
+.wf-editor-properties .wf-node-prop {
+  width: 100%;
+  background: rgba(255,255,255,.025);
+  border: 1.5px solid rgba(255,255,255,.07);
+  border-radius: 8px;
   color: var(--text-primary);
+  font-size: 12px;
+  padding: 9px 12px;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.wf-editor-properties .wf-step-edit-input:hover,
+.wf-editor-properties .wf-node-prop:hover {
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.035);
+}
+.wf-editor-properties .wf-step-edit-input:focus,
+.wf-editor-properties .wf-node-prop:focus {
+  outline: none;
+  border-color: rgba(217,119,6,.5);
+  box-shadow: 0 0 0 3px rgba(217,119,6,.08), inset 0 1px 2px rgba(0,0,0,.15);
+  background: rgba(255,255,255,.04);
+}
+.wf-editor-properties .wf-step-edit-input::placeholder,
+.wf-editor-properties .wf-node-prop::placeholder {
+  color: var(--text-muted); opacity: .5;
+}
+
+/* Select with custom chevron */
+.wf-editor-properties select.wf-step-edit-input,
+.wf-editor-properties select.wf-node-prop {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+.wf-editor-properties select.wf-step-edit-input:focus,
+.wf-editor-properties select.wf-node-prop:focus {
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23d97706' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* Textarea */
+.wf-editor-properties textarea.wf-step-edit-input,
+.wf-editor-properties textarea.wf-node-prop {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.55;
+}
+
+/* ── Properties: Claude mode tabs (Prompt / Agent / Skill) ── */
+.wf-editor-properties .wf-claude-mode-tabs {
+  display: flex; gap: 3px;
+  padding: 3px;
+  background: rgba(0,0,0,.35);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.04);
+}
+.wf-editor-properties .wf-claude-mode-tab {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 7px 8px;
+  font-size: 11px; font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none; border-radius: 7px;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+  position: relative;
+}
+.wf-editor-properties .wf-claude-mode-tab:hover {
+  color: var(--text-secondary);
+  background: rgba(255,255,255,.05);
+}
+.wf-editor-properties .wf-claude-mode-tab.active {
+  color: #fff;
+  background: rgba(217,119,6,.15);
+  box-shadow: 0 1px 4px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.04);
+  font-weight: 600;
+}
+.wf-editor-properties .wf-claude-mode-tab.active svg {
+  filter: drop-shadow(0 0 4px rgba(217,119,6,.3));
+}
+
+/* ── Properties: Agent/Skill cards ── */
+.wf-editor-properties .wf-agent-grid {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 200px; overflow-y: auto;
+}
+.wf-editor-properties .wf-agent-grid::-webkit-scrollbar { width: 2px; }
+.wf-editor-properties .wf-agent-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 2px; }
+
+.wf-editor-properties .wf-agent-card {
+  padding: 9px 11px;
+  background: rgba(255,255,255,.02);
+  border: 1.5px solid rgba(255,255,255,.05);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+  position: relative;
+  overflow: hidden;
+}
+.wf-editor-properties .wf-agent-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; width: 2.5px; height: 100%;
+  background: transparent;
+  transition: background .2s;
+  border-radius: 0 2px 2px 0;
+}
+.wf-editor-properties .wf-agent-card:hover {
+  border-color: rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+}
+.wf-editor-properties .wf-agent-card.active {
+  border-color: rgba(217,119,6,.4);
+  background: rgba(217,119,6,.06);
+  box-shadow: 0 0 0 1px rgba(217,119,6,.1);
+}
+.wf-editor-properties .wf-agent-card.active::before {
+  background: var(--accent);
+}
+.wf-editor-properties .wf-agent-card-name {
+  font-size: 11px; font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+}
+.wf-editor-properties .wf-agent-card-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+  line-height: 1.35;
+  opacity: .7;
 }
 
 /* ── Status bar ───────────────────────────────────────────────────────────── */
 .wf-editor-statusbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 14px;
-  border-top: 1px solid var(--wf-border);
+  padding: 3px 14px;
+  height: 24px;
+  border-top: 1px solid rgba(255,255,255,.04);
   font-size: 10px; color: var(--text-muted);
   flex-shrink: 0;
-  background: rgba(255,255,255,.01);
+  background: rgba(255,255,255,.012);
+  font-variant-numeric: tabular-nums;
+  opacity: .7;
 }
 
 /* ── LiteGraph dark theme overrides ───────────────────────────────────────── */
+
+/* Hide default litegraph CSS that fights our canvas */
+.litegraph canvas { outline: none !important; }
+
+/* Neutralize the default grid pattern (we use CSS overlay) */
+.wf-editor-canvas-wrap .litegraph {
+  background: transparent !important;
+}
+
 .litegraph .litecontextmenu {
-  background: #1a1a1a !important;
-  border: 1px solid rgba(255,255,255,.1) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,.5) !important;
+  background: #141414 !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.03) !important;
   font-family: inherit !important;
   font-size: 11px !important;
+  padding: 4px !important;
+  backdrop-filter: blur(12px);
 }
 .litegraph .litecontextmenu .litemenu-entry {
   color: var(--text-secondary) !important;
-  padding: 6px 12px !important;
-  border-radius: 4px !important;
-  margin: 1px 2px !important;
+  padding: 7px 12px !important;
+  border-radius: 6px !important;
+  margin: 1px 0 !important;
+  transition: all .1s !important;
 }
 .litegraph .litecontextmenu .litemenu-entry:hover {
-  background: rgba(255,255,255,.06) !important;
+  background: rgba(255,255,255,.07) !important;
+  color: var(--text-primary) !important;
+}
+.litegraph .litecontextmenu .litemenu-entry.has_submenu {
   color: var(--text-primary) !important;
 }
 .litegraph .litesearchbox {
-  background: #1a1a1a !important;
-  border: 1px solid rgba(255,255,255,.1) !important;
-  border-radius: 8px !important;
+  background: #141414 !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,.6) !important;
 }
 .litegraph .litesearchbox input {
   background: rgba(0,0,0,.3) !important;
   color: var(--text-primary) !important;
-  border: 1px solid rgba(255,255,255,.08) !important;
-  border-radius: 6px !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 12px !important;
 }
