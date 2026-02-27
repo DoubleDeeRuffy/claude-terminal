@@ -115,7 +115,13 @@ function registerCloudHandlers() {
       const http = url.startsWith('https') ? require('https') : require('http');
       const urlObj = new URL(`${url}/api/projects`);
 
+      const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max for upload
       const result = await new Promise((resolve, reject) => {
+        let settled = false;
+        const timeout = setTimeout(() => {
+          if (!settled) { settled = true; req.destroy(); reject(new Error(`Upload timed out after ${UPLOAD_TIMEOUT_MS / 1000}s`)); }
+        }, UPLOAD_TIMEOUT_MS);
+
         const req = http.request({
           hostname: urlObj.hostname,
           port: urlObj.port,
@@ -129,6 +135,9 @@ function registerCloudHandlers() {
           let body = '';
           res.on('data', (chunk) => body += chunk);
           res.on('end', () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
             if (res.statusCode >= 200 && res.statusCode < 300) {
               try { resolve(JSON.parse(body)); } catch { resolve({ ok: true, raw: body }); }
             } else {
@@ -145,7 +154,7 @@ function registerCloudHandlers() {
             }
           });
         });
-        req.on('error', reject);
+        req.on('error', (err) => { if (!settled) { settled = true; clearTimeout(timeout); reject(err); } });
         formData.pipe(req);
       });
 

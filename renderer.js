@@ -1441,12 +1441,18 @@ async function cloudUploadProject(projectId) {
   const projectName = project.name || path.basename(project.path);
   _activeUploadToast = showToast({ type: 'info', title: t('cloud.uploadTitle'), message: t('cloud.uploadPhaseScanning'), duration: 0 });
 
+  // Safety net: auto-close toast after 5m30s if upload hangs
+  const _uploadSafetyTimer = setTimeout(() => {
+    if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
+  }, 330_000);
+
   try {
     await api.cloud.uploadProject({ projectName, projectPath: project.path });
     cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
     // Register for auto-sync (file watcher)
     api.cloud.registerAutoSync({ projectId, projectPath: project.path }).catch(() => {});
     ProjectList.render();
+    clearTimeout(_uploadSafetyTimer);
     if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
     showToast({ type: 'success', title: t('cloud.uploadSuccess'), message: projectName });
   } catch (err) {
@@ -1455,6 +1461,7 @@ async function cloudUploadProject(projectId) {
     cloudUploadStatus.set(projectId, wasSynced ? { synced: true } : {});
     if (!wasSynced) cloudUploadStatus.delete(projectId);
     ProjectList.render();
+    clearTimeout(_uploadSafetyTimer);
     if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
     showToast({ type: 'error', title: t('cloud.uploadError'), message: err.message || projectName });
   }
