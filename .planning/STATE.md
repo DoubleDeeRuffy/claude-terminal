@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 20 — Bugfix: swap projects resets to first tab instead of remembering last-active (COMPLETE)
+**Current focus:** Phase 20.1 — Always ScrollToEnd on Switching Tabs or Projects (COMPLETE)
 
 ## Current Position
 
-Phase: 20 (20-bugfix-swap-projects-selected-tab) — COMPLETE
+Phase: 20.1 (20.1-always-scrolltoend-on-switching-tabs-or-projects) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 20-01 complete — added lastActivePerProject and savedScrollPositions Maps in TerminalManager.js to restore last-active tab and scroll position on project switch
-Last activity: 2026-02-26 - Completed plan 20-01: in-memory tab and scroll tracking for project switches
+Status: Plan 20.1-01 complete — added scrollToBottom in setActiveTerminal for xterm tabs, autoScrollOnSwitch settings toggle, and i18n keys
+Last activity: 2026-02-27 - Completed plan 20.1-01: auto-scroll-to-bottom on tab/project switch with settings toggle
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 

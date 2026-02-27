@@ -363,13 +363,13 @@ Plans:
 
 ### Phase 20.1: Always ScrollToEnd on Switching Tabs or Projects (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
+**Goal:** Auto-scroll xterm terminals to bottom on tab/project switch, with a settings toggle
 **Requirements**: TBD
 **Depends on:** Phase 20
-**Plans:** 0 plans
+**Plans:** 1 plan (1 complete)
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 20.1 to break down)
+- [x] 20.1-01-PLAN.md — Add scrollToBottom in setActiveTerminal, settings toggle, and i18n keys
 
 ### Phase 21: Integrated-Markdown-Viewer
 
