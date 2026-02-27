@@ -23,6 +23,8 @@ export interface UserData {
   name: string;
   apiKey: string;
   createdAt: number;
+  gitName?: string;
+  gitEmail?: string;
   projects: UserProject[];
   sessions: UserSession[];
 }
@@ -64,9 +66,69 @@ class Store {
     return path.join(this.userDir(name), 'projects');
   }
 
+  userHomePath(name: string): string {
+    return path.join(this.userDir(name), 'home');
+  }
+
+  async ensureUserHome(name: string): Promise<void> {
+    const home = this.userHomePath(name);
+    await fs.promises.mkdir(path.join(home, '.claude'), { recursive: true });
+  }
+
   async ensureDataDirs(): Promise<void> {
     await fs.promises.mkdir(config.dataDir, { recursive: true });
     await fs.promises.mkdir(config.usersDir, { recursive: true });
+    await this.migrateGlobalCredentials();
+  }
+
+  /** Migrate legacy global credentials to the first user's home directory */
+  private async migrateGlobalCredentials(): Promise<void> {
+    const globalCreds = path.join(config.dataDir, 'claude', '.credentials.json');
+    const globalGitconfig = path.join(config.dataDir, 'gitdata', '.gitconfig');
+    const globalGitcreds = path.join(config.dataDir, 'gitdata', '.git-credentials');
+
+    try {
+      await fs.promises.access(globalCreds);
+    } catch {
+      return; // No legacy credentials, nothing to migrate
+    }
+
+    const users = await this.listUsers();
+    if (users.length !== 1) return; // Only auto-migrate for single-user setups
+
+    const userName = users[0];
+    const home = this.userHomePath(userName);
+    const userClaudeDir = path.join(home, '.claude');
+    const userCreds = path.join(userClaudeDir, '.credentials.json');
+
+    try {
+      await fs.promises.access(userCreds);
+      return; // User already has credentials, skip
+    } catch {
+      // Proceed with migration
+    }
+
+    await fs.promises.mkdir(userClaudeDir, { recursive: true });
+
+    // Copy credentials
+    try {
+      await fs.promises.copyFile(globalCreds, userCreds);
+      console.log(`[Migration] Copied Claude credentials to user "${userName}"`);
+    } catch { /* ignore */ }
+
+    // Copy gitconfig
+    try {
+      await fs.promises.access(globalGitconfig);
+      await fs.promises.copyFile(globalGitconfig, path.join(home, '.gitconfig'));
+      console.log(`[Migration] Copied .gitconfig to user "${userName}"`);
+    } catch { /* ignore */ }
+
+    // Copy git-credentials
+    try {
+      await fs.promises.access(globalGitcreds);
+      await fs.promises.copyFile(globalGitcreds, path.join(home, '.git-credentials'));
+      console.log(`[Migration] Copied .git-credentials to user "${userName}"`);
+    } catch { /* ignore */ }
   }
 
   // ── Server ──
@@ -102,6 +164,7 @@ class Store {
     const userDir = this.userDir(name);
     await fs.promises.mkdir(userDir, { recursive: true });
     await fs.promises.mkdir(this.userProjectsDir(name), { recursive: true });
+    await this.ensureUserHome(name);
 
     const userData: UserData = {
       id: crypto.randomUUID(),

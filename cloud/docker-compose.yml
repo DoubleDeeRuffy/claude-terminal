@@ -8,9 +8,5 @@ services:
       - "${PORT:-3800}:3800"
     volumes:
       - ./data:/app/data
-      - ./data/claude:/root/.claude
-      - ./data/gitdata:/root/.gitdata
-    environment:
-      - GIT_CONFIG_GLOBAL=/root/.gitdata/.gitconfig
     env_file: .env
     restart: unless-stopped

@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 import { authenticateApiKey } from '../auth/auth';
+import { store } from '../store/store';
 import { projectManager } from './ProjectManager';
 import { sessionManager } from './SessionManager';
 import { config } from '../config';
@@ -47,6 +49,50 @@ const upload = multer({
 export function createCloudRouter(): Router {
   const router = Router();
   router.use(authMiddleware as any);
+
+  // ── User Profile ──
+
+  router.get('/me', async (req: AuthRequest, res: Response) => {
+    try {
+      const user = await store.getUser(req.userName!);
+      if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+      const credPath = path.join(store.userHomePath(req.userName!), '.claude', '.credentials.json');
+      let claudeAuthed = false;
+      try { fs.accessSync(credPath); claudeAuthed = true; } catch { /* not authed */ }
+      res.json({
+        name: user.name,
+        gitName: user.gitName || null,
+        gitEmail: user.gitEmail || null,
+        claudeAuthed,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.patch('/me', async (req: AuthRequest, res: Response) => {
+    try {
+      const { gitName, gitEmail } = req.body;
+      const user = await store.getUser(req.userName!);
+      if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+      if (gitName !== undefined) user.gitName = gitName;
+      if (gitEmail !== undefined) user.gitEmail = gitEmail;
+      await store.saveUser(req.userName!, user);
+
+      // Write .gitconfig file in user's home
+      if (user.gitName && user.gitEmail) {
+        await store.ensureUserHome(req.userName!);
+        const gitconfigPath = path.join(store.userHomePath(req.userName!), '.gitconfig');
+        const content = `[user]\n\tname = ${user.gitName}\n\temail = ${user.gitEmail}\n`;
+        await fs.promises.writeFile(gitconfigPath, content, 'utf-8');
+      }
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // ── Projects ──
 

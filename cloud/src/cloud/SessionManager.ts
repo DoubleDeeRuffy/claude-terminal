@@ -93,6 +93,13 @@ export class SessionManager {
       throw new Error(`Max concurrent sessions reached (${config.maxSessions})`);
     }
 
+    // Verify user has Claude credentials
+    const userHome = store.userHomePath(userName);
+    const credPath = path.join(userHome, '.claude', '.credentials.json');
+    if (!fs.existsSync(credPath)) {
+      throw new Error(`User "${userName}" has not authenticated Claude. Run: docker exec -it ct-cloud node dist/cli.js user setup ${userName}`);
+    }
+
     const sdk = await this.loadSDK();
     const sessionId = uuid();
     const cwd = store.getProjectPath(userName, projectName);
@@ -126,7 +133,7 @@ export class SessionManager {
     // Update user.json
     await this.persistSessionMeta(userName, sessionId, projectName, 'running', model);
 
-    // Start SDK query in background
+    // Start SDK query in background with per-user environment
     const options: any = {
       cwd,
       abortController,
@@ -136,6 +143,11 @@ export class SessionManager {
       pathToClaudeCodeExecutable: this.getSdkCliPath(),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       stderr: (data: string) => { console.error(`[Session ${sessionId}] ${data}`); },
+      env: {
+        ...process.env,
+        HOME: userHome,
+        GIT_CONFIG_GLOBAL: path.join(userHome, '.gitconfig'),
+      },
     };
 
     if (model) options.model = model;

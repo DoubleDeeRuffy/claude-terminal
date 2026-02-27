@@ -96,30 +96,29 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     DOMAIN=$(grep '^PUBLIC_URL=' .env 2>/dev/null | sed 's|^PUBLIC_URL=https\?://||' || true)
     CONTAINER_UP=$(docker ps --filter name=ct-cloud --format '{{.Status}}' 2>/dev/null || true)
 
-    HAS_CREDS="no"
-    HAS_GIT_NAME="no"
-    HAS_GIT_TOKEN="no"
-    GIT_NAME_VAL=""
-    GIT_EMAIL_VAL=""
+    USER_COUNT=0
     USERS=""
     CLAUDE_VERSION=""
-    # Check from host-side volumes first, fallback to docker exec
-    [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
-    GIT_NAME_VAL=$(grep 'name\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
-    GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
-    [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-    [ -s data/gitdata/.git-credentials ] && HAS_GIT_TOKEN="yes"
+    CONFIGURED_USERS=""
+
     if [ -n "$CONTAINER_UP" ]; then
       CLAUDE_VERSION=$(docker exec ct-cloud /root/.local/bin/claude --version 2>/dev/null || true)
-      # Fallback: check inside container if host-side volume not yet synced
-      [ "$HAS_CREDS" = "no" ] && docker exec ct-cloud bash -c 'test -f /root/.claude/.credentials.json' 2>/dev/null && HAS_CREDS="yes"
-      if [ "$HAS_GIT_NAME" = "no" ]; then
-        GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
-        GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
-        [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-      fi
-      [ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.gitdata/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
       USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
+    fi
+
+    # Count users from data/users/
+    if [ -d data/users ]; then
+      USER_COUNT=$(ls -d data/users/*/user.json 2>/dev/null | wc -l || echo 0)
+      # Check per-user credentials
+      for USER_DIR in data/users/*/; do
+        [ ! -d "$USER_DIR" ] && continue
+        UNAME=$(basename "$USER_DIR")
+        U_HAS_CLAUDE="no"
+        U_HAS_GIT="no"
+        [ -f "${USER_DIR}home/.claude/.credentials.json" ] && U_HAS_CLAUDE="yes"
+        [ -f "${USER_DIR}home/.gitconfig" ] && U_HAS_GIT="yes"
+        CONFIGURED_USERS="${CONFIGURED_USERS}${UNAME}(claude:${U_HAS_CLAUDE},git:${U_HAS_GIT}) "
+      done
     fi
 
     HAS_NGINX="no"
@@ -141,10 +140,10 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     [ -n "$DOMAIN" ] && echo -e "  ${GREEN}✓${NC} Domain         ${BOLD}$DOMAIN${NC}" || echo -e "  ${RED}✗${NC} Domain         ${DIM}not set${NC}"
     [ -n "$CONTAINER_UP" ] && echo -e "  ${GREEN}✓${NC} Container      ${DIM}running${NC}" || echo -e "  ${RED}✗${NC} Container      ${DIM}not running${NC}"
     [ -n "$CLAUDE_VERSION" ] && echo -e "  ${GREEN}✓${NC} Claude CLI     ${DIM}$CLAUDE_VERSION${NC}" || echo -e "  ${RED}✗${NC} Claude CLI     ${DIM}not found${NC}"
-    [ "$HAS_CREDS" = "yes" ] && echo -e "  ${GREEN}✓${NC} Claude auth    ${DIM}authenticated${NC}" || echo -e "  ${YELLOW}✗${NC} Claude auth    ${DIM}not configured${NC}"
-    [ "$HAS_GIT_NAME" = "yes" ] && echo -e "  ${GREEN}✓${NC} Git identity   ${DIM}$GIT_NAME_VAL <$GIT_EMAIL_VAL>${NC}" || echo -e "  ${YELLOW}✗${NC} Git identity   ${DIM}not configured${NC}"
-    [ "$HAS_GIT_TOKEN" = "yes" ] && echo -e "  ${GREEN}✓${NC} GitHub token   ${DIM}configured${NC}" || echo -e "  ${YELLOW}✗${NC} GitHub token   ${DIM}not configured${NC}"
-    [ -n "$USERS" ] && echo -e "  ${GREEN}✓${NC} Users          ${DIM}$USERS${NC}" || echo -e "  ${YELLOW}✗${NC} Users          ${DIM}none${NC}"
+    [ "$USER_COUNT" -gt 0 ] && echo -e "  ${GREEN}✓${NC} Users          ${DIM}${USER_COUNT} user(s)${NC}" || echo -e "  ${YELLOW}✗${NC} Users          ${DIM}none${NC}"
+    if [ -n "$CONFIGURED_USERS" ]; then
+      echo -e "  ${DIM}                 ${CONFIGURED_USERS}${NC}"
+    fi
     if [ "$HAS_NGINX" = "yes" ]; then echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Nginx${NC}"
     elif [ "$HAS_APACHE" = "yes" ]; then echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Apache${NC}"
     else echo -e "  ${YELLOW}✗${NC} Reverse proxy  ${DIM}not detected${NC}"; fi
@@ -166,20 +165,16 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     case "$UPDATE_ACTION" in
       1)
         echo ""
-        mkdir -p data/users data/claude data/gitdata
-        touch data/gitdata/.gitconfig data/gitdata/.git-credentials
-        chmod 600 data/gitdata/.git-credentials 2>/dev/null || true
+        mkdir -p data/users
         echo -e "  ${CYAN}Rebuilding containers...${NC}"
         docker compose up -d --build
         sleep 3
         echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
         echo ""
 
-        _missing=false
-        [ "$HAS_CREDS" = "no" ] && echo -e "  ${YELLOW}Reminder:${NC} Claude auth still needed — docker exec -it ct-cloud claude login" && _missing=true
-        [ "$HAS_GIT_NAME" = "no" ] && echo -e "  ${YELLOW}Reminder:${NC} Git identity not configured" && _missing=true
-        [ "$HAS_GIT_TOKEN" = "no" ] && echo -e "  ${YELLOW}Reminder:${NC} GitHub token not configured" && _missing=true
-        [ "$_missing" = true ] && echo "" && echo -e "  ${DIM}Run installer again → \"Configure missing\" to set these up.${NC}"
+        if [ "$USER_COUNT" -eq 0 ]; then
+          echo -e "  ${YELLOW}Reminder:${NC} No users configured — run installer again → \"Add user\""
+        fi
 
         echo ""
         echo -e "  ${GREEN}${BOLD}Update complete!${NC}"
@@ -201,6 +196,14 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         echo ""
         docker exec ct-cloud node dist/cli.js user add "$U_NAME"
         echo ""
+        read -p "  Configure Claude auth + git for \"$U_NAME\" now? (Y/n): " SETUP_NOW
+        SETUP_NOW=${SETUP_NOW:-Y}
+        if [ "$SETUP_NOW" = "Y" ] || [ "$SETUP_NOW" = "y" ]; then
+          docker exec -it ct-cloud node dist/cli.js user setup "$U_NAME"
+        else
+          echo -e "  ${DIM}Configure later: docker exec -it ct-cloud node dist/cli.js user setup $U_NAME${NC}"
+        fi
+        echo ""
         exit 0
         ;;
       5)
@@ -215,9 +218,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     echo ""
 
     # Rebuild (source may have changed)
-    mkdir -p data/users data/claude data/gitdata
-    touch data/gitdata/.gitconfig data/gitdata/.git-credentials
-    chmod 600 data/gitdata/.git-credentials 2>/dev/null || true
+    mkdir -p data/users
     echo -e "  ${CYAN}Rebuilding containers...${NC}"
     docker compose up -d --build
     sleep 3
@@ -284,9 +285,7 @@ echo ""
 # ══════════════════════════════════════════════
 
 if [ "$IS_UPDATE" = false ]; then
-  mkdir -p data/users data/claude data/gitdata
-  touch data/gitdata/.gitconfig data/gitdata/.git-credentials
-  chmod 600 data/gitdata/.git-credentials
+  mkdir -p data/users
 
   echo -e "  ${CYAN}Building and starting containers...${NC}"
   docker compose up -d --build
@@ -297,167 +296,7 @@ if [ "$IS_UPDATE" = false ]; then
 fi
 
 # ══════════════════════════════════════════════
-# 5. Claude Code authentication
-# ══════════════════════════════════════════════
-
-# Re-check credentials (host-side first, container fallback)
-HAS_CREDS="no"
-[ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
-[ "$HAS_CREDS" = "no" ] && docker exec ct-cloud bash -c 'test -f /root/.claude/.credentials.json' 2>/dev/null && HAS_CREDS="yes"
-
-if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_CREDS" = "yes" ]; then
-  echo -e "  ${GREEN}✓ Claude credentials${NC} ${DIM}(already configured)${NC}"
-else
-  echo -e "  ${BOLD}Claude Code Authentication${NC}"
-  echo ""
-
-  if [ "$HAS_CREDS" = "yes" ]; then
-    echo -e "  ${GREEN}✓ Claude credentials found${NC}"
-    if [ "$SKIP_CONFIGURED" != true ]; then
-      read -p "  Re-authenticate? (y/N): " REAUTH
-      if [ "$REAUTH" = "Y" ] || [ "$REAUTH" = "y" ]; then
-        docker exec -it ct-cloud /root/.local/bin/claude login 2>&1 || true
-      fi
-    fi
-  else
-    echo -e "  ${YELLOW}Claude Code needs to be authenticated for headless sessions.${NC}"
-    echo -e "  ${DIM}This will open the Claude login flow inside the container.${NC}"
-    echo ""
-    read -p "  Authenticate Claude Code now? (Y/n): " AUTH_CHOICE
-    AUTH_CHOICE=${AUTH_CHOICE:-Y}
-
-    if [ "$AUTH_CHOICE" = "Y" ] || [ "$AUTH_CHOICE" = "y" ]; then
-      echo ""
-      echo -e "  ${CYAN}Starting Claude login...${NC}"
-      echo -e "  ${DIM}Follow the instructions below — a URL will appear to open in your browser.${NC}"
-      echo ""
-      docker exec -it ct-cloud /root/.local/bin/claude login 2>&1 || true
-      echo ""
-
-      HAS_CREDS="no"
-      [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
-      [ "$HAS_CREDS" = "no" ] && docker exec ct-cloud bash -c 'test -f /root/.claude/.credentials.json' 2>/dev/null && HAS_CREDS="yes"
-      if [ "$HAS_CREDS" = "yes" ]; then
-        echo -e "  ${GREEN}✓ Claude authenticated successfully${NC}"
-      else
-        echo -e "  ${RED}Authentication may have failed — you can retry later:${NC}"
-        echo -e "  ${DIM}  docker exec -it ct-cloud claude login${NC}"
-      fi
-    else
-      echo -e "  ${DIM}Skipped — headless sessions won't work until authenticated.${NC}"
-      echo -e "  ${DIM}Authenticate later: docker exec -it ct-cloud claude login${NC}"
-    fi
-  fi
-fi
-
-echo ""
-
-# ══════════════════════════════════════════════
-# 6. Git & GitHub setup (inside container)
-# ══════════════════════════════════════════════
-
-# Re-check git config (host-side first, container fallback)
-GIT_NAME_VAL=$(grep 'name\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
-GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
-HAS_GIT_NAME="no"
-[ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-if [ "$HAS_GIT_NAME" = "no" ]; then
-  GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
-  GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
-  [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-fi
-HAS_GIT_TOKEN="no"
-[ -s data/gitdata/.git-credentials ] && HAS_GIT_TOKEN="yes"
-[ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.gitdata/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
-
-if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_GIT_NAME" = "yes" ] && [ "$HAS_GIT_TOKEN" = "yes" ]; then
-  echo -e "  ${GREEN}✓ Git identity${NC} ${DIM}($GIT_NAME_VAL <$GIT_EMAIL_VAL>)${NC}"
-  echo -e "  ${GREEN}✓ GitHub token${NC} ${DIM}(already configured)${NC}"
-else
-  echo -e "  ${BOLD}Git & GitHub Setup${NC}"
-  echo ""
-  echo -e "  ${DIM}Configure git inside the container so headless sessions${NC}"
-  echo -e "  ${DIM}can commit, push, and pull on your projects.${NC}"
-  echo ""
-
-  # Git identity
-  if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_GIT_NAME" = "yes" ]; then
-    echo -e "  ${GREEN}✓ Git identity${NC} ${DIM}($GIT_NAME_VAL — unchanged)${NC}"
-  else
-    if [ "$HAS_GIT_NAME" = "yes" ]; then
-      echo -e "  ${DIM}Current: $GIT_NAME_VAL <$GIT_EMAIL_VAL>${NC}"
-      read -p "  Update Git identity? (y/N): " UPDATE_GIT_ID
-    else
-      UPDATE_GIT_ID="Y"
-    fi
-
-    if [ "$UPDATE_GIT_ID" = "Y" ] || [ "$UPDATE_GIT_ID" = "y" ]; then
-      GIT_NAME=""
-      while [ -z "$GIT_NAME" ]; do
-        if [ -n "$GIT_NAME_VAL" ]; then
-          read -p "  Git name [$GIT_NAME_VAL]: " GIT_NAME
-          GIT_NAME=${GIT_NAME:-$GIT_NAME_VAL}
-        else
-          read -p "  Git name (e.g. John Doe): " GIT_NAME
-        fi
-        if [ -z "$GIT_NAME" ]; then
-          echo -e "  ${RED}Name is required${NC}"
-        fi
-      done
-
-      GIT_EMAIL=""
-      while [ -z "$GIT_EMAIL" ]; do
-        if [ -n "$GIT_EMAIL_VAL" ]; then
-          read -p "  Git email [$GIT_EMAIL_VAL]: " GIT_EMAIL
-          GIT_EMAIL=${GIT_EMAIL:-$GIT_EMAIL_VAL}
-        else
-          read -p "  Git email: " GIT_EMAIL
-        fi
-        if [ -z "$GIT_EMAIL" ]; then
-          echo -e "  ${RED}Email is required${NC}"
-        fi
-      done
-
-      docker exec ct-cloud git config --global user.name "$GIT_NAME"
-      docker exec ct-cloud git config --global user.email "$GIT_EMAIL"
-      echo -e "  ${GREEN}✓ Git identity configured${NC}"
-    fi
-  fi
-
-  # GitHub token
-  echo ""
-  if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_GIT_TOKEN" = "yes" ]; then
-    echo -e "  ${GREEN}✓ GitHub token${NC} ${DIM}(already configured)${NC}"
-  else
-    if [ "$HAS_GIT_TOKEN" = "yes" ]; then
-      read -p "  Update GitHub token? (y/N): " UPDATE_TOKEN
-    else
-      UPDATE_TOKEN="Y"
-      echo -e "  ${DIM}A GitHub token lets Claude push/pull on your repos.${NC}"
-      echo -e "  ${DIM}Create one at: https://github.com/settings/tokens${NC}"
-      echo -e "  ${DIM}Scopes needed: repo (Full control of private repositories)${NC}"
-      echo ""
-    fi
-
-    if [ "$UPDATE_TOKEN" = "Y" ] || [ "$UPDATE_TOKEN" = "y" ]; then
-      read -p "  GitHub token (press Enter to skip): " GH_TOKEN
-
-      if [ -n "$GH_TOKEN" ]; then
-        docker exec ct-cloud git config --global credential.helper 'store --file /root/.gitdata/.git-credentials'
-        docker exec ct-cloud bash -c "echo 'https://oauth2:${GH_TOKEN}@github.com' > /root/.gitdata/.git-credentials && chmod 600 /root/.gitdata/.git-credentials"
-        echo -e "  ${GREEN}✓ GitHub token saved${NC}"
-      else
-        echo -e "  ${DIM}Skipped — add a token later:${NC}"
-        echo -e "  ${DIM}  docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.gitdata/.git-credentials\"${NC}"
-      fi
-    fi
-  fi
-fi
-
-echo ""
-
-# ══════════════════════════════════════════════
-# 7. Create user
+# 5. Create user + per-user setup (Claude auth + git + GitHub)
 # ══════════════════════════════════════════════
 
 if [ "$IS_UPDATE" = true ] && [ "$SKIP_CONFIGURED" = true ]; then
@@ -492,6 +331,21 @@ if [ "$SKIP_USER" != true ]; then
 
   # Extract API key from output
   API_KEY=$(echo "$API_OUTPUT" | grep -oP 'API Key: \K.*' || true)
+
+  # Per-user setup: Claude auth + git identity + GitHub token
+  echo ""
+  echo -e "  ${BOLD}User setup — Claude auth, git identity & GitHub token${NC}"
+  echo -e "  ${DIM}Each user has their own credentials for headless sessions.${NC}"
+  echo ""
+  read -p "  Configure user \"$USERNAME\" now? (Y/n): " SETUP_CHOICE
+  SETUP_CHOICE=${SETUP_CHOICE:-Y}
+
+  if [ "$SETUP_CHOICE" = "Y" ] || [ "$SETUP_CHOICE" = "y" ]; then
+    docker exec -it ct-cloud node dist/cli.js user setup "$USERNAME"
+  else
+    echo -e "  ${DIM}Skipped — configure later:${NC}"
+    echo -e "  ${DIM}  docker exec -it ct-cloud node dist/cli.js user setup $USERNAME${NC}"
+  fi
 fi
 
 echo ""
@@ -792,10 +646,9 @@ if [ "$IS_UPDATE" = false ] || [ -n "$API_KEY" ]; then
   echo ""
 fi
 echo -e "  ${DIM}────────────────────────────────────${NC}"
-echo -e "  ${DIM}Manage users:  docker exec ct-cloud node dist/cli.js user add <name>${NC}"
-echo -e "  ${DIM}Claude auth:   docker exec -it ct-cloud claude login${NC}"
-echo -e "  ${DIM}Git token:     docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.gitdata/.git-credentials\"${NC}"
+echo -e "  ${DIM}Add user:      docker exec ct-cloud node dist/cli.js user add <name>${NC}"
+echo -e "  ${DIM}Setup user:    docker exec -it ct-cloud node dist/cli.js user setup <name>${NC}"
+echo -e "  ${DIM}List users:    docker exec ct-cloud node dist/cli.js user list${NC}"
 echo -e "  ${DIM}View logs:     docker compose -f $INSTALL_DIR/cloud/docker-compose.yml logs -f${NC}"
 echo -e "  ${DIM}Manual update: $INSTALL_DIR/cloud/update.sh${NC}"
-echo -e "  ${DIM}Update logs:   /var/log/ct-cloud-update.log${NC}"
 echo ""
