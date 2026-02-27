@@ -35,6 +35,9 @@ const STRINGS = {
   headlessCreating: _isFr ? 'Lancement session cloud…' : 'Starting cloud session…',
   headlessError: _isFr ? 'Erreur session cloud' : 'Cloud session error',
   headlessSelectProject: _isFr ? 'Sélectionnez un projet pour démarrer' : 'Select a project to start',
+  cloudPopupTitle: _isFr ? 'Travaillez dans le cloud' : 'Work in the cloud',
+  cloudPopupDesc: _isFr ? 'Votre PC est hors ligne. Continuez à travailler avec des sessions cloud directement sur le serveur.' : 'Your PC is offline. Continue working with cloud sessions directly on the server.',
+  cloudPopupCta: _isFr ? 'Passer en mode cloud' : 'Switch to cloud',
 };
 
 function applyStrings() {
@@ -279,6 +282,7 @@ function init() {
   }
 
   _setupPwaInstallBanner();
+  _setupCloudPopup();
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
@@ -525,11 +529,9 @@ function _onDesktopOffline() {
   if (labelEl) labelEl.textContent = _isFr ? 'PC hors ligne' : 'Desktop offline';
   const dot = $('connection-dot');
   if (dot) { dot.classList.add('disconnected'); dot.classList.remove('reconnecting'); }
-  // Show headless banner if in relay mode (cloud server available)
+  // Show cloud popup if in relay mode (cloud server available)
   if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
-    _showHeadlessBanner(true);
-    // Fetch cloud projects so user can start headless sessions
-    _fetchCloudProjects();
+    _showCloudPopup(true);
   }
 }
 
@@ -624,6 +626,7 @@ function handleMessage({ type, data }) {
     case 'relay:desktop-online':
       state.desktopOffline = false;
       connSetState('connected');
+      _showCloudPopup(false);
       _showHeadlessBanner(false);
       _cleanupHeadlessSession();
       // Ask the desktop to send init data (projects, sessions, time)
@@ -2810,6 +2813,39 @@ function _dismissInstallBanner() {
   const banner = $('pwa-install-banner');
   if (banner) banner.classList.add('hidden');
   localStorage.setItem('pwa_install_dismissed', '1');
+}
+
+// ─── Cloud Popup ─────────────────────────────────────────────────────────────
+
+function _showCloudPopup(show) {
+  const overlay = $('cloud-popup-overlay');
+  if (!overlay) return;
+  if (show) {
+    // Apply i18n
+    const title = $('cloud-popup-title');
+    const desc = $('cloud-popup-desc');
+    const ctaLabel = $('cloud-popup-cta-label');
+    if (title) title.textContent = STRINGS.cloudPopupTitle;
+    if (desc) desc.textContent = STRINGS.cloudPopupDesc;
+    if (ctaLabel) ctaLabel.textContent = STRINGS.cloudPopupCta;
+    overlay.classList.remove('hidden');
+  } else {
+    overlay.classList.add('hidden');
+  }
+}
+
+function _onCloudPopupCta() {
+  _showCloudPopup(false);
+  _showHeadlessBanner(true);
+  _fetchCloudProjects();
+  switchView('projects');
+}
+
+function _setupCloudPopup() {
+  const cta = $('cloud-popup-cta');
+  const dismiss = $('cloud-popup-dismiss');
+  if (cta) cta.addEventListener('click', _onCloudPopupCta);
+  if (dismiss) dismiss.addEventListener('click', () => _showCloudPopup(false));
 }
 
 // ─── Headless Cloud Sessions ──────────────────────────────────────────────────
