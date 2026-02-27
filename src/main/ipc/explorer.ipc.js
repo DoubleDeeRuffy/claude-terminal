@@ -112,8 +112,9 @@ function startWatch(projectPath) {
 
   activeWatcher = chokidar.watch(projectPath, {
     ignored: makeIgnoredFn(),
-    persistent: false,        // don't prevent the process from exiting
-    ignoreInitial: true,      // only report changes, not the initial directory scan
+    persistent: true,             // activates chokidar's native error listener (handler.js:175-198) which swallows EPERM on Windows directory deletion
+    ignoreInitial: true,          // only report changes, not the initial directory scan
+    ignorePermissionErrors: true, // silently ignore EACCES/EPERM from subdirectories the user lacks read access to
     awaitWriteFinish: {
       stabilityThreshold: 200,
       pollInterval: 100
