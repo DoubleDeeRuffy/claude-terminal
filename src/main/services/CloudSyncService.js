@@ -274,13 +274,6 @@ async function _handleLocalChanges(projectId, changes) {
       formData.pipe(req);
     });
 
-    // Update timestamp
-    const meta = _syncMeta.get(projectId);
-    if (meta) {
-      meta.lastSyncTimestamp = Date.now();
-      _saveSyncMetadata();
-    }
-
     // Update sync timestamp + clear error
     const meta = _syncMeta.get(projectId);
     if (meta) { meta.lastSyncTimestamp = Date.now(); _saveSyncMetadata(); }
