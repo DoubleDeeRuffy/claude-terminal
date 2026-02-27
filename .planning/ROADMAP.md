@@ -363,20 +363,20 @@ Plans:
 
 ### Phase 20.1: Always ScrollToEnd on Switching Tabs or Projects (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** Terminal tabs auto-scroll to the bottom when switching tabs or projects, with a settings toggle under the Terminal group (enabled by default)
+**Requirements**: None (no formal requirement IDs — runtime UX behavior)
 **Depends on:** Phase 20
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 20.1 to break down)
+- [ ] 20.1-01-PLAN.md — Add scrollToBottom in setActiveTerminal for xterm tabs, autoScrollOnSwitch setting toggle, i18n keys
 
 ### Phase 21: Integrated-Markdown-Viewer
 
 **Goal:** Render markdown files inline as formatted content in a dedicated tab with TOC sidebar, source toggle, code block highlighting, Ctrl+click link gating, live reload on disk changes, and in-document search
 **Requirements**: MD-VIEW-01, MD-VIEW-02, MD-VIEW-03
 **Depends on:** Phase 20
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 21-01-PLAN.md — Add markdown rendering branch to openFileTab with TOC, toggle, code blocks, link gating, image resolution, and CSS/i18n

@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-02-27T09:45:26.960Z"
+progress:
+  total_phases: 32
+  completed_phases: 27
+  total_plans: 41
+  completed_plans: 39
+---
+
 # Project State
 
 ## Project Reference
@@ -5,14 +18,14 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 20 — Bugfix: swap projects resets to first tab instead of remembering last-active (COMPLETE)
+**Current focus:** Phase 21 — Integrated Markdown Viewer
 
 ## Current Position
 
-Phase: 20 (20-bugfix-swap-projects-selected-tab) — COMPLETE
-Plan: 1 of 1 complete
-Status: Plan 20-01 complete — added lastActivePerProject and savedScrollPositions Maps in TerminalManager.js to restore last-active tab and scroll position on project switch
-Last activity: 2026-02-26 - Completed plan 20-01: in-memory tab and scroll tracking for project switches
+Phase: 21 (21-integrated-markdown-viewer) — In Progress
+Plan: 1 of 2 complete
+Status: Plan 21-01 complete — added markdown rendering branch to openFileTab with Marked instance, TOC sidebar, rendered/source toggle, Ctrl+click link gating, and full CSS theming
+Last activity: 2026-02-27 - Completed plan 21-01: markdown viewer rendering engine integrated into file tab system
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -73,6 +86,7 @@ Progress: [███████████████████████
 | Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
 | Phase 6.4 P01 | 5 | 2 tasks | 1 files |
 | Phase 20-bugfix-swap-projects-selected-tab P01 | 2 | 2 tasks | 1 files |
+| Phase 21 P01 | 189 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -166,6 +180,9 @@ Recent decisions affecting current work:
 - [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
 - [Phase 6.4]: 6.4-01: cwd and claudeSessionId added directly to termData object literal (not via updateTerminal) to avoid state notification with incomplete data
 - [Phase 20-bugfix-swap-projects-selected-tab]: 20-01: lastActivePerProject Map tracks last-active terminal ID per project in-memory; filterByProject uses Map as primary restore source, disk activeTabIndex as secondary fallback
+- [Phase 21]: Use new Marked() instance (not global marked.use()) to avoid config conflict with ChatView
+- [Phase 21]: setSetting('mdViewerTocExpanded') persists TOC collapse state using \!== false guard for safe defaults
+- [Phase 21]: mdCleanup set to null on tab creation — Plan 21-02 will set it to file-watcher teardown function
 
 ### Pending Todos
 
@@ -217,6 +234,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: Completed 12-01-PLAN.md
-Resume file: .planning/phases/12-dashboard-support-for-dotnet-projects/12-01-SUMMARY.md
+Last session: 2026-02-27
+Stopped at: Completed 21-01-PLAN.md
+Resume file: .planning/phases/21-integrated-markdown-viewer/21-01-SUMMARY.md
