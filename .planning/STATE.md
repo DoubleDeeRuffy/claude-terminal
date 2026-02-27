@@ -3,38 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-27T13:48:05.083Z"
+last_updated: "2026-02-27T15:10:46.665Z"
 progress:
   total_phases: 33
   completed_phases: 31
   total_plans: 45
   completed_plans: 45
----
-
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-last_updated: "2026-02-27T12:53:52.494Z"
-progress:
-  total_phases: 33
-  completed_phases: 31
-  total_plans: 44
-  completed_plans: 44
----
-
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-last_updated: "2026-02-27T12:00:00Z"
-progress:
-  total_phases: 32
-  completed_phases: 30
-  total_plans: 43
-  completed_plans: 43
 ---
 
 # Project State
@@ -44,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 14.1 — Resumed Session Tab Naming (complete)
+**Current focus:** Phase 23 — Remember last active tab on tab closing (COMPLETE)
 
 ## Current Position
 
-Phase: 14.1 (14.1-resumed-session-tab-naming) — COMPLETE
+Phase: 23 (23-remember-last-active-tab-on-tab-closing) — COMPLETE
 Plan: 1 of 1 complete
-Status: Plan 14.1-01 complete — session name threading from resume dialog card click through resumeSession to tab creation
-Last activity: 2026-02-27 - Completed plan 14.1-01: thread session name from resume dialog to tab
+Status: Plan 23-01 complete — added tabActivationHistory Map and walk-back in closeTerminal for browser-like tab-close UX
+Last activity: 2026-02-27 - Completed plan 23-01: per-project activation history stack for tab-close behavior
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -117,6 +91,7 @@ Progress: [███████████████████████
 | Phase 22 P01 | 12 | 2 tasks | 3 files |
 | Phase 14.1-resumed-session-tab-naming P01 | 8 | 2 tasks | 1 files |
 | Phase 22-explorer-filewatcher P03 | 2 | 2 tasks | 3 files |
+| Phase 23 P01 | 2 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -219,6 +194,7 @@ Recent decisions affecting current work:
 - [Phase 22]: 22-01: chokidar@^4 (pure JS) installed with --ignore-scripts to avoid triggering better-sqlite3 native rebuild; watchId integer guard discards stale debounce callbacks from closed watchers; persistent: false and ignoreInitial: true; 350ms debounce within plan's 300-500ms range; SOFT_LIMIT=10000 paths triggers watchLimitWarning IPC
 - [Phase 14.1-resumed-session-tab-naming]: 14.1-01: Use isRenamed guard to only propagate explicitly-set names from resume dialog to tab creation; apply name immediately at tab creation matching Phase 16 pattern
 - [Phase 22-explorer-filewatcher]: persistent:true chosen for chokidar: watcher is explicitly managed via stopWatch(), safe to keep process alive; activates chokidar's EPERM workaround for Windows directory deletion
+- [Phase 23]: tabActivationHistory Map declared at module level — follows Phase 20 in-memory tracking pattern; push inside existing if (newProjectId) guard in setActiveTerminal; original forEach neighbor scan kept as fallback for empty history
 
 ### Pending Todos
 
@@ -273,5 +249,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 22-04-PLAN.md
-Resume file: .planning/phases/22-explorer-filewatcher/22-04-SUMMARY.md
+Stopped at: Completed 23-01-PLAN.md
+Resume file: .planning/phases/23-remember-last-active-tab-on-tab-closing/23-01-SUMMARY.md
