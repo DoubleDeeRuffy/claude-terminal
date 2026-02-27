@@ -387,7 +387,7 @@ Plans:
 **Goal:** File explorer automatically reflects external filesystem changes (new files, deletions, renames) without manual refresh — chokidar watches the project directory in main process, sends debounced batched events via IPC, and renderer applies incremental patches preserving expanded/scroll state
 **Requirements**: EXPL-WATCH-01
 **Depends on:** Phase 21
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 22-01-PLAN.md — Create chokidar watcher in main process with IPC handlers and preload bridge
