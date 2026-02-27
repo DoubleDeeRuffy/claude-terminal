@@ -73,6 +73,63 @@ export class ProjectManager {
     await this.touchProject(userName, projectName);
   }
 
+  /**
+   * Incremental sync: apply only changed files from zip, handle .DELETED markers.
+   * Unlike syncProject(), this does NOT clear existing files first.
+   */
+  async patchProject(userName: string, projectName: string, zipPath: string): Promise<{ applied: number; deleted: number }> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const exists = await this.projectExists(userName, projectName);
+    if (!exists) throw new Error(`Project "${projectName}" does not exist`);
+
+    // Extract to temp dir first
+    const tempDir = path.join(require('os').tmpdir(), `ct-patch-${Date.now()}`);
+    try {
+      await extractZip(zipPath, { dir: tempDir });
+
+      let applied = 0;
+      let deleted = 0;
+
+      // Walk extracted files and apply them
+      const allFiles = await this._walkDir(tempDir);
+      for (const relPath of allFiles) {
+        if (relPath.endsWith('.DELETED')) {
+          // Delete the original file from project
+          const originalPath = path.join(projectPath, relPath.replace(/\.DELETED$/, ''));
+          await fs.promises.unlink(originalPath).catch(() => {});
+          deleted++;
+        } else {
+          // Copy/overwrite file into project
+          const src = path.join(tempDir, relPath);
+          const dest = path.join(projectPath, relPath);
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+          await fs.promises.copyFile(src, dest);
+          applied++;
+        }
+      }
+
+      await this.touchProject(userName, projectName);
+      return { applied, deleted };
+    } finally {
+      await fs.promises.unlink(zipPath).catch(() => {});
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  private async _walkDir(dir: string, base: string = ''): Promise<string[]> {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const results: string[] = [];
+    for (const entry of entries) {
+      const rel = base ? `${base}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        results.push(...await this._walkDir(path.join(dir, entry.name), rel));
+      } else {
+        results.push(rel);
+      }
+    }
+    return results;
+  }
+
   async deleteProject(userName: string, projectName: string): Promise<void> {
     await store.deleteProjectDir(userName, projectName);
     const user = await store.getUser(userName);

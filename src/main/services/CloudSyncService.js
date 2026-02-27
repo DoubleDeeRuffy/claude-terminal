@@ -254,7 +254,7 @@ async function _handleLocalChanges(projectId, changes) {
         hostname: urlObj.hostname,
         port: urlObj.port,
         path: urlObj.pathname,
-        method: 'POST',
+        method: 'PATCH',
         headers: {
           ...formData.getHeaders(),
           'Authorization': `Bearer ${key}`,

@@ -138,6 +138,21 @@ export function createCloudRouter(): Router {
     }
   });
 
+  // Incremental sync (only changed files + .DELETED markers)
+  router.patch('/projects/:name/sync', upload.single('zip'), async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: 'Missing zip file' });
+        return;
+      }
+      const name = req.params.name as string;
+      const result = await projectManager.patchProject(req.userName!, name, req.file.path);
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // ── Project Changes (for sync) ──
 
   router.get('/projects/:name/changes', async (req: AuthRequest, res: Response) => {
