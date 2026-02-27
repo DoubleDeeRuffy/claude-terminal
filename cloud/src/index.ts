@@ -11,14 +11,25 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 let relayServer: RelayServer;
 
-// ── In-memory log buffer for admin TUI ──
+// ── In-memory circular log buffer for admin TUI ──
 const MAX_LOG_ENTRIES = 500;
-const logBuffer: Array<{ timestamp: number; level: string; message: string }> = [];
+const _logRing: Array<{ timestamp: number; level: string; message: string } | null> = new Array(MAX_LOG_ENTRIES).fill(null);
+let _logHead = 0;
+let _logCount = 0;
 
 function captureLog(level: string, ...args: any[]): void {
   const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  logBuffer.push({ timestamp: Date.now(), level, message });
-  if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.shift();
+  _logRing[_logHead] = { timestamp: Date.now(), level, message };
+  _logHead = (_logHead + 1) % MAX_LOG_ENTRIES;
+  if (_logCount < MAX_LOG_ENTRIES) _logCount++;
+}
+
+/** Return logs in chronological order */
+function getLogBuffer(): Array<{ timestamp: number; level: string; message: string }> {
+  if (_logCount < MAX_LOG_ENTRIES) {
+    return _logRing.slice(0, _logCount) as any;
+  }
+  return [..._logRing.slice(_logHead), ..._logRing.slice(0, _logHead)] as any;
 }
 
 // Intercept console.log/warn/error to capture logs
@@ -39,7 +50,7 @@ export async function startServer(): Promise<void> {
 
   // Health check
   app.get('/health', (_req, res) => {
-    const stats = relayServer.getStats();
+    const stats = relayServer ? relayServer.getStats() : null;
     res.json({
       status: 'ok',
       version: require('../package.json').version,
@@ -55,7 +66,7 @@ export async function startServer(): Promise<void> {
   });
 
   app.get('/admin/logs', (_req, res) => {
-    res.json(logBuffer);
+    res.json(getLogBuffer());
   });
 
   // Cloud API routes

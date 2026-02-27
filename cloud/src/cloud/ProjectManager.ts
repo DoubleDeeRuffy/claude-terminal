@@ -146,17 +146,20 @@ export class ProjectManager {
     if (!exists) throw new Error(`Project "${projectName}" does not exist`);
 
     const results: Array<{ path: string; size: number }> = [];
-    await this._walkDirWithStats(projectPath, projectPath, results);
+    await this._walkDirWithStats(projectPath, projectPath, results, 0);
     return results;
   }
 
-  private async _walkDirWithStats(baseDir: string, currentDir: string, results: Array<{ path: string; size: number }>): Promise<void> {
+  private static readonly MAX_DEPTH = 30;
+
+  private async _walkDirWithStats(baseDir: string, currentDir: string, results: Array<{ path: string; size: number }>, depth: number): Promise<void> {
+    if (depth >= ProjectManager.MAX_DEPTH) return;
     const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
     for (const entry of entries) {
       if (ProjectManager.EXCLUDE_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
-        await this._walkDirWithStats(baseDir, fullPath, results);
+        await this._walkDirWithStats(baseDir, fullPath, results, depth + 1);
       } else {
         const stat = await fs.promises.stat(fullPath);
         const rel = path.relative(baseDir, fullPath).replace(/\\/g, '/');

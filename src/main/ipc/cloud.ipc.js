@@ -130,7 +130,7 @@ function registerCloudHandlers() {
           res.on('data', (chunk) => body += chunk);
           res.on('end', () => {
             if (res.statusCode >= 200 && res.statusCode < 300) {
-              resolve(JSON.parse(body));
+              try { resolve(JSON.parse(body)); } catch { resolve({ ok: true, raw: body }); }
             } else {
               let message;
               if (res.statusCode === 413) {
