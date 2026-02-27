@@ -224,6 +224,7 @@ Recent decisions affecting current work:
 - Phase 21 added: Integrated-Markdown-Viewer
 - Phase 20.1 inserted after Phase 20: Always ScrollToEnd on Switching Tabs or Projects (URGENT)
 - Phase 22 added: Explorer-Filewatcher
+- Phase 14.1 inserted after Phase 14: resumed-session-tab-naming (URGENT)
 
 ### Blockers/Concerns
 
