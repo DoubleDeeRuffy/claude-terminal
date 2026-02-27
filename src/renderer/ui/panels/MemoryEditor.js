@@ -167,6 +167,47 @@ function getClaudeSettingsJson() {
 function init(context) {
   showModal = context.showModal;
   closeModal = context.closeModal;
+  initResizer();
+}
+
+function initResizer() {
+  const resizer = document.getElementById('memory-sidebar-resizer');
+  const panel = document.querySelector('.memory-sidebar');
+  if (!resizer || !panel) return;
+
+  let startX, startWidth;
+
+  resizer.addEventListener('mousedown', (e) => {
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (e) => {
+      const newWidth = Math.min(500, Math.max(200, startWidth + (e.clientX - startX)));
+      panel.style.width = newWidth + 'px';
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const { settingsState: ss, saveSettings } = require('../../state/settings.state');
+      ss.setProp('memorySidebarWidth', panel.offsetWidth);
+      saveSettings();
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  // Restore saved width
+  const { getSetting } = require('../../state/settings.state');
+  const savedWidth = getSetting('memorySidebarWidth');
+  if (savedWidth) {
+    panel.style.width = savedWidth + 'px';
+  }
 }
 
 async function loadMemory() {

@@ -44,6 +44,7 @@ const defaultSettings = {
   idleTimeout: 2, // Idle timeout in minutes for time tracking
   projectsPanelWidth: null, // Saved projects panel width (null = CSS default)
   fileExplorerWidth: null, // Saved file explorer width (null = CSS default)
+  memorySidebarWidth: null, // Saved memory sidebar width (null = CSS default 260px)
   telemetryEnabled: false, // Opt-in anonymous telemetry
   telemetryUuid: null, // Random UUID for anonymous tracking
   telemetryCategories: { app: true, features: true, errors: true }, // Granular event categories
