@@ -587,6 +587,8 @@
     "terminalGroup": "Terminal",
     "tabRenameOnSlashCommand": "Rename tab on slash command",
     "tabRenameOnSlashCommandDesc": "Automatically rename the terminal tab to the last slash command executed (e.g. /gsd:verify-work 12)",
+    "aiTabNaming": "AI tab naming",
+    "aiTabNamingDesc": "Use AI to generate short tab names from messages",
     "hooks": {
       "title": "Smart Hooks",
       "enable": "Enable Smart Hooks",

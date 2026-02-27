@@ -1526,7 +1526,7 @@ function createChatView(wrapperEl, project, options = {}) {
     }
 
     // Tab rename: instant truncation + async haiku polish
-    if (onTabRename && !text.startsWith('/')) {
+    if (onTabRename && !text.startsWith('/') && getSetting('aiTabNaming') !== false) {
       // Immediate: smart truncation
       const words = text.split(/\s+/).slice(0, 5).join(' ');
       onTabRename(words.length > 30 ? words.slice(0, 28) + '...' : words);
@@ -3195,7 +3195,7 @@ function createChatView(wrapperEl, project, options = {}) {
     if (sid !== sessionId) return;
     appendUserMessage(text, images || [], [], isStreaming);
     // Trigger tab rename for remote messages (same logic as _send)
-    if (onTabRename && text && !text.startsWith('/')) {
+    if (onTabRename && text && !text.startsWith('/') && getSetting('aiTabNaming') !== false) {
       const words = text.split(/\s+/).slice(0, 5).join(' ');
       onTabRename(words.length > 30 ? words.slice(0, 28) + '...' : words);
       if (!tabNamePending) {

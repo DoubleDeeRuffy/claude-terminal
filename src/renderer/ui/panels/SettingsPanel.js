@@ -687,6 +687,16 @@ async function renderSettingsTab(initialTab = 'general') {
                   <span class="settings-toggle-slider"></span>
                 </label>
               </div>
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.aiTabNaming')}</div>
+                  <div class="settings-toggle-desc">${t('settings.aiTabNamingDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="ai-tab-naming-toggle" ${settings.aiTabNaming !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
           <div class="settings-group">
@@ -1162,6 +1172,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newAiCommitMessages = aiCommitToggle ? aiCommitToggle.checked : true;
     const tabRenameSlashToggle = document.getElementById('tab-rename-slash-toggle');
     const newTabRenameOnSlashCommand = tabRenameSlashToggle ? tabRenameSlashToggle.checked : false;
+    const aiTabNamingToggle = document.getElementById('ai-tab-naming-toggle');
+    const newAiTabNaming = aiTabNamingToggle ? aiTabNamingToggle.checked : true;
     const hooksToggle = document.getElementById('hooks-enabled-toggle');
     const newHooksEnabled = hooksToggle ? hooksToggle.checked : settings.hooksEnabled;
     const context1MToggle = document.getElementById('enable-1m-context-toggle');
@@ -1196,6 +1208,7 @@ async function renderSettingsTab(initialTab = 'general') {
       enable1MContext: newEnable1MContext,
       showDotfiles: newShowDotfiles,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
+      aiTabNaming: newAiTabNaming,
       telemetryEnabled: newTelemetryEnabled,
       telemetryCategories: newTelemetryCategories
     };

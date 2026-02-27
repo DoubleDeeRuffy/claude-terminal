@@ -33,6 +33,7 @@ const defaultSettings = {
   remoteSelectedIp: null, // Selected network interface IP for pairing URL (null = auto)
   showDotfiles: true, // true = show dotfiles in file explorer (default), false = hide them
   tabRenameOnSlashCommand: false, // Rename terminal tab to slash command text when submitted
+  aiTabNaming: true, // Use AI (Haiku) to generate short tab names from messages
   cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
   cloudAutoConnect: true, // Auto-connect to cloud relay on startup
