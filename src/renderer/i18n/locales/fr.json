@@ -1265,6 +1265,15 @@
     "browserSearchPlaceholder": "Rechercher dans les données...",
     "browserSearchClear": "Effacer la recherche"
   },
+  "mdViewer": {
+    "tableOfContents": "Table des matières",
+    "toggleToc": "Afficher/masquer la table des matières",
+    "toggleSource": "Voir la source",
+    "toggleRendered": "Voir le rendu",
+    "ctrlClickToOpen": "Ctrl+clic pour ouvrir",
+    "searchPlaceholder": "Rechercher dans le document...",
+    "noResults": "Aucun résultat"
+  },
   "telemetry": {
     "consentTitle": "Aidez à améliorer Claude Terminal",
     "consentDescription": "Nous aimerions collecter des données d'utilisation anonymes pour améliorer Claude Terminal. C'est complètement optionnel et peut être désactivé à tout moment dans les Paramètres.",

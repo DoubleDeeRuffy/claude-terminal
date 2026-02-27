@@ -28,9 +28,11 @@ const {
   setResourceShortcut,
   findResourceByShortcut,
   getSetting,
+  setSetting,
   heartbeat,
   stopProject
 } = require('../../state');
+const { Marked } = require('marked');
 const { escapeHtml, getFileIcon, highlight } = require('../../utils');
 const { t, getCurrentLanguage } = require('../../i18n');
 const {
@@ -1339,7 +1341,8 @@ function closeTerminal(id) {
     }
     removeTerminal(id);
   } else if (termData && termData.type === 'file') {
-    // File tabs have no terminal process to kill
+    // File tabs have no terminal process to kill; run markdown cleanup if set
+    if (termData.mdCleanup) termData.mdCleanup();
     removeTerminal(id);
   } else {
     api.terminal.kill({ id });
@@ -3250,6 +3253,81 @@ async function createTerminalWithPrompt(project, prompt) {
 }
 
 /**
+ * Create a markdown renderer instance for a specific base path.
+ * Uses a new Marked() instance to avoid global config conflict with ChatView.
+ * @param {string} basePath - Directory of the markdown file for resolving relative images
+ * @returns {Marked} Configured Marked instance
+ */
+function createMdRenderer(basePath) {
+  const md = new Marked();
+  md.use({
+    renderer: {
+      code({ text, lang }) {
+        const decoded = (text || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+        const highlighted = lang ? highlight(decoded, lang) : escapeHtml(decoded);
+        return `<div class="chat-code-block"><div class="chat-code-header"><span class="chat-code-lang">${escapeHtml(lang || 'text')}</span><button class="chat-code-copy" title="${t('common.copy')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code>${highlighted}</code></pre></div>`;
+      },
+      codespan({ text }) {
+        return `<code class="chat-inline-code">${escapeHtml(text)}</code>`;
+      },
+      table({ header, rows }) {
+        const safeAlign = (a) => ['left', 'center', 'right'].includes(a) ? a : 'left';
+        const headerHtml = header.map(h => `<th style="text-align:${safeAlign(h.align)}">${escapeHtml(typeof h.text === 'string' ? h.text : String(h.text || ''))}</th>`).join('');
+        const rowsHtml = rows.map(row =>
+          `<tr>${row.map(cell => `<td style="text-align:${safeAlign(cell.align)}">${escapeHtml(typeof cell.text === 'string' ? cell.text : String(cell.text || ''))}</td>`).join('')}</tr>`
+        ).join('');
+        return `<div class="chat-table-wrapper"><table class="chat-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+      },
+      link({ href, text }) {
+        const safeHref = escapeHtml((href || '').trim());
+        return `<a class="md-viewer-link" data-md-link="${safeHref}" title="${t('mdViewer.ctrlClickToOpen')}">${text || safeHref}</a>`;
+      },
+      image({ href, title, text }) {
+        const src = (href || '').startsWith('http') ? href
+          : `file:///${path.resolve(basePath, href || '').replace(/\\/g, '/')}`;
+        return `<img src="${src}" alt="${escapeHtml(text || '')}" title="${escapeHtml(title || '')}" class="md-viewer-img" />`;
+      },
+      heading({ tokens, depth }) {
+        const text = tokens.map(tok => tok.raw || tok.text || '').join('');
+        const id = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        return `<h${depth} id="md-h-${id}" class="md-viewer-heading">${this.parser.parseInline(tokens)}</h${depth}>`;
+      },
+      html() { return ''; }
+    },
+    tokenizer: {
+      html() { return undefined; }
+    },
+    gfm: true,
+    breaks: false
+  });
+  return md;
+}
+
+/**
+ * Build a table of contents from markdown content.
+ * @param {string} content - Raw markdown string
+ * @returns {string} HTML string for the TOC nav, or empty string if no headings
+ */
+function buildMdToc(content) {
+  const md = new Marked();
+  const tokens = md.lexer(content);
+  const headings = tokens
+    .filter(tok => tok.type === 'heading')
+    .map(tok => {
+      const text = tok.text || '';
+      const id = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      return { depth: tok.depth, text, id: `md-h-${id}` };
+    });
+  if (headings.length === 0) return '';
+  return `<nav class="md-toc-nav">
+    <div class="md-toc-title">${t('mdViewer.tableOfContents')}</div>
+    <ul class="md-toc-list">${headings.map(h =>
+      `<li class="md-toc-item md-toc-depth-${h.depth}"><a href="#${h.id}" data-toc-link="${h.id}">${escapeHtml(h.text)}</a></li>`
+    ).join('')}</ul>
+  </nav>`;
+}
+
+/**
  * Open a file as a tab in the terminal area
  * @param {string} filePath - Absolute path to the file
  * @param {Object} project - Project object
@@ -3281,6 +3359,7 @@ function openFileTab(filePath, project) {
   const isVideo = VIDEO_EXTENSIONS.has(ext);
   const isAudio = AUDIO_EXTENSIONS.has(ext);
   const isMedia = isImage || isVideo || isAudio;
+  const isMarkdown = ext === 'md';
 
   // Read file content (skip for binary/media files)
   let content = '';
@@ -3350,6 +3429,44 @@ function openFileTab(filePath, project) {
       <svg viewBox="0 0 24 24" fill="currentColor" width="64" height="64" style="opacity:0.3"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
       <audio controls src="${fileUrl}"></audio>
     </div>`;
+  } else if (isMarkdown) {
+    const basePath = path.dirname(filePath);
+    const mdRenderer = createMdRenderer(basePath);
+    const renderedHtml = mdRenderer.parse(content);
+    const tocHtml = buildMdToc(content);
+    const tocExpanded = getSetting('mdViewerTocExpanded') !== false;
+    const lineCount = content.split('\n').length;
+
+    const sourceHighlighted = highlight(content, 'md');
+    const sourceLines = content.split('\n');
+    const sourceLineNums = sourceLines.map((_, i) => `<span class="line-num">${i + 1}</span>`).join('\n');
+
+    viewerBody = `
+      <div class="md-viewer-wrapper">
+        <div class="md-viewer-toc${tocExpanded ? '' : ' collapsed'}" id="md-toc-${id}">
+          <button class="md-toc-toggle" title="${t('mdViewer.toggleToc')}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          </button>
+          ${tocHtml}
+        </div>
+        <div class="md-viewer-content">
+          <div class="md-viewer-body" id="md-body-${id}">${renderedHtml}</div>
+          <div class="md-viewer-source" id="md-source-${id}" style="display:none">
+            <div class="file-viewer-content">
+              <div class="file-viewer-lines">${sourceLineNums}</div>
+              <pre class="file-viewer-code"><code>${sourceHighlighted}</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    sizeStr += ` \u00B7 ${lineCount} lines`;
+
+    // Store extra state on termData
+    termData.isMarkdown = true;
+    termData.mdViewMode = 'rendered';
+    termData.mdRenderer = mdRenderer;
+    termData.mdCleanup = null; // Will be set by Plan 21-02 for file watcher
   } else {
     // Text file: syntax highlight
     const highlightedContent = highlight(content, ext);
@@ -3378,6 +3495,83 @@ function openFileTab(filePath, project) {
 
   container.appendChild(wrapper);
   document.getElementById('empty-terminals').style.display = 'none';
+
+  // Markdown-specific: add toggle button and wire event handlers
+  if (isMarkdown) {
+    const header = wrapper.querySelector('.file-viewer-header');
+    // Add toggle button (rendered/source)
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'md-viewer-toggle-btn';
+    toggleBtn.title = t('mdViewer.toggleSource');
+    toggleBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>`;
+    header.appendChild(toggleBtn);
+
+    // Toggle rendered/source
+    toggleBtn.addEventListener('click', () => {
+      const bodyEl = wrapper.querySelector('.md-viewer-body');
+      const sourceEl = wrapper.querySelector('.md-viewer-source');
+      if (termData.mdViewMode === 'rendered') {
+        bodyEl.style.display = 'none';
+        sourceEl.style.display = '';
+        termData.mdViewMode = 'source';
+        toggleBtn.classList.add('active');
+        toggleBtn.title = t('mdViewer.toggleRendered');
+      } else {
+        bodyEl.style.display = '';
+        sourceEl.style.display = 'none';
+        termData.mdViewMode = 'rendered';
+        toggleBtn.classList.remove('active');
+        toggleBtn.title = t('mdViewer.toggleSource');
+      }
+    });
+
+    // Delegated event handlers on the wrapper
+    wrapper.addEventListener('click', (e) => {
+      // Copy button handler (reuse ChatView pattern)
+      const copyBtn = e.target.closest('.chat-code-copy');
+      if (copyBtn) {
+        const code = copyBtn.closest('.chat-code-block')?.querySelector('code')?.textContent;
+        if (code) {
+          navigator.clipboard.writeText(code);
+          copyBtn.classList.add('copied');
+          setTimeout(() => copyBtn.classList.remove('copied'), 1500);
+        }
+        return;
+      }
+
+      // Ctrl+click link gating
+      const link = e.target.closest('[data-md-link]');
+      if (link) {
+        e.preventDefault();
+        if (e.ctrlKey) {
+          api.dialog.openExternal(link.dataset.mdLink);
+        }
+        return;
+      }
+
+      // TOC link smooth scroll
+      const tocLink = e.target.closest('[data-toc-link]');
+      if (tocLink) {
+        e.preventDefault();
+        const targetId = tocLink.dataset.tocLink;
+        const targetEl = wrapper.querySelector(`#${targetId}`);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        return;
+      }
+    });
+
+    // TOC collapse toggle
+    const tocToggle = wrapper.querySelector('.md-toc-toggle');
+    if (tocToggle) {
+      tocToggle.addEventListener('click', () => {
+        const tocEl = wrapper.querySelector('.md-viewer-toc');
+        tocEl.classList.toggle('collapsed');
+        setSetting('mdViewerTocExpanded', !tocEl.classList.contains('collapsed'));
+      });
+    }
+  }
 
   setActiveTerminal(id);
 
