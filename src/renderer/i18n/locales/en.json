@@ -603,6 +603,8 @@
     "aiTabNamingDesc": "Use AI to generate short tab names from messages",
     "tabRenameOnSlashCommandTerminal": "Terminal: rename tab on slash command",
     "terminalGroup": "Terminal",
+    "autoScrollOnSwitch": "Auto-scroll to bottom on tab switch",
+    "autoScrollOnSwitchDesc": "Automatically scroll terminals to the latest output when switching tabs or projects",
     "tabRenameOnSlashCommand": "Rename tab on slash command",
     "tabRenameOnSlashCommandDesc": "Automatically rename the terminal tab to the last slash command executed (e.g. /gsd:verify-work 12)",
     "idleTimeout": "Idle timeout",
