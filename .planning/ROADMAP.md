@@ -404,3 +404,13 @@ Plans:
 - [x] 22-02-PLAN.md — Wire watcher to FileExplorer incremental patches and project-switch lifecycle
 - [x] 22-03-PLAN.md — Gap closure: fix persistent:false causing uncaught exceptions and EPERM crashes on Windows
 - [ ] 22-04-PLAN.md — Gap closure: replace recursive watcher with per-directory shallow watchers for performance
+
+### Phase 23: Remember-Last-Active-Tab-On-Tab-Closing
+
+**Goal:** Closing a terminal tab switches to the previously-active tab within the same project (browser-like behavior) using a per-project activation history stack, with fallback to nearest neighbor when history is exhausted
+**Requirements**: TBD
+**Depends on:** Phase 22
+**Plans:** 1 plan
+
+Plans:
+- [ ] 23-01-PLAN.md — Add per-project tabActivationHistory Map, push in setActiveTerminal, walk-back in closeTerminal with neighbor fallback
