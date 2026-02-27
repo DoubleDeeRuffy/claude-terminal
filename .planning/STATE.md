@@ -199,6 +199,8 @@ Recent decisions affecting current work:
 - Phase 6.4 inserted after Phase 6: Bugfix — session resume claudeSessionId not persisted across restarts (URGENT)
 - Phase 20 added: Bugfix-Swap-Projects-Selected-Tab
 - Phase 21 added: Integrated-Markdown-Viewer
+- Phase 20.1 inserted after Phase 20: Always ScrollToEnd on Switching Tabs or Projects (URGENT)
+- Phase 22 added: Explorer-Filewatcher
 
 ### Blockers/Concerns
 
