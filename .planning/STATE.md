@@ -232,6 +232,7 @@ Recent decisions affecting current work:
 - Phase 22 added: Explorer-Filewatcher
 - Phase 14.1 inserted after Phase 14: resumed-session-tab-naming (URGENT)
 - Phase 23 added: Remember-Last-Active-Tab-On-Tab-Closing
+- Phase 24 added: Shift-Return-Race-Condition
 
 ### Blockers/Concerns
 
