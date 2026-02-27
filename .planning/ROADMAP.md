@@ -420,7 +420,7 @@ Plans:
 **Goal:** Fix the race condition where Shift+Return randomly submits instead of inserting a newline in the chat input, and reduce the excessive line gap on multiline input
 **Requirements**: TBD
 **Depends on:** Phase 23
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 24-01-PLAN.md — Track Shift key state independently via keydown/keyup to fix Enter race condition, reduce CSS line-height for tighter multiline spacing
