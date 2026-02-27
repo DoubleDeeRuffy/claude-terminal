@@ -332,6 +332,50 @@ function registerCloudHandlers() {
     return { ok: true };
   });
 
+  // ── File comparison (local vs cloud) ──
+
+  ipcMain.handle('cloud:compare-files', async (_event, { projectName, localProjectPath }) => {
+    const { url, key } = _getCloudConfig();
+
+    // Fetch cloud file list
+    const resp = await fetch(
+      `${url}/api/projects/${encodeURIComponent(projectName)}/files`,
+      { headers: { 'Authorization': `Bearer ${key}` } }
+    );
+    if (!resp.ok) throw new Error('Failed to fetch cloud files');
+    const { files: cloudFiles } = await resp.json();
+    const cloudMap = new Map(cloudFiles.map(f => [f.path, f.size]));
+
+    // Scan local files
+    const EXCLUDE = new Set([
+      'node_modules', '.git', 'build', 'dist', '.next', '__pycache__',
+      '.venv', 'venv', '.cache', 'coverage', '.tsbuildinfo', '.ct-cloud',
+      '.turbo', '.parcel-cache', '.svelte-kit', '.nuxt', '.output',
+    ]);
+    const localMap = new Map();
+    _scanLocalFiles(localProjectPath, localProjectPath, EXCLUDE, localMap);
+
+    const onlyLocal = [];   // files on PC but not in cloud
+    const onlyCloud = [];   // files in cloud but not on PC
+    const sizeDiff = [];    // files in both but different size
+
+    for (const [filePath, size] of localMap) {
+      if (!cloudMap.has(filePath)) {
+        onlyLocal.push(filePath);
+      } else if (cloudMap.get(filePath) !== size) {
+        sizeDiff.push(filePath);
+      }
+    }
+
+    for (const [filePath] of cloudMap) {
+      if (!localMap.has(filePath)) {
+        onlyCloud.push(filePath);
+      }
+    }
+
+    return { onlyLocal, onlyCloud, sizeDiff, totalLocal: localMap.size, totalCloud: cloudMap.size };
+  });
+
   // ── Conflict detection ──
 
   ipcMain.handle('cloud:check-conflicts', async (_event, { projectName, localProjectPath }) => {
@@ -451,6 +495,24 @@ function registerCloudHandlers() {
 }
 
 // ── Helpers ──
+
+function _scanLocalFiles(baseDir, currentDir, excludeSet, resultMap) {
+  let entries;
+  try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    if (excludeSet.has(entry.name) || entry.name.startsWith('.')) continue;
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      _scanLocalFiles(baseDir, fullPath, excludeSet, resultMap);
+    } else {
+      try {
+        const stat = fs.statSync(fullPath);
+        const rel = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+        resultMap.set(rel, stat.size);
+      } catch { /* skip */ }
+    }
+  }
+}
 
 async function _walkExtracted(dir, rootDir = null) {
   if (!rootDir) rootDir = dir;

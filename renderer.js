@@ -1598,6 +1598,7 @@ if (api.cloud?.onStatusChanged) {
     if (status.connected) {
       refreshCloudProjects();
       api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+      _checkAllProjectsDiff();
     }
   });
 }
@@ -1608,9 +1609,98 @@ setTimeout(async () => {
       _updateCloudConnected(true);
       refreshCloudProjects();
       api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+      _checkAllProjectsDiff();
     }
   } catch { /* ignore */ }
 }, 3000);
+
+/**
+ * Compare local vs cloud for all synced projects.
+ * Shows a resolution modal per project if differences are found.
+ */
+async function _checkAllProjectsDiff() {
+  try {
+    const statuses = await api.cloud.getSyncStatus({});
+    if (!statuses || typeof statuses !== 'object') return;
+    const localProjects = projectsState.get().projects || [];
+
+    for (const [projectId, meta] of Object.entries(statuses)) {
+      if (!meta.registered) continue;
+      const project = localProjects.find(p => p.id === projectId);
+      if (!project) continue;
+      const projectName = project.name || path.basename(project.path);
+
+      try {
+        const diff = await api.cloud.compareFiles({ projectName, localProjectPath: project.path });
+        if (diff.onlyLocal.length === 0 && diff.onlyCloud.length === 0 && diff.sizeDiff.length === 0) continue;
+
+        // Show diff modal
+        const action = await _showDiffModal(projectName, diff);
+        if (action === 'push') {
+          // Upload local to cloud (full resync)
+          await cloudUploadProject(projectId);
+        } else if (action === 'pull') {
+          // Download cloud to local
+          await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
+          cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
+          ProjectList.render();
+          showToast({ type: 'success', title: t('cloud.syncApplied'), message: projectName });
+        }
+        // 'skip' = do nothing
+      } catch { /* skip this project */ }
+    }
+  } catch { /* ignore */ }
+}
+
+function _showDiffModal(projectName, diff) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+    const totalDiffs = diff.onlyLocal.length + diff.onlyCloud.length + diff.sizeDiff.length;
+
+    let filesHtml = '';
+    if (diff.onlyLocal.length > 0) {
+      filesHtml += `<div class="diff-section"><h4 style="color:var(--success);margin:8px 0 4px;">Local only (${diff.onlyLocal.length})</h4>`;
+      filesHtml += diff.onlyLocal.slice(0, 10).map(f => `<div class="diff-file">${f}</div>`).join('');
+      if (diff.onlyLocal.length > 10) filesHtml += `<div class="diff-file" style="color:var(--text-muted);">+${diff.onlyLocal.length - 10} more...</div>`;
+      filesHtml += '</div>';
+    }
+    if (diff.onlyCloud.length > 0) {
+      filesHtml += `<div class="diff-section"><h4 style="color:var(--info);margin:8px 0 4px;">Cloud only (${diff.onlyCloud.length})</h4>`;
+      filesHtml += diff.onlyCloud.slice(0, 10).map(f => `<div class="diff-file">${f}</div>`).join('');
+      if (diff.onlyCloud.length > 10) filesHtml += `<div class="diff-file" style="color:var(--text-muted);">+${diff.onlyCloud.length - 10} more...</div>`;
+      filesHtml += '</div>';
+    }
+    if (diff.sizeDiff.length > 0) {
+      filesHtml += `<div class="diff-section"><h4 style="color:var(--warning);margin:8px 0 4px;">Modified (${diff.sizeDiff.length})</h4>`;
+      filesHtml += diff.sizeDiff.slice(0, 10).map(f => `<div class="diff-file">${f}</div>`).join('');
+      if (diff.sizeDiff.length > 10) filesHtml += `<div class="diff-file" style="color:var(--text-muted);">+${diff.sizeDiff.length - 10} more...</div>`;
+      filesHtml += '</div>';
+    }
+
+    overlay.innerHTML = `
+      <div style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:var(--radius);padding:24px;max-width:500px;width:90%;">
+        <h3 style="margin:0 0 8px;color:var(--text-primary);">${projectName}</h3>
+        <p style="color:var(--text-secondary);font-size:var(--font-sm);margin:0 0 16px;">${totalDiffs} difference(s) between local and cloud</p>
+        <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:8px;background:var(--bg-primary);margin-bottom:16px;">
+          ${filesHtml}
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="diff-btn-skip" style="padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer;">Skip</button>
+          <button class="diff-btn-pull" style="padding:8px 16px;border-radius:var(--radius-sm);border:none;background:var(--info);color:#fff;cursor:pointer;">Use Cloud</button>
+          <button class="diff-btn-push" style="padding:8px 16px;border-radius:var(--radius-sm);border:none;background:var(--success);color:#fff;cursor:pointer;">Use Local</button>
+        </div>
+      </div>`;
+
+    overlay.querySelector('.diff-btn-skip').onclick = () => { overlay.remove(); resolve('skip'); };
+    overlay.querySelector('.diff-btn-pull').onclick = () => { overlay.remove(); resolve('pull'); };
+    overlay.querySelector('.diff-btn-push').onclick = () => { overlay.remove(); resolve('push'); };
+
+    document.body.appendChild(overlay);
+  });
+}
 
 // ── Per-project pending changes tracking ──
 function _updateProjectPendingChanges(changes) {

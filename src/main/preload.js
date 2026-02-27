@@ -360,6 +360,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     getSyncStatus: (params) => ipcRenderer.invoke('cloud:get-sync-status', params || {}),
     registerAutoSync: (params) => ipcRenderer.invoke('cloud:register-auto-sync', params),
     unregisterAutoSync: (params) => ipcRenderer.invoke('cloud:unregister-auto-sync', params),
+    compareFiles: (params) => ipcRenderer.invoke('cloud:compare-files', params),
     checkConflicts: (params) => ipcRenderer.invoke('cloud:check-conflicts', params),
     downloadWithResolutions: (params) => ipcRenderer.invoke('cloud:download-with-resolutions', params),
     onAutoSyncStatus: createListener('cloud:auto-sync-status'),
