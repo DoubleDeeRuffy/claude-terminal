@@ -3,6 +3,19 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
+last_updated: "2026-02-27T17:40:22.777Z"
+progress:
+  total_phases: 35
+  completed_phases: 32
+  total_plans: 50
+  completed_plans: 49
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
 last_updated: "2026-02-27T17:17:14.758Z"
 progress:
   total_phases: 35
@@ -119,6 +132,7 @@ Progress: [███████████████████████
 | Phase 22-explorer-filewatcher P03 | 2 | 2 tasks | 3 files |
 | Phase 23 P01 | 2 | 2 tasks | 1 files |
 | Phase 24-shift-return-race-condition P01 | 8 | 2 tasks | 2 files |
+| Phase 14.1-resumed-session-tab-naming P03 | 8 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -223,6 +237,8 @@ Recent decisions affecting current work:
 - [Phase 22-explorer-filewatcher]: persistent:true chosen for chokidar: watcher is explicitly managed via stopWatch(), safe to keep process alive; activates chokidar's EPERM workaround for Windows directory deletion
 - [Phase 23]: tabActivationHistory Map declared at module level — follows Phase 20 in-memory tracking pattern; push inside existing if (newProjectId) guard in setActiveTerminal; original forEach neighbor scan kept as fallback for empty history
 - [Phase 24-shift-return-race-condition]: shiftHeld closure variable with keydown/keyup/blur listeners replaces e.shiftKey in chat Enter handler; line-height tightened to 1.4
+- [Phase 14.1-resumed-session-tab-naming]: 14.1-03: Remove isRenamed check from sessionName — displayTitle alone covers haiku AI names (isRenamed=false) and explicit user renames
+- [Phase 14.1-resumed-session-tab-naming]: 14.1-03: Explicit updateTerminalTabName(id, sessionName) after addTerminal in resumeSession — --resume never emits OSC task name so normal title-change path never fires
 
 ### Pending Todos
 

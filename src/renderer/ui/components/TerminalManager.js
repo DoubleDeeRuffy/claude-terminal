@@ -2885,8 +2885,8 @@ async function renderSessionsPanel(project, emptyState) {
       if (!sessionId) return;
       const skipPermissions = getSetting('skipPermissions') || false;
       const session = sessionMap.get(sessionId);
-      // Only pass name if it was explicitly set (haiku AI, slash command, or manual rename)
-      const sessionName = (session?.isRenamed && session?.displayTitle) ? session.displayTitle : null;
+      // Pass name from session-names.json when present (covers haiku AI, slash command, manual rename)
+      const sessionName = session?.displayTitle || null;
       resumeSession(project, sessionId, { skipPermissions, name: sessionName });
     });
 
@@ -3010,6 +3010,12 @@ async function resumeSession(project, sessionId, options = {}) {
   };
 
   addTerminal(id, termData);
+
+  // If a saved name was passed, persist it immediately — --resume does not emit
+  // a new OSC task name, so handleClaudeTitleChange will not call updateTerminalTabName.
+  if (sessionName) {
+    updateTerminalTabName(id, sessionName);
+  }
 
   // Start time tracking for this project
   heartbeat(project.id, 'terminal');
