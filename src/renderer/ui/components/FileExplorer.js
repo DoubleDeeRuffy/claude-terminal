@@ -475,51 +475,55 @@ async function refreshFolder(folderPath) {
 }
 
 async function applyWatcherChanges(changes) {
-  if (!rootPath || !changes || !changes.length) return;
+  try {
+    if (!rootPath || !changes || !changes.length) return;
 
-  const affectedParents = new Set();
+    const affectedParents = new Set();
 
-  for (const change of changes) {
-    const parentDir = path.dirname(change.path);
+    for (const change of changes) {
+      const parentDir = path.dirname(change.path);
 
-    if (change.type === 'add') {
-      // Only re-read parent if it's a tracked (loaded) folder
-      const entry = expandedFolders.get(parentDir);
-      if (entry && entry.loaded) {
-        affectedParents.add(parentDir);
-      }
-      // If parent is untracked/collapsed, no action — loads fresh from disk when expanded
-    } else if (change.type === 'remove') {
-      // Remove the deleted item from parent's children array
-      const entry = expandedFolders.get(parentDir);
-      if (entry && entry.loaded) {
-        entry.children = entry.children.filter(c => c.path !== change.path);
-      }
-      // For directory deletion: remove the folder AND all descendants from expandedFolders
-      if (change.isDirectory) {
-        const prefix = change.path + path.sep;
-        for (const key of [...expandedFolders.keys()]) {
-          if (key === change.path || key.startsWith(prefix)) {
-            expandedFolders.delete(key);
+      if (change.type === 'add') {
+        // Only re-read parent if it's a tracked (loaded) folder
+        const entry = expandedFolders.get(parentDir);
+        if (entry && entry.loaded) {
+          affectedParents.add(parentDir);
+        }
+        // If parent is untracked/collapsed, no action — loads fresh from disk when expanded
+      } else if (change.type === 'remove') {
+        // Remove the deleted item from parent's children array
+        const entry = expandedFolders.get(parentDir);
+        if (entry && entry.loaded) {
+          entry.children = entry.children.filter(c => c.path !== change.path);
+        }
+        // For directory deletion: remove the folder AND all descendants from expandedFolders
+        if (change.isDirectory) {
+          const prefix = change.path + path.sep;
+          for (const key of [...expandedFolders.keys()]) {
+            if (key === change.path || key.startsWith(prefix)) {
+              expandedFolders.delete(key);
+            }
           }
         }
+        // Clean up selection state for deleted items
+        selectedFiles.delete(change.path);
+        if (lastSelectedFile === change.path) lastSelectedFile = null;
       }
-      // Clean up selection state for deleted items
-      selectedFiles.delete(change.path);
-      if (lastSelectedFile === change.path) lastSelectedFile = null;
     }
-  }
 
-  // Re-read affected parent directories for additions (to get correctly sorted, stat-complete children)
-  for (const parentDir of affectedParents) {
-    const entry = expandedFolders.get(parentDir);
-    if (entry) {
-      entry.children = await readDirectoryAsync(parentDir);
+    // Re-read affected parent directories for additions (to get correctly sorted, stat-complete children)
+    for (const parentDir of affectedParents) {
+      const entry = expandedFolders.get(parentDir);
+      if (entry) {
+        entry.children = await readDirectoryAsync(parentDir);
+      }
     }
-  }
 
-  // Single render call after all patches applied
-  render();
+    // Single render call after all patches applied
+    render();
+  } catch {
+    // Silently ignore — stale paths, permission errors, etc.
+  }
 }
 
 // ========== MULTI-SELECTION ==========
