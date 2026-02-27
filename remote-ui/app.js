@@ -245,6 +245,7 @@ const $ = (id) => document.getElementById(id);
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 function init() {
+  _debugLog('[Init] mode=' + conn.mode, 'cloudUrl=' + (conn.cloudUrl || 'none'), 'hasKey=' + !!conn.cloudApiKey);
   applyStrings();
   _restoreSessions();
   setupPinEntry();
@@ -496,6 +497,7 @@ function _openWS() {
 
   ws.onopen = () => {
     conn.retryCount = 0;
+    _debugLog('[WS] Connected to relay');
     connSetState('connected');
   };
 
@@ -507,6 +509,7 @@ function _openWS() {
   };
 
   ws.onclose = (e) => {
+    _debugLog('[WS] Closed:', e.code, e.reason);
     conn.ws = null;
     // Auth failure
     if (e.code === 4401 || e.code === 4003) {
@@ -547,6 +550,7 @@ function _scheduleReconnect() {
 }
 
 function _onDesktopOffline() {
+  _debugLog('[State] Desktop offline, relay mode=' + conn.mode);
   state.desktopOffline = true;
   const labelEl = $('status-label');
   if (labelEl) labelEl.textContent = _isFr ? 'PC hors ligne' : 'Desktop offline';
@@ -647,6 +651,7 @@ function handleMessage({ type, data }) {
     case 'pong': break;
     // Relay-specific events
     case 'relay:desktop-online':
+      _debugLog('[Relay] Desktop came online');
       state.desktopOffline = false;
       connSetState('connected');
       _showCloudPopup(false);
@@ -2200,6 +2205,7 @@ function sendMessage() {
 
   navigator.vibrate?.(10);
   _hideAutocomplete();
+  _debugLog('[Send] cloudMode=' + state.cloudSessionMode, 'headlessId=' + state._headlessSessionId, 'offline=' + state.desktopOffline, 'relay=' + conn.mode);
 
   // Headless cloud mode: follow-up messages go to cloud API
   if (state.cloudSessionMode && state._headlessSessionId) {
@@ -2858,6 +2864,7 @@ function _showCloudPopup(show) {
 }
 
 function _onCloudPopupCta() {
+  _debugLog('[Cloud] CTA clicked, fetching projects...');
   _showCloudPopup(false);
   _showHeadlessBanner(true);
   _fetchCloudProjects();
