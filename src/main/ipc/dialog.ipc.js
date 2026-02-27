@@ -10,6 +10,9 @@ const updaterService = require('../services/UpdaterService');
 
 let mainWindow = null;
 
+// Map of active file watchers: filePath -> { watcher: FSWatcher, refCount: number }
+const fileWatchers = new Map();
+
 /**
  * Set main window reference
  * @param {BrowserWindow} window
@@ -146,6 +149,40 @@ function registerDialogHandlers() {
   // Clipboard access (needed when navigator.clipboard is unavailable in xterm context)
   ipcMain.handle('clipboard-read', () => clipboard.readText());
   ipcMain.handle('clipboard-write', (event, text) => { clipboard.writeText(text); });
+
+  // File watcher for markdown live reload
+  ipcMain.handle('watch-file', (event, filePath) => {
+    if (fileWatchers.has(filePath)) {
+      fileWatchers.get(filePath).refCount++;
+      return;
+    }
+    try {
+      const watcher = fs.watch(filePath, { persistent: true }, (eventType) => {
+        if (eventType === 'change' || eventType === 'rename') {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('file-changed', filePath);
+          }
+        }
+      });
+      watcher.on('error', () => {
+        // File may have been deleted or become inaccessible
+        fileWatchers.delete(filePath);
+      });
+      fileWatchers.set(filePath, { watcher, refCount: 1 });
+    } catch (e) {
+      // Silently fail if file cannot be watched
+    }
+  });
+
+  ipcMain.handle('unwatch-file', (event, filePath) => {
+    const entry = fileWatchers.get(filePath);
+    if (!entry) return;
+    entry.refCount--;
+    if (entry.refCount <= 0) {
+      entry.watcher.close();
+      fileWatchers.delete(filePath);
+    }
+  });
 }
 
 module.exports = {
