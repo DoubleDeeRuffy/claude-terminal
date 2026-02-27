@@ -95,7 +95,7 @@ const {
 const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
-const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel } = require('./src/renderer/ui/panels');
+const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel } = require('./src/renderer/ui/panels');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
 // These work with the existing HTML modal elements in index.html
@@ -1466,15 +1466,60 @@ function _updateCloudConnected(connected) {
 if (api.cloud?.onStatusChanged) {
   api.cloud.onStatusChanged((status) => {
     _updateCloudConnected(status.connected);
-    if (status.connected) refreshCloudProjects();
+    if (status.connected) {
+      refreshCloudProjects();
+      api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+    }
   });
 }
 setTimeout(async () => {
   try {
     const s = await api.cloud.status();
-    if (s.connected) { _updateCloudConnected(true); refreshCloudProjects(); }
+    if (s.connected) {
+      _updateCloudConnected(true);
+      refreshCloudProjects();
+      api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+    }
   } catch { /* ignore */ }
 }, 3000);
+
+// ── Per-project pending changes tracking ──
+function _updateProjectPendingChanges(changes) {
+  const localProjects = projectsState.get().projects || [];
+  // Reset existing pending states
+  for (const [id, status] of cloudUploadStatus.entries()) {
+    if (status.pendingChanges) {
+      cloudUploadStatus.set(id, { ...status, pendingChanges: false, pendingCount: 0 });
+    }
+  }
+  let totalPending = 0;
+  for (const { projectName, changes: fileChanges } of (changes || [])) {
+    const files = fileChanges.flatMap(c => c.changedFiles || []);
+    if (files.length === 0) continue;
+    totalPending += files.length;
+    const localProject = localProjects.find(p =>
+      p.name === projectName || path.basename(p.path) === projectName
+    );
+    if (localProject) {
+      const existing = cloudUploadStatus.get(localProject.id) || {};
+      cloudUploadStatus.set(localProject.id, { ...existing, pendingChanges: true, pendingCount: files.length });
+    }
+  }
+  _updateCloudTabBadge(totalPending);
+  ProjectList.render();
+}
+
+function _updateCloudTabBadge(count) {
+  const tab = document.querySelector('.nav-tab[data-tab="cloud-panel"]');
+  if (!tab) return;
+  let badge = tab.querySelector('.nav-tab-badge');
+  if (count > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'nav-tab-badge'; tab.appendChild(badge); }
+    badge.textContent = String(count);
+  } else if (badge) {
+    badge.remove();
+  }
+}
 
 // ========== SETUP COMPONENTS ==========
 // Setup ProjectList
@@ -1784,6 +1829,22 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
       }
     }
     if (tabId === 'memory') MemoryEditor.loadMemory();
+    if (tabId === 'cloud-panel') {
+      const container = document.getElementById('tab-cloud-panel');
+      if (container && !container.dataset.initialized) {
+        container.innerHTML = CloudPanel.buildHtml(settingsState.get());
+        CloudPanel.setupHandlers({
+          settingsState,
+          projectsState,
+          saveSettings: saveSettingsDebounced,
+          updateProjectPendingChanges: _updateProjectPendingChanges,
+        });
+        container.dataset.initialized = 'true';
+      }
+    }
+    if (tabId !== 'cloud-panel') {
+      CloudPanel.cleanup();
+    }
     // Cleanup TimeTrackingDashboard interval when leaving the tab
     if (tabId !== 'timetracking') {
       TimeTrackingDashboard.cleanup();

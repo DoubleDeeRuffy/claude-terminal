@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="styles/skills.css">
   <link rel="stylesheet" href="styles/chat.css">
   <link rel="stylesheet" href="styles/workflow.css">
+  <link rel="stylesheet" href="styles/cloud.css">
 </head>
 <body>
   <!-- Title Bar -->
@@ -175,6 +176,13 @@
             <path d="M2.6 10.59L8.38 4.8l1.69 1.7c-.24.85.15 1.78.93 2.23v5.54c-.6.34-1 .99-1 1.73a2 2 0 0 0 2 2 2 2 0 0 0 2-2c0-.74-.4-1.39-1-1.73V9.41l1.35 1.36c-.02.13-.03.26-.03.4a2 2 0 0 0 2 2 2 2 0 0 0 2-2 2 2 0 0 0-2-2c-.14 0-.27.01-.4.04L13.2 7.07a2 2 0 0 0-1.12-2.51L13.71 2.9 21.41 10.59a2 2 0 0 1 0 2.82L13.41 21.41a2 2 0 0 1-2.82 0L2.59 13.41a2 2 0 0 1 0-2.82z"/>
           </svg>
           <span>Git</span>
+        </button>
+        <div class="nav-separator"><span>Cloud</span></div>
+        <button class="nav-tab" data-tab="cloud-panel" title="Cloud" role="tab" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+          </svg>
+          <span data-i18n="cloud.tabTitle">Cloud</span>
         </button>
         <div class="nav-separator"><span>Analytics</span></div>
         <button class="nav-tab" data-tab="dashboard" title="Dashboard">
@@ -665,6 +673,9 @@
       </div>
 
       <!-- Settings Tab -->
+      <!-- Cloud Tab -->
+      <div class="tab-content" id="tab-cloud-panel"></div>
+
       <div class="tab-content" id="tab-settings"></div>
 
       <!-- Memory Tab -->
