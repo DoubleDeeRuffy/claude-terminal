@@ -463,8 +463,14 @@ function createChatView(wrapperEl, project, options = {}) {
     }
   });
 
+  // Track Shift key state independently to avoid e.shiftKey race condition on fast Shift+Enter
+  let shiftHeld = false;
+  wrapperEl.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftHeld = false; }, true);
+  window.addEventListener('blur', () => { shiftHeld = false; });
+
   // Ctrl+Arrow to switch terminals/projects (capture phase to intercept before textarea)
   wrapperEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift') shiftHeld = true;
     if (e.ctrlKey && !e.shiftKey && !e.altKey) {
       if (e.key === 'ArrowLeft' && onSwitchTerminal) { e.preventDefault(); e.stopPropagation(); onSwitchTerminal('left'); return; }
       if (e.key === 'ArrowRight' && onSwitchTerminal) { e.preventDefault(); e.stopPropagation(); onSwitchTerminal('right'); return; }
@@ -539,7 +545,7 @@ function createChatView(wrapperEl, project, options = {}) {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !shiftHeld && !e.shiftKey && !e.getModifierState('Shift')) {
       e.preventDefault();
       handleSend();
     }
