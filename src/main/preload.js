@@ -357,6 +357,12 @@ contextBridge.exposeInMainWorld('electron_api', {
     updateUser: (params) => ipcRenderer.invoke('cloud:update-user', params),
     getSessions: () => ipcRenderer.invoke('cloud:get-sessions'),
     stopSession: (params) => ipcRenderer.invoke('cloud:stop-session', params),
+    getSyncStatus: (params) => ipcRenderer.invoke('cloud:get-sync-status', params || {}),
+    registerAutoSync: (params) => ipcRenderer.invoke('cloud:register-auto-sync', params),
+    unregisterAutoSync: (params) => ipcRenderer.invoke('cloud:unregister-auto-sync', params),
+    checkConflicts: (params) => ipcRenderer.invoke('cloud:check-conflicts', params),
+    downloadWithResolutions: (params) => ipcRenderer.invoke('cloud:download-with-resolutions', params),
+    onAutoSyncStatus: createListener('cloud:auto-sync-status'),
   },
 
   // ==================== USAGE ====================

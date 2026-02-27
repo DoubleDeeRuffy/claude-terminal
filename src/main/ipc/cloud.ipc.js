@@ -11,6 +11,7 @@ const os = require('os');
 const fs = require('fs');
 const { cloudRelayClient } = require('../services/CloudRelayClient');
 const remoteServer = require('../services/RemoteServer');
+const cloudSyncService = require('../services/CloudSyncService');
 const { zipProject } = require('../utils/zipProject');
 const { settingsFile } = require('../utils/paths');
 
@@ -42,6 +43,7 @@ function registerCloudHandlers() {
   cloudRelayClient.onStatusChange((status) => {
     if (status.connected) {
       remoteServer.sendInitToCloud();
+      cloudSyncService.start();
       // Check for pending changes from headless sessions
       setImmediate(() => _checkPendingChangesOnReconnect());
     }
@@ -66,6 +68,7 @@ function registerCloudHandlers() {
   ipcMain.handle('cloud:disconnect', async () => {
     cloudRelayClient.disconnect();
     remoteServer.setCloudClient(null);
+    cloudSyncService.stop();
     return { ok: true };
   });
 
@@ -309,9 +312,160 @@ function registerCloudHandlers() {
 
     return { success: true };
   });
+
+  // ── Sync status ──
+
+  ipcMain.handle('cloud:get-sync-status', async (_event, { projectId }) => {
+    if (projectId) return cloudSyncService.getSyncStatus(projectId);
+    return cloudSyncService.getAllSyncStatuses();
+  });
+
+  // ── Auto-sync registration ──
+
+  ipcMain.handle('cloud:register-auto-sync', async (_event, { projectId, projectPath }) => {
+    cloudSyncService.registerProject(projectId, projectPath);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cloud:unregister-auto-sync', async (_event, { projectId }) => {
+    cloudSyncService.unregisterProject(projectId);
+    return { ok: true };
+  });
+
+  // ── Conflict detection ──
+
+  ipcMain.handle('cloud:check-conflicts', async (_event, { projectName, localProjectPath }) => {
+    const { url, key } = _getCloudConfig();
+    const headers = { 'Authorization': `Bearer ${key}` };
+
+    const changesResp = await fetch(
+      `${url}/api/projects/${encodeURIComponent(projectName)}/changes`,
+      { headers }
+    );
+    if (!changesResp.ok) throw new Error('Failed to check changes');
+    const { changes } = await changesResp.json();
+
+    const cloudFiles = changes.flatMap(c => c.changedFiles || []);
+    const conflicts = [];
+
+    for (const file of cloudFiles) {
+      const localPath = path.join(localProjectPath, file);
+      if (!fs.existsSync(localPath)) continue;
+
+      try {
+        const stat = fs.statSync(localPath);
+        // Find the matching project to get its sync timestamp
+        const projectsData = JSON.parse(fs.readFileSync(require('../utils/paths').projectsFile, 'utf8'));
+        const project = (projectsData.projects || []).find(p => p.path === localProjectPath);
+        const lastSync = project ? cloudSyncService.getLastSyncTimestamp(project.id) : null;
+
+        if (lastSync && stat.mtimeMs > lastSync) {
+          conflicts.push({ file, localModified: new Date(stat.mtimeMs).toISOString() });
+        }
+      } catch {
+        // Can't stat, not a conflict
+      }
+    }
+
+    return { conflicts, totalFiles: cloudFiles.length };
+  });
+
+  // ── Download with conflict resolutions ──
+
+  ipcMain.handle('cloud:download-with-resolutions', async (_event, { projectName, localProjectPath, resolutions }) => {
+    const { url, key } = _getCloudConfig();
+    const headers = { 'Authorization': `Bearer ${key}` };
+
+    const resp = await fetch(
+      `${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`,
+      { headers }
+    );
+    if (!resp.ok) throw new Error('Failed to download changes');
+
+    const zipPath = path.join(os.tmpdir(), `ct-conflict-${Date.now()}.zip`);
+    const extractDir = path.join(os.tmpdir(), `ct-conflict-extract-${Date.now()}`);
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    await fs.promises.writeFile(zipPath, buffer);
+
+    try {
+      const extractZip = require('extract-zip');
+      await extractZip(zipPath, { dir: extractDir });
+
+      // Apply per-file resolutions for conflicting files
+      for (const [file, resolution] of Object.entries(resolutions)) {
+        const cloudFile = path.join(extractDir, file);
+        const localFile = path.join(localProjectPath, file);
+
+        if (resolution === 'local') {
+          // Keep local version — skip
+          continue;
+        } else if (resolution === 'both') {
+          // Backup local version before overwriting
+          if (fs.existsSync(localFile)) {
+            const ext = path.extname(file);
+            const base = file.slice(0, -ext.length || undefined);
+            const backupPath = path.join(localProjectPath, `${base}.local-backup${ext}`);
+            await fs.promises.copyFile(localFile, backupPath);
+          }
+        }
+        // resolution === 'cloud' or 'both': apply cloud version
+        if (fs.existsSync(cloudFile)) {
+          const dir = path.dirname(localFile);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          await fs.promises.copyFile(cloudFile, localFile);
+        }
+      }
+
+      // Apply non-conflicting files by extracting directly
+      const allFiles = await _walkExtracted(extractDir);
+      for (const relPath of allFiles) {
+        if (resolutions[relPath]) continue; // Already handled
+        if (relPath.endsWith('.DELETED')) continue; // Handle below
+        const src = path.join(extractDir, relPath);
+        const dest = path.join(localProjectPath, relPath);
+        const dir = path.dirname(dest);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        await fs.promises.copyFile(src, dest);
+      }
+
+      // Handle .DELETED markers
+      await _handleDeletedMarkers(localProjectPath);
+
+      // Acknowledge
+      await fetch(
+        `${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`,
+        { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' } }
+      );
+
+      // Update sync timestamp
+      const projectsData = JSON.parse(fs.readFileSync(require('../utils/paths').projectsFile, 'utf8'));
+      const project = (projectsData.projects || []).find(p => p.path === localProjectPath);
+      if (project) cloudSyncService.updateSyncTimestamp(project.id);
+    } finally {
+      await fs.promises.unlink(zipPath).catch(() => {});
+      await fs.promises.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+    }
+
+    return { success: true };
+  });
 }
 
 // ── Helpers ──
+
+async function _walkExtracted(dir, rootDir = null) {
+  if (!rootDir) rootDir = dir;
+  const files = [];
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await _walkExtracted(fullPath, rootDir));
+    } else if (entry.isFile()) {
+      files.push(path.relative(rootDir, fullPath).replace(/\\/g, '/'));
+    }
+  }
+  return files;
+}
 
 async function _handleDeletedMarkers(dir) {
   try {
