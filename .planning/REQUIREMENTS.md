@@ -88,6 +88,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - **PIN-01**: Windows taskbar pin survives app auto-updates — shortcuts are preserved (not deleted and recreated) during update runs, and AUMID is consistent between running process and shortcut
 
+### Markdown Viewer
+
+- **MD-VIEW-01**: User can view rendered markdown by single-clicking a `.md` file in the file explorer — opens as a tab with formatted content, TOC sidebar, and toggle to raw source
+- **MD-VIEW-02**: Markdown preview auto-reloads when the file changes on disk (live reload via file watcher)
+- **MD-VIEW-03**: User can search within the markdown preview using Ctrl+F
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -132,6 +138,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TAB-PERSIST-01 | Phase 16 | Planned |
 | PIN-01 | Phase 17 | Planned |
 | TAB-RESUME-01 | Phase 19 | Planned |
+| MD-VIEW-01 | Phase 21 | Planned |
+| MD-VIEW-02 | Phase 21 | Planned |
+| MD-VIEW-03 | Phase 21 | Planned |
 
 **Coverage:**
 - v1 requirements: 16 total, all complete

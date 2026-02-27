@@ -360,3 +360,34 @@ Plans:
 
 Plans:
 - [ ] 20-01-PLAN.md — Add in-memory per-project active tab tracking and scroll position restoration in TerminalManager.js
+
+### Phase 20.1: Always ScrollToEnd on Switching Tabs or Projects (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 20
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 20.1 to break down)
+
+### Phase 21: Integrated-Markdown-Viewer
+
+**Goal:** Render markdown files inline as formatted content in a dedicated tab with TOC sidebar, source toggle, code block highlighting, Ctrl+click link gating, live reload on disk changes, and in-document search
+**Requirements**: MD-VIEW-01, MD-VIEW-02, MD-VIEW-03
+**Depends on:** Phase 20
+**Plans:** 2 plans
+
+Plans:
+- [ ] 21-01-PLAN.md — Add markdown rendering branch to openFileTab with TOC, toggle, code blocks, link gating, image resolution, and CSS/i18n
+- [ ] 21-02-PLAN.md — Add file watcher IPC for live reload, Ctrl+F search bar, and double-click-to-editor for .md files
+
+### Phase 22: Explorer-Filewatcher
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 21
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 22 to break down)
