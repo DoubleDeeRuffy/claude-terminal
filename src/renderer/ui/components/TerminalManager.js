@@ -3571,6 +3571,110 @@ function openFileTab(filePath, project) {
         setSetting('mdViewerTocExpanded', !tocEl.classList.contains('collapsed'));
       });
     }
+
+    // === File watcher for live reload ===
+    let reloadTimer = null;
+    const unsubscribeWatch = api.dialog.onFileChanged((changedPath) => {
+      if (changedPath !== filePath) return;
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => {
+        try {
+          const newContent = fs.readFileSync(filePath, 'utf-8');
+          const bodyEl = document.getElementById(`md-body-${id}`);
+          if (!bodyEl) return;
+          const scroll = bodyEl.scrollTop;
+          bodyEl.innerHTML = mdRenderer.parse(newContent);
+          bodyEl.scrollTop = scroll;
+          // Update TOC
+          const tocEl = document.getElementById(`md-toc-${id}`);
+          if (tocEl) {
+            const tocNav = tocEl.querySelector('.md-toc-nav');
+            if (tocNav) {
+              const newTocHtml = buildMdToc(newContent);
+              if (newTocHtml) {
+                tocNav.outerHTML = newTocHtml;
+              }
+            }
+          }
+          // Update source view
+          const sourceEl = document.getElementById(`md-source-${id}`);
+          if (sourceEl) {
+            const sourceHighlighted = highlight(newContent, 'md');
+            const sourceLines = newContent.split('\n');
+            const lineNums = sourceLines.map((_, i) => `<span class="line-num">${i + 1}</span>`).join('\n');
+            const linesEl = sourceEl.querySelector('.file-viewer-lines');
+            const codeEl = sourceEl.querySelector('.file-viewer-code code');
+            if (linesEl) linesEl.innerHTML = lineNums;
+            if (codeEl) codeEl.innerHTML = sourceHighlighted;
+          }
+        } catch (e) { /* file temporarily unavailable during save */ }
+      }, 300);
+    });
+    api.dialog.watchFile(filePath);
+
+    // Store cleanup function on termData
+    termData.mdCleanup = () => {
+      unsubscribeWatch();
+      api.dialog.unwatchFile(filePath);
+      clearTimeout(reloadTimer);
+    };
+
+    // === Ctrl+F search bar ===
+    const contentEl = wrapper.querySelector('.md-viewer-content');
+    const searchBarHtml = `
+      <div class="md-viewer-search" id="md-search-${id}">
+        <input type="text" placeholder="${t('mdViewer.searchPlaceholder')}" />
+        <button class="md-search-close" title="Escape">
+          <svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        </button>
+      </div>`;
+    contentEl.insertAdjacentHTML('afterbegin', searchBarHtml);
+
+    const searchBar = document.getElementById(`md-search-${id}`);
+    const searchInput = searchBar.querySelector('input');
+    const searchClose = searchBar.querySelector('.md-search-close');
+
+    // Make wrapper focusable so it can receive keydown
+    wrapper.setAttribute('tabindex', '-1');
+
+    // Ctrl+F handler on the wrapper
+    wrapper.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        searchBar.classList.add('visible');
+        searchInput.focus();
+        searchInput.select();
+      }
+    });
+
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value;
+      if (query) {
+        const bodyEl = document.getElementById(`md-body-${id}`);
+        if (bodyEl && termData.mdViewMode === 'rendered') {
+          window.find(query, false, false, true);
+        }
+      }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        window.find(searchInput.value, false, e.shiftKey, true);
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        searchBar.classList.remove('visible');
+        wrapper.focus();
+      }
+    });
+
+    searchClose.addEventListener('click', () => {
+      searchBar.classList.remove('visible');
+      searchInput.value = '';
+      wrapper.focus();
+    });
   }
 
   setActiveTerminal(id);
