@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 22 — Explorer Filewatcher (Plan 01 complete)
+**Current focus:** Phase 22 — Explorer Filewatcher (complete)
 
 ## Current Position
 
-Phase: 22 (22-explorer-filewatcher) — IN PROGRESS
-Plan: 1 of 2 complete
-Status: Plan 22-01 complete — chokidar file watcher backend, IPC handlers, preload bridge explorer namespace
-Last activity: 2026-02-27 - Completed plan 22-01: chokidar main-process file watcher with debounced IPC events
+Phase: 22 (22-explorer-filewatcher) — COMPLETE
+Plan: 2 of 2 complete
+Status: Plan 22-02 complete — renderer wiring, applyWatcherChanges in FileExplorer, i18n keys for watch limit warning
+Last activity: 2026-02-27 - Completed plan 22-02: renderer wiring for file watcher with incremental tree patching
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -233,5 +233,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 22-01-PLAN.md
-Resume file: .planning/phases/22-explorer-filewatcher/22-01-SUMMARY.md
+Stopped at: Completed 22-02-PLAN.md
+Resume file: .planning/phases/22-explorer-filewatcher/22-02-SUMMARY.md
