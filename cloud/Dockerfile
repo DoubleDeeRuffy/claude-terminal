@@ -20,6 +20,9 @@ RUN apt-get update -qq && apt-get install -y -qq curl git && \
     apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 ENV PATH="/root/.local/bin:$PATH"
 
+# Symlink claude to /usr/local/bin so docker exec can find it without PATH
+RUN ln -sf /root/.local/bin/claude /usr/local/bin/claude 2>/dev/null || true
+
 COPY cloud/package.json cloud/package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 

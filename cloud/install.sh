@@ -102,6 +102,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     GIT_NAME_VAL=""
     GIT_EMAIL_VAL=""
     USERS=""
+    CLAUDE_VERSION=""
     # Check credentials from host-side mounted volumes (no docker exec needed)
     [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
     GIT_NAME_VAL=$(grep 'name\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
@@ -109,6 +110,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
     [ -s data/git-credentials ] && HAS_GIT_TOKEN="yes"
     if [ -n "$CONTAINER_UP" ]; then
+      CLAUDE_VERSION=$(docker exec ct-cloud /root/.local/bin/claude --version 2>/dev/null || true)
       USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
     fi
 
@@ -130,6 +132,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     echo ""
     [ -n "$DOMAIN" ] && echo -e "  ${GREEN}✓${NC} Domain         ${BOLD}$DOMAIN${NC}" || echo -e "  ${RED}✗${NC} Domain         ${DIM}not set${NC}"
     [ -n "$CONTAINER_UP" ] && echo -e "  ${GREEN}✓${NC} Container      ${DIM}running${NC}" || echo -e "  ${RED}✗${NC} Container      ${DIM}not running${NC}"
+    [ -n "$CLAUDE_VERSION" ] && echo -e "  ${GREEN}✓${NC} Claude CLI     ${DIM}$CLAUDE_VERSION${NC}" || echo -e "  ${RED}✗${NC} Claude CLI     ${DIM}not found${NC}"
     [ "$HAS_CREDS" = "yes" ] && echo -e "  ${GREEN}✓${NC} Claude auth    ${DIM}authenticated${NC}" || echo -e "  ${YELLOW}✗${NC} Claude auth    ${DIM}not configured${NC}"
     [ "$HAS_GIT_NAME" = "yes" ] && echo -e "  ${GREEN}✓${NC} Git identity   ${DIM}$GIT_NAME_VAL <$GIT_EMAIL_VAL>${NC}" || echo -e "  ${YELLOW}✗${NC} Git identity   ${DIM}not configured${NC}"
     [ "$HAS_GIT_TOKEN" = "yes" ] && echo -e "  ${GREEN}✓${NC} GitHub token   ${DIM}configured${NC}" || echo -e "  ${YELLOW}✗${NC} GitHub token   ${DIM}not configured${NC}"
@@ -304,7 +307,7 @@ else
     if [ "$SKIP_CONFIGURED" != true ]; then
       read -p "  Re-authenticate? (y/N): " REAUTH
       if [ "$REAUTH" = "Y" ] || [ "$REAUTH" = "y" ]; then
-        docker exec -it ct-cloud claude login 2>&1 || true
+        docker exec -it ct-cloud /root/.local/bin/claude login 2>&1 || true
       fi
     fi
   else
@@ -319,7 +322,7 @@ else
       echo -e "  ${CYAN}Starting Claude login...${NC}"
       echo -e "  ${DIM}Follow the instructions below — a URL will appear to open in your browser.${NC}"
       echo ""
-      docker exec -it ct-cloud claude login 2>&1 || true
+      docker exec -it ct-cloud /root/.local/bin/claude login 2>&1 || true
       echo ""
 
       HAS_CREDS="no"
