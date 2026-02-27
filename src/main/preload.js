@@ -364,6 +364,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     checkConflicts: (params) => ipcRenderer.invoke('cloud:check-conflicts', params),
     downloadWithResolutions: (params) => ipcRenderer.invoke('cloud:download-with-resolutions', params),
     onAutoSyncStatus: createListener('cloud:auto-sync-status'),
+    deleteProject: (params) => ipcRenderer.invoke('cloud:delete-project', params),
   },
 
   // ==================== USAGE ====================

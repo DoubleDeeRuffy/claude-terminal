@@ -169,6 +169,25 @@ function registerCloudHandlers() {
     }
   });
 
+  // ── Delete project from cloud ──
+
+  ipcMain.handle('cloud:delete-project', async (_event, { projectId, projectName }) => {
+    const { url, key } = _getCloudConfig();
+    const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${key}` },
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${resp.status}`);
+    }
+    // Stop file watcher and unregister from auto-sync
+    if (projectId) {
+      cloudSyncService.unregisterProject(projectId);
+    }
+    return { ok: true };
+  });
+
   // ── User profile ──
 
   ipcMain.handle('cloud:get-user', async () => {

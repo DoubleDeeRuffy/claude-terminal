@@ -1242,7 +1242,11 @@
     "diffBatchTitle": "{count} projet(s) diffèrent du cloud",
     "diffBatchDescription": "Les projets suivants présentent des différences entre les versions locale et cloud. Choisissez une action pour chacun.",
     "networkErrorTitle": "Cloud indisponible",
-    "networkErrorMessage": "Impossible de joindre le serveur cloud. Vérifiez votre connexion."
+    "networkErrorMessage": "Impossible de joindre le serveur cloud. Vérifiez votre connexion.",
+    "deleteTitle": "Supprimer du cloud",
+    "confirmCloudDelete": "Supprimer « {name} » du cloud ? Les fichiers locaux ne seront pas affectés.",
+    "deleteSuccess": "Supprimé du cloud",
+    "deleteError": "Échec de la suppression du cloud"
   },
   "database": {
     "title": "Base de données",

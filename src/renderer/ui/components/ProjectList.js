@@ -287,6 +287,10 @@ function renderProjectHtml(project, depth) {
       ? `<button class="more-actions-item btn-cloud-upload" data-project-id="${project.id}">
       ${menuIcons.cloudUpload}
       ${t('cloud.resyncBtn')}
+    </button>
+    <button class="more-actions-item danger btn-cloud-delete" data-project-id="${project.id}">
+      ${menuIcons.trash}
+      ${t('cloud.deleteTitle')}
     </button>`
       : `<button class="more-actions-item btn-cloud-upload" data-project-id="${project.id}">
       ${menuIcons.cloudUpload}
@@ -816,6 +820,9 @@ function attachListeners(list) {
       } else if (btn.classList.contains('btn-cloud-upload') || btn.classList.contains('btn-cloud-upload-direct')) {
         closeAllMoreActionsMenus();
         if (callbacks.onCloudUpload) callbacks.onCloudUpload(projectId);
+      } else if (btn.classList.contains('btn-cloud-delete')) {
+        closeAllMoreActionsMenus();
+        if (callbacks.onCloudDelete) callbacks.onCloudDelete(projectId);
       } else if (btn.classList.contains('btn-cloud-sync')) {
         if (callbacks.onCloudSync) callbacks.onCloudSync(projectId);
       } else if (btn.classList.contains('btn-customize-project')) {

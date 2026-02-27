@@ -1467,6 +1467,29 @@ async function cloudUploadProject(projectId) {
   }
 }
 
+async function cloudDeleteProject(projectId) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return;
+  const projectName = project.name || path.basename(project.path);
+
+  const confirmed = await ModalComponent.showConfirm({
+    title: t('cloud.deleteTitle'),
+    message: t('cloud.confirmCloudDelete', { name: projectName }),
+    confirmLabel: t('cloud.deleteTitle'),
+    danger: true,
+  });
+  if (!confirmed) return;
+
+  try {
+    await api.cloud.deleteProject({ projectId, projectName });
+    cloudUploadStatus.delete(projectId);
+    ProjectList.render();
+    showToast({ type: 'success', title: t('cloud.deleteSuccess'), message: projectName });
+  } catch (err) {
+    showToast({ type: 'error', title: t('cloud.deleteError'), message: err.message || projectName });
+  }
+}
+
 async function cloudSyncProject(projectId) {
   const project = projectsState.get().projects.find(p => p.id === projectId);
   if (!project) return;
@@ -1898,6 +1921,7 @@ ProjectList.setCallbacks({
   onNewWorktree: openNewWorktreeModal,
   onCloudUpload: cloudUploadProject,
   onCloudSync: cloudSyncProject,
+  onCloudDelete: cloudDeleteProject,
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),

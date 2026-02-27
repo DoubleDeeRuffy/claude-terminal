@@ -1242,7 +1242,11 @@
     "diffBatchTitle": "{count} project(s) differ from cloud",
     "diffBatchDescription": "The following projects have differences between local and cloud versions. Choose an action for each.",
     "networkErrorTitle": "Cloud unavailable",
-    "networkErrorMessage": "Could not reach the cloud server. Check your connection."
+    "networkErrorMessage": "Could not reach the cloud server. Check your connection.",
+    "deleteTitle": "Remove from cloud",
+    "confirmCloudDelete": "Remove \"{name}\" from the cloud? Local files won't be affected.",
+    "deleteSuccess": "Removed from cloud",
+    "deleteError": "Failed to remove from cloud"
   },
   "database": {
     "title": "Database",
