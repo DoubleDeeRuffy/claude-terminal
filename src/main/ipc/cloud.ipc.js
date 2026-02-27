@@ -164,7 +164,7 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:get-user', async () => {
     const { url, key } = _getCloudConfig();
-    const resp = await fetch(`${url}/api/me`, {
+    const resp = await _fetchCloud(`${url}/api/me`, {
       headers: { 'Authorization': `Bearer ${key}` },
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -173,7 +173,7 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:update-user', async (_event, { gitName, gitEmail }) => {
     const { url, key } = _getCloudConfig();
-    const resp = await fetch(`${url}/api/me`, {
+    const resp = await _fetchCloud(`${url}/api/me`, {
       method: 'PATCH',
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ gitName, gitEmail }),
@@ -186,7 +186,7 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:get-sessions', async () => {
     const { url, key } = _getCloudConfig();
-    const resp = await fetch(`${url}/api/sessions`, {
+    const resp = await _fetchCloud(`${url}/api/sessions`, {
       headers: { 'Authorization': `Bearer ${key}` },
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -196,8 +196,8 @@ function registerCloudHandlers() {
   ipcMain.handle('cloud:stop-session', async (_event, { sessionId }) => {
     const { url, key } = _getCloudConfig();
     const headers = { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' };
-    await fetch(`${url}/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST', headers });
-    await fetch(`${url}/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', headers });
+    await _fetchCloud(`${url}/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST', headers });
+    await _fetchCloud(`${url}/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', headers });
     return { ok: true };
   });
 
@@ -205,7 +205,7 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:get-projects', async () => {
     const { url, key } = _getCloudConfig();
-    const resp = await fetch(`${url}/api/projects`, {
+    const resp = await _fetchCloud(`${url}/api/projects`, {
       headers: { 'Authorization': `Bearer ${key}` },
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -219,13 +219,13 @@ function registerCloudHandlers() {
       const { url, key } = _getCloudConfig();
       const headers = { 'Authorization': `Bearer ${key}` };
 
-      const projectsResp = await fetch(`${url}/api/projects`, { headers });
+      const projectsResp = await _fetchCloud(`${url}/api/projects`, { headers });
       if (!projectsResp.ok) return { changes: [] };
       const { projects } = await projectsResp.json();
 
       const allChanges = [];
       for (const project of projects) {
-        const changesResp = await fetch(`${url}/api/projects/${encodeURIComponent(project.name)}/changes`, { headers });
+        const changesResp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(project.name)}/changes`, { headers });
         if (!changesResp.ok) continue;
         const { changes } = await changesResp.json();
         if (changes.length > 0) {
@@ -244,8 +244,8 @@ function registerCloudHandlers() {
     const { url, key } = _getCloudConfig();
     const headers = { 'Authorization': `Bearer ${key}` };
 
-    // Download changes zip
-    const resp = await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`, { headers });
+    // Download changes zip (longer timeout for file transfer)
+    const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`, { headers }, FETCH_DOWNLOAD_TIMEOUT_MS);
     if (!resp.ok) throw new Error('Failed to download changes');
 
     const zipPath = path.join(os.tmpdir(), `ct-sync-${Date.now()}.zip`);
@@ -267,7 +267,7 @@ function registerCloudHandlers() {
 
     // Only acknowledge AFTER verified successful extraction
     if (extracted) {
-      await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+      await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
       });
@@ -283,21 +283,21 @@ function registerCloudHandlers() {
     const headers = { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' };
 
     // Interrupt the cloud session
-    await fetch(`${url}/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, {
+    await _fetchCloud(`${url}/api/sessions/${encodeURIComponent(sessionId)}/interrupt`, {
       method: 'POST', headers,
     });
 
     // Download any file changes
     try {
-      const changesResp = await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes`, {
+      const changesResp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes`, {
         headers: { 'Authorization': `Bearer ${key}` },
       });
       const { changes } = await changesResp.json();
 
       if (changes && changes.length > 0 && localProjectPath) {
-        const resp = await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`, {
+        const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`, {
           headers: { 'Authorization': `Bearer ${key}` },
-        });
+        }, FETCH_DOWNLOAD_TIMEOUT_MS);
         if (resp.ok) {
           const zipPath = path.join(os.tmpdir(), `ct-takeover-${Date.now()}.zip`);
           const buffer = Buffer.from(await resp.arrayBuffer());
@@ -315,7 +315,7 @@ function registerCloudHandlers() {
 
           // Only ack after verified successful extraction
           if (extracted) {
-            await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+            await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
               method: 'POST', headers,
             });
           }
@@ -326,7 +326,7 @@ function registerCloudHandlers() {
     }
 
     // Close the cloud session
-    await fetch(`${url}/api/sessions/${encodeURIComponent(sessionId)}`, {
+    await _fetchCloud(`${url}/api/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE', headers,
     });
 
@@ -358,7 +358,7 @@ function registerCloudHandlers() {
     const { url, key } = _getCloudConfig();
 
     // Fetch cloud file list
-    const resp = await fetch(
+    const resp = await _fetchCloud(
       `${url}/api/projects/${encodeURIComponent(projectName)}/files`,
       { headers: { 'Authorization': `Bearer ${key}` } }
     );
@@ -402,7 +402,7 @@ function registerCloudHandlers() {
     const { url, key } = _getCloudConfig();
     const headers = { 'Authorization': `Bearer ${key}` };
 
-    const changesResp = await fetch(
+    const changesResp = await _fetchCloud(
       `${url}/api/projects/${encodeURIComponent(projectName)}/changes`,
       { headers }
     );
@@ -440,9 +440,9 @@ function registerCloudHandlers() {
     const { url, key } = _getCloudConfig();
     const headers = { 'Authorization': `Bearer ${key}` };
 
-    const resp = await fetch(
+    const resp = await _fetchCloud(
       `${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`,
-      { headers }
+      { headers }, FETCH_DOWNLOAD_TIMEOUT_MS
     );
     if (!resp.ok) throw new Error('Failed to download changes');
 
@@ -496,7 +496,7 @@ function registerCloudHandlers() {
       await _handleDeletedMarkers(localProjectPath);
 
       // Acknowledge
-      await fetch(
+      await _fetchCloud(
         `${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`,
         { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' } }
       );
@@ -515,6 +515,28 @@ function registerCloudHandlers() {
 }
 
 // ── Helpers ──
+
+const FETCH_TIMEOUT_MS = 10000;
+const FETCH_DOWNLOAD_TIMEOUT_MS = 60000;
+
+/**
+ * Fetch with timeout via AbortController.
+ * @param {string} url
+ * @param {RequestInit} opts
+ * @param {number} [timeoutMs]
+ */
+async function _fetchCloud(url, opts = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs}ms`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function _scanLocalFiles(baseDir, currentDir, excludeSet, resultMap) {
   let entries;
@@ -573,7 +595,7 @@ async function _checkPendingChangesOnReconnect() {
     const headers = { 'Authorization': `Bearer ${key}` };
 
     // Check for active headless sessions
-    const sessionsResp = await fetch(`${url}/api/sessions`, { headers });
+    const sessionsResp = await _fetchCloud(`${url}/api/sessions`, { headers });
     if (sessionsResp.ok) {
       const { sessions } = await sessionsResp.json();
       const activeSessions = sessions.filter(s => s.status === 'running');
@@ -583,12 +605,12 @@ async function _checkPendingChangesOnReconnect() {
     }
 
     // Check for pending file changes
-    const projectsResp = await fetch(`${url}/api/projects`, { headers });
+    const projectsResp = await _fetchCloud(`${url}/api/projects`, { headers });
     if (projectsResp.ok) {
       const { projects } = await projectsResp.json();
       const allChanges = [];
       for (const project of projects) {
-        const changesResp = await fetch(`${url}/api/projects/${encodeURIComponent(project.name)}/changes`, { headers });
+        const changesResp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(project.name)}/changes`, { headers });
         if (!changesResp.ok) continue;
         const { changes } = await changesResp.json();
         if (changes.length > 0) {

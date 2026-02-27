@@ -13,6 +13,7 @@ const { settingsFile, projectsFile } = require('../utils/paths');
 const fileWatcherService = require('./FileWatcherService');
 
 const POLL_INTERVAL_MS = 30000;
+const FETCH_TIMEOUT_MS = 10000;
 const SYNC_META_FILE = path.join(os.homedir(), '.claude-terminal', 'cloud-sync-meta.json');
 
 let _mainWindow = null;
@@ -168,14 +169,14 @@ async function _pollForChanges() {
     if (!url || !key) return;
     const headers = { 'Authorization': `Bearer ${key}` };
 
-    const projectsResp = await fetch(`${url}/api/projects`, { headers });
+    const projectsResp = await _fetchCloud(`${url}/api/projects`, { headers });
     if (!projectsResp.ok) return;
     const { projects } = await projectsResp.json();
 
     const allChanges = [];
     for (const project of projects) {
       try {
-        const changesResp = await fetch(
+        const changesResp = await _fetchCloud(
           `${url}/api/projects/${encodeURIComponent(project.name)}/changes`,
           { headers }
         );
@@ -313,6 +314,19 @@ async function _handleLocalChanges(projectId, changes) {
 }
 
 // ── Helpers ──
+
+async function _fetchCloud(url, opts = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`Request timed out after ${timeoutMs}ms`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function _sendToRenderer(channel, data) {
   if (_mainWindow && !_mainWindow.isDestroyed()) {
