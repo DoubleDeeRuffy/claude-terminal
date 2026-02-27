@@ -112,13 +112,13 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     if [ -n "$CONTAINER_UP" ]; then
       CLAUDE_VERSION=$(docker exec ct-cloud /root/.local/bin/claude --version 2>/dev/null || true)
       # Fallback: check inside container if host-side volume not yet synced
-      [ "$HAS_CREDS" = "no" ] && docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && HAS_CREDS="yes"
+      [ "$HAS_CREDS" = "no" ] && docker exec ct-cloud bash -c 'test -f /root/.claude/.credentials.json' 2>/dev/null && HAS_CREDS="yes"
       if [ "$HAS_GIT_NAME" = "no" ]; then
         GIT_NAME_VAL=$(docker exec ct-cloud git config --global user.name 2>/dev/null || true)
         GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
         [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
       fi
-      [ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud test -s /root/.git-credentials 2>/dev/null && HAS_GIT_TOKEN="yes"
+      [ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
       USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
     fi
 
@@ -303,7 +303,7 @@ fi
 # Re-check credentials (host-side first, container fallback)
 HAS_CREDS="no"
 [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
-[ "$HAS_CREDS" = "no" ] && docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && HAS_CREDS="yes"
+[ "$HAS_CREDS" = "no" ] && docker exec ct-cloud bash -c 'test -f /root/.claude/.credentials.json' 2>/dev/null && HAS_CREDS="yes"
 
 if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_CREDS" = "yes" ]; then
   echo -e "  ${GREEN}✓ Claude credentials${NC} ${DIM}(already configured)${NC}"
@@ -336,7 +336,7 @@ else
 
       HAS_CREDS="no"
       [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
-      [ "$HAS_CREDS" = "no" ] && docker exec ct-cloud test -f /root/.claude/.credentials.json 2>/dev/null && HAS_CREDS="yes"
+      [ "$HAS_CREDS" = "no" ] && docker exec ct-cloud bash -c 'test -f /root/.claude/.credentials.json' 2>/dev/null && HAS_CREDS="yes"
       if [ "$HAS_CREDS" = "yes" ]; then
         echo -e "  ${GREEN}✓ Claude authenticated successfully${NC}"
       else
@@ -368,7 +368,7 @@ if [ "$HAS_GIT_NAME" = "no" ]; then
 fi
 HAS_GIT_TOKEN="no"
 [ -s data/git-credentials ] && HAS_GIT_TOKEN="yes"
-[ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud test -s /root/.git-credentials 2>/dev/null && HAS_GIT_TOKEN="yes"
+[ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
 
 if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_GIT_NAME" = "yes" ] && [ "$HAS_GIT_TOKEN" = "yes" ]; then
   echo -e "  ${GREEN}✓ Git identity${NC} ${DIM}($GIT_NAME_VAL <$GIT_EMAIL_VAL>)${NC}"
