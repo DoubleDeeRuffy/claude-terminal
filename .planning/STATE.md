@@ -3,6 +3,19 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
+last_updated: "2026-02-27T12:53:52.494Z"
+progress:
+  total_phases: 33
+  completed_phases: 31
+  total_plans: 44
+  completed_plans: 44
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
 last_updated: "2026-02-27T12:00:00Z"
 progress:
   total_phases: 32
@@ -18,14 +31,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Terminal and file explorer behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away
-**Current focus:** Phase 22 — Explorer Filewatcher (complete)
+**Current focus:** Phase 14.1 — Resumed Session Tab Naming (complete)
 
 ## Current Position
 
-Phase: 22 (22-explorer-filewatcher) — COMPLETE
-Plan: 2 of 2 complete
-Status: Plan 22-02 complete — renderer wiring, applyWatcherChanges in FileExplorer, i18n keys for watch limit warning
-Last activity: 2026-02-27 - Completed plan 22-02: renderer wiring for file watcher with incremental tree patching
+Phase: 14.1 (14.1-resumed-session-tab-naming) — COMPLETE
+Plan: 1 of 1 complete
+Status: Plan 14.1-01 complete — session name threading from resume dialog card click through resumeSession to tab creation
+Last activity: 2026-02-27 - Completed plan 14.1-01: thread session name from resume dialog to tab
 
 Progress: [████████████████████████████] 100% (Phase 18, Plan 1/1)
 
@@ -89,6 +102,7 @@ Progress: [███████████████████████
 | Phase 21 P01 | 189 | 2 tasks | 4 files |
 | Phase 21 P02 | 5 | 2 tasks | 4 files |
 | Phase 22 P01 | 12 | 2 tasks | 3 files |
+| Phase 14.1-resumed-session-tab-naming P01 | 8 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -189,6 +203,7 @@ Recent decisions affecting current work:
 - [Phase 21]: Ref-counting on fileWatchers Map allows safe sharing of one fs.watch instance across multiple markdown tabs for the same file
 - [Phase 21]: termData.mdCleanup stores teardown closure — called in closeTerminal to unsubscribe listener, call unwatchFile, and clear debounce timer
 - [Phase 22]: 22-01: chokidar@^4 (pure JS) installed with --ignore-scripts to avoid triggering better-sqlite3 native rebuild; watchId integer guard discards stale debounce callbacks from closed watchers; persistent: false and ignoreInitial: true; 350ms debounce within plan's 300-500ms range; SOFT_LIMIT=10000 paths triggers watchLimitWarning IPC
+- [Phase 14.1-resumed-session-tab-naming]: 14.1-01: Use isRenamed guard to only propagate explicitly-set names from resume dialog to tab creation; apply name immediately at tab creation matching Phase 16 pattern
 
 ### Pending Todos
 
