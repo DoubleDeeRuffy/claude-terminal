@@ -3854,7 +3854,8 @@ async function createChatTerminal(project, options = {}) {
     isBasic: false,
     mode: 'chat',
     chatView: null,
-    ...(parentProjectId ? { parentProjectId } : {})
+    ...(parentProjectId ? { parentProjectId } : {}),
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {})
   };
 
   addTerminal(id, termData);
@@ -3898,6 +3899,9 @@ async function createChatTerminal(project, options = {}) {
     initialEffort,
     onSessionStart: (sid) => {
       _chatSessionId = sid;
+      // Persist session ID on termData for TerminalSessionService (fresh sessions)
+      const data = getTerminal(id);
+      if (data) data.claudeSessionId = sid;
       if (onSessionStart) onSessionStart(sid);
     },
     onTabRename: (name) => {
