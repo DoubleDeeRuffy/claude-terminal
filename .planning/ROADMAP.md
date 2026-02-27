@@ -299,10 +299,12 @@ Plans:
 **Goal:** Thread the saved session name from the resume dialog through to the tab name when resuming a Claude session, so resumed tabs display their original name instead of staying as "Resume..."
 **Requirements**: SESS-RESUME-01, TAB-RESUME-01
 **Depends on:** Phase 14
-**Plans:** 1/1 plans complete
+**Plans:** 3 plans
 
 Plans:
 - [ ] 14.1-01-PLAN.md — Thread displayTitle from resume dialog sessionMap through resumeSession to tab creation in both terminal and chat modes
+- [ ] 14.1-02-PLAN.md — Gap closure: add claudeSessionId to termData in resumeSession so updateTerminalTabName guard passes
+- [ ] 14.1-03-PLAN.md — Gap closure: widen isRenamed guard to displayTitle, add explicit updateTerminalTabName after addTerminal
 
 ### Phase 15: Remember Projects width accross app restarts
 
