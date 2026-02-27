@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-27T12:57:24.257Z"
+last_updated: "2026-02-27T13:48:05.083Z"
 progress:
   total_phases: 33
   completed_phases: 31
-  total_plans: 44
-  completed_plans: 44
+  total_plans: 45
+  completed_plans: 45
 ---
 
 ---
@@ -116,6 +116,7 @@ Progress: [███████████████████████
 | Phase 21 P02 | 5 | 2 tasks | 4 files |
 | Phase 22 P01 | 12 | 2 tasks | 3 files |
 | Phase 14.1-resumed-session-tab-naming P01 | 8 | 2 tasks | 1 files |
+| Phase 22-explorer-filewatcher P03 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -217,6 +218,7 @@ Recent decisions affecting current work:
 - [Phase 21]: termData.mdCleanup stores teardown closure — called in closeTerminal to unsubscribe listener, call unwatchFile, and clear debounce timer
 - [Phase 22]: 22-01: chokidar@^4 (pure JS) installed with --ignore-scripts to avoid triggering better-sqlite3 native rebuild; watchId integer guard discards stale debounce callbacks from closed watchers; persistent: false and ignoreInitial: true; 350ms debounce within plan's 300-500ms range; SOFT_LIMIT=10000 paths triggers watchLimitWarning IPC
 - [Phase 14.1-resumed-session-tab-naming]: 14.1-01: Use isRenamed guard to only propagate explicitly-set names from resume dialog to tab creation; apply name immediately at tab creation matching Phase 16 pattern
+- [Phase 22-explorer-filewatcher]: persistent:true chosen for chokidar: watcher is explicitly managed via stopWatch(), safe to keep process alive; activates chokidar's EPERM workaround for Windows directory deletion
 
 ### Pending Todos
 
