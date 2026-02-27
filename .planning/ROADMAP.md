@@ -161,7 +161,7 @@ Plans:
 
 **Goal:** Fix claudeSessionId not being persisted on termData — both at creation time and after /clear — causing session resume to fail or resume stale sessions after app restart
 **Depends on:** Phase 6
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 6.4-01-PLAN.md — Add claudeSessionId and cwd fields to termData object in createTerminal

@@ -3,6 +3,19 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
+last_updated: "2026-02-27T19:15:10.178Z"
+progress:
+  total_phases: 35
+  completed_phases: 33
+  total_plans: 51
+  completed_plans: 51
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
 last_updated: "2026-02-27T17:40:22.777Z"
 progress:
   total_phases: 35
@@ -52,7 +65,7 @@ progress:
 
 # Project State
 
-## Project Reference
+## Project Reference as
 
 See: .planning/PROJECT.md (updated 2026-02-24)
 
@@ -133,6 +146,7 @@ Progress: [███████████████████████
 | Phase 23 P01 | 2 | 2 tasks | 1 files |
 | Phase 24-shift-return-race-condition P01 | 8 | 2 tasks | 2 files |
 | Phase 14.1-resumed-session-tab-naming P03 | 8 | 2 tasks | 1 files |
+| Phase 6.4 P02 | 8 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -239,6 +253,8 @@ Recent decisions affecting current work:
 - [Phase 24-shift-return-race-condition]: shiftHeld closure variable with keydown/keyup/blur listeners replaces e.shiftKey in chat Enter handler; line-height tightened to 1.4
 - [Phase 14.1-resumed-session-tab-naming]: 14.1-03: Remove isRenamed check from sessionName — displayTitle alone covers haiku AI names (isRenamed=false) and explicit user renames
 - [Phase 14.1-resumed-session-tab-naming]: 14.1-03: Explicit updateTerminalTabName(id, sessionName) after addTerminal in resumeSession — --resume never emits OSC task name so normal title-change path never fires
+- [Phase 6.4]: 6.4-02: Change-guard (msg.session_id !== sdkSessionId) before updateTerminal avoids redundant saves on every SDK message
+- [Phase 6.4]: 6.4-02: resumeSessionId spread in createChatTerminal termData covers restart-resume path; direct data.claudeSessionId = sid in onSessionStart covers fresh sessions
 
 ### Pending Todos
 
