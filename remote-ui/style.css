@@ -1315,7 +1315,7 @@ html, body {
   position: relative;
   background: var(--bg);
   border-top: 1px solid var(--border);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px));
 }
 
 .chat-input-bar {
