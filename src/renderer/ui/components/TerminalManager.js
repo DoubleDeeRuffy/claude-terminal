@@ -665,6 +665,8 @@ function eventToNormalizedKey(e) {
 }
 
 function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal-input') {
+  let shiftHeld = false;
+  window.addEventListener('blur', () => { shiftHeld = false; });
   return (e) => {
     // Check rebound terminal shortcuts (ctrlC / ctrlV) at call-time — read from settings
     if (e.ctrlKey && e.type === 'keydown') {
@@ -696,14 +698,21 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
       }
     }
 
+    // Track Shift key state independently to avoid e.shiftKey race condition
+    if (e.key === 'Shift' && e.type === 'keydown') shiftHeld = true;
+    if (e.key === 'Shift' && e.type === 'keyup') shiftHeld = false;
+
     // Shift+Enter — send newline for multiline input (e.g., Claude CLI)
-    if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
-      if (inputChannel === 'fivem-input') {
-        api.fivem.input({ projectIndex: terminalId, data: '\n' });
-      } else if (inputChannel === 'webapp-input') {
-        api.webapp.input({ projectIndex: terminalId, data: '\n' });
-      } else {
-        api.terminal.input({ id: terminalId, data: '\n' });
+    // Block both keydown (send \n) and keypress (prevent xterm from also sending \r)
+    if ((shiftHeld || e.shiftKey || e.getModifierState('Shift')) && !e.ctrlKey && !e.altKey && e.key === 'Enter') {
+      if (e.type === 'keydown') {
+        if (inputChannel === 'fivem-input') {
+          api.fivem.input({ projectIndex: terminalId, data: '\n' });
+        } else if (inputChannel === 'webapp-input') {
+          api.webapp.input({ projectIndex: terminalId, data: '\n' });
+        } else {
+          api.terminal.input({ id: terminalId, data: '\n' });
+        }
       }
       return false;
     }
@@ -1023,8 +1032,11 @@ function updateTerminalTabName(id, name) {
   updateTerminal(id, { name });
 
   // Phase 19: propagate tab name to session-names.json (resume dialog)
+  console.log(`[DEBUG updateTerminalTabName] id=${id}, name="${name}", claudeSessionId=${termData.claudeSessionId || 'NULL'}, mode=${termData.mode || '?'}`);
   if (termData.claudeSessionId && name) {
     setSessionCustomName(termData.claudeSessionId, name);
+  } else if (!termData.claudeSessionId && name) {
+    console.warn(`[DEBUG updateTerminalTabName] SKIPPED session-names.json write — claudeSessionId is missing! Tab name "${name}" will NOT appear in bulb history.`);
   }
 
   // Update DOM
@@ -3630,18 +3642,15 @@ function openFileTab(filePath, project) {
     // === File watcher for live reload ===
     let reloadTimer = null;
     const unsubscribeWatch = api.dialog.onFileChanged((changedPath) => {
-      console.log('[md-viewer] file-changed event:', changedPath, 'expected:', filePath, 'match:', changedPath === filePath);
       if (changedPath !== filePath) return;
       clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
         try {
           const newContent = fs.readFileSync(filePath, 'utf-8');
           const bodyEl = document.getElementById(`md-body-${id}`);
-          console.log('[md-viewer] reloading, bodyEl:', !!bodyEl, 'contentLen:', newContent.length, 'first100:', newContent.substring(0, 100));
           if (!bodyEl) return;
           const scroll = bodyEl.scrollTop;
-          const parsed = mdRenderer.parse(newContent);
-          console.log('[md-viewer] parsed length:', parsed.length, 'bodyEl current innerHTML length:', bodyEl.innerHTML.length);
+          const parsed = termData.mdRenderer.parse(newContent);
           bodyEl.innerHTML = parsed;
           bodyEl.scrollTop = scroll;
           // Update TOC
@@ -3666,7 +3675,7 @@ function openFileTab(filePath, project) {
             if (linesEl) linesEl.innerHTML = lineNums;
             if (codeEl) codeEl.innerHTML = sourceHighlighted;
           }
-        } catch (e) { console.error('[md-viewer] reload error:', e); }
+        } catch (e) { /* file temporarily unavailable during save */ }
       }, 300);
     });
     api.dialog.watchFile(filePath);
@@ -3683,6 +3692,7 @@ function openFileTab(filePath, project) {
     const searchBarHtml = `
       <div class="md-viewer-search" id="md-search-${id}">
         <input type="text" placeholder="${t('mdViewer.searchPlaceholder')}" />
+        <span class="md-search-count"></span>
         <button class="md-search-close" title="Escape">
           <svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
         </button>
@@ -3691,10 +3701,65 @@ function openFileTab(filePath, project) {
 
     const searchBar = document.getElementById(`md-search-${id}`);
     const searchInput = searchBar.querySelector('input');
+    const searchCount = searchBar.querySelector('.md-search-count');
     const searchClose = searchBar.querySelector('.md-search-close');
+    let searchTimer = null;
+    let currentMatchIdx = -1;
 
     // Make wrapper focusable so it can receive keydown
     wrapper.setAttribute('tabindex', '-1');
+
+    function clearHighlights(bodyEl) {
+      bodyEl.querySelectorAll('mark.md-search-hit').forEach(m => {
+        const parent = m.parentNode;
+        parent.replaceChild(document.createTextNode(m.textContent), m);
+        parent.normalize();
+      });
+      currentMatchIdx = -1;
+      searchCount.textContent = '';
+    }
+
+    function highlightMatches(bodyEl, query) {
+      clearHighlights(bodyEl);
+      if (!query) return;
+      const lower = query.toLowerCase();
+      const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT);
+      const hits = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        const idx = node.textContent.toLowerCase().indexOf(lower);
+        if (idx !== -1) hits.push({ node, idx });
+      }
+      hits.forEach(({ node, idx }) => {
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + query.length);
+        const mark = document.createElement('mark');
+        mark.className = 'md-search-hit';
+        range.surroundContents(mark);
+      });
+      const allMarks = bodyEl.querySelectorAll('mark.md-search-hit');
+      searchCount.textContent = allMarks.length > 0 ? `${allMarks.length}` : t('mdViewer.noResults');
+      if (allMarks.length > 0) {
+        currentMatchIdx = 0;
+        allMarks[0].classList.add('md-search-current');
+        allMarks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function navigateMatch(forward) {
+      const bodyEl = document.getElementById(`md-body-${id}`);
+      if (!bodyEl) return;
+      const marks = bodyEl.querySelectorAll('mark.md-search-hit');
+      if (marks.length === 0) return;
+      marks[currentMatchIdx]?.classList.remove('md-search-current');
+      currentMatchIdx = forward
+        ? (currentMatchIdx + 1) % marks.length
+        : (currentMatchIdx - 1 + marks.length) % marks.length;
+      marks[currentMatchIdx].classList.add('md-search-current');
+      marks[currentMatchIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      searchCount.textContent = `${currentMatchIdx + 1}/${marks.length}`;
+    }
 
     // Ctrl+F handler on the wrapper
     wrapper.addEventListener('keydown', (e) => {
@@ -3708,28 +3773,33 @@ function openFileTab(filePath, project) {
     });
 
     searchInput.addEventListener('input', () => {
-      const query = searchInput.value;
-      if (query) {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
         const bodyEl = document.getElementById(`md-body-${id}`);
         if (bodyEl && termData.mdViewMode === 'rendered') {
-          window.find(query, false, false, true);
+          highlightMatches(bodyEl, searchInput.value);
         }
-      }
+      }, 400);
     });
 
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        window.find(searchInput.value, false, e.shiftKey, true);
+        navigateMatch(!e.shiftKey);
       }
       if (e.key === 'Escape') {
         e.preventDefault();
+        const bodyEl = document.getElementById(`md-body-${id}`);
+        if (bodyEl) clearHighlights(bodyEl);
         searchBar.classList.remove('visible');
+        searchInput.value = '';
         wrapper.focus();
       }
     });
 
     searchClose.addEventListener('click', () => {
+      const bodyEl = document.getElementById(`md-body-${id}`);
+      if (bodyEl) clearHighlights(bodyEl);
       searchBar.classList.remove('visible');
       searchInput.value = '';
       wrapper.focus();

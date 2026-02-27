@@ -1601,6 +1601,11 @@
 .md-toc-toggle svg {
   width: 16px;
   height: 16px;
+  transition: transform 0.2s;
+}
+
+.md-viewer-toc.collapsed .md-toc-toggle svg {
+  transform: rotate(180deg);
 }
 
 .md-toc-title {
@@ -1851,6 +1856,23 @@
 .md-viewer-search .md-search-close svg {
   width: 14px;
   height: 14px;
+}
+
+.md-viewer-search .md-search-count {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+mark.md-search-hit {
+  background: rgba(255, 200, 0, 0.3);
+  color: inherit;
+  border-radius: 2px;
+}
+
+mark.md-search-hit.md-search-current {
+  background: rgba(255, 200, 0, 0.7);
+  outline: 1px solid rgba(255, 200, 0, 0.9);
 }
 
 /* Syntax highlighting */

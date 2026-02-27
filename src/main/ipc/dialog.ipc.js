@@ -157,7 +157,7 @@ function registerDialogHandlers() {
       return;
     }
     try {
-      const watcher = fs.watch(filePath, { persistent: false }, (eventType) => {
+      const watcher = fs.watch(filePath, { persistent: true }, (eventType) => {
         if (eventType === 'change' || eventType === 'rename') {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('file-changed', filePath);
