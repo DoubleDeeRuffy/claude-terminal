@@ -1441,6 +1441,32 @@ async function cloudUploadProject(projectId) {
   }
 }
 
+async function cloudSyncProject(projectId) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return;
+
+  const projectName = project.name || path.basename(project.path);
+  const status = cloudUploadStatus.get(projectId);
+  if (!status?.pendingChanges) return;
+
+  // Set syncing state
+  cloudUploadStatus.set(projectId, { ...status, syncing: true });
+  ProjectList.render();
+
+  try {
+    await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
+    cloudUploadStatus.set(projectId, { synced: true });
+    ProjectList.render();
+    showToast({ type: 'success', title: t('cloud.syncApplied'), message: projectName });
+    // Refresh pending changes
+    api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+  } catch (err) {
+    cloudUploadStatus.set(projectId, { ...status, syncing: false });
+    ProjectList.render();
+    showToast({ type: 'error', title: t('cloud.syncError'), message: err.message || projectName });
+  }
+}
+
 if (api.cloud?.onUploadProgress) {
   api.cloud.onUploadProgress((progress) => {
     if (!_activeUploadToast) return;
@@ -1547,6 +1573,7 @@ ProjectList.setCallbacks({
   onGitPush: gitPush,
   onNewWorktree: openNewWorktreeModal,
   onCloudUpload: cloudUploadProject,
+  onCloudSync: cloudSyncProject,
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),

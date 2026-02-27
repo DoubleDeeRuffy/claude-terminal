@@ -306,11 +306,13 @@ function renderProjectHtml(project, depth) {
           ${project.isWorktree && project.worktreeBranch ? `<span class="project-worktree-badge" title="Worktree: ${escapeHtml(project.worktreeBranch)}">${escapeHtml(project.worktreeBranch)}</span>` : project.isWorktree ? '<span class="project-worktree-badge" title="Worktree">WT</span>' : ''}
           ${cloudUploadStatus.get(project.id)?.uploading
             ? '<span class="project-cloud-badge uploading" title="Cloud upload...">&#9729;</span>'
-            : cloudUploadStatus.get(project.id)?.pendingChanges
-              ? `<span class="project-cloud-badge pending" title="${t('cloud.pendingBadge', { count: cloudUploadStatus.get(project.id)?.pendingCount || 0 })}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>`
-              : cloudUploadStatus.get(project.id)?.synced
-                ? '<span class="project-cloud-badge synced" title="Cloud synced">&#9729;</span>'
-                : ''}
+            : cloudUploadStatus.get(project.id)?.syncing
+              ? `<span class="project-cloud-badge syncing" title="${t('cloud.syncApply')}..."><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>`
+              : cloudUploadStatus.get(project.id)?.pendingChanges
+                ? `<button class="project-cloud-badge pending btn-cloud-sync" data-project-id="${project.id}" title="${t('cloud.pendingBadge', { count: cloudUploadStatus.get(project.id)?.pendingCount || 0 })}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>`
+                : cloudUploadStatus.get(project.id)?.synced
+                  ? '<span class="project-cloud-badge synced" title="Cloud synced">&#9729;</span>'
+                  : ''}
         </div>
         <div class="project-path">${escapeHtml(project.path)}</div>
         ${hasTime ? `<div class="project-time">
@@ -765,6 +767,8 @@ function attachListeners(list) {
       } else if (btn.classList.contains('btn-cloud-upload')) {
         closeAllMoreActionsMenus();
         if (callbacks.onCloudUpload) callbacks.onCloudUpload(projectId);
+      } else if (btn.classList.contains('btn-cloud-sync')) {
+        if (callbacks.onCloudSync) callbacks.onCloudSync(projectId);
       } else if (btn.classList.contains('btn-customize-project')) {
         const project = getProject(projectId);
         closeAllMoreActionsMenus();
