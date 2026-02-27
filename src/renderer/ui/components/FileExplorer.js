@@ -162,6 +162,7 @@ function restoreState(savedState) {
         readDirectoryAsync(folderPath).then(children => {
           const e = expandedFolders.get(folderPath);
           if (e) { e.children = children; e.loaded = true; e.loading = false; }
+          api.explorer.watchDir(folderPath);
           remaining--;
           render();
           if (remaining === 0) _applyScrollTop(scrollTop);
@@ -177,6 +178,7 @@ function restoreState(savedState) {
         entry.loading = true;
         readDirectoryAsync(folderPath).then(children => {
           entry.children = children; entry.loaded = true; entry.loading = false;
+          api.explorer.watchDir(folderPath);
           remaining--;
           render();
           if (remaining === 0) _applyScrollTop(scrollTop);
@@ -239,6 +241,7 @@ function setRootPath(projectPath, savedState = null) {
           entry.children = children;
           entry.loaded = true;
           entry.loading = false;
+          api.explorer.watchDir(p);
           render();
         }).catch(() => {
           entry.loaded = true;
@@ -471,6 +474,58 @@ async function refreshFolder(folderPath) {
   if (entry) {
     entry.children = await readDirectoryAsync(folderPath);
     entry.loaded = true;
+  }
+}
+
+async function applyWatcherChanges(changes) {
+  try {
+    if (!rootPath || !changes || !changes.length) return;
+
+    const affectedParents = new Set();
+
+    for (const change of changes) {
+      const parentDir = path.dirname(change.path);
+
+      if (change.type === 'add') {
+        // Only re-read parent if it's a tracked (loaded) folder
+        const entry = expandedFolders.get(parentDir);
+        if (entry && entry.loaded) {
+          affectedParents.add(parentDir);
+        }
+        // If parent is untracked/collapsed, no action — loads fresh from disk when expanded
+      } else if (change.type === 'remove') {
+        // Remove the deleted item from parent's children array
+        const entry = expandedFolders.get(parentDir);
+        if (entry && entry.loaded) {
+          entry.children = entry.children.filter(c => c.path !== change.path);
+        }
+        // For directory deletion: remove the folder AND all descendants from expandedFolders
+        if (change.isDirectory) {
+          const prefix = change.path + path.sep;
+          for (const key of [...expandedFolders.keys()]) {
+            if (key === change.path || key.startsWith(prefix)) {
+              expandedFolders.delete(key);
+            }
+          }
+        }
+        // Clean up selection state for deleted items
+        selectedFiles.delete(change.path);
+        if (lastSelectedFile === change.path) lastSelectedFile = null;
+      }
+    }
+
+    // Re-read affected parent directories for additions (to get correctly sorted, stat-complete children)
+    for (const parentDir of affectedParents) {
+      const entry = expandedFolders.get(parentDir);
+      if (entry) {
+        entry.children = await readDirectoryAsync(parentDir);
+      }
+    }
+
+    // Single render call after all patches applied
+    render();
+  } catch {
+    // Silently ignore — stale paths, permission errors, etc.
   }
 }
 
@@ -1227,6 +1282,9 @@ function attachListeners() {
   const btnCollapse = document.getElementById('btn-collapse-explorer');
   if (btnCollapse) {
     btnCollapse.onclick = () => {
+      for (const p of expandedFolders.keys()) {
+        api.explorer.unwatchDir(p);
+      }
       expandedFolders.clear();
       selectedFiles.clear();
       lastSelectedFile = null;
@@ -1237,6 +1295,9 @@ function attachListeners() {
   const btnRefresh = document.getElementById('btn-refresh-explorer');
   if (btnRefresh) {
     btnRefresh.onclick = () => {
+      for (const p of expandedFolders.keys()) {
+        api.explorer.unwatchDir(p);
+      }
       expandedFolders.clear();
       render();
       refreshGitStatus();
@@ -1288,10 +1349,12 @@ function toggleFolder(folderPath) {
   const entry = expandedFolders.get(folderPath);
   if (entry && entry.loaded) {
     expandedFolders.delete(folderPath);
+    api.explorer.unwatchDir(folderPath);
     render();
   } else if (!entry) {
     // Not loaded yet - start loading
     getOrLoadFolder(folderPath);
+    api.explorer.watchDir(folderPath);
     render(); // Show loading state immediately
   }
   // If entry exists but still loading, do nothing - render will happen when loaded
@@ -1372,5 +1435,6 @@ module.exports = {
   toggle,
   init,
   getState,
-  restoreState
+  restoreState,
+  applyWatcherChanges
 };
