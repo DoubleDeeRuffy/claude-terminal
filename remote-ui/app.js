@@ -9,28 +9,7 @@
  *  - result        → turn completion (cost, tokens, final text)
  */
 
-// ─── Debug overlay (temporary) ───────────────────────────────────────────────
-
-const _debugLog = (() => {
-  let el = null;
-  const lines = [];
-  function ensure() {
-    if (el) return;
-    el = document.createElement('div');
-    el.id = 'debug-overlay';
-    el.style.cssText = 'position:fixed;bottom:70px;left:0;right:0;z-index:9999;max-height:140px;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font:11px/1.4 monospace;padding:6px 10px;pointer-events:auto;';
-    document.body.appendChild(el);
-  }
-  return function(...args) {
-    ensure();
-    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-    lines.push(msg);
-    if (lines.length > 30) lines.shift();
-    el.textContent = lines.join('\n');
-    el.scrollTop = el.scrollHeight;
-    console.log(...args);
-  };
-})();
+const _debugLog = console.log.bind(console);
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 
@@ -138,7 +117,6 @@ const state = {
   // Headless cloud mode
   cloudSessionMode: false,    // true when running headless via cloud API
   desktopOffline: false,      // true when desktop is offline (relay mode)
-  _headlessStreamWs: null,    // WS connection for headless session stream
   _headlessSessionId: null,   // active headless session ID on cloud
 };
 
@@ -604,7 +582,8 @@ function wsSend(type, data) {
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 
-function handleMessage({ type, data }) {
+function handleMessage(msg) {
+  const { type, data } = msg;
   switch (type) {
     case 'hello':
       connSetState('connected');
@@ -662,6 +641,13 @@ function handleMessage({ type, data }) {
       break;
     case 'relay:desktop-offline': _onDesktopOffline(); break;
     case 'relay:kicked':          _onRelayKicked(); break;
+    // Cloud session stream events routed through relay WS
+    case 'stream':
+      if (msg.data) {
+        _debugLog('[Stream] Relay event:', msg.data.type, msg.data.event?.type || '');
+        _handleHeadlessEvent(msg.data);
+      }
+      break;
   }
 }
 
@@ -2964,41 +2950,9 @@ async function _startHeadlessSession(projectName, prompt) {
 }
 
 function _openHeadlessStream(sessionId) {
-  if (state._headlessStreamWs) {
-    try { state._headlessStreamWs.close(); } catch (e) {}
-  }
-
-  const base = conn.cloudUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:').replace(/\/$/, '');
-  const wsUrl = `${base}/api/sessions/${encodeURIComponent(sessionId)}/stream?token=${encodeURIComponent(conn.cloudApiKey)}`;
-  _debugLog('[Headless] Opening stream WS:', wsUrl);
-  const ws = new WebSocket(wsUrl);
-  state._headlessStreamWs = ws;
-
-  ws.onopen = () => {
-    _debugLog('[Headless] Stream WS connected');
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      _debugLog('[Headless] Event:', msg.type, msg.event?.type || '');
-      _handleHeadlessEvent(msg);
-    } catch (e) {
-      _debugLog('[Headless] Parse error:', e);
-    }
-  };
-
-  ws.onclose = (ev) => {
-    _debugLog('[Headless] Stream WS closed:', ev.code, ev.reason);
-    state._headlessStreamWs = null;
-    if (state.cloudSessionMode) {
-      setInputState('idle');
-    }
-  };
-
-  ws.onerror = (err) => {
-    _debugLog('[Headless] Stream WS error');
-  };
+  // Stream events are now received via the relay WS (type: 'stream')
+  // No need to open a separate WS connection (which fails on iOS Safari)
+  _debugLog('[Headless] Listening for stream events via relay WS for session:', sessionId);
 }
 
 function _handleHeadlessEvent(msg) {
@@ -3101,10 +3055,6 @@ async function _sendHeadlessMessage(text) {
 }
 
 function _cleanupHeadlessSession() {
-  if (state._headlessStreamWs) {
-    try { state._headlessStreamWs.close(); } catch (e) {}
-    state._headlessStreamWs = null;
-  }
   state.cloudSessionMode = false;
   state._headlessSessionId = null;
 }
