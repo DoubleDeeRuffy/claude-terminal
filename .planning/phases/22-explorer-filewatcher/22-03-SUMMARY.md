@@ -72,7 +72,7 @@ Each task was committed atomically:
 1. **Task 1: Fix chokidar persistent mode and add ignorePermissionErrors** - `c4ef1b9b` (fix)
 2. **Task 2: Add error handling to renderer onChanges callback and applyWatcherChanges** - `18c52ae7` (fix)
 
-**Plan metadata:** (docs commit pending)
+**Plan metadata:** `7e894d6e` (docs: complete gap closure plan for filewatcher error handling)
 
 ## Files Created/Modified
 
