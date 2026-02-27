@@ -15,9 +15,9 @@ const TELEMETRY_URL = process.env.TELEMETRY_URL || 'https://telemetry.claudeterm
 const PING_PATH = '/api/v1/ping';
 const TIMEOUT = 5000;
 
-// Client-side rate limit: 1 ping per event_type per hour
+// Client-side rate limit: 1 ping per event_type per minute
 const lastPingTimes = new Map();
-const ONE_HOUR = 60 * 60 * 1000;
+const ONE_MINUTE = 60 * 1000;
 
 // ── Settings helpers ──
 
@@ -45,7 +45,7 @@ function saveUuid(uuid) {
 function canSend(eventType) {
   const now = Date.now();
   const last = lastPingTimes.get(eventType);
-  if (last && (now - last) < ONE_HOUR) return false;
+  if (last && (now - last) < ONE_MINUTE) return false;
   return true;
 }
 

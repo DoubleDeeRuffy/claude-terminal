@@ -5,6 +5,7 @@
 
 const { ipcMain } = require('electron');
 const terminalService = require('../services/TerminalService');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 /**
  * Register terminal IPC handlers
@@ -13,6 +14,7 @@ function registerTerminalHandlers() {
   // Create terminal
   ipcMain.handle('terminal-create', (event, { cwd, runClaude, skipPermissions, resumeSessionId }) => {
     try {
+      sendFeaturePing('terminal:create');
       return terminalService.create({ cwd, runClaude, skipPermissions, resumeSessionId });
     } catch (error) {
       console.error('[Terminal IPC] Create error:', error);

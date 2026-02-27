@@ -15,9 +15,9 @@ module.exports = {
   TRUST_PROXY: process.env.TRUST_PROXY || false, // Set to 'true' or '1' behind nginx/caddy
 
   RATE_LIMIT: {
-    windowMs: 60 * 60 * 1000, // 1 hour
+    windowMs: 60 * 1000,       // 1 minute
     maxPerEvent: 1,            // 1 event per UUID per event_type per window
-    maxPerIp: 60,              // Max pings per IP per window (prevents UUID flooding)
+    maxPerIp: 120,             // Max pings per IP per window (prevents UUID flooding)
     maxMapSize: 50000          // Max entries in rate limit map before forced cleanup
   },
 

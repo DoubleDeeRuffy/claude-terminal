@@ -5,6 +5,7 @@
 const { ipcMain } = require('electron');
 const remoteServer = require('../services/RemoteServer');
 const { cloudRelayClient } = require('../services/CloudRelayClient');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 function registerRemoteHandlers() {
   // Get current PIN (auto-generates if expired)
@@ -38,6 +39,7 @@ function registerRemoteHandlers() {
   // Manually start the server — stop cloud first (mutual exclusion)
   ipcMain.handle('remote:start-server', () => {
     try {
+      sendFeaturePing('remote:connect');
       if (cloudRelayClient.connected) {
         cloudRelayClient.disconnect();
         remoteServer.setCloudClient(null);

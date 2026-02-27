@@ -5,6 +5,7 @@
 
 const { ipcMain } = require('electron');
 const MarketplaceService = require('../services/MarketplaceService');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 /**
  * Register Marketplace IPC handlers
@@ -46,6 +47,7 @@ function registerMarketplaceHandlers() {
   // Install a skill
   ipcMain.handle('marketplace-install', async (event, { skill }) => {
     try {
+      sendFeaturePing('skill:install');
       const result = await MarketplaceService.installSkill(skill);
       return { success: true, ...result };
     } catch (e) {

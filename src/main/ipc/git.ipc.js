@@ -7,6 +7,7 @@ const { ipcMain } = require('electron');
 const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch, getCommitHistory, getFileDiff, getCommitDetail, cherryPick, revertCommit, gitUnstageFiles, stashApply, stashDrop, gitStashSave, getWorktrees, createWorktree, removeWorktree, lockWorktree, unlockWorktree, pruneWorktrees, detectWorktree, diffWorktreeBranches } = require('../utils/git');
 const { generateCommitMessage } = require('../utils/commitMessageGenerator');
 const GitHubAuthService = require('../services/GitHubAuthService');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 // Input validators
 const isValidCommitHash = (h) => typeof h === 'string' && /^[a-f0-9]{4,64}$/i.test(h);
@@ -34,11 +35,13 @@ function registerGitHandlers() {
 
   // Git pull
   ipcMain.handle('git-pull', async (event, { projectPath }) => {
+    sendFeaturePing('git:pull');
     return gitPull(projectPath);
   });
 
   // Git push
   ipcMain.handle('git-push', async (event, { projectPath }) => {
+    sendFeaturePing('git:push');
     return gitPush(projectPath);
   });
 
@@ -108,6 +111,7 @@ function registerGitHandlers() {
 
   // Create commit
   ipcMain.handle('git-commit', async (event, { projectPath, message }) => {
+    sendFeaturePing('git:commit');
     return gitCommit(projectPath, message);
   });
 
