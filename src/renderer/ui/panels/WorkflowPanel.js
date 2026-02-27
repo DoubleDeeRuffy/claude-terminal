@@ -2,6 +2,7 @@ const { escapeHtml } = require('../../utils');
 const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
 const { getAgents } = require('../../services/AgentService');
 const { getSkills } = require('../../services/SkillService');
+const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphService');
 
 let ctx = null;
 
@@ -483,7 +484,7 @@ function renderPanel() {
     </div>
   `;
 
-  el.querySelector('#wf-btn-new').addEventListener('click', () => openBuilder());
+  el.querySelector('#wf-btn-new').addEventListener('click', () => openEditor());
   el.querySelectorAll('.wf-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       el.querySelectorAll('.wf-tab').forEach(t => t.classList.remove('active'));
@@ -524,7 +525,7 @@ function renderWorkflowList(el) {
         </button>
       </div>
     `;
-    el.querySelector('#wf-empty-new').addEventListener('click', () => openBuilder());
+    el.querySelector('#wf-empty-new').addEventListener('click', () => openEditor());
     return;
   }
 
@@ -656,917 +657,539 @@ function renderRunHistory(el) {
   `;
 }
 
-/* ─── Builder wizard ───────────────────────────────────────────────────────── */
+/* ─── Node Graph Editor ─────────────────────────────────────────────────── */
 
-function openBuilder(workflowId = null) {
+function openEditor(workflowId = null) {
   const wf = workflowId ? state.workflows.find(w => w.id === workflowId) : null;
-  const draft = {
+  const editorDraft = {
     name: wf?.name || '',
-    trigger: wf?.trigger?.type || 'manual',
-    triggerValue: wf?.trigger?.value || '',
-    hookType: wf?.hookType || 'PostToolUse',
     scope: wf?.scope || 'current',
     concurrency: wf?.concurrency || 'skip',
-    steps: wf?.steps ? wf.steps.map(s => ({ ...s })) : [],
-    _editingIdx: -1,
+    dirty: false,
   };
 
-  let step = 1;
-  const STEPS = ['Déclencheur', 'Étapes', 'Options'];
+  // ── Render editor into the panel ──
+  const panel = document.getElementById('workflow-panel');
+  if (!panel) return;
 
-  const overlay = document.createElement('div');
-  overlay.className = 'wf-overlay';
+  const graphService = getGraphService();
 
-  const rebind = () => {
-    /* close */
-    overlay.querySelector('.wf-modal-x').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  // Store previous panel content for restore
+  const prevContent = panel.innerHTML;
+  const nodeTypes = STEP_TYPES.map(st => st);
 
-    /* nav */
-    overlay.querySelector('#wf-prev')?.addEventListener('click', () => {
-      sync(); step--; draw();
-    });
-    overlay.querySelector('#wf-next')?.addEventListener('click', () => {
-      sync();
-      if (step === 1 && !draft.name.trim()) {
-        overlay.querySelector('#wf-name')?.focus();
-        overlay.querySelector('#wf-name')?.classList.add('wf-input--err');
-        return;
-      }
-      step++; draw();
-    });
-    overlay.querySelector('#wf-save')?.addEventListener('click', () => {
-      sync(); saveWorkflow(draft, workflowId); overlay.remove();
-    });
-
-    /* trigger cards */
-    overlay.querySelectorAll('[data-trigger]').forEach(card => {
-      card.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-trigger]').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-        draft.trigger = card.dataset.trigger;
-        drawTriggerSub();
-      });
-    });
-
-    /* hook picker */
-    overlay.querySelectorAll('[data-hook]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-hook]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        draft.hookType = btn.dataset.hook;
-      });
-    });
-
-    /* step builder */
-    overlay.querySelector('#wf-add-step')?.addEventListener('click', () => {
-      const picker = overlay.querySelector('.wf-picker');
-      if (picker) picker.classList.toggle('wf-picker--open');
-    });
-    overlay.querySelector('#wf-picker-close')?.addEventListener('click', () => {
-      overlay.querySelector('.wf-picker')?.classList.remove('wf-picker--open');
-    });
-    overlay.querySelectorAll('[data-pick]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        syncStepInputs();
-        const newIdx = draft.steps.length;
-        draft.steps.push({ id: `step_${newIdx + 1}`, type: btn.dataset.pick });
-        draft._editingIdx = newIdx;
-        overlay.querySelector('.wf-picker')?.classList.remove('wf-picker--open');
-        drawStepsList();
-        rebindSteps();
-        const firstInput = overlay.querySelector('.wf-step-edit .wf-step-edit-input');
-        if (firstInput) setTimeout(() => firstInput.focus(), 50);
-      });
-    });
-    rebindSteps();
-
-    /* concurrency */
-    overlay.querySelectorAll('[data-conc]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-conc]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        draft.concurrency = btn.dataset.conc;
-      });
-    });
-
-    /* scope dropdown (step 3) */
-    bindWfDropdown(overlay, 'scope', (val) => { draft.scope = val; });
-  };
-
-  const rebindSteps = () => {
-    // Delete buttons
-    overlay.querySelectorAll('.wf-step-node-del').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(btn.dataset.idx);
-        draft.steps.splice(idx, 1);
-        if (draft._editingIdx === idx) draft._editingIdx = -1;
-        else if (draft._editingIdx > idx) draft._editingIdx--;
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-
-    // Click on step row to toggle edit
-    overlay.querySelectorAll('.wf-step-node-row').forEach(row => {
-      row.addEventListener('click', (e) => {
-        if (e.target.closest('.wf-step-node-del')) return;
-        const node = row.closest('.wf-step-node');
-        const idx = parseInt(node.dataset.stepIdx);
-        syncStepInputs();
-        draft._editingIdx = draft._editingIdx === idx ? -1 : idx;
-        drawStepsList();
-        rebindSteps();
-        // Focus first input in edit panel
-        if (draft._editingIdx >= 0) {
-          const firstInput = overlay.querySelector('.wf-step-edit .wf-step-edit-input');
-          if (firstInput) setTimeout(() => firstInput.focus(), 50);
-        }
-      });
-    });
-
-    // Bind edit inputs to draft
-    overlay.querySelectorAll('.wf-step-edit-input').forEach(input => {
-      const handler = () => {
-        const idx = parseInt(input.dataset.stepIdx);
-        const key = input.dataset.key;
-        if (draft.steps[idx]) draft.steps[idx][key] = input.value;
-      };
-      input.addEventListener('input', handler);
-      input.addEventListener('change', handler);
-      input.addEventListener('click', e => e.stopPropagation());
-    });
-
-    // Bind agent picker cards
-    overlay.querySelectorAll('.wf-agent-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(card.dataset.stepIdx);
-        const agentId = card.dataset.agentId;
-        if (draft.steps[idx]) draft.steps[idx].agentId = agentId;
-        const grid = card.closest('.wf-agent-grid');
-        grid.querySelectorAll('.wf-agent-card').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-      });
-    });
-
-    // Bind action cards (git actions, etc.)
-    overlay.querySelectorAll('.wf-action-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(card.dataset.stepIdx);
-        const key = card.dataset.key;
-        const action = card.dataset.action;
-        if (draft.steps[idx]) draft.steps[idx][key] = action;
-        // Re-render to show/hide extra fields
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-
-    // Bind duration picker
-    overlay.querySelectorAll('.wf-duration-value, .wf-duration-unit').forEach(input => {
-      const handler = () => {
-        const idx = parseInt(input.dataset.stepIdx);
-        const row = input.closest('.wf-duration-row');
-        const v = row.querySelector('.wf-duration-value').value;
-        const u = row.querySelector('.wf-duration-unit').value;
-        if (draft.steps[idx] && v) draft.steps[idx].duration = `${v}${u}`;
-      };
-      input.addEventListener('input', handler);
-      input.addEventListener('change', handler);
-      input.addEventListener('click', e => e.stopPropagation());
-    });
-
-    // Bind condition builder
-    overlay.querySelectorAll('.wf-cond-var, .wf-cond-op, .wf-cond-val').forEach(input => {
-      const handler = () => {
-        const idx = parseInt(input.dataset.stepIdx);
-        const container = input.closest('.wf-step-edit-field');
-        const variable = container.querySelector('.wf-cond-var').value;
-        const op = container.querySelector('.wf-cond-op').value;
-        const val = container.querySelector('.wf-cond-val').value;
-        if (draft.steps[idx]) {
-          draft.steps[idx].__cond_var = variable;
-          draft.steps[idx].__cond_op = op;
-          draft.steps[idx].__cond_val = val;
-          // Also build readable expression
-          draft.steps[idx].expression = `${variable} ${op} ${val}`;
-        }
-      };
-      input.addEventListener('input', handler);
-      input.addEventListener('change', handler);
-      input.addEventListener('click', e => e.stopPropagation());
-      // Re-render on var change to show/hide env field
-      if (input.classList.contains('wf-cond-var')) {
-        input.addEventListener('change', () => {
-          const idx = parseInt(input.dataset.stepIdx);
-          handler(); // sync first
-          drawStepsList();
-          rebindSteps();
-        });
-      }
-    });
-
-    // Bind HTTP method change — re-render to show/hide body/headers
-    overlay.querySelectorAll('.wf-step-edit-input[data-key="method"]').forEach(sel => {
-      sel.addEventListener('change', () => {
-        const idx = parseInt(sel.dataset.stepIdx);
-        if (draft.steps[idx]) {
-          draft.steps[idx].method = sel.value;
-          syncStepInputs();
-          drawStepsList();
-          rebindSteps();
-        }
-      });
-    });
-
-    // Bind Claude mode tabs
-    overlay.querySelectorAll('.wf-claude-mode-tab').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(btn.dataset.stepIdx);
-        const mode = btn.dataset.mode;
-        if (draft.steps[idx]) {
-          draft.steps[idx].mode = mode;
-          if (mode === 'prompt') { delete draft.steps[idx].agentId; delete draft.steps[idx].skillId; }
-          if (mode === 'agent')  { delete draft.steps[idx].skillId; }
-          if (mode === 'skill')  { delete draft.steps[idx].agentId; }
-        }
-        syncStepInputs();
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-
-    // Bind skill picker cards
-    overlay.querySelectorAll('.wf-skill-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(card.dataset.stepIdx);
-        const skillId = card.dataset.skillId;
-        if (draft.steps[idx]) draft.steps[idx].skillId = skillId;
-        const grid = card.closest('.wf-agent-grid');
-        grid.querySelectorAll('.wf-skill-card').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-      });
-    });
-
-    // Bind variable insert buttons
-    overlay.querySelectorAll('.wf-var-insert-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = btn.dataset.stepIdx;
-        const dropdown = overlay.querySelector(`.wf-var-dropdown[data-step-idx="${idx}"]`);
-        if (dropdown) dropdown.style.display = dropdown.style.display === 'none' ? 'flex' : 'none';
-      });
-    });
-
-    // Bind variable item selection
-    overlay.querySelectorAll('.wf-var-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const varKey = item.dataset.varKey;
-        const dropdown = item.closest('.wf-var-dropdown');
-        const idx = dropdown.dataset.stepIdx;
-        const textarea = overlay.querySelector(`.wf-var-textarea[data-step-idx="${idx}"]`);
-        if (textarea) {
-          const start = textarea.selectionStart;
-          const end = textarea.selectionEnd;
-          const text = textarea.value;
-          textarea.value = text.slice(0, start) + varKey + text.slice(end);
-          textarea.selectionStart = textarea.selectionEnd = start + varKey.length;
-          textarea.focus();
-          const stepIdx = parseInt(idx);
-          if (draft.steps[stepIdx]) draft.steps[stepIdx].prompt = textarea.value;
-        }
-        dropdown.style.display = 'none';
-      });
-    });
-
-    // Bind schema toggle
-    overlay.querySelectorAll('.wf-schema-enabled').forEach(cb => {
-      cb.addEventListener('change', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(cb.dataset.stepIdx);
-        if (draft.steps[idx]) {
-          draft.steps[idx]._schemaEnabled = cb.checked;
-          if (cb.checked && (!draft.steps[idx].outputSchema || !draft.steps[idx].outputSchema.length)) {
-            draft.steps[idx].outputSchema = [{ name: '', type: 'string' }];
-          }
-          if (!cb.checked) draft.steps[idx].outputSchema = [];
-        }
-        syncStepInputs();
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-
-    // Bind schema add field
-    overlay.querySelectorAll('.wf-schema-add').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(btn.dataset.stepIdx);
-        if (!draft.steps[idx].outputSchema) draft.steps[idx].outputSchema = [];
-        draft.steps[idx].outputSchema.push({ name: '', type: 'string' });
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-
-    // Bind schema name/type inputs
-    overlay.querySelectorAll('.wf-schema-name, .wf-schema-type').forEach(input => {
-      const handler = () => {
-        const idx = parseInt(input.dataset.stepIdx);
-        const fi = parseInt(input.dataset.fieldIdx);
-        if (!draft.steps[idx]?.outputSchema?.[fi]) return;
-        if (input.classList.contains('wf-schema-name')) {
-          draft.steps[idx].outputSchema[fi].name = input.value;
-        } else {
-          draft.steps[idx].outputSchema[fi].type = input.value;
-        }
-      };
-      input.addEventListener('input', handler);
-      input.addEventListener('change', handler);
-      input.addEventListener('click', (e) => e.stopPropagation());
-    });
-
-    // Bind schema delete field
-    overlay.querySelectorAll('.wf-schema-del').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const idx = parseInt(btn.dataset.stepIdx);
-        const fi = parseInt(btn.dataset.fieldIdx);
-        if (draft.steps[idx]?.outputSchema) {
-          draft.steps[idx].outputSchema.splice(fi, 1);
-          drawStepsList();
-          rebindSteps();
-        }
-      });
-    });
-  };
-
-  const syncStepInputs = () => {
-    overlay.querySelectorAll('.wf-step-edit-input').forEach(input => {
-      const idx = parseInt(input.dataset.stepIdx);
-      const key = input.dataset.key;
-      if (draft.steps[idx]) draft.steps[idx][key] = input.value;
-    });
-  };
-
-  const sync = () => {
-    const n = overlay.querySelector('#wf-name'); if (n) draft.name = n.value;
-    const tv = overlay.querySelector('#wf-trigger-value'); if (tv) draft.triggerValue = tv.value;
-    syncStepInputs();
-  };
-
-  const drawTriggerSub = () => {
-    const sub = overlay.querySelector('#wf-trigger-sub');
-    if (!sub) return;
-    const cfg = TRIGGER_CONFIG[draft.trigger];
-
-    if (draft.trigger === 'cron') {
-      sub.innerHTML = '';
-      drawCronPicker(sub, draft);
-      return; // drawCronPicker handles its own event binding
-    } else if (draft.trigger === 'hook') {
-      sub.innerHTML = `
-        <div class="wf-sub-label">Type d'événement</div>
-        <div class="wf-hook-grid">
-          ${HOOK_TYPES.map(h => `
-            <button class="wf-hook-opt ${draft.hookType === h.value ? 'active' : ''}" data-hook="${h.value}">
-              <span class="wf-hook-name">${h.label}</span>
-              <span class="wf-hook-desc">${h.desc}</span>
-            </button>
+  // ── Build editor HTML ──
+  panel.innerHTML = `
+    <div class="wf-editor">
+      <div class="wf-editor-toolbar">
+        <button class="wf-editor-back" id="wf-ed-back">${svgX(14)} Retour</button>
+        <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Nom du workflow…" />
+        <div class="wf-editor-toolbar-sep"></div>
+        <div class="wf-editor-zoom">
+          <button id="wf-ed-zoom-out">−</button>
+          <span id="wf-ed-zoom-label">100%</span>
+          <button id="wf-ed-zoom-in">+</button>
+          <button id="wf-ed-zoom-fit">Fit</button>
+        </div>
+        <div class="wf-editor-toolbar-sep"></div>
+        <button class="wf-editor-btn" id="wf-ed-run">${svgPlay(10)} Run</button>
+        <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save">Save</button>
+      </div>
+      <div class="wf-editor-body">
+        <div class="wf-editor-palette" id="wf-ed-palette">
+          <div class="wf-palette-title">Nodes</div>
+          ${nodeTypes.map(st => `
+            <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}">
+              <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
+              <span class="wf-palette-label">${st.label}</span>
+            </div>
           `).join('')}
         </div>
+        <div class="wf-editor-canvas-wrap" id="wf-ed-canvas-wrap">
+          <canvas id="wf-litegraph-canvas"></canvas>
+        </div>
+        <div class="wf-editor-properties" id="wf-ed-properties">
+          <div class="wf-props-empty">
+            <p class="wf-props-empty-text">Sélectionnez un node pour voir ses propriétés</p>
+          </div>
+        </div>
+      </div>
+      <div class="wf-editor-statusbar">
+        <span id="wf-ed-nodecount">0 nodes</span>
+        <span id="wf-ed-zoom-pct">100%</span>
+      </div>
+    </div>
+  `;
+
+  // ── Init LiteGraph canvas ──
+  const canvasWrap = panel.querySelector('#wf-ed-canvas-wrap');
+  const canvasEl = panel.querySelector('#wf-litegraph-canvas');
+  canvasEl.width = canvasWrap.offsetWidth;
+  canvasEl.height = canvasWrap.offsetHeight;
+
+  graphService.init(canvasEl);
+
+  // Load or create empty
+  if (wf) {
+    graphService.loadFromWorkflow(wf);
+  } else {
+    graphService.createEmpty();
+  }
+
+  // ── Status bar updates ──
+  const updateStatusBar = () => {
+    const countEl = panel.querySelector('#wf-ed-nodecount');
+    const zoomEl = panel.querySelector('#wf-ed-zoom-pct');
+    const zoomLabel = panel.querySelector('#wf-ed-zoom-label');
+    if (countEl) countEl.textContent = `${graphService.getNodeCount()} nodes`;
+    const pct = Math.round(graphService.getZoom() * 100);
+    if (zoomEl) zoomEl.textContent = `${pct}%`;
+    if (zoomLabel) zoomLabel.textContent = `${pct}%`;
+  };
+  updateStatusBar();
+
+  // ── Resize observer ──
+  const resizeObs = new ResizeObserver(() => {
+    if (canvasWrap && canvasEl) {
+      graphService.resize(canvasWrap.offsetWidth, canvasWrap.offsetHeight);
+      updateStatusBar();
+    }
+  });
+  resizeObs.observe(canvasWrap);
+
+  // ── Properties panel rendering ──
+  const renderProperties = (node) => {
+    const propsEl = panel.querySelector('#wf-ed-properties');
+    if (!propsEl) return;
+
+    if (!node) {
+      // Show workflow options when no node selected
+      propsEl.innerHTML = `
+        <div class="wf-props-section">
+          <div class="wf-props-title">Options du workflow</div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Scope</label>
+            <select class="wf-step-edit-input wf-props-input" data-prop="scope">
+              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>Projet courant</option>
+              <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>Projet spécifique</option>
+              <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>Tous les projets</option>
+            </select>
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Concurrence</label>
+            <select class="wf-step-edit-input wf-props-input" data-prop="concurrency">
+              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>Skip (ne pas relancer si en cours)</option>
+              <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>Queue (file d'attente)</option>
+              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>Parallel</option>
+            </select>
+          </div>
+        </div>
       `;
-    } else if (cfg.fields && cfg.fields.length) {
-      sub.innerHTML = cfg.fields.map(f => `
-        <div class="wf-sub-label">${f.label}</div>
-        <input id="wf-trigger-value" class="wf-input ${f.mono ? 'wf-input--mono' : ''}" placeholder="${f.placeholder}" value="${escapeHtml(draft.triggerValue)}">
-      `).join('');
-    } else {
-      sub.innerHTML = '';
-    }
-
-    /* rebind hooks */
-    sub.querySelectorAll('[data-hook]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        sub.querySelectorAll('[data-hook]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        draft.hookType = btn.dataset.hook;
+      // Bind workflow option inputs
+      propsEl.querySelectorAll('.wf-props-input').forEach(input => {
+        input.addEventListener('change', () => {
+          editorDraft[input.dataset.prop] = input.value;
+          editorDraft.dirty = true;
+        });
       });
-    });
-  };
-
-  const getAvailableVars = (draft, currentIdx) => {
-    const vars = [
-      { group: 'Contexte', items: [
-        { key: '$ctx.project', label: 'Nom du projet' },
-        { key: '$ctx.branch', label: 'Branche git' },
-        { key: '$ctx.date', label: 'Date courante' },
-        { key: '$ctx.lastCommit', label: 'Dernier commit' },
-        { key: '$ctx.trigger', label: 'Déclencheur' },
-      ]},
-      { group: 'Environnement', items: [
-        { key: '$env.NODE_ENV', label: 'NODE_ENV' },
-        { key: '$env.HOME', label: 'HOME' },
-        { key: '$env.PATH', label: 'PATH' },
-      ]},
-    ];
-    const prevSteps = draft.steps.slice(0, currentIdx);
-    if (prevSteps.length) {
-      const items = [];
-      for (const ps of prevSteps) {
-        items.push({ key: `$${ps.id}.output`, label: `${ps.id} — sortie` });
-        items.push({ key: `$${ps.id}.exitCode`, label: `${ps.id} — code retour` });
-        if (ps.outputSchema?.length) {
-          for (const field of ps.outputSchema) {
-            if (field.name) items.push({ key: `$${ps.id}.${field.name}`, label: `${ps.id} — ${field.name}` });
-          }
-        }
-      }
-      vars.push({ group: 'Steps précédents', items });
-    }
-    return vars;
-  };
-
-  const buildStepEditHtml = (s, idx) => {
-    const baseType = (s.type || '').split('.')[0];
-    let fields = STEP_FIELDS[baseType];
-    // Follow alias (e.g. agent → claude)
-    if (typeof fields === 'string') fields = STEP_FIELDS[fields];
-    if (!fields || !fields.length) return '<div class="wf-step-edit-empty">Aucune configuration requise</div>';
-    return fields.map(f => {
-      // Skip fields with showIf that evaluates to false
-      if (f.showIf && !f.showIf(s)) return '';
-      const val = s[f.key] || f.default || '';
-
-      // Claude mode tabs — Prompt | Agent | Skill
-      if (f.type === 'claude-mode-tabs') {
-        const modes = [
-          { id: 'prompt', label: 'Prompt', icon: svgPrompt(14), desc: 'Texte libre' },
-          { id: 'agent',  label: 'Agent',  icon: svgAgent(14),  desc: 'Agent Claude' },
-          { id: 'skill',  label: 'Skill',  icon: svgSkill(14),  desc: 'Skill installée' },
-        ];
-        return `<div class="wf-step-edit-field">
-          <div class="wf-claude-mode-tabs">
-            ${modes.map(m => `
-              <button class="wf-claude-mode-tab ${(s.mode || 'prompt') === m.id ? 'active' : ''}"
-                      data-step-idx="${idx}" data-mode="${m.id}">
-                ${m.icon}
-                <span class="wf-claude-mode-label">${m.label}</span>
-                <span class="wf-claude-mode-desc">${m.desc}</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>`;
-      }
-
-      // Variable textarea — prompt with $ variable insertion
-      if (f.type === 'variable-textarea') {
-        const availVars = getAvailableVars(draft, idx);
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-var-textarea-wrapper">
-            <textarea class="wf-input wf-step-edit-input wf-var-textarea" data-step-idx="${idx}" data-key="prompt"
-                      placeholder="Décrivez ce que Claude doit faire..." rows="4">${escapeHtml(s.prompt || '')}</textarea>
-            <button class="wf-var-insert-btn" data-step-idx="${idx}" title="Insérer une variable">$</button>
-          </div>
-          <div class="wf-var-dropdown" style="display:none" data-step-idx="${idx}">
-            ${availVars.map(g => `
-              <div class="wf-var-group-label">${escapeHtml(g.group)}</div>
-              ${g.items.map(v => `
-                <button class="wf-var-item" data-var-key="${escapeHtml(v.key)}">
-                  <span>${escapeHtml(v.label)}</span>
-                  <span class="wf-var-item-key">${escapeHtml(v.key)}</span>
-                </button>
-              `).join('')}
-            `).join('')}
-          </div>
-        </div>`;
-      }
-
-      // Skill picker — grid of detected skills
-      if (f.type === 'skill-picker') {
-        const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
-        if (!skills.length) {
-          return `<div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${f.label}</label>
-            <div class="wf-agent-empty">Aucune skill détectée dans ~/.claude/skills/</div>
-          </div>`;
-        }
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-agent-grid">
-            ${skills.map(sk => `
-              <button class="wf-agent-card wf-skill-card ${val === sk.id ? 'active' : ''}"
-                      data-skill-id="${escapeHtml(sk.id)}" data-step-idx="${idx}">
-                <span class="wf-agent-card-name">${escapeHtml(sk.name)}</span>
-                <span class="wf-agent-card-desc">${escapeHtml(sk.description || '')}</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>`;
-      }
-
-      // Model select
-      if (f.type === 'model-select') {
-        const models = [
-          { value: '', label: 'Par défaut' },
-          { value: 'sonnet', label: 'Sonnet' },
-          { value: 'opus', label: 'Opus' },
-          { value: 'haiku', label: 'Haiku' },
-        ];
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <select class="wf-input wf-step-edit-input" data-step-idx="${idx}" data-key="model">
-            ${models.map(m => `<option value="${m.value}" ${(s.model || '') === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}
-          </select>
-        </div>`;
-      }
-
-      // Effort select
-      if (f.type === 'effort-select') {
-        const efforts = [
-          { value: '', label: 'Par défaut' },
-          { value: 'low', label: 'Low' },
-          { value: 'medium', label: 'Medium' },
-          { value: 'high', label: 'High' },
-        ];
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <select class="wf-input wf-step-edit-input" data-step-idx="${idx}" data-key="effort">
-            ${efforts.map(e => `<option value="${e.value}" ${(s.effort || '') === e.value ? 'selected' : ''}>${e.label}</option>`).join('')}
-          </select>
-        </div>`;
-      }
-
-      // Structured output schema builder
-      if (f.type === 'structured-output') {
-        const schema = s.outputSchema || [];
-        const enabled = schema.length > 0 || s._schemaEnabled;
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-schema-toggle">
-            <label class="wf-switch wf-switch--sm"><input type="checkbox" class="wf-schema-enabled" data-step-idx="${idx}" ${enabled ? 'checked' : ''}><span class="wf-switch-track"></span></label>
-            <span class="wf-schema-toggle-label">Définir un schéma de sortie JSON</span>
-          </div>
-          ${enabled ? `
-            <div class="wf-schema-fields" data-step-idx="${idx}">
-              ${schema.map((field, fi) => `
-                <div class="wf-schema-row" data-field-idx="${fi}">
-                  <input class="wf-input wf-step-edit-input wf-schema-name" placeholder="nom" value="${escapeHtml(field.name || '')}" data-step-idx="${idx}" data-field-idx="${fi}">
-                  <select class="wf-input wf-step-edit-input wf-schema-type" data-step-idx="${idx}" data-field-idx="${fi}">
-                    ${['string', 'number', 'boolean', 'array', 'object'].map(t => `<option value="${t}" ${field.type === t ? 'selected' : ''}>${t}</option>`).join('')}
-                  </select>
-                  <button class="wf-schema-del" data-step-idx="${idx}" data-field-idx="${fi}">${svgX(10)}</button>
-                </div>
-              `).join('')}
-              <button class="wf-schema-add" data-step-idx="${idx}">+ Ajouter un champ</button>
-            </div>
-          ` : ''}
-        </div>`;
-      }
-
-      // Agent picker — grid of detected agents
-      if (f.type === 'agent-picker') {
-        const agents = getAgents() || [];
-        if (!agents.length) {
-          return `<div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${f.label}</label>
-            <div class="wf-agent-empty">Aucun agent détecté dans ~/.claude/agents/</div>
-          </div>`;
-        }
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-agent-grid">
-            ${agents.map(a => `
-              <button class="wf-agent-card ${val === a.id ? 'active' : ''}" data-agent-id="${escapeHtml(a.id)}" data-step-idx="${idx}">
-                <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
-                <span class="wf-agent-card-desc">${escapeHtml(a.description || '')}</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>`;
-      }
-
-      // Action select — grid of action cards with optional extra fields
-      if (f.type === 'action-select') {
-        const currentAction = f.actions.find(a => a.value === val);
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-action-grid">
-            ${f.actions.map(a => `
-              <button class="wf-action-card ${val === a.value ? 'active' : ''}" data-action="${escapeHtml(a.value)}" data-step-idx="${idx}" data-key="${f.key}">
-                <span class="wf-action-card-label">${escapeHtml(a.label)}</span>
-                <span class="wf-action-card-desc">${escapeHtml(a.desc)}</span>
-              </button>
-            `).join('')}
-          </div>
-          ${currentAction && currentAction.extra ? currentAction.extra.map(ex => `
-            <div class="wf-step-edit-field wf-extra-field" style="margin-top:8px">
-              <label class="wf-step-edit-label">${ex.label}</label>
-              <input class="wf-input wf-step-edit-input ${ex.mono ? 'wf-input--mono' : ''}" data-step-idx="${idx}" data-key="${ex.key}" placeholder="${ex.placeholder || ''}" value="${escapeHtml(s[ex.key] || '')}">
-            </div>
-          `).join('') : ''}
-        </div>`;
-      }
-
-      // Duration picker — number + unit select inline
-      if (f.type === 'duration-picker') {
-        const parsed = parseDuration(val);
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-duration-row">
-            <input type="number" class="wf-input wf-step-edit-input wf-duration-value" data-step-idx="${idx}" data-key="__dur_val" placeholder="30" min="1" value="${parsed.value || ''}">
-            <select class="wf-input wf-step-edit-input wf-duration-unit" data-step-idx="${idx}" data-key="__dur_unit">
-              ${WAIT_UNITS.map(u => `<option value="${u.value}" ${parsed.unit === u.value ? 'selected' : ''}>${u.label}</option>`).join('')}
-            </select>
-          </div>
-        </div>`;
-      }
-
-      // Condition builder — variable + operator + value
-      if (f.type === 'condition-builder') {
-        const parsed = parseCondition(s);
-        return `<div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <div class="wf-condition-row">
-            <select class="wf-input wf-step-edit-input wf-cond-var" data-step-idx="${idx}" data-key="__cond_var">
-              ${CONDITION_VARS.map(v => `<option value="${v.value}" ${parsed.variable === v.value ? 'selected' : ''}>${v.label}</option>`).join('')}
-            </select>
-            <select class="wf-input wf-step-edit-input wf-cond-op" data-step-idx="${idx}" data-key="__cond_op">
-              ${CONDITION_OPS.map(o => `<option value="${o.value}" ${parsed.op === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
-            </select>
-            <input class="wf-input wf-step-edit-input wf-cond-val" data-step-idx="${idx}" data-key="__cond_val" placeholder="valeur" value="${escapeHtml(parsed.val)}">
-          </div>
-          ${parsed.variable === '$env.' ? `
-            <div class="wf-step-edit-field wf-extra-field" style="margin-top:6px">
-              <label class="wf-step-edit-label">Nom de la variable</label>
-              <input class="wf-input wf-step-edit-input wf-input--mono" data-step-idx="${idx}" data-key="envVar" placeholder="NODE_ENV" value="${escapeHtml(s.envVar || '')}">
-            </div>
-          ` : ''}
-        </div>`;
-      }
-
-      if (f.type === 'select') {
-        return `
-          <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${f.label}</label>
-            <select class="wf-input wf-step-edit-input" data-step-idx="${idx}" data-key="${f.key}">
-              ${f.options.map(o => `<option value="${o}" ${val === o ? 'selected' : ''}>${o}</option>`).join('')}
-            </select>
-          </div>`;
-      }
-      if (f.textarea) {
-        return `
-          <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${f.label}</label>
-            <textarea class="wf-input wf-step-edit-input ${f.mono ? 'wf-input--mono' : ''}" data-step-idx="${idx}" data-key="${f.key}" placeholder="${f.placeholder || ''}" rows="3">${escapeHtml(val)}</textarea>
-          </div>`;
-      }
-      return `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${f.label}</label>
-          <input class="wf-input wf-step-edit-input ${f.mono ? 'wf-input--mono' : ''}" data-step-idx="${idx}" data-key="${f.key}" placeholder="${f.placeholder || ''}" value="${escapeHtml(val)}">
-        </div>`;
-    }).join('');
-  };
-
-  // Parse "30s" / "5m" / "1h" into { value, unit }
-  const parseDuration = (str) => {
-    if (!str) return { value: '', unit: 's' };
-    const m = String(str).match(/^(\d+)\s*(s|m|h)$/i);
-    return m ? { value: m[1], unit: m[2].toLowerCase() } : { value: str, unit: 's' };
-  };
-
-  // Parse condition from step data
-  const parseCondition = (s) => {
-    if (s.__cond_var) return { variable: s.__cond_var, op: s.__cond_op || '==', val: s.__cond_val || '' };
-    // Try to parse from expression string
-    const expr = s.expression || '';
-    for (const v of CONDITION_VARS) {
-      if (expr.startsWith(v.value)) {
-        const rest = expr.slice(v.value.length).trim();
-        for (const op of CONDITION_OPS) {
-          if (rest.startsWith(op.value)) {
-            return { variable: v.value, op: op.value, val: rest.slice(op.value.length).trim() };
-          }
-        }
-      }
-    }
-    return { variable: '$ctx.branch', op: '==', val: '' };
-  };
-
-  const getStepSummary = (s) => {
-    const baseType = (s.type || '').split('.')[0];
-    switch (baseType) {
-      case 'claude':
-      case 'agent': {
-        const mode = s.mode || 'prompt';
-        if (mode === 'agent') {
-          if (!s.agentId) return '';
-          const agents = getAgents() || [];
-          const ag = agents.find(a => a.id === s.agentId);
-          return `Agent: ${ag ? ag.name : s.agentId}`;
-        }
-        if (mode === 'skill') {
-          if (!s.skillId) return '';
-          const skills = getSkills() || [];
-          const sk = skills.find(x => x.id === s.skillId);
-          return `Skill: ${sk ? sk.name : s.skillId}`;
-        }
-        return s.prompt ? (s.prompt.length > 60 ? s.prompt.slice(0, 60) + '…' : s.prompt) : '';
-      }
-      case 'git': {
-        if (!s.action) return '';
-        const act = GIT_ACTIONS.find(a => a.value === s.action);
-        const label = act ? act.label : s.action;
-        if (s.action === 'commit' && s.message) return `${label}: ${s.message}`;
-        if ((s.action === 'checkout' || s.action === 'merge') && s.branch) return `${label} → ${s.branch}`;
-        return label;
-      }
-      case 'http':
-        return s.url ? `${s.method || 'GET'} ${s.url}` : '';
-      case 'wait':
-        return s.duration || '';
-      case 'condition':
-        return s.expression || '';
-      case 'notify':
-        return s.title || '';
-      case 'shell':
-        return s.command || '';
-      default:
-        return '';
-    }
-  };
-
-  const drawStepsList = () => {
-    const list = overlay.querySelector('#wf-steps-list');
-    if (!list) return;
-    const countEl = overlay.querySelector('#wf-step-count');
-    if (countEl) countEl.textContent = `${draft.steps.length} étape${draft.steps.length !== 1 ? 's' : ''}`;
-    if (!draft.steps.length) {
-      list.innerHTML = `<div class="wf-steps-empty">${svgEmpty()} <span>Aucun step — ajoutez-en ci-dessous</span></div>`;
       return;
     }
-    list.innerHTML = draft.steps.map((s, i) => {
-      const info = findStepType(s.type.split('.')[0]);
-      const isEditing = draft._editingIdx === i;
-      const hasConfig = s.command || s.prompt || s.url || s.title || s.duration || s.expression || s.agentId || s.action;
-      const summary = getStepSummary(s);
-      const shortSummary = summary.length > 50 ? summary.slice(0, 50) + '…' : summary;
-      return `
-        ${i > 0 ? '<div class="wf-pipe-connector"><svg width="2" height="20" viewBox="0 0 2 20"><line x1="1" y1="0" x2="1" y2="20" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="3 3"/></svg></div>' : ''}
-        <div class="wf-step-node ${isEditing ? 'editing' : ''}" style="--step-delay: ${i * 40}ms" data-color="${info.color}" data-step-idx="${i}">
-          <div class="wf-step-node-row">
-            <div class="wf-step-node-idx"><span>${i + 1}</span></div>
-            <span class="wf-step-node-chip wf-chip wf-chip--${info.color}">${info.icon}</span>
-            <div class="wf-step-node-body">
-              <span class="wf-step-node-type">${escapeHtml(info.label)}</span>
-              <span class="wf-step-node-id">${escapeHtml(s.id)}</span>
-              ${!isEditing && shortSummary ? `<span class="wf-step-node-summary">${escapeHtml(shortSummary)}</span>` : ''}
-            </div>
-            <button class="wf-step-node-del" data-idx="${i}">${svgX(11)}</button>
+
+    // Show node properties
+    const nodeType = node.type.replace('workflow/', '');
+    const typeInfo = findStepType(nodeType) || { label: nodeType, color: 'muted', icon: '' };
+    const props = node.properties || {};
+
+    let fieldsHtml = '';
+
+    // Trigger node properties
+    if (nodeType === 'trigger') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Type de déclencheur</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="triggerType">
+            <option value="manual" ${props.triggerType === 'manual' ? 'selected' : ''}>Manuel</option>
+            <option value="cron" ${props.triggerType === 'cron' ? 'selected' : ''}>Cron (planifié)</option>
+            <option value="hook" ${props.triggerType === 'hook' ? 'selected' : ''}>Hook Claude</option>
+            <option value="on_workflow" ${props.triggerType === 'on_workflow' ? 'selected' : ''}>Après workflow</option>
+          </select>
+        </div>
+        ${props.triggerType === 'cron' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Expression cron</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="*/5 * * * *" style="font-family:monospace" />
+        </div>` : ''}
+        ${props.triggerType === 'hook' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Type de hook</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="hookType">
+            ${HOOK_TYPES.map(h => `<option value="${h.value}" ${props.hookType === h.value ? 'selected' : ''}>${h.label}</option>`).join('')}
+          </select>
+        </div>` : ''}
+        ${props.triggerType === 'on_workflow' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Workflow source</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="Nom du workflow" />
+        </div>` : ''}
+      `;
+    }
+    // Claude node properties
+    else if (nodeType === 'claude') {
+      const mode = props.mode || 'prompt';
+      const agents = getAgents() || [];
+      const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Mode</label>
+          <div class="wf-claude-mode-tabs">
+            <button class="wf-claude-mode-tab ${mode === 'prompt' ? 'active' : ''}" data-mode="prompt">
+              ${svgPrompt(16)}
+              <span class="wf-claude-mode-tab-label">Prompt</span>
+            </button>
+            <button class="wf-claude-mode-tab ${mode === 'agent' ? 'active' : ''}" data-mode="agent">
+              ${svgAgent()}
+              <span class="wf-claude-mode-tab-label">Agent</span>
+            </button>
+            <button class="wf-claude-mode-tab ${mode === 'skill' ? 'active' : ''}" data-mode="skill">
+              ${svgSkill(16)}
+              <span class="wf-claude-mode-tab-label">Skill</span>
+            </button>
           </div>
-          ${isEditing ? `<div class="wf-step-edit">${buildStepEditHtml(s, i)}</div>` : ''}
+        </div>
+        ${mode === 'prompt' || !mode ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Prompt</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="4" placeholder="Votre prompt ici…">${escapeHtml(props.prompt || '')}</textarea>
+        </div>` : ''}
+        ${mode === 'agent' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Agent</label>
+          <div class="wf-agent-grid">
+            ${agents.length ? agents.map(a => `
+              <div class="wf-agent-card ${props.agentId === a.id ? 'active' : ''}" data-agent-id="${a.id}">
+                <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
+                <span class="wf-agent-card-desc">${escapeHtml(a.description || '')}</span>
+              </div>
+            `).join('') : '<span class="wf-agent-empty">Aucun agent détecté</span>'}
+          </div>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Instructions additionnelles</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Instructions optionnelles…">${escapeHtml(props.prompt || '')}</textarea>
+        </div>` : ''}
+        ${mode === 'skill' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Skill</label>
+          <div class="wf-agent-grid">
+            ${skills.length ? skills.map(s => `
+              <div class="wf-agent-card ${props.skillId === s.id ? 'active' : ''}" data-skill-id="${s.id}">
+                <span class="wf-agent-card-name">${escapeHtml(s.name)}</span>
+                <span class="wf-agent-card-desc">${escapeHtml(s.description || '')}</span>
+              </div>
+            `).join('') : '<span class="wf-agent-empty">Aucun skill détecté</span>'}
+          </div>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Instructions additionnelles</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Instructions optionnelles…">${escapeHtml(props.prompt || '')}</textarea>
+        </div>` : ''}
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Modèle</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="model">
+            <option value="" ${!props.model ? 'selected' : ''}>Par défaut</option>
+            <option value="sonnet" ${props.model === 'sonnet' ? 'selected' : ''}>Sonnet</option>
+            <option value="opus" ${props.model === 'opus' ? 'selected' : ''}>Opus</option>
+            <option value="haiku" ${props.model === 'haiku' ? 'selected' : ''}>Haiku</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Effort</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="effort">
+            <option value="" ${!props.effort ? 'selected' : ''}>Par défaut</option>
+            <option value="low" ${props.effort === 'low' ? 'selected' : ''}>Low</option>
+            <option value="medium" ${props.effort === 'medium' ? 'selected' : ''}>Medium</option>
+            <option value="high" ${props.effort === 'high' ? 'selected' : ''}>High</option>
+          </select>
         </div>
       `;
-    }).join('');
-  };
-
-  const draw = () => {
-    overlay.innerHTML = `
-      <div class="wf-modal">
-        <div class="wf-modal-hd">
-          <div class="wf-modal-hd-left">
-            <span class="wf-modal-title">${wf ? escapeHtml(wf.name) : 'Nouveau workflow'}</span>
-          </div>
-          <div class="wf-wizard-nav">
-            ${STEPS.map((label, i) => {
-              const n = i + 1;
-              const cls = n === step ? 'cur' : n < step ? 'done' : '';
-              return `<span class="wf-wz-node ${cls}"><span class="wf-wz-n">${n < step ? '✓' : n}</span><span class="wf-wz-label">${label}</span></span>${i < STEPS.length - 1 ? '<span class="wf-wz-track"><span class="wf-wz-fill" style="width:${step > n ? 100 : 0}%"></span></span>' : ''}`;
-            }).join('')}
-          </div>
-          <button class="wf-modal-x">${svgX(12)}</button>
+    }
+    // Shell node
+    else if (nodeType === 'shell') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Commande</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="command" rows="3" style="font-family:monospace" placeholder="npm test">${escapeHtml(props.command || '')}</textarea>
         </div>
-
-        <div class="wf-modal-bd">
-          ${step === 1 ? `
-            <div class="wf-wstep">
-              <div class="wf-field">
-                <label class="wf-field-lbl">Nom du workflow</label>
-                <input id="wf-name" class="wf-input wf-input--lg" placeholder="ex: Daily Code Review" value="${escapeHtml(draft.name)}" autofocus>
-              </div>
-
-              <div class="wf-field">
-                <label class="wf-field-lbl">Déclencheur</label>
-                <div class="wf-trigger-grid">
-                  ${Object.entries(TRIGGER_CONFIG).map(([val, cfg]) => `
-                    <button class="wf-trig-card wf-trig-card--${cfg.color} ${draft.trigger === val ? 'active' : ''}" data-trigger="${val}">
-                      <span class="wf-trig-icon">${cfg.icon}</span>
-                      <span class="wf-trig-label">${cfg.label}</span>
-                      <span class="wf-trig-desc">${cfg.desc}</span>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
-
-              <div id="wf-trigger-sub" class="wf-trigger-sub"></div>
-            </div>
-          ` : ''}
-
-          ${step === 2 ? `
-            <div class="wf-wstep wf-wstep--pipeline">
-              <div class="wf-pipeline-zone">
-                <div class="wf-pipeline-hd">
-                  <label class="wf-field-lbl">Pipeline</label>
-                  <span class="wf-pipeline-count" id="wf-step-count">0 étapes</span>
-                </div>
-                <div id="wf-steps-list" class="wf-steps-list"></div>
-                <button id="wf-add-step" class="wf-add-step-btn">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                  Ajouter une étape
-                </button>
-              </div>
-              <div class="wf-picker">
-                <div class="wf-picker-hd">
-                  <span class="wf-picker-title">Choisir un type</span>
-                  <button class="wf-picker-close" id="wf-picker-close">${svgX(14)}</button>
-                </div>
-                <div class="wf-picker-grid">
-                  ${STEP_TYPES.map(s => `
-                    <button class="wf-pick-card" data-pick="${s.type}" data-color="${s.color}">
-                      <span class="wf-pick-card-icon wf-chip wf-chip--${s.color}">${s.icon}</span>
-                      <div class="wf-pick-card-txt">
-                        <span class="wf-pick-card-label">${s.label}</span>
-                        <span class="wf-pick-card-desc">${s.desc}</span>
-                      </div>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
-            </div>
-          ` : ''}
-
-          ${step === 3 ? `
-            <div class="wf-wstep">
-              <div class="wf-field">
-                <label class="wf-field-lbl">Scope</label>
-                ${wfDropdown('scope', [
-                  { value: 'current', label: 'Projet courant' },
-                  { value: 'specific', label: 'Projet spécifique' },
-                  { value: 'all', label: 'Tous les projets' },
-                ], draft.scope)}
-              </div>
-
-              <div class="wf-field">
-                <label class="wf-field-lbl">Si relancé pendant l'exécution</label>
-                <div class="wf-conc-row">
-                  ${[['skip','Ignorer','Ne relance pas'],['queue','Attendre','File d\'attente'],['parallel','Parallèle','Lance en même temps']].map(([v,l,d]) => `
-                    <button class="wf-conc-btn ${draft.concurrency === v ? 'active' : ''}" data-conc="${v}">
-                      <span class="wf-conc-l">${l}</span>
-                      <span class="wf-conc-d">${d}</span>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
-
-              <div class="wf-recap">
-                <div class="wf-recap-title">Récapitulatif</div>
-                <div class="wf-recap-row"><span>Nom</span><strong>${escapeHtml(draft.name || '—')}</strong></div>
-                <div class="wf-recap-row"><span>Trigger</span><strong>${TRIGGER_CONFIG[draft.trigger]?.label || '—'}</strong></div>
-                <div class="wf-recap-row"><span>Steps</span><strong>${draft.steps.length} étape${draft.steps.length !== 1 ? 's' : ''}</strong></div>
-              </div>
-            </div>
-          ` : ''}
+      `;
+    }
+    // Git node
+    else if (nodeType === 'git') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Action</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            ${GIT_ACTIONS.map(a => `<option value="${a.value}" ${props.action === a.value ? 'selected' : ''}>${a.label}</option>`).join('')}
+          </select>
         </div>
-
-        <div class="wf-modal-ft">
-          ${step > 1
-            ? `<button class="wf-btn-ghost" id="wf-prev">← Retour</button>`
-            : `<button class="wf-btn-ghost" id="wf-prev">Annuler</button>`}
-          <span class="wf-step-counter">${step} / ${STEPS.length}</span>
-          ${step < STEPS.length
-            ? `<button class="wf-btn-primary" id="wf-next">Suivant <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>`
-            : `<button class="wf-btn-primary wf-btn-save" id="wf-save"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg> Enregistrer</button>`}
+        ${props.action === 'commit' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Message</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="message" value="${escapeHtml(props.message || '')}" placeholder="Commit message" />
+        </div>` : ''}
+        ${props.action === 'checkout' || props.action === 'merge' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Branche</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="branch" value="${escapeHtml(props.branch || '')}" placeholder="main" />
+        </div>` : ''}
+      `;
+    }
+    // HTTP node
+    else if (nodeType === 'http') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Méthode</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="method">
+            ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${props.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
         </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">URL</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="url" value="${escapeHtml(props.url || '')}" placeholder="https://api.example.com" style="font-family:monospace" />
+        </div>
+        ${['POST','PUT','PATCH'].includes(props.method) ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Headers (JSON)</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="headers" rows="2" style="font-family:monospace" placeholder='{"Content-Type":"application/json"}'>${escapeHtml(props.headers || '')}</textarea>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Body</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="body" rows="3" style="font-family:monospace">${escapeHtml(props.body || '')}</textarea>
+        </div>` : ''}
+      `;
+    }
+    // Notify node
+    else if (nodeType === 'notify') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Titre</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="title" value="${escapeHtml(props.title || '')}" placeholder="Notification" />
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Message</label>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3">${escapeHtml(props.message || '')}</textarea>
+        </div>
+      `;
+    }
+    // Wait node
+    else if (nodeType === 'wait') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Durée</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="duration" value="${escapeHtml(props.duration || '5s')}" placeholder="5s, 1m, 1h" />
+        </div>
+      `;
+    }
+    // Condition node
+    else if (nodeType === 'condition') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Variable</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="variable">
+            ${CONDITION_VARS.map(v => `<option value="${v.value}" ${props.variable === v.value ? 'selected' : ''}>${v.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Opérateur</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="operator">
+            ${CONDITION_OPS.map(o => `<option value="${o.value}" ${props.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Valeur</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="main" />
+        </div>
+      `;
+    }
+
+    propsEl.innerHTML = `
+      <div class="wf-props-section">
+        <div class="wf-props-header">
+          <span class="wf-chip wf-chip--${typeInfo.color}">${typeInfo.icon}</span>
+          <span class="wf-props-title">${typeInfo.label}</span>
+        </div>
+        ${fieldsHtml}
       </div>
     `;
 
-    if (step === 1) drawTriggerSub();
-    if (step === 2) drawStepsList();
-    rebind();
+    // ── Bind property inputs ──
+    propsEl.querySelectorAll('.wf-node-prop').forEach(input => {
+      const handler = () => {
+        const key = input.dataset.key;
+        const val = input.value;
+        node.properties[key] = val;
+        editorDraft.dirty = true;
+        // Update widget display in node
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.name === key || w.name.toLowerCase() === key.toLowerCase());
+          if (w) w.value = val;
+        }
+        graphService.canvas.setDirty(true, true);
+        // Re-render properties if field affects visibility (trigger type, method, action, mode)
+        if (['triggerType', 'method', 'action', 'mode'].includes(key)) {
+          renderProperties(node);
+        }
+      };
+      input.addEventListener('input', handler);
+      input.addEventListener('change', handler);
+    });
+
+    // Claude mode tabs
+    propsEl.querySelectorAll('.wf-claude-mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        node.properties.mode = tab.dataset.mode;
+        // Update widget
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.name === 'Mode');
+          if (w) w.value = tab.dataset.mode;
+        }
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // Agent card selection
+    propsEl.querySelectorAll('.wf-agent-card[data-agent-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        node.properties.agentId = card.dataset.agentId;
+        editorDraft.dirty = true;
+        propsEl.querySelectorAll('.wf-agent-card[data-agent-id]').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    // Skill card selection
+    propsEl.querySelectorAll('.wf-agent-card[data-skill-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        node.properties.skillId = card.dataset.skillId;
+        editorDraft.dirty = true;
+        propsEl.querySelectorAll('.wf-agent-card[data-skill-id]').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
   };
 
-  document.body.appendChild(overlay);
-  draw();
-}
+  // ── Graph events ──
+  graphService.onNodeSelected = (node) => {
+    renderProperties(node);
+    updateStatusBar();
+  };
 
+  graphService.onNodeDeselected = () => {
+    renderProperties(null);
+  };
+
+  graphService.onGraphChanged = () => {
+    editorDraft.dirty = true;
+    updateStatusBar();
+  };
+
+  // ── Toolbar events ──
+  // Back
+  panel.querySelector('#wf-ed-back').addEventListener('click', () => {
+    resizeObs.disconnect();
+    resetGraphService();
+    renderPanel();
+    renderContent();
+  });
+
+  // Name input
+  panel.querySelector('#wf-ed-name').addEventListener('input', (e) => {
+    editorDraft.name = e.target.value;
+    editorDraft.dirty = true;
+  });
+
+  // Zoom
+  panel.querySelector('#wf-ed-zoom-in').addEventListener('click', () => {
+    graphService.setZoom(graphService.getZoom() * 1.2);
+    updateStatusBar();
+  });
+  panel.querySelector('#wf-ed-zoom-out').addEventListener('click', () => {
+    graphService.setZoom(graphService.getZoom() / 1.2);
+    updateStatusBar();
+  });
+  panel.querySelector('#wf-ed-zoom-fit').addEventListener('click', () => {
+    graphService.zoomToFit();
+    updateStatusBar();
+  });
+
+  // Save
+  panel.querySelector('#wf-ed-save').addEventListener('click', async () => {
+    const data = graphService.serializeToWorkflow();
+    if (!data) return;
+    const workflow = {
+      ...(workflowId ? { id: workflowId } : {}),
+      name: editorDraft.name,
+      enabled: wf?.enabled ?? true,
+      trigger: data.trigger,
+      ...(data.trigger.type === 'hook' ? { hookType: data.hookType } : {}),
+      scope: editorDraft.scope,
+      concurrency: editorDraft.concurrency,
+      graph: data.graph,
+      steps: data.steps,
+    };
+    const res = await api.save(workflow);
+    if (res?.success) {
+      editorDraft.dirty = false;
+      await refreshData();
+      // Update workflowId if new
+      if (!workflowId && res.id) {
+        workflowId = res.id;
+      }
+    }
+  });
+
+  // Run
+  panel.querySelector('#wf-ed-run').addEventListener('click', () => {
+    if (workflowId) triggerWorkflow(workflowId);
+  });
+
+  // ── Palette clicks ──
+  panel.querySelectorAll('.wf-palette-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const typeName = item.dataset.nodeType;
+      // Add node at center of current viewport
+      const canvas = graphService.canvas;
+      const cx = (-canvas.ds.offset[0] + canvasWrap.offsetWidth / 2) / canvas.ds.scale;
+      const cy = (-canvas.ds.offset[1] + canvasWrap.offsetHeight / 2) / canvas.ds.scale;
+      graphService.addNode(typeName, [cx - 90, cy - 30]);
+    });
+  });
+
+  // ── Keyboard shortcuts in editor ──
+  const editorKeyHandler = (e) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Only delete if not focused on an input
+      if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+        graphService.deleteSelected();
+      }
+    }
+  };
+  document.addEventListener('keydown', editorKeyHandler);
+
+  // Cleanup keyboard handler when leaving editor
+  const origBack = panel.querySelector('#wf-ed-back');
+  if (origBack) {
+    const origHandler = origBack.onclick;
+    origBack.addEventListener('click', () => {
+      document.removeEventListener('keydown', editorKeyHandler);
+    }, { once: true });
+  }
+
+} // end openEditor
+
+// Legacy: removed old wizard code. The old openBuilder function has been replaced
+// by the node graph editor above.
 /* ─── Detail ───────────────────────────────────────────────────────────────── */
 
 function openDetail(id) {
@@ -1656,7 +1279,7 @@ function openDetail(id) {
 
   document.body.appendChild(overlay);
   overlay.querySelector('#wf-det-close').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#wf-edit').addEventListener('click', () => { overlay.remove(); openBuilder(id); });
+  overlay.querySelector('#wf-edit').addEventListener('click', () => { overlay.remove(); openEditor(id); });
   overlay.querySelector('#wf-run-now').addEventListener('click', () => { triggerWorkflow(id); overlay.remove(); });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }

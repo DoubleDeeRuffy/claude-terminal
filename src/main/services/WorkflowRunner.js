@@ -532,6 +532,7 @@ class WorkflowRunner {
 
   /**
    * Execute a full workflow run.
+   * Supports both legacy steps[] format and new graph format.
    * @param {Object} workflow
    * @param {Object} run              - run record (has .id, .triggerData, etc.)
    * @param {AbortController} abort
@@ -555,14 +556,20 @@ class WorkflowRunner {
 
     const stepOutputs = {};
 
-    const steps = workflow.steps || [];
     const globalTimeoutMs = workflow.timeout ? parseMs(workflow.timeout) : null;
     const globalTimer = globalTimeoutMs
       ? setTimeout(() => abort.abort(), globalTimeoutMs)
       : null;
 
     try {
-      await this._runSteps(steps, vars, run.id, abort.signal, stepOutputs, workflow);
+      if (workflow.graph && workflow.graph.nodes) {
+        // New graph-based execution
+        await this._executeGraph(workflow.graph, vars, run.id, abort.signal, stepOutputs, workflow);
+      } else {
+        // Legacy linear steps execution
+        const steps = workflow.steps || [];
+        await this._runSteps(steps, vars, run.id, abort.signal, stepOutputs, workflow);
+      }
       return { success: true, outputs: stepOutputs };
     } catch (err) {
       if (abort.signal.aborted) {
@@ -572,6 +579,146 @@ class WorkflowRunner {
     } finally {
       if (globalTimer) clearTimeout(globalTimer);
     }
+  }
+
+  // ─── Graph-based execution ───────────────────────────────────────────────────
+
+  /**
+   * Execute a workflow graph using BFS traversal from the trigger node.
+   * Follows LiteGraph links and handles Condition node branching.
+   *
+   * @param {Object} graphData          - LiteGraph serialized graph { nodes[], links[] }
+   * @param {Map<string, any>} vars     - Resolved variables
+   * @param {string} runId              - Current run ID
+   * @param {AbortSignal} signal        - Cancellation signal
+   * @param {Object} stepOutputs        - Accumulator for step outputs
+   * @param {Object} workflow           - Full workflow object
+   */
+  async _executeGraph(graphData, vars, runId, signal, stepOutputs, workflow) {
+    const { nodes, links } = graphData;
+    if (!nodes || !nodes.length) return;
+
+    // Build lookup maps
+    const nodeById = new Map();
+    for (const node of nodes) {
+      nodeById.set(node.id, node);
+    }
+
+    // Build adjacency: linkId → link data
+    // LiteGraph link format: [link_id, origin_id, origin_slot, target_id, target_slot, type]
+    const linkById = new Map();
+    if (links) {
+      for (const link of links) {
+        linkById.set(link[0], {
+          id:         link[0],
+          originId:   link[1],
+          originSlot: link[2],
+          targetId:   link[3],
+          targetSlot: link[4],
+          type:       link[5],
+        });
+      }
+    }
+
+    // Build outgoing connections map: nodeId → Map<slotIndex, targetNodeId[]>
+    const outgoing = new Map();
+    for (const [, link] of linkById) {
+      if (!outgoing.has(link.originId)) outgoing.set(link.originId, new Map());
+      const slots = outgoing.get(link.originId);
+      if (!slots.has(link.originSlot)) slots.set(link.originSlot, []);
+      slots.get(link.originSlot).push(link.targetId);
+    }
+
+    // Find the trigger node
+    const triggerNode = nodes.find(n => n.type === 'workflow/trigger');
+    if (!triggerNode) {
+      throw new Error('No trigger node found in graph');
+    }
+
+    // BFS traversal from trigger node
+    // The trigger has output slot 0 = "Start"
+    const visited = new Set();
+    const queue = this._getNextNodes(triggerNode.id, 0, outgoing); // slot 0 = Start
+
+    // Emit trigger as running then success
+    this._emitStep(runId, { id: `node_${triggerNode.id}`, type: 'trigger' }, 'running', null);
+    this._emitStep(runId, { id: `node_${triggerNode.id}`, type: 'trigger' }, 'success', null);
+    visited.add(triggerNode.id);
+
+    let lastError = null;
+
+    while (queue.length > 0) {
+      if (signal.aborted) throw new Error('Cancelled');
+
+      const nodeId = queue.shift();
+      if (visited.has(nodeId)) continue;
+      visited.add(nodeId);
+
+      const nodeData = nodeById.get(nodeId);
+      if (!nodeData) continue;
+
+      // Convert node to step format for the dispatcher
+      const stepType = nodeData.type.replace('workflow/', '');
+      const step = {
+        id:   `node_${nodeData.id}`,
+        type: stepType,
+        ...(nodeData.properties || {}),
+      };
+
+      if (stepType === 'condition') {
+        // Condition nodes don't fail — they evaluate and branch
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+        } catch (err) {
+          if (signal.aborted) throw err;
+          // Condition eval failed — treat as false
+          stepOutputs[step.id] = { result: false, value: false };
+        }
+        const outputResult = stepOutputs[step.id];
+        const condResult = outputResult?.result ?? outputResult?.value ?? true;
+        const nextSlot = condResult ? 0 : 1;
+        queue.push(...this._getNextNodes(nodeId, nextSlot, outgoing));
+      } else {
+        // Normal step: try to execute
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+          // Success → follow slot 0 (Done)
+          queue.push(...this._getNextNodes(nodeId, 0, outgoing));
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastError = err;
+
+          // Check if error slot (slot 1) is connected
+          const errorTargets = this._getNextNodes(nodeId, 1, outgoing);
+          if (errorTargets.length > 0) {
+            // Error is handled — follow the error path
+            // Store error info for downstream nodes
+            vars.set(step.id, { error: err.message, success: false });
+            stepOutputs[step.id] = { error: err.message, success: false };
+            queue.push(...errorTargets);
+          } else {
+            // No error handler — propagate failure
+            throw err;
+          }
+        }
+      }
+    }
+
+    // If we got here with a lastError but it was handled via error slots, that's OK
+    // The run is considered successful if no unhandled errors occurred
+  }
+
+  /**
+   * Get the list of node IDs connected to a specific output slot.
+   * @param {number} nodeId
+   * @param {number} slotIndex
+   * @param {Map} outgoing - adjacency map
+   * @returns {number[]}
+   */
+  _getNextNodes(nodeId, slotIndex, outgoing) {
+    const slots = outgoing.get(nodeId);
+    if (!slots) return [];
+    return slots.get(slotIndex) || [];
   }
 
   /**

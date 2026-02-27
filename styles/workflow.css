@@ -2484,3 +2484,244 @@ select.wf-step-edit-input {
 .wfm-toast--success { background: rgba(74,222,128,.1); color: var(--wf-success); border: 1px solid rgba(74,222,128,.2); }
 .wfm-toast--error   { background: rgba(239,68,68,.1);  color: #f87171;           border: 1px solid rgba(239,68,68,.2); }
 .wfm-toast--info    { background: rgba(255,255,255,.05); color: var(--text-secondary); border: 1px solid var(--wf-border); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   NODE GRAPH EDITOR
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Editor shell ─────────────────────────────────────────────────────────── */
+.wf-editor {
+  display: flex; flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  animation: wfFadeIn .2s var(--wf-ease);
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+.wf-editor-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--wf-border);
+  flex-shrink: 0;
+  background: rgba(255,255,255,.015);
+}
+.wf-editor-back {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 10px;
+  font-size: 11px; font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.wf-editor-back:hover {
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,.15);
+  background: rgba(255,255,255,.04);
+}
+.wf-editor-name {
+  flex: 1;
+  max-width: 280px;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
+  color: var(--text-primary) !important;
+  transition: border-color .15s;
+}
+.wf-editor-name:focus {
+  border-color: rgba(255,255,255,.15) !important;
+  background: rgba(0,0,0,.2) !important;
+  outline: none;
+}
+.wf-editor-toolbar-sep {
+  width: 1px; height: 20px;
+  background: rgba(255,255,255,.06);
+  flex-shrink: 0;
+}
+.wf-editor-zoom {
+  display: flex; align-items: center; gap: 2px;
+}
+.wf-editor-zoom button {
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.wf-editor-zoom button:hover {
+  background: rgba(255,255,255,.06);
+  color: var(--text-primary);
+}
+.wf-editor-zoom span {
+  font-size: 10px; color: var(--text-muted);
+  min-width: 36px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.wf-editor-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 12px;
+  font-size: 11px; font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.wf-editor-btn:hover {
+  background: rgba(255,255,255,.04);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,.12);
+}
+.wf-editor-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.wf-editor-btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+/* ── Body (3-column layout) ───────────────────────────────────────────────── */
+.wf-editor-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Palette (left) ───────────────────────────────────────────────────────── */
+.wf-editor-palette {
+  width: 160px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--wf-border);
+  padding: 10px 8px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 3px;
+  background: rgba(255,255,255,.01);
+}
+.wf-palette-title {
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted); opacity: .6;
+  padding: 0 6px 6px;
+}
+.wf-palette-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s var(--wf-ease);
+}
+.wf-palette-item:hover {
+  background: rgba(255,255,255,.05);
+}
+.wf-palette-item:active {
+  background: rgba(255,255,255,.08);
+  transform: scale(.98);
+}
+.wf-palette-icon {
+  flex-shrink: 0;
+}
+.wf-palette-label {
+  font-size: 11px; font-weight: 500;
+  color: var(--text-secondary);
+}
+.wf-palette-item:hover .wf-palette-label {
+  color: var(--text-primary);
+}
+
+/* ── Canvas (center) ──────────────────────────────────────────────────────── */
+.wf-editor-canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+}
+.wf-editor-canvas-wrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ── Properties (right) ───────────────────────────────────────────────────── */
+.wf-editor-properties {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--wf-border);
+  padding: 12px;
+  overflow-y: auto;
+  background: rgba(255,255,255,.01);
+}
+.wf-props-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%;
+}
+.wf-props-empty-text {
+  font-size: 11px; color: var(--text-muted);
+  text-align: center; opacity: .5;
+}
+.wf-props-section {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.wf-props-header {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.wf-props-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── Status bar ───────────────────────────────────────────────────────────── */
+.wf-editor-statusbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 14px;
+  border-top: 1px solid var(--wf-border);
+  font-size: 10px; color: var(--text-muted);
+  flex-shrink: 0;
+  background: rgba(255,255,255,.01);
+}
+
+/* ── LiteGraph dark theme overrides ───────────────────────────────────────── */
+.litegraph .litecontextmenu {
+  background: #1a1a1a !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5) !important;
+  font-family: inherit !important;
+  font-size: 11px !important;
+}
+.litegraph .litecontextmenu .litemenu-entry {
+  color: var(--text-secondary) !important;
+  padding: 6px 12px !important;
+  border-radius: 4px !important;
+  margin: 1px 2px !important;
+}
+.litegraph .litecontextmenu .litemenu-entry:hover {
+  background: rgba(255,255,255,.06) !important;
+  color: var(--text-primary) !important;
+}
+.litegraph .litesearchbox {
+  background: #1a1a1a !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 8px !important;
+}
+.litegraph .litesearchbox input {
+  background: rgba(0,0,0,.3) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 6px !important;
+}
