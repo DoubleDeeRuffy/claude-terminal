@@ -241,20 +241,23 @@ function registerCloudHandlers() {
     const buffer = Buffer.from(await resp.arrayBuffer());
     await fs.promises.writeFile(zipPath, buffer);
 
-    // Extract to project dir (overwrite existing files)
-    const extractZip = require('extract-zip');
-    await extractZip(zipPath, { dir: localProjectPath });
+    try {
+      // Extract to project dir (overwrite existing files)
+      const extractZip = require('extract-zip');
+      await extractZip(zipPath, { dir: localProjectPath });
 
-    // Handle .DELETED markers
-    await _handleDeletedMarkers(localProjectPath);
+      // Handle .DELETED markers
+      await _handleDeletedMarkers(localProjectPath);
 
-    // Acknowledge sync
-    await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-    });
+      // Acknowledge sync only after successful extraction
+      await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
+    } finally {
+      await fs.promises.unlink(zipPath).catch(() => {});
+    }
 
-    await fs.promises.unlink(zipPath).catch(() => {});
     return { success: true };
   });
 
@@ -311,14 +314,20 @@ function registerCloudHandlers() {
 // ── Helpers ──
 
 async function _handleDeletedMarkers(dir) {
-  const entries = await fs.promises.readdir(dir, { withFileTypes: true, recursive: true });
-  for (const entry of entries) {
-    if (entry.isFile() && entry.name.endsWith('.DELETED')) {
-      const markerPath = path.join(entry.parentPath || entry.path, entry.name);
-      const originalPath = markerPath.replace(/\.DELETED$/, '');
-      await fs.promises.unlink(originalPath).catch(() => {});
-      await fs.promises.unlink(markerPath).catch(() => {});
+  try {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true, recursive: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.DELETED')) {
+        // Node >=20.12 uses parentPath, older uses path — both refer to the parent dir
+        const parentDir = entry.parentPath || entry.path;
+        const markerPath = path.join(parentDir, entry.name);
+        const originalPath = markerPath.replace(/\.DELETED$/, '');
+        await fs.promises.unlink(originalPath).catch(() => {});
+        await fs.promises.unlink(markerPath).catch(() => {});
+      }
     }
+  } catch (e) {
+    console.warn('[Cloud] Error handling deleted markers:', e.message);
   }
 }
 

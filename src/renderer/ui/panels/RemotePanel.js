@@ -327,6 +327,27 @@ function buildHtml(settings) {
           <div id="cloud-sessions-list" class="rp-cloud-sessions-list">
             <div class="rp-cloud-sessions-empty">${t('cloud.sessionsEmpty')}</div>
           </div>
+
+          <!-- Sync Changes -->
+          <div class="rp-cloud-divider"></div>
+          <div class="rp-cloud-section-header" style="margin-top:12px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            <span>${t('cloud.syncSectionTitle')}</span>
+            <span class="rp-cloud-sync-badge" id="cloud-sync-badge" style="display:none">0</span>
+          </div>
+          <div class="rp-cloud-sync-area" id="cloud-sync-area">
+            <div class="rp-cloud-sessions-empty" id="cloud-sync-empty">${t('cloud.syncNoChanges')}</div>
+            <div id="cloud-sync-list" style="display:none"></div>
+          </div>
+          <button class="rp-server-btn rp-btn-sm rp-btn-full" id="cloud-sync-check-btn" style="margin-top:8px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            ${t('cloud.syncCheckBtn')}
+          </button>
         </div>
 
       </div>
@@ -508,6 +529,7 @@ function setupHandlers(context) {
 
   const cloudUserPanel = document.getElementById('rp-cloud-user-panel');
   let _cloudSessionsInterval = null;
+  let _cloudSyncInterval = null;
 
   function updateCloudStatusUI(connected) {
     if (!cloudStatusIndicator || !cloudStatusText || !cloudConnectBtn) return;
@@ -521,6 +543,8 @@ function setupHandlers(context) {
       _loadCloudUser();
       _loadCloudSessions();
       _startSessionsPolling();
+      _checkCloudChanges();
+      _startSyncPolling();
     } else {
       cloudStatusIndicator.classList.remove('online');
       cloudStatusText.textContent = t('cloud.disconnected');
@@ -529,6 +553,8 @@ function setupHandlers(context) {
       // Hide user panel
       if (cloudUserPanel) cloudUserPanel.style.display = 'none';
       _stopSessionsPolling();
+      _stopSyncPolling();
+      _updateSyncBadge(0);
     }
   }
 
@@ -684,6 +710,138 @@ function setupHandlers(context) {
       await _loadCloudSessions();
       setTimeout(() => cloudSessionsRefresh.classList.remove('spinning'), 400);
     });
+  }
+
+  // ── Cloud sync check ──
+  const cloudSyncCheckBtn = document.getElementById('cloud-sync-check-btn');
+  if (cloudSyncCheckBtn) {
+    cloudSyncCheckBtn.addEventListener('click', async () => {
+      cloudSyncCheckBtn.disabled = true;
+      cloudSyncCheckBtn.classList.add('loading');
+      try {
+        await _checkCloudChanges();
+      } finally {
+        cloudSyncCheckBtn.disabled = false;
+        cloudSyncCheckBtn.classList.remove('loading');
+      }
+    });
+  }
+
+  async function _checkCloudChanges() {
+    const syncEmpty = document.getElementById('cloud-sync-empty');
+    const syncList = document.getElementById('cloud-sync-list');
+    if (!syncList) return;
+
+    try {
+      const result = await window.electron_api.cloud.checkPendingChanges();
+      const changes = result.changes || [];
+
+      if (changes.length === 0) {
+        if (syncEmpty) syncEmpty.style.display = '';
+        syncList.style.display = 'none';
+        _updateSyncBadge(0);
+        return;
+      }
+
+      if (syncEmpty) syncEmpty.style.display = 'none';
+      syncList.style.display = '';
+
+      let totalFiles = 0;
+      syncList.innerHTML = changes.map(({ projectName, changes: fileChanges }) => {
+        const files = fileChanges.flatMap(c => c.changedFiles || []);
+        totalFiles += files.length;
+        const fileList = files.slice(0, 10).map(f => `<div class="rp-cloud-sync-file">${_escapeHtml(f)}</div>`).join('');
+        const moreCount = files.length > 10 ? `<div class="rp-cloud-sync-more">+${files.length - 10} ${t('cloud.syncMoreFiles')}</div>` : '';
+        return `<div class="rp-cloud-sync-project" data-project="${_escapeHtml(projectName)}">
+          <div class="rp-cloud-sync-project-header">
+            <span class="rp-cloud-sync-project-name">${_escapeHtml(projectName)}</span>
+            <span class="rp-cloud-sync-count">${files.length} ${files.length === 1 ? 'file' : 'files'}</span>
+            <button class="rp-btn-sm rp-cloud-sync-apply" data-project="${_escapeHtml(projectName)}">${t('cloud.syncApply')}</button>
+          </div>
+          <div class="rp-cloud-sync-files">${fileList}${moreCount}</div>
+        </div>`;
+      }).join('');
+
+      _updateSyncBadge(totalFiles);
+
+      // Wire apply buttons
+      syncList.querySelectorAll('.rp-cloud-sync-apply').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const projName = btn.dataset.project;
+          btn.disabled = true;
+          btn.textContent = '...';
+          try {
+            const projects = _ctx.projectsState?.get()?.projects || [];
+            const localProject = projects.find(p =>
+              p.name === projName || p.path?.replace(/\\/g, '/').split('/').pop() === projName
+            );
+            if (!localProject) {
+              const Toast = require('../../ui/components/Toast');
+              Toast.show(t('cloud.syncNoLocalProject', { project: projName }), 'warning');
+              btn.disabled = false;
+              btn.textContent = t('cloud.syncApply');
+              return;
+            }
+            await window.electron_api.cloud.downloadChanges({ projectName: projName, localProjectPath: localProject.path });
+            const Toast = require('../../ui/components/Toast');
+            Toast.show(t('cloud.syncApplied'), 'success');
+            await _checkCloudChanges(); // Refresh
+          } catch (e) {
+            const Toast = require('../../ui/components/Toast');
+            Toast.show(t('cloud.syncError'), 'error');
+            btn.disabled = false;
+            btn.textContent = t('cloud.syncApply');
+          }
+        });
+      });
+    } catch (e) {
+      if (syncEmpty) syncEmpty.style.display = '';
+      syncList.style.display = 'none';
+      _updateSyncBadge(0);
+    }
+  }
+
+  function _updateSyncBadge(count) {
+    const badge = document.getElementById('cloud-sync-badge');
+    if (badge) {
+      if (count > 0) {
+        badge.textContent = String(count);
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    // Also update the Cloud mode tab badge
+    const cloudTab = document.querySelector('.rp-mode-tab[data-mode="cloud"]');
+    if (cloudTab) {
+      let tabBadge = cloudTab.querySelector('.rp-tab-badge');
+      if (count > 0) {
+        if (!tabBadge) {
+          tabBadge = document.createElement('span');
+          tabBadge.className = 'rp-tab-badge';
+          cloudTab.appendChild(tabBadge);
+        }
+        tabBadge.textContent = String(count);
+      } else if (tabBadge) {
+        tabBadge.remove();
+      }
+    }
+  }
+
+  function _startSyncPolling() {
+    _stopSyncPolling();
+    _cloudSyncInterval = setInterval(() => {
+      if (!document.getElementById('cloud-sync-area')) { _stopSyncPolling(); return; }
+      _checkCloudChanges();
+    }, 30000); // Every 30s
+  }
+
+  function _stopSyncPolling() {
+    if (_cloudSyncInterval) { clearInterval(_cloudSyncInterval); _cloudSyncInterval = null; }
+  }
+
+  function _escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   // Listen for status changes from main process

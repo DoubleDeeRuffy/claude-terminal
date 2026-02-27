@@ -1203,7 +1203,13 @@
     "sessionStop": "Arrêter",
     "sessionRunning": "En cours",
     "sessionIdle": "Inactif",
-    "sessionError": "Erreur"
+    "sessionError": "Erreur",
+    "syncSectionTitle": "Synchronisation",
+    "syncNoChanges": "Aucun changement en attente",
+    "syncCheckBtn": "Vérifier les changements",
+    "syncMoreFiles": "fichier(s) supplémentaire(s)",
+    "syncNoLocalProject": "Aucun projet local correspondant à \"{project}\"",
+    "syncError": "Échec de l'application des changements"
   },
   "database": {
     "title": "Base de données",

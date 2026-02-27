@@ -290,6 +290,9 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   // Initial git status check for all projects
   checkAllProjectsGitStatus();
 
+  // ── Cloud auto-connect on startup ──
+  _tryCloudAutoConnect();
+
   // Initialize keyboard shortcuts (needs settingsState loaded)
   ShortcutsManager.registerAllShortcuts();
 
@@ -303,6 +306,27 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
     }
   });
 })();
+
+// ========== CLOUD AUTO-CONNECT ==========
+async function _tryCloudAutoConnect() {
+  try {
+    const settings = settingsState.get();
+    if (settings.cloudAutoConnect === false) return;
+    if (!settings.cloudServerUrl || !settings.cloudApiKey) return;
+
+    // Check if already connected
+    const status = await api.cloud.status();
+    if (status.connected) return;
+
+    // Connect (this will trigger onStatusChange → _checkPendingChangesOnReconnect)
+    await api.cloud.connect({
+      serverUrl: settings.cloudServerUrl,
+      apiKey: settings.cloudApiKey,
+    });
+  } catch (e) {
+    console.warn('[CloudAutoConnect] Failed:', e.message);
+  }
+}
 
 // ========== NOTIFICATIONS ==========
 function showNotification(type, title, body, terminalId) {

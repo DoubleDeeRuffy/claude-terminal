@@ -2743,6 +2743,93 @@
   padding: 16px 0;
 }
 
+/* ── Cloud Sync Section ── */
+
+.rp-cloud-sync-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 16px;
+}
+
+.rp-btn-full {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.rp-btn-full.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.rp-cloud-sync-project {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+
+.rp-cloud-sync-project-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rp-cloud-sync-project-name {
+  font-weight: 600;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.rp-cloud-sync-count {
+  font-size: var(--font-2xs);
+  color: var(--text-secondary);
+}
+
+.rp-cloud-sync-files {
+  margin-top: 6px;
+  padding-left: 4px;
+}
+
+.rp-cloud-sync-file {
+  font-size: var(--font-2xs);
+  color: var(--text-secondary);
+  font-family: monospace;
+  padding: 1px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rp-cloud-sync-more {
+  font-size: var(--font-2xs);
+  color: var(--text-muted);
+  font-style: italic;
+  padding-top: 2px;
+}
+
+.rp-tab-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  min-width: 14px;
+  text-align: center;
+  line-height: 14px;
+  margin-left: 4px;
+}
+
 /* ── Shared: keep old remote-status classes for back-compat if referenced elsewhere ── */
 .remote-status-row {
   display: flex;

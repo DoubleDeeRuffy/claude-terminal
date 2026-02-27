@@ -1203,7 +1203,13 @@
     "sessionStop": "Stop",
     "sessionRunning": "Running",
     "sessionIdle": "Idle",
-    "sessionError": "Error"
+    "sessionError": "Error",
+    "syncSectionTitle": "File sync",
+    "syncNoChanges": "No pending changes",
+    "syncCheckBtn": "Check for changes",
+    "syncMoreFiles": "more file(s)",
+    "syncNoLocalProject": "No local project found matching \"{project}\"",
+    "syncError": "Failed to apply changes"
   },
   "database": {
     "title": "Database",
