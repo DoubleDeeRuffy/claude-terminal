@@ -418,50 +418,60 @@ body.compact-projects .project-item:not(.active):hover {
   opacity: 0.7;
 }
 
+.project-cloud-badge.error {
+  color: var(--danger);
+  opacity: 0.9;
+}
+
 .project-cloud-badge.uploading {
   color: var(--accent);
   animation: cloud-pulse 1.5s ease-in-out infinite;
 }
 
-button.project-cloud-badge.pending {
-  background: none;
+/* Cloud sync action button (in project-actions, next to terminal btn) */
+.btn-cloud-sync.pending {
+  background: var(--accent);
+  color: #fff;
   border: none;
-  padding: 2px;
-  color: var(--warning);
-  cursor: pointer;
-  animation: cloud-pending-pulse 2s ease-in-out infinite;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
+  animation: cloud-sync-pulse 2s ease-in-out infinite;
 }
 
-button.project-cloud-badge.pending svg {
-  width: 14px;
-  height: 14px;
-  display: block;
-}
-
-button.project-cloud-badge.pending:hover {
-  color: var(--accent-hover);
-  background: var(--bg-hover);
+.btn-cloud-sync.pending:hover {
+  background: var(--accent-hover);
   animation: none;
+  transform: scale(1.1);
 }
 
-.project-cloud-badge.syncing {
+.btn-cloud-sync.syncing {
+  background: var(--accent-dim);
   color: var(--accent);
+  border: none;
+  cursor: wait;
 }
 
-.project-cloud-badge.syncing svg {
+.btn-cloud-sync.syncing svg {
   animation: spin 1s linear infinite;
+}
+
+.btn-cloud-sync.error {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  border: none;
+}
+
+.btn-cloud-sync.error:hover {
+  background: rgba(239, 68, 68, 0.25);
+  transform: scale(1.1);
+}
+
+@keyframes cloud-sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 @keyframes cloud-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
-}
-
-@keyframes cloud-pending-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
 }
 
 .project-actions {

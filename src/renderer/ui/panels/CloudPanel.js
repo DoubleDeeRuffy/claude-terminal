@@ -8,7 +8,6 @@ const { t } = require('../../i18n');
 
 let _ctx = null;
 let _cloudSessionsInterval = null;
-let _cloudSyncInterval = null;
 
 function _escapeHtml(str) {
   if (!str) return '';
@@ -172,6 +171,13 @@ function buildHtml(settings) {
                         </label>
                         <span class="cp-auto-label">${t('cloud.autoConnect')}</span>
                       </div>
+                      <div class="cp-auto">
+                        <label class="settings-toggle rp-mini-toggle">
+                          <input type="checkbox" id="cp-auto-sync" ${settings.cloudAutoSync !== false ? 'checked' : ''}>
+                          <span class="settings-toggle-slider"></span>
+                        </label>
+                        <span class="cp-auto-label">${t('cloud.autoSyncToggle')}</span>
+                      </div>
                     </div>
                   </div>
                 </details>
@@ -327,6 +333,14 @@ function setupHandlers(context) {
   }
   _wireToggle(autoToggle, autoToggleC, 'cloudAutoConnect');
 
+  // Auto-sync toggle
+  const autoSyncToggle = document.getElementById('cp-auto-sync');
+  if (autoSyncToggle) {
+    autoSyncToggle.addEventListener('change', () => {
+      _saveField('cloudAutoSync', autoSyncToggle.checked);
+    });
+  }
+
   function _updateStatusUI(connected) {
     if (statusPill) statusPill.classList.toggle('online', connected);
     if (statusText) statusText.textContent = connected ? t('cloud.connected') : t('cloud.disconnected');
@@ -342,10 +356,9 @@ function setupHandlers(context) {
       _loadCloudSessions();
       _startSessionsPolling();
       _checkCloudChanges();
-      _startSyncPolling();
+      // Sync polling is now handled by CloudSyncService in main process
     } else {
       _stopSessionsPolling();
-      _stopSyncPolling();
       _updateSyncBadge(0);
     }
   }
@@ -589,18 +602,6 @@ function setupHandlers(context) {
     }
   }
 
-  function _startSyncPolling() {
-    _stopSyncPolling();
-    _cloudSyncInterval = setInterval(() => {
-      if (!document.getElementById('cp-sync-list')) { _stopSyncPolling(); return; }
-      _checkCloudChanges();
-    }, 30000);
-  }
-
-  function _stopSyncPolling() {
-    if (_cloudSyncInterval) { clearInterval(_cloudSyncInterval); _cloudSyncInterval = null; }
-  }
-
   const syncCheckBtn = document.getElementById('cp-sync-check-btn');
   if (syncCheckBtn) {
     syncCheckBtn.addEventListener('click', async () => {
@@ -619,15 +620,10 @@ function setupHandlers(context) {
 
 function cleanup() {
   _stopSessionsPolling();
-  _stopSyncPolling();
 }
 
 function _stopSessionsPolling() {
   if (_cloudSessionsInterval) { clearInterval(_cloudSessionsInterval); _cloudSessionsInterval = null; }
-}
-
-function _stopSyncPolling() {
-  if (_cloudSyncInterval) { clearInterval(_cloudSyncInterval); _cloudSyncInterval = null; }
 }
 
 

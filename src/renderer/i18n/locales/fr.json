@@ -1212,7 +1212,17 @@
     "syncCheckBtn": "Vérifier les changements",
     "syncMoreFiles": "fichier(s) supplémentaire(s)",
     "syncNoLocalProject": "Aucun projet local correspondant à \"{project}\"",
-    "syncError": "Échec de l'application des changements"
+    "syncError": "Échec de l'application des changements",
+    "autoSyncComplete": "Synchronisation auto terminée",
+    "autoSyncFiles": "{count} fichier(s) synchronisé(s) vers le cloud",
+    "autoSyncError": "Échec de la synchronisation auto",
+    "autoSyncToggle": "Synchronisation auto",
+    "conflictTitle": "{count} conflit(s) détecté(s)",
+    "conflictDescription": "Ces fichiers ont été modifiés localement et dans le cloud. Choisissez comment résoudre chaque conflit.",
+    "conflictUseCloud": "Version cloud",
+    "conflictKeepLocal": "Version locale",
+    "conflictKeepBoth": "Garder les deux",
+    "conflictApply": "Appliquer"
   },
   "database": {
     "title": "Base de données",

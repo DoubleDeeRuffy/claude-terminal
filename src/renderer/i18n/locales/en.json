@@ -1212,7 +1212,17 @@
     "syncCheckBtn": "Check for changes",
     "syncMoreFiles": "more file(s)",
     "syncNoLocalProject": "No local project found matching \"{project}\"",
-    "syncError": "Failed to apply changes"
+    "syncError": "Failed to apply changes",
+    "autoSyncComplete": "Auto-sync complete",
+    "autoSyncFiles": "{count} file(s) synced to cloud",
+    "autoSyncError": "Auto-sync failed",
+    "autoSyncToggle": "Auto-sync",
+    "conflictTitle": "{count} conflict(s) detected",
+    "conflictDescription": "These files were modified both locally and in the cloud. Choose how to resolve each conflict.",
+    "conflictUseCloud": "Use cloud",
+    "conflictKeepLocal": "Keep local",
+    "conflictKeepBoth": "Keep both",
+    "conflictApply": "Apply"
   },
   "database": {
     "title": "Database",

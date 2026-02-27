@@ -766,3 +766,58 @@
   flex-direction: column;
   gap: 12px;
 }
+
+/* ── Conflict Resolution Modal ── */
+.conflict-description {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  margin-bottom: 16px;
+}
+
+.conflict-file-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+}
+
+.conflict-file-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.conflict-file-row:last-child {
+  border-bottom: none;
+}
+
+.conflict-file-name {
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.conflict-file-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.conflict-radio {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.conflict-radio:hover {
+  color: var(--text-primary);
+}
+
+.conflict-radio input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}

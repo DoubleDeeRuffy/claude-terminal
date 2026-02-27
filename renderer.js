@@ -1426,7 +1426,9 @@ async function cloudUploadProject(projectId) {
 
   try {
     await api.cloud.uploadProject({ projectName, projectPath: project.path });
-    cloudUploadStatus.set(projectId, { synced: true });
+    cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
+    // Register for auto-sync (file watcher)
+    api.cloud.registerAutoSync({ projectId, projectPath: project.path }).catch(() => {});
     ProjectList.render();
     if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
     showToast({ type: 'success', title: t('cloud.uploadSuccess'), message: projectName });
@@ -1454,8 +1456,32 @@ async function cloudSyncProject(projectId) {
   ProjectList.render();
 
   try {
-    await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
-    cloudUploadStatus.set(projectId, { synced: true });
+    // Check for conflicts before downloading
+    const { conflicts, totalFiles } = await api.cloud.checkConflicts({
+      projectName,
+      localProjectPath: project.path,
+    });
+
+    if (conflicts.length > 0) {
+      // Show conflict resolution modal
+      const resolutions = await _showConflictModal(conflicts);
+      if (!resolutions) {
+        // User cancelled
+        cloudUploadStatus.set(projectId, { ...status, syncing: false });
+        ProjectList.render();
+        return;
+      }
+      await api.cloud.downloadWithResolutions({
+        projectName,
+        localProjectPath: project.path,
+        resolutions,
+      });
+    } else {
+      // No conflicts — download directly
+      await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
+    }
+
+    cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
     ProjectList.render();
     showToast({ type: 'success', title: t('cloud.syncApplied'), message: projectName });
     // Refresh pending changes
@@ -1465,6 +1491,69 @@ async function cloudSyncProject(projectId) {
     ProjectList.render();
     showToast({ type: 'error', title: t('cloud.syncError'), message: err.message || projectName });
   }
+}
+
+function _showConflictModal(conflicts) {
+  return new Promise((resolve) => {
+    const fileListHtml = conflicts.map(c => `
+      <div class="conflict-file-row">
+        <div class="conflict-file-name">${c.file}</div>
+        <div class="conflict-file-actions">
+          <label class="conflict-radio">
+            <input type="radio" name="conflict-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" value="cloud" checked>
+            <span>${t('cloud.conflictUseCloud')}</span>
+          </label>
+          <label class="conflict-radio">
+            <input type="radio" name="conflict-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" value="local">
+            <span>${t('cloud.conflictKeepLocal')}</span>
+          </label>
+          <label class="conflict-radio">
+            <input type="radio" name="conflict-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" value="both">
+            <span>${t('cloud.conflictKeepBoth')}</span>
+          </label>
+        </div>
+      </div>
+    `).join('');
+
+    const modalHtml = `
+      <div class="modal-overlay" id="conflict-modal-overlay">
+        <div class="modal-container modal-large">
+          <div class="modal-header">
+            <h3>${t('cloud.conflictTitle', { count: conflicts.length })}</h3>
+            <button class="modal-close" id="conflict-modal-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="conflict-description">${t('cloud.conflictDescription')}</p>
+            <div class="conflict-file-list">${fileListHtml}</div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" id="conflict-cancel">${t('common.cancel')}</button>
+            <button class="btn-primary" id="conflict-apply">${t('cloud.conflictApply')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const overlay = document.getElementById('conflict-modal-overlay');
+
+    const cleanup = () => overlay?.remove();
+
+    document.getElementById('conflict-modal-close')?.addEventListener('click', () => { cleanup(); resolve(null); });
+    document.getElementById('conflict-cancel')?.addEventListener('click', () => { cleanup(); resolve(null); });
+    overlay?.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+    document.getElementById('conflict-apply')?.addEventListener('click', () => {
+      const resolutions = {};
+      for (const c of conflicts) {
+        const safeName = c.file.replace(/[^a-zA-Z0-9]/g, '_');
+        const selected = overlay.querySelector(`input[name="conflict-${safeName}"]:checked`);
+        resolutions[c.file] = selected?.value || 'cloud';
+      }
+      cleanup();
+      resolve(resolutions);
+    });
+  });
 }
 
 if (api.cloud?.onUploadProgress) {
@@ -1545,6 +1634,30 @@ function _updateCloudTabBadge(count) {
   } else if (badge) {
     badge.remove();
   }
+}
+
+// ── Background pending changes listener (from CloudSyncService main process) ──
+if (api.cloud?.onPendingChanges) {
+  api.cloud.onPendingChanges((data) => {
+    _updateProjectPendingChanges(data.changes);
+  });
+}
+
+// ── Auto-sync status listener ──
+if (api.cloud?.onAutoSyncStatus) {
+  api.cloud.onAutoSyncStatus(({ projectId, status, fileCount, error }) => {
+    const existing = cloudUploadStatus.get(projectId) || {};
+    if (status === 'uploading') {
+      cloudUploadStatus.set(projectId, { ...existing, autoSyncing: true, lastError: null });
+    } else if (status === 'synced') {
+      cloudUploadStatus.set(projectId, { ...existing, synced: true, autoSyncing: false, lastSync: Date.now(), lastError: null });
+      showToast({ type: 'success', title: t('cloud.autoSyncComplete'), message: t('cloud.autoSyncFiles', { count: fileCount }) });
+    } else if (status === 'error') {
+      cloudUploadStatus.set(projectId, { ...existing, autoSyncing: false, lastError: { message: error, timestamp: Date.now() } });
+      showToast({ type: 'error', title: t('cloud.autoSyncError'), message: error });
+    }
+    ProjectList.render();
+  });
 }
 
 // ========== SETUP COMPONENTS ==========
