@@ -376,7 +376,7 @@ Plans:
 **Goal:** Render markdown files inline as formatted content in a dedicated tab with TOC sidebar, source toggle, code block highlighting, Ctrl+click link gating, live reload on disk changes, and in-document search
 **Requirements**: MD-VIEW-01, MD-VIEW-02, MD-VIEW-03
 **Depends on:** Phase 20
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 21-01-PLAN.md — Add markdown rendering branch to openFileTab with TOC, toggle, code blocks, link gating, image resolution, and CSS/i18n

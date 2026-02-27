@@ -1268,6 +1268,15 @@
     "browserSearchPlaceholder": "Search in data...",
     "browserSearchClear": "Clear search"
   },
+  "mdViewer": {
+    "tableOfContents": "Table of Contents",
+    "toggleToc": "Toggle table of contents",
+    "toggleSource": "View source",
+    "toggleRendered": "View rendered",
+    "ctrlClickToOpen": "Ctrl+click to open",
+    "searchPlaceholder": "Search in document...",
+    "noResults": "No results"
+  },
   "telemetry": {
     "consentTitle": "Help Improve Claude Terminal",
     "consentDescription": "We'd like to collect anonymous usage data to help improve Claude Terminal. This is completely optional and can be disabled at any time in Settings.",

@@ -3,25 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-27T10:56:04.799Z"
+last_updated: "2026-02-27T12:00:00Z"
 progress:
   total_phases: 32
-  completed_phases: 29
+  completed_phases: 30
   total_plans: 43
-  completed_plans: 41
----
-
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-last_updated: "2026-02-27T10:45:09Z"
-progress:
-  total_phases: 32
-  completed_phases: 28
-  total_plans: 43
-  completed_plans: 40
+  completed_plans: 43
 ---
 
 # Project State
@@ -99,6 +86,8 @@ Progress: [███████████████████████
 | Phase 12-dashboard-support-for-dotnet-projects P01 | 3 | 2 tasks | 6 files |
 | Phase 6.4 P01 | 5 | 2 tasks | 1 files |
 | Phase 20-bugfix-swap-projects-selected-tab P01 | 2 | 2 tasks | 1 files |
+| Phase 21 P01 | 189 | 2 tasks | 4 files |
+| Phase 21 P02 | 5 | 2 tasks | 4 files |
 | Phase 22 P01 | 12 | 2 tasks | 3 files |
 
 ## Accumulated Context
@@ -193,6 +182,12 @@ Recent decisions affecting current work:
 - [Phase 12-01]: One-level-deep detection in DashboardService is csharp-specific, not generic
 - [Phase 6.4]: 6.4-01: cwd and claudeSessionId added directly to termData object literal (not via updateTerminal) to avoid state notification with incomplete data
 - [Phase 20-bugfix-swap-projects-selected-tab]: 20-01: lastActivePerProject Map tracks last-active terminal ID per project in-memory; filterByProject uses Map as primary restore source, disk activeTabIndex as secondary fallback
+- [Phase 21]: Use new Marked() instance (not global marked.use()) to avoid config conflict with ChatView
+- [Phase 21]: setSetting('mdViewerTocExpanded') persists TOC collapse state using !== false guard for safe defaults
+- [Phase 21]: mdCleanup set to null on tab creation — Plan 21-02 will set it to file-watcher teardown function
+- [Phase 21]: fs.watch persistent:false prevents watcher from keeping Electron process alive after all windows close
+- [Phase 21]: Ref-counting on fileWatchers Map allows safe sharing of one fs.watch instance across multiple markdown tabs for the same file
+- [Phase 21]: termData.mdCleanup stores teardown closure — called in closeTerminal to unsubscribe listener, call unwatchFile, and clear debounce timer
 - [Phase 22]: 22-01: chokidar@^4 (pure JS) installed with --ignore-scripts to avoid triggering better-sqlite3 native rebuild; watchId integer guard discards stale debounce callbacks from closed watchers; persistent: false and ignoreInitial: true; 350ms debounce within plan's 300-500ms range; SOFT_LIMIT=10000 paths triggers watchLimitWarning IPC
 
 ### Pending Todos
