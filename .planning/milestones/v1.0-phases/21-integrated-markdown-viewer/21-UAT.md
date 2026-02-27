@@ -8,10 +8,10 @@ updated: 2026-02-27T12:00:00Z
 
 ## Current Test
 
-number: 6
-name: Ctrl+F in-document search
+number: 8
+name: Tab cleanup on close
 expected: |
-  With a markdown tab focused, press Ctrl+F. A search bar appears. Type a term — matches are highlighted. Enter goes to next match, Shift+Enter to previous, Escape closes the search bar.
+  Open a .md file, then close the tab. No errors in the console. Opening the same file again works normally (file watcher is properly cleaned up).
 awaiting: user response
 
 ## Tests
@@ -42,7 +42,7 @@ result: PASS (fix: replaced window.find with custom mark-based highlighting to k
 
 ### 7. Double-click .md opens in external editor
 expected: Double-clicking a .md file in the file explorer opens it in your configured external editor (not as a preview tab).
-result: [pending]
+result: PASS
 
 ### 8. Tab cleanup on close
 expected: Open a .md file, then close the tab. No errors in the console. Opening the same file again works normally (file watcher is properly cleaned up).
@@ -51,9 +51,9 @@ result: [pending]
 ## Summary
 
 total: 8
-passed: 4
+passed: 7
 issues: 0
-pending: 4
+pending: 1
 skipped: 0
 
 ## Gaps
