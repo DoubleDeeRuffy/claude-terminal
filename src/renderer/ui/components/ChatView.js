@@ -3034,7 +3034,16 @@ function createChatView(wrapperEl, project, options = {}) {
     if (!content) return;
 
     // Capture real SDK session UUID (needed for fork/resume)
-    if (msg.session_id) sdkSessionId = msg.session_id;
+    if (msg.session_id && msg.session_id !== sdkSessionId) {
+      sdkSessionId = msg.session_id;
+      // Propagate new session ID to termData for persistence (fixes /clear not saving new ID)
+      if (terminalId) {
+        const { updateTerminal } = require('../../state/terminals.state');
+        updateTerminal(terminalId, { claudeSessionId: msg.session_id });
+        const TerminalSessionService = require('../../services/TerminalSessionService');
+        TerminalSessionService.saveTerminalSessionsImmediate();
+      }
+    }
 
     // Store message UUID on the assistant DOM element (used for fork)
     if (msg.uuid) {

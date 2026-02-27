@@ -164,6 +164,8 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 
   // Restore terminal sessions from previous run
   try {
+    const { setSkipExplorerCapture } = require('./src/renderer/services/TerminalSessionService');
+    setSkipExplorerCapture(true);
     const sessionData = loadSessionData();
     if (sessionData && sessionData.projects) {
       const projects = projectsState.get().projects;
@@ -180,8 +182,10 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
           await TerminalManager.createTerminal(project, {
             runClaude: !tab.isBasic,
             cwd,
+            mode: tab.mode || null,
             skipPermissions: settingsState.get().skipPermissions,
             resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
+            name: tab.name || null,
           });
         }
 
@@ -206,10 +210,22 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
           TerminalManager.filterByProject(idx);
         }
       }
+
+      // Schedule silence-based scroll per restored terminal (waits for PTY replay to finish)
+      terminalsState.get().terminals.forEach((td, id) => {
+        if (td.terminal && typeof td.terminal.scrollToBottom === 'function') {
+          TerminalManager.scheduleScrollAfterRestore(id);
+        }
+      });
     }
   } catch (err) {
     console.error('[SessionRestore] Error restoring terminal sessions:', err);
   }
+  // Re-enable explorer state capture after restore loop completes
+  try {
+    const { setSkipExplorerCapture: clearSkip } = require('./src/renderer/services/TerminalSessionService');
+    clearSkip(false);
+  } catch (e) { /* ignore */ }
 
   // Initialize project types registry
   registry.discoverAll();
@@ -1322,9 +1338,12 @@ async function showSessionsModal(project) {
       if (!card) return;
       const sessionId = card.dataset.sid;
       if (!sessionId) return;
+      const session = sessionMap.get(sessionId);
+      const sessionName = session?.displayTitle || null;
       closeModal();
       TerminalManager.resumeSession(project, sessionId, {
-        skipPermissions: settingsState.get().skipPermissions
+        skipPermissions: settingsState.get().skipPermissions,
+        name: sessionName
       });
     });
 
@@ -2048,6 +2067,18 @@ if (btnNewTerminal) {
     const projects = projectsState.get().projects;
     if (selectedFilter !== null && projects[selectedFilter]) {
       createTerminalForProject(projects[selectedFilter]);
+    }
+  };
+}
+
+// Wire lightbulb resume session button
+const btnResumeSession = document.getElementById('btn-resume-session');
+if (btnResumeSession) {
+  btnResumeSession.onclick = () => {
+    const selectedFilter = projectsState.get().selectedProjectFilter;
+    const projects = projectsState.get().projects;
+    if (selectedFilter !== null && projects[selectedFilter]) {
+      showSessionsModal(projects[selectedFilter]);
     }
   };
 }

@@ -82,7 +82,8 @@
     "resumeError": "Unable to resume session",
     "messages": "{count} msgs",
     "loading": "Initializing Claude Code...",
-    "loadingHint": "This may take a few seconds"
+    "loadingHint": "This may take a few seconds",
+    "resumeSession": "Resume Claude session"
   },
   "git": {
     "noRemote": "No remote",
