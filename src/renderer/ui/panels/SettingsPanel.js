@@ -731,6 +731,16 @@ async function renderSettingsTab(initialTab = 'general') {
           <div class="settings-group">
             <div class="settings-group-title">${t('settings.terminalGroup')}</div>
             <div class="settings-card">
+              <div class="settings-toggle-row">
+                <div class="settings-toggle-label">
+                  <div>${t('settings.autoScrollOnSwitch')}</div>
+                  <div class="settings-toggle-desc">${t('settings.autoScrollOnSwitchDesc')}</div>
+                </div>
+                <label class="settings-toggle">
+                  <input type="checkbox" id="auto-scroll-on-switch-toggle" ${settings.autoScrollOnSwitch !== false ? 'checked' : ''}>
+                  <span class="settings-toggle-slider"></span>
+                </label>
+              </div>
               <div class="settings-row">
                 <div class="settings-label">
                   <div>${t('settings.idleTimeout')}</div>
@@ -1233,6 +1243,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newShowTabModeToggle = showTabModeToggleEl ? showTabModeToggleEl.checked : true;
     const aiTabNamingToggle = document.getElementById('ai-tab-naming-toggle');
     const newAiTabNaming = aiTabNamingToggle ? aiTabNamingToggle.checked : true;
+    const autoScrollOnSwitchToggle = document.getElementById('auto-scroll-on-switch-toggle');
+    const newAutoScrollOnSwitch = autoScrollOnSwitchToggle ? autoScrollOnSwitchToggle.checked : true;
 
     const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
     const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 2);
@@ -1267,6 +1279,7 @@ async function renderSettingsTab(initialTab = 'general') {
       updateTitleOnProjectSwitch: newUpdateTitleOnProjectSwitch,
       showTabModeToggle: newShowTabModeToggle,
       aiTabNaming: newAiTabNaming,
+      autoScrollOnSwitch: newAutoScrollOnSwitch,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
       idleTimeout: newIdleTimeout,
       telemetryEnabled: newTelemetryEnabled,
