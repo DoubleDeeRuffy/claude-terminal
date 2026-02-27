@@ -102,7 +102,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     CONFIGURED_USERS=""
 
     if [ -n "$CONTAINER_UP" ]; then
-      CLAUDE_VERSION=$(docker exec ct-cloud /root/.local/bin/claude --version 2>/dev/null || true)
+      CLAUDE_VERSION=$(docker exec ct-cloud claude --version 2>/dev/null || true)
       USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
     fi
 
