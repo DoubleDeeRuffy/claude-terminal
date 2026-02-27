@@ -160,10 +160,19 @@ export class SessionManager {
     if (model) options.model = model;
     if (effort) options.effort = effort;
 
-    const queryStream = sdk.query({
-      prompt: messageQueue.iterable,
-      options,
-    });
+    console.log(`[Session ${sessionId}] Creating session for user="${userName}" project="${projectName}" model="${model || 'default'}" cwd="${cwd}"`);
+
+    let queryStream: AsyncIterable<any>;
+    try {
+      queryStream = sdk.query({
+        prompt: messageQueue.iterable,
+        options,
+      });
+      console.log(`[Session ${sessionId}] SDK query started`);
+    } catch (err: any) {
+      console.error(`[Session ${sessionId}] SDK query failed to start:`, err.message);
+      throw err;
+    }
 
     this.processStream(sessionId, queryStream);
 
@@ -176,6 +185,7 @@ export class SessionManager {
   async sendMessage(sessionId: string, message: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
+    console.log(`[Session ${sessionId}] Received message: "${message.slice(0, 100)}"`);
 
     session.messageQueue.push({
       type: 'user',
@@ -224,9 +234,16 @@ export class SessionManager {
 
   addStreamClient(sessionId: string, ws: WebSocket): boolean {
     const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    if (!session) {
+      console.log(`[Stream] Client tried to connect to unknown session ${sessionId}`);
+      return false;
+    }
     session.streamClients.add(ws);
-    ws.on('close', () => session.streamClients.delete(ws));
+    console.log(`[Stream] Client connected to session ${sessionId} (${session.streamClients.size} clients)`);
+    ws.on('close', () => {
+      session.streamClients.delete(ws);
+      console.log(`[Stream] Client disconnected from session ${sessionId} (${session.streamClients.size} clients)`);
+    });
     return true;
   }
 
@@ -250,14 +267,21 @@ export class SessionManager {
     if (!session) return;
 
     try {
+      let eventCount = 0;
       for await (const event of queryStream) {
         if (!this.sessions.has(sessionId)) break;
+        eventCount++;
+        if (eventCount <= 3 || eventCount % 50 === 0) {
+          console.log(`[Session ${sessionId}] Event #${eventCount}: type=${event?.type}`);
+        }
         this.trackFileChanges(session, event);
         this.broadcastToStream(sessionId, { type: 'event', sessionId, event });
       }
+      console.log(`[Session ${sessionId}] Stream ended after ${eventCount} events, status=idle`);
       if (session) session.status = 'idle';
       this.broadcastToStream(sessionId, { type: 'done', sessionId });
     } catch (err: any) {
+      console.error(`[Session ${sessionId}] Stream error:`, err.message);
       if (session) session.status = 'error';
       this.broadcastToStream(sessionId, { type: 'error', sessionId, error: err.message });
     }

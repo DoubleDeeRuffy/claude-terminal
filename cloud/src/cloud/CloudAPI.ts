@@ -208,7 +208,9 @@ export function createCloudRouter(): Router {
         return;
       }
 
+      console.log(`[API] POST /sessions user=${req.userName} project=${projectName} model=${model || 'default'}`);
       const sessionId = await sessionManager.createSession(req.userName!, projectName, prompt, model, effort);
+      console.log(`[API] Session created: ${sessionId}`);
       res.status(201).json({ sessionId });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
