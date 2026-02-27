@@ -366,7 +366,7 @@ Plans:
 **Goal:** Auto-scroll xterm terminals to bottom on tab/project switch, with a settings toggle
 **Requirements**: TBD
 **Depends on:** Phase 20
-**Plans:** 1 plan (1 complete)
+**Plans:** 1/1 plans complete
 
 Plans:
 - [x] 20.1-01-PLAN.md — Add scrollToBottom in setActiveTerminal, settings toggle, and i18n keys

@@ -88,6 +88,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - **PIN-01**: Windows taskbar pin survives app auto-updates — shortcuts are preserved (not deleted and recreated) during update runs, and AUMID is consistent between running process and shortcut
 
+### Explorer File Watching
+
+- **EXPL-WATCH-01**: File explorer automatically reflects external filesystem changes (new files, deletions, renames) without manual refresh — watcher runs in main process, updates are debounced and applied incrementally preserving expanded/scroll state
+
 ### Markdown Viewer
 
 - **MD-VIEW-01**: User can view rendered markdown by single-clicking a `.md` file in the file explorer — opens as a tab with formatted content, TOC sidebar, and toggle to raw source
@@ -141,6 +145,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MD-VIEW-01 | Phase 21 | Planned |
 | MD-VIEW-02 | Phase 21 | Planned |
 | MD-VIEW-03 | Phase 21 | Planned |
+| EXPL-WATCH-01 | Phase 22 | Planned |
 
 **Coverage:**
 - v1 requirements: 16 total, all complete
