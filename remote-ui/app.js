@@ -17,8 +17,8 @@ const STRINGS = {
   pinMessage: _isFr ? 'Entrez le code affiché dans\nParamètres → Télécommande' : 'Enter the 4-digit PIN shown in\nSettings → Remote Control',
   pinError: _isFr ? 'Code invalide ou expiré. Réessayez.' : 'Invalid or expired PIN. Try again.',
   pinConnFail: _isFr ? 'Connexion impossible. Le serveur est-il démarré ?' : 'Connection failed. Is the server running?',
-  noSession: _isFr ? 'Aucune session active' : 'No active chat session',
-  noSessionHint: _isFr ? 'Sélectionnez un projet puis envoyez un message' : 'Select a project and send a message',
+  noSession: _isFr ? 'Nouveau chat' : 'New chat',
+  noSessionHint: _isFr ? 'Écrivez un message pour commencer' : 'Type a message to get started',
   noProjects: _isFr ? 'Aucun projet.' : 'No projects yet.',
   navProjects: _isFr ? 'Projets' : 'Projects',
   navChat: 'Chat',
@@ -47,6 +47,8 @@ function applyStrings() {
     if (span && view === 'chat') span.textContent = STRINGS.navChat;
     if (span && view === 'dashboard') span.textContent = STRINGS.navDashboard;
   });
+  const newSessionLabel = $('new-session-label');
+  if (newSessionLabel) newSessionLabel.textContent = _isFr ? 'Nouveau chat' : 'New Chat';
 }
 
 // ─── Tool Icons (SVG) ─────────────────────────────────────────────────────────
@@ -1270,12 +1272,12 @@ function renderSessionsView() {
     list.innerHTML = `
       <div class="sessions-empty">
         <div class="sessions-empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
         </div>
-        <p>${_isFr ? 'Aucun chat ouvert' : 'No open chats'}</p>
-        <span class="sessions-empty-hint">${_isFr ? 'Créez un nouveau chat pour commencer' : 'Create a new chat to get started'}</span>
+        <div class="sessions-empty-title">${_isFr ? 'Aucun chat' : 'No chats yet'}</div>
+        <div class="sessions-empty-hint">${_isFr ? 'Cliquez le bouton ci-dessous pour commencer' : 'Tap the button below to get started'}</div>
       </div>`;
     return;
   }
@@ -1563,8 +1565,14 @@ function renderChatMessages() {
     const project = state.projects.find(p => p.id === state.selectedProjectId);
     container.innerHTML = `
       <div class="no-session">
-        <div>${STRINGS.noSession}</div>
-        <div class="no-session-hint">${STRINGS.noSessionHint}${project ? ' (' + escHtml(project.name) + ')' : ''}</div>
+        <div class="no-session-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
+            <line x1="9" y1="21" x2="15" y2="21"/>
+          </svg>
+        </div>
+        <div class="no-session-title">${STRINGS.noSession}</div>
+        <div class="no-session-hint">${STRINGS.noSessionHint}${project ? ' — ' + escHtml(project.name) : ''}</div>
       </div>`;
     return;
   }

@@ -1644,16 +1644,36 @@ html, body {
 
 .interrupt-btn:active { transform: scale(0.88); }
 
-/* No session state */
+/* No session state — new chat welcome */
 .no-session {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  gap: 12px;
+  padding: 80px 24px 40px;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 14px;
+  flex: 1;
+}
+
+.no-session-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.no-session-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1948,10 +1968,35 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 50px 20px;
+  padding: 60px 24px 20px;
   color: var(--text-muted);
   font-size: 14px;
-  gap: 10px;
+  gap: 6px;
+}
+
+.sessions-empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--bg3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.sessions-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.sessions-empty-hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
 }
 
 .session-card {
@@ -2026,22 +2071,23 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px;
-  border: 1.5px dashed var(--border-light);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-dim);
+  padding: 14px 20px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
   font-family: var(--font-sans);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  margin-top: 8px;
-  transition: border-color 0.2s, color 0.2s;
+  margin-top: 12px;
+  transition: opacity 0.15s, transform 0.15s;
+  letter-spacing: -0.01em;
 }
 
 .new-session-btn:active {
-  border-color: var(--accent);
-  color: var(--accent);
+  opacity: 0.85;
+  transform: scale(0.97);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2227,9 +2273,10 @@ html, body {
 
 /* No-session hint */
 .no-session-hint {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  color: var(--text-dim);
   text-align: center;
+  line-height: 1.4;
 }
 
 /* Chat user image (attached images in user messages) */
@@ -2345,16 +2392,6 @@ html, body {
   justify-content: center;
 }
 
-/* Sessions empty state (inside session list) */
-.sessions-empty-icon {
-  opacity: 0.25;
-}
-
-.sessions-empty-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
-}
 
 /* Control card left (status dot wrapper) */
 .control-card-left { flex-shrink: 0; }
