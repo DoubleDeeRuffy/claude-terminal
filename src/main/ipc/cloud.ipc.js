@@ -17,6 +17,9 @@ const { settingsFile } = require('../utils/paths');
 
 let mainWindow = null;
 
+/** @type {Set<string>} Locks to prevent concurrent uploads for the same project */
+const _uploadLocks = new Set();
+
 function _loadSettings() {
   try {
     if (fs.existsSync(settingsFile)) {
@@ -83,8 +86,12 @@ function registerCloudHandlers() {
   // ── Project upload ──
 
   ipcMain.handle('cloud:upload-project', async (_event, { projectName, projectPath }) => {
-    const { url, key } = _getCloudConfig();
+    if (_uploadLocks.has(projectName)) {
+      throw new Error(`Upload already in progress for "${projectName}"`);
+    }
+    _uploadLocks.add(projectName);
 
+    const { url, key } = _getCloudConfig();
     const zipPath = path.join(os.tmpdir(), `ct-upload-${Date.now()}.zip`);
 
     try {
@@ -148,6 +155,7 @@ function registerCloudHandlers() {
 
       return { success: true, ...result };
     } finally {
+      _uploadLocks.delete(projectName);
       await fs.promises.unlink(zipPath).catch(() => {});
     }
   });
@@ -244,6 +252,7 @@ function registerCloudHandlers() {
     const buffer = Buffer.from(await resp.arrayBuffer());
     await fs.promises.writeFile(zipPath, buffer);
 
+    let extracted = false;
     try {
       // Extract to project dir (overwrite existing files)
       const extractZip = require('extract-zip');
@@ -251,17 +260,20 @@ function registerCloudHandlers() {
 
       // Handle .DELETED markers
       await _handleDeletedMarkers(localProjectPath);
-
-      // Acknowledge sync only after successful extraction
-      await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-      });
+      extracted = true;
     } finally {
       await fs.promises.unlink(zipPath).catch(() => {});
     }
 
-    return { success: true };
+    // Only acknowledge AFTER verified successful extraction
+    if (extracted) {
+      await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return { success: extracted };
   });
 
   // ── Takeover a running cloud session ──
@@ -291,14 +303,22 @@ function registerCloudHandlers() {
           const buffer = Buffer.from(await resp.arrayBuffer());
           await fs.promises.writeFile(zipPath, buffer);
 
-          const extractZip = require('extract-zip');
-          await extractZip(zipPath, { dir: localProjectPath });
-          await _handleDeletedMarkers(localProjectPath);
-          await fs.promises.unlink(zipPath).catch(() => {});
+          let extracted = false;
+          try {
+            const extractZip = require('extract-zip');
+            await extractZip(zipPath, { dir: localProjectPath });
+            await _handleDeletedMarkers(localProjectPath);
+            extracted = true;
+          } finally {
+            await fs.promises.unlink(zipPath).catch(() => {});
+          }
 
-          await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
-            method: 'POST', headers,
-          });
+          // Only ack after verified successful extraction
+          if (extracted) {
+            await fetch(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+              method: 'POST', headers,
+            });
+          }
         }
       }
     } catch (err) {

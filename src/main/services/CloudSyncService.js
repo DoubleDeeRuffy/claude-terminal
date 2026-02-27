@@ -25,6 +25,9 @@ let _syncMeta = new Map();
 /** @type {Map<string, { message: string, timestamp: number }>} */
 let _lastErrors = new Map();
 
+/** @type {Set<string>} Locks to prevent concurrent incremental uploads */
+const _uploadLocks = new Set();
+
 // ── Public API ──
 
 function setMainWindow(win) {
@@ -51,6 +54,7 @@ function start() {
  */
 function stop() {
   _stopPolling();
+  fileWatcherService.offChanges();
   fileWatcherService.unwatchAll();
   _saveSyncMetadata();
   console.log('[CloudSync] Stopped');
@@ -198,6 +202,12 @@ async function _pollForChanges() {
 // ── Local→Cloud incremental upload ──
 
 async function _handleLocalChanges(projectId, changes) {
+  if (_uploadLocks.has(projectId)) {
+    console.log(`[CloudSync] Skipping incremental upload for ${projectId}: upload already in progress`);
+    return;
+  }
+  _uploadLocks.add(projectId);
+
   try {
     const { url, key } = _getCloudConfig();
     const project = _getProjectById(projectId);
@@ -297,6 +307,8 @@ async function _handleLocalChanges(projectId, changes) {
       status: 'error',
       error: err.message,
     });
+  } finally {
+    _uploadLocks.delete(projectId);
   }
 }
 

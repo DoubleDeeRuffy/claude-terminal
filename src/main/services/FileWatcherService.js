@@ -42,6 +42,13 @@ class FileWatcherService {
   }
 
   /**
+   * Unregister the changes callback.
+   */
+  offChanges() {
+    this._onChanges = null;
+  }
+
+  /**
    * Start watching a project directory.
    * @param {string} projectId
    * @param {string} projectPath

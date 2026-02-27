@@ -76,15 +76,30 @@ export function createCloudRouter(): Router {
       const user = await store.getUser(req.userName!);
       if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
-      if (gitName !== undefined) user.gitName = gitName;
-      if (gitEmail !== undefined) user.gitEmail = gitEmail;
+      // Validate gitName/gitEmail to prevent gitconfig injection
+      if (gitName !== undefined) {
+        if (typeof gitName !== 'string' || gitName.length > 128 || /[\n\r\t\[\]\\]/.test(gitName)) {
+          res.status(400).json({ error: 'Invalid git name (no newlines, brackets, or backslashes allowed)' });
+          return;
+        }
+        user.gitName = gitName;
+      }
+      if (gitEmail !== undefined) {
+        if (typeof gitEmail !== 'string' || gitEmail.length > 256 || /[\n\r\t\[\]\\]/.test(gitEmail)) {
+          res.status(400).json({ error: 'Invalid git email (no newlines, brackets, or backslashes allowed)' });
+          return;
+        }
+        user.gitEmail = gitEmail;
+      }
       await store.saveUser(req.userName!, user);
 
       // Write .gitconfig file in user's home
       if (user.gitName && user.gitEmail) {
         await store.ensureUserHome(req.userName!);
         const gitconfigPath = path.join(store.userHomePath(req.userName!), '.gitconfig');
-        const content = `[user]\n\tname = ${user.gitName}\n\temail = ${user.gitEmail}\n`;
+        const safeName = user.gitName.replace(/[^\x20-\x7E]/g, '');
+        const safeEmail = user.gitEmail.replace(/[^\x20-\x7E]/g, '');
+        const content = `[user]\n\tname = ${safeName}\n\temail = ${safeEmail}\n`;
         await fs.promises.writeFile(gitconfigPath, content, 'utf-8');
       }
 
