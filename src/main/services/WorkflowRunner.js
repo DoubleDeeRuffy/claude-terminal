@@ -11,6 +11,7 @@
  *   notify     — desktop notification + remote push
  *   wait       — pause for human confirmation or timeout
  *   file       — read / write / copy / delete
+ *   db         — database query / schema / tables via DatabaseService
  *   condition  — evaluate expression, expose boolean variable
  *   loop       — iterate over an array variable, execute sub-steps
  *   parallel   — concurrent sub-steps, wait for all
@@ -276,6 +277,69 @@ async function runFileStep(config, vars) {
   }
 }
 
+// ─── Database step ───────────────────────────────────────────────────────────
+
+/**
+ * Run a database query/schema/tables operation.
+ * Requires a DatabaseService instance passed to the runner.
+ *
+ * @param {Object}  config          - step config
+ * @param {Map}     vars            - resolved variables
+ * @param {Object}  databaseService - DatabaseService singleton
+ * @returns {Promise<Object>}       - { rows, columns, rowCount, duration, firstRow } | { tables, tableCount }
+ */
+async function runDbStep(config, vars, databaseService) {
+  if (!databaseService) throw new Error('DatabaseService not available');
+
+  const connId = resolveVars(config.connection || '', vars);
+  if (!connId) throw new Error('No database connection specified');
+
+  const action = config.action || 'query';
+
+  // Ensure connection is active (auto-connect if needed)
+  const connections = await databaseService.loadConnections();
+  const connConfig = connections.find(c => c.id === connId);
+  if (!connConfig) throw new Error(`Database connection "${connId}" not found`);
+
+  // Connect if not already connected
+  try {
+    await databaseService.connect(connId, connConfig);
+  } catch {
+    // May already be connected — ignore
+  }
+
+  if (action === 'schema') {
+    const schema = await databaseService.getSchema(connId, { force: true });
+    const tables = schema?.tables || [];
+    return { tables, tableCount: tables.length };
+  }
+
+  if (action === 'tables') {
+    const schema = await databaseService.getSchema(connId, { force: true });
+    const tables = (schema?.tables || []).map(t => t.name || t.table_name || t);
+    return { tables, tableCount: tables.length };
+  }
+
+  // action === 'query'
+  const sql   = resolveVars(config.query || '', vars);
+  const limit = parseInt(config.limit, 10) || 100;
+
+  if (!sql.trim()) throw new Error('Empty SQL query');
+
+  const start  = Date.now();
+  const result = await databaseService.executeQuery(connId, sql, limit);
+  const duration = Date.now() - start;
+
+  if (result.error) throw new Error(result.error);
+
+  const rows     = result.rows || [];
+  const columns  = result.columns || [];
+  const rowCount = result.rowCount ?? rows.length;
+  const firstRow = rows.length > 0 ? rows[0] : null;
+
+  return { rows, columns, rowCount, duration, firstRow };
+}
+
 // ─── Condition step ───────────────────────────────────────────────────────────
 
 function runConditionStep(config, vars) {
@@ -523,11 +587,12 @@ class WorkflowRunner {
    * @param {Map<string, Function>} opts.waitCallbacks - shared wait registry
    * @param {Object}            opts.projectTypeRegistry - { fivem, api, ... } services for native steps
    */
-  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {} }) {
+  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {}, databaseService = null }) {
     this._send              = sendFn;
     this._chatService       = chatService;
     this._waitCallbacks     = waitCallbacks;
     this._projectTypeRegistry = projectTypeRegistry;
+    this._databaseService   = databaseService;
   }
 
   /**
@@ -827,6 +892,10 @@ class WorkflowRunner {
 
     if (type === 'file') {
       return runFileStep(step, vars);
+    }
+
+    if (type === 'db') {
+      return runDbStep(step, vars, this._databaseService);
     }
 
     if (type === 'condition') {

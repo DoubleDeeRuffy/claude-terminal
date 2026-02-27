@@ -3037,6 +3037,49 @@ select.wf-step-edit-input {
 /* Hide native selects that have been upgraded */
 .wf-editor-properties select[data-upgraded] { display: none !important; }
 
+/* ── DB output hint block ── */
+.wf-db-output-hint {
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: rgba(251,191,36,.04);
+  border: 1px solid rgba(251,191,36,.1);
+  border-radius: 8px;
+  font-size: 10.5px;
+}
+.wf-db-output-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: rgba(251,191,36,.7);
+  margin-bottom: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.wf-db-output-title svg {
+  opacity: .5;
+}
+.wf-db-output-items {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.wf-db-output-items code {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: rgba(251,191,36,.8);
+  background: rgba(0,0,0,.3);
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.wf-db-output-items span {
+  color: rgba(255,255,255,.35);
+  font-size: 10px;
+}
+
 /* ── Custom dropdown ── */
 .wf-dropdown {
   position: relative;

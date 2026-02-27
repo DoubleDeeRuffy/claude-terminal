@@ -37,7 +37,7 @@ function initializeServices(mainWindow) {
 
   // Workflow service: inject deps + init scheduler
   workflowService.setMainWindow(mainWindow);
-  workflowService.setDeps({ chatService });
+  workflowService.setDeps({ chatService, databaseService });
   workflowService.init();
 
   cloudSyncService.setMainWindow(mainWindow);

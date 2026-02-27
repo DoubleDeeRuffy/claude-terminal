@@ -89,9 +89,10 @@ class WorkflowService {
    * @param {Object} deps.chatService
    * @param {Object} [deps.projectTypeRegistry]
    */
-  setDeps({ chatService, projectTypeRegistry = {} }) {
+  setDeps({ chatService, projectTypeRegistry = {}, databaseService = null }) {
     this._chatService = chatService;
     this._projectTypeRegistry = projectTypeRegistry;
+    this._databaseService = databaseService;
   }
 
   /**
@@ -470,6 +471,7 @@ class WorkflowService {
       chatService:         this._chatService,
       waitCallbacks:       this._waitCallbacks,
       projectTypeRegistry: this._projectTypeRegistry,
+      databaseService:     this._databaseService,
     });
 
     // 3. Execute

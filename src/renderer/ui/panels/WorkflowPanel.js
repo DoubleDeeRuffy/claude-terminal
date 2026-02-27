@@ -4,7 +4,6 @@ const { getAgents } = require('../../services/AgentService');
 const { getSkills } = require('../../services/SkillService');
 const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphService');
 const { projectsState } = require('../../state/projects.state');
-const { getDatabaseConnections } = require('../../state/database.state');
 
 let ctx = null;
 
@@ -673,6 +672,14 @@ function renderRunHistory(el) {
 
 /* ─── Node Graph Editor ─────────────────────────────────────────────────── */
 
+// Cache for DB connections (loaded from disk via IPC, independent of Database panel state)
+let _dbConnectionsCache = null;
+async function loadDbConnections() {
+  try {
+    _dbConnectionsCache = await window.electron_api.database.loadConnections() || [];
+  } catch { _dbConnectionsCache = []; }
+}
+
 function openEditor(workflowId = null) {
   const wf = workflowId ? state.workflows.find(w => w.id === workflowId) : null;
   const editorDraft = {
@@ -685,6 +692,9 @@ function openEditor(workflowId = null) {
   // ── Render editor into the panel ──
   const panel = document.getElementById('workflow-panel');
   if (!panel) return;
+
+  // Pre-load DB connections from disk (async, used by DB node properties)
+  loadDbConnections();
 
   const graphService = getGraphService();
 
@@ -1174,7 +1184,9 @@ function openEditor(workflowId = null) {
     }
     // DB node
     else if (nodeType === 'db') {
-      const dbConns = getDatabaseConnections() || [];
+      const dbConns = _dbConnectionsCache || [];
+      const dbAction = props.action || 'query';
+      const selectedConn = dbConns.find(c => c.id === props.connection);
       fieldsHtml = `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgDb()} Connexion</label>
@@ -1183,12 +1195,54 @@ function openEditor(workflowId = null) {
             <option value="">-- Choisir une connexion --</option>
             ${dbConns.map(c => `<option value="${c.id}" ${props.connection === c.id ? 'selected' : ''}>${escapeHtml(c.name)} (${c.type || 'sql'})</option>`).join('')}
           </select>
-          ${!dbConns.length ? '<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">Aucune connexion — configurez-en dans l\'onglet Database</span>' : ''}
+          ${!dbConns.length ? '<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">Aucune connexion — onglet Database</span>' : ''}
+          ${selectedConn ? `<span class="wf-field-hint" style="color:rgba(251,191,36,.5)">${selectedConn.type || 'sql'}${selectedConn.host ? ' — ' + escapeHtml(selectedConn.host) : ''}${selectedConn.database ? '/' + escapeHtml(selectedConn.database) : ''}</span>` : ''}
         </div>
         <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <span class="wf-field-hint">Type d'opération sur la base</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="query" ${dbAction === 'query' ? 'selected' : ''}>Query — Exécuter une requête SQL</option>
+            <option value="schema" ${dbAction === 'schema' ? 'selected' : ''}>Schema — Lister les tables et colonnes</option>
+            <option value="tables" ${dbAction === 'tables' ? 'selected' : ''}>Tables — Lister les noms de tables</option>
+          </select>
+        </div>
+        ${dbAction === 'query' ? `
+        <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCode()} Requête SQL</label>
-          <span class="wf-field-hint">SELECT, INSERT, UPDATE, DELETE, SHOW TABLES...</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="query" rows="5" placeholder="SELECT * FROM users\nWHERE active = 1\nORDER BY created_at DESC\nLIMIT 100">${escapeHtml(props.query || '')}</textarea>
+          <span class="wf-field-hint">Supporte les variables : $ctx.project, $prev.output, $loop.item</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="query" rows="5" placeholder="SELECT * FROM users\nWHERE active = 1\nORDER BY created_at DESC">${escapeHtml(props.query || '')}</textarea>
+        </div>
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">${svgCond()} Limite</label>
+            <span class="wf-field-hint">Max de lignes retournées</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="limit" type="number" min="1" max="10000" value="${escapeHtml(String(props.limit || 100))}" placeholder="100" />
+          </div>
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">${svgVariable()} Variable de sortie</label>
+            <span class="wf-field-hint">Nom pour accéder au résultat</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar" value="${escapeHtml(props.outputVar || '')}" placeholder="dbResult" />
+          </div>
+        </div>` : ''}
+        <div class="wf-db-output-hint">
+          <div class="wf-db-output-title">${svgTriggerType()} Sortie disponible</div>
+          ${dbAction === 'query' ? `
+          <div class="wf-db-output-items">
+            <code>$nodeId.rows</code> <span>tableau des résultats</span>
+            <code>$nodeId.columns</code> <span>noms des colonnes</span>
+            <code>$nodeId.rowCount</code> <span>nombre de lignes</span>
+            <code>$nodeId.duration</code> <span>temps d'exécution (ms)</span>
+            <code>$nodeId.firstRow</code> <span>première ligne (objet)</span>
+          </div>` : dbAction === 'schema' ? `
+          <div class="wf-db-output-items">
+            <code>$nodeId.tables</code> <span>liste des tables avec colonnes</span>
+            <code>$nodeId.tableCount</code> <span>nombre de tables</span>
+          </div>` : `
+          <div class="wf-db-output-items">
+            <code>$nodeId.tables</code> <span>liste des noms de tables</span>
+            <code>$nodeId.tableCount</code> <span>nombre de tables</span>
+          </div>`}
         </div>
       `;
     }
