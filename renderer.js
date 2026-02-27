@@ -1836,7 +1836,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
         CloudPanel.setupHandlers({
           settingsState,
           projectsState,
-          saveSettings: saveSettingsDebounced,
+          saveSettings,
           updateProjectPendingChanges: _updateProjectPendingChanges,
         });
         container.dataset.initialized = 'true';
