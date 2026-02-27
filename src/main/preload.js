@@ -208,6 +208,14 @@ contextBridge.exposeInMainWorld('electron_api', {
     openExternal: (url) => ipcRenderer.send('open-external', url)
   },
 
+  // ==================== EXPLORER FILE WATCHER ====================
+  explorer: {
+    startWatch: (projectPath) => ipcRenderer.send('explorer:startWatch', projectPath),
+    stopWatch: () => ipcRenderer.send('explorer:stopWatch'),
+    onChanges: createListener('explorer:changes'),
+    onWatchLimitWarning: createListener('explorer:watchLimitWarning')
+  },
+
   window: {
     minimize: () => ipcRenderer.send('window-minimize'),
     maximize: () => ipcRenderer.send('window-maximize'),
