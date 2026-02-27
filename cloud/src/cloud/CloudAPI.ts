@@ -153,6 +153,17 @@ export function createCloudRouter(): Router {
     }
   });
 
+  // List all files in a cloud project (for diff comparison)
+  router.get('/projects/:name/files', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const files = await projectManager.listProjectFiles(req.userName!, name);
+      res.json({ files });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // ── Project Changes (for sync) ──
 
   router.get('/projects/:name/changes', async (req: AuthRequest, res: Response) => {

@@ -130,6 +130,41 @@ export class ProjectManager {
     return results;
   }
 
+  private static EXCLUDE_DIRS = new Set([
+    'node_modules', '.git', 'build', 'dist', '.next', '__pycache__',
+    '.venv', 'venv', '.cache', 'coverage', '.tsbuildinfo', '.ct-cloud',
+    '.turbo', '.parcel-cache', '.svelte-kit', '.nuxt', '.output',
+  ]);
+
+  /**
+   * List all files in a cloud project with their sizes.
+   * Used by client to compare local vs cloud.
+   */
+  async listProjectFiles(userName: string, projectName: string): Promise<Array<{ path: string; size: number }>> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const exists = await this.projectExists(userName, projectName);
+    if (!exists) throw new Error(`Project "${projectName}" does not exist`);
+
+    const results: Array<{ path: string; size: number }> = [];
+    await this._walkDirWithStats(projectPath, projectPath, results);
+    return results;
+  }
+
+  private async _walkDirWithStats(baseDir: string, currentDir: string, results: Array<{ path: string; size: number }>): Promise<void> {
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (ProjectManager.EXCLUDE_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await this._walkDirWithStats(baseDir, fullPath, results);
+      } else {
+        const stat = await fs.promises.stat(fullPath);
+        const rel = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+        results.push({ path: rel, size: stat.size });
+      }
+    }
+  }
+
   async deleteProject(userName: string, projectName: string): Promise<void> {
     await store.deleteProjectDir(userName, projectName);
     const user = await store.getUser(userName);
