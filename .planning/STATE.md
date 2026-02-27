@@ -255,6 +255,7 @@ Recent decisions affecting current work:
 - Phase 20.1 inserted after Phase 20: Always ScrollToEnd on Switching Tabs or Projects (URGENT)
 - Phase 22 added: Explorer-Filewatcher
 - Phase 14.1 inserted after Phase 14: resumed-session-tab-naming (URGENT)
+- Phase 23 added: Remember-Last-Active-Tab-On-Tab-Closing
 
 ### Blockers/Concerns
 
