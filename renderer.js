@@ -1330,9 +1330,12 @@ async function showSessionsModal(project) {
       if (!card) return;
       const sessionId = card.dataset.sid;
       if (!sessionId) return;
+      const session = sessionMap.get(sessionId);
+      const sessionName = session?.displayTitle || null;
       closeModal();
       TerminalManager.resumeSession(project, sessionId, {
-        skipPermissions: settingsState.get().skipPermissions
+        skipPermissions: settingsState.get().skipPermissions,
+        name: sessionName
       });
     });
 

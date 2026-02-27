@@ -3328,7 +3328,9 @@ function createMdRenderer(basePath) {
       },
       link({ href, text }) {
         const safeHref = escapeHtml((href || '').trim());
-        return `<a class="md-viewer-link" data-md-link="${safeHref}" title="${t('mdViewer.ctrlClickToOpen')}">${text || safeHref}</a>`;
+        const isAnchor = safeHref.startsWith('#');
+        const title = isAnchor ? safeHref : `${t('mdViewer.ctrlClickToOpen')}: ${safeHref}`;
+        return `<a class="md-viewer-link" data-md-link="${safeHref}" title="${title}">${text || safeHref}</a>`;
       },
       image({ href, title, text }) {
         const src = (href || '').startsWith('http') ? href
@@ -3493,7 +3495,7 @@ function openFileTab(filePath, project) {
       <div class="md-viewer-wrapper">
         <div class="md-viewer-toc${tocExpanded ? '' : ' collapsed'}" id="md-toc-${id}">
           <button class="md-toc-toggle" title="${t('mdViewer.toggleToc')}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
           ${tocHtml}
         </div>
@@ -3587,12 +3589,17 @@ function openFileTab(filePath, project) {
         return;
       }
 
-      // Ctrl+click link gating
+      // Link handling: anchor links scroll, external links require Ctrl+click
       const link = e.target.closest('[data-md-link]');
       if (link) {
         e.preventDefault();
-        if (e.ctrlKey) {
-          api.dialog.openExternal(link.dataset.mdLink);
+        const href = link.dataset.mdLink;
+        if (href.startsWith('#')) {
+          const slug = href.slice(1).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const target = wrapper.querySelector(`#md-h-${slug}`);
+          if (target) target.scrollIntoView({ behavior: 'smooth' });
+        } else if (e.ctrlKey) {
+          api.dialog.openExternal(href);
         }
         return;
       }
@@ -3623,15 +3630,19 @@ function openFileTab(filePath, project) {
     // === File watcher for live reload ===
     let reloadTimer = null;
     const unsubscribeWatch = api.dialog.onFileChanged((changedPath) => {
+      console.log('[md-viewer] file-changed event:', changedPath, 'expected:', filePath, 'match:', changedPath === filePath);
       if (changedPath !== filePath) return;
       clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
         try {
           const newContent = fs.readFileSync(filePath, 'utf-8');
           const bodyEl = document.getElementById(`md-body-${id}`);
+          console.log('[md-viewer] reloading, bodyEl:', !!bodyEl, 'contentLen:', newContent.length, 'first100:', newContent.substring(0, 100));
           if (!bodyEl) return;
           const scroll = bodyEl.scrollTop;
-          bodyEl.innerHTML = mdRenderer.parse(newContent);
+          const parsed = mdRenderer.parse(newContent);
+          console.log('[md-viewer] parsed length:', parsed.length, 'bodyEl current innerHTML length:', bodyEl.innerHTML.length);
+          bodyEl.innerHTML = parsed;
           bodyEl.scrollTop = scroll;
           // Update TOC
           const tocEl = document.getElementById(`md-toc-${id}`);
@@ -3655,7 +3666,7 @@ function openFileTab(filePath, project) {
             if (linesEl) linesEl.innerHTML = lineNums;
             if (codeEl) codeEl.innerHTML = sourceHighlighted;
           }
-        } catch (e) { /* file temporarily unavailable during save */ }
+        } catch (e) { console.error('[md-viewer] reload error:', e); }
       }, 300);
     });
     api.dialog.watchFile(filePath);
