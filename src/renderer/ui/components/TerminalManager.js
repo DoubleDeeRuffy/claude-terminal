@@ -2974,7 +2974,8 @@ async function resumeSession(project, sessionId, options = {}) {
     name: sessionName || t('terminals.resuming'),
     status: 'working',
     inputBuffer: '',
-    isBasic: false
+    isBasic: false,
+    claudeSessionId: sessionId
   };
 
   addTerminal(id, termData);
