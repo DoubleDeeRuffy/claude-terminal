@@ -1565,6 +1565,15 @@ projectsState.subscribe(() => {
   api.window.setTitle(title);
 });
 
+// ========== FILE WATCHER ==========
+api.explorer.onChanges((changes) => {
+  FileExplorer.applyWatcherChanges(changes);
+});
+
+api.explorer.onWatchLimitWarning((totalPaths) => {
+  showToast({ type: 'warning', title: t('fileExplorer.title'), message: t('fileExplorer.watchLimitWarning', { count: totalPaths }) });
+});
+
 // Subscribe to project selection changes for FileExplorer
 projectsState.subscribe(() => {
   const state = projectsState.get();
@@ -1577,8 +1586,10 @@ projectsState.subscribe(() => {
     const sessionData = loadSessionData();
     const explorerState = sessionData?.projects?.[project.id]?.explorer || null;
     FileExplorer.setRootPath(project.path, explorerState);
+    api.explorer.startWatch(project.path);
   } else {
     FileExplorer.hide();
+    api.explorer.stopWatch();
   }
 });
 
