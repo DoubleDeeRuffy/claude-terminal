@@ -198,6 +198,7 @@ Recent decisions affecting current work:
 - Phase 10.1 added: Tab-Renaming-For-Resume-Dialog
 - Phase 6.4 inserted after Phase 6: Bugfix — session resume claudeSessionId not persisted across restarts (URGENT)
 - Phase 20 added: Bugfix-Swap-Projects-Selected-Tab
+- Phase 21 added: Integrated-Markdown-Viewer
 
 ### Blockers/Concerns
 
