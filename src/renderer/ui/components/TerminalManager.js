@@ -2841,7 +2841,10 @@ async function renderSessionsPanel(project, emptyState) {
       const sessionId = card.dataset.sid;
       if (!sessionId) return;
       const skipPermissions = getSetting('skipPermissions') || false;
-      resumeSession(project, sessionId, { skipPermissions });
+      const session = sessionMap.get(sessionId);
+      // Only pass name if it was explicitly set (haiku AI, slash command, or manual rename)
+      const sessionName = (session?.isRenamed && session?.displayTitle) ? session.displayTitle : null;
+      resumeSession(project, sessionId, { skipPermissions, name: sessionName });
     });
 
     // New conversation button
@@ -2907,7 +2910,7 @@ async function renderSessionsPanel(project, emptyState) {
  * Resume a Claude session
  */
 async function resumeSession(project, sessionId, options = {}) {
-  const { skipPermissions = false } = options;
+  const { skipPermissions = false, name: sessionName = null } = options;
 
   // If chat mode is active, resume via SDK
   const mode = getSetting('defaultTerminalMode') || 'terminal';
