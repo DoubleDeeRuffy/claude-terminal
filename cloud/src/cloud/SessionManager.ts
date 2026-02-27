@@ -5,6 +5,7 @@ import { WebSocket } from 'ws';
 import { store, UserSession } from '../store/store';
 import { config } from '../config';
 import { projectManager } from './ProjectManager';
+import { FileWatcher } from './FileWatcher';
 
 interface ActiveSession {
   id: string;
@@ -15,6 +16,7 @@ interface ActiveSession {
   streamClients: Set<WebSocket>;
   status: 'running' | 'idle' | 'error';
   changedFiles: Set<string>;
+  fileWatcher: FileWatcher;
 }
 
 function createMessageQueue(onIdle?: () => void) {
@@ -118,6 +120,10 @@ export class SessionManager {
 
     const abortController = new AbortController();
 
+    // Start file watcher to capture all filesystem changes
+    const fileWatcher = new FileWatcher(cwd);
+    fileWatcher.start();
+
     const activeSession: ActiveSession = {
       id: sessionId,
       userName,
@@ -127,6 +133,7 @@ export class SessionManager {
       streamClients: new Set(),
       status: 'running',
       changedFiles: new Set(),
+      fileWatcher,
     };
     this.sessions.set(sessionId, activeSession);
 
@@ -190,6 +197,15 @@ export class SessionManager {
 
     session.abortController.abort();
     session.messageQueue.close();
+    session.fileWatcher.stop();
+
+    // Merge watcher changes into session before closing
+    for (const f of session.fileWatcher.getChangedFiles()) {
+      session.changedFiles.add(f);
+    }
+    if (session.changedFiles.size > 0) {
+      await this.persistChangedFiles(session);
+    }
 
     // Close all WS stream clients
     for (const ws of session.streamClients) {
@@ -244,6 +260,14 @@ export class SessionManager {
     } catch (err: any) {
       if (session) session.status = 'error';
       this.broadcastToStream(sessionId, { type: 'error', sessionId, error: err.message });
+    }
+
+    // Stop watcher and merge its changes
+    if (session) {
+      session.fileWatcher.stop();
+      for (const f of session.fileWatcher.getChangedFiles()) {
+        session.changedFiles.add(f);
+      }
     }
 
     // Persist changed files for sync
