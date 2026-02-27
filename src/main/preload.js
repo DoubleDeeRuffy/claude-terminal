@@ -213,16 +213,10 @@ contextBridge.exposeInMainWorld('electron_api', {
 
   // ==================== EXPLORER FILE WATCHER ====================
   explorer: {
-    startWatch: (projectPath) => ipcRenderer.send('explorer:startWatch', projectPath),
+    startWatch: (projectPath) => ipcRenderer.send('explorer:watchDir', projectPath),
     stopWatch: () => ipcRenderer.send('explorer:stopWatch'),
-    onChanges: createListener('explorer:changes'),
-    onWatchLimitWarning: createListener('explorer:watchLimitWarning')
-  },
-
-  // ==================== EXPLORER FILE WATCHER ====================
-  explorer: {
-    startWatch: (projectPath) => ipcRenderer.send('explorer:startWatch', projectPath),
-    stopWatch: () => ipcRenderer.send('explorer:stopWatch'),
+    watchDir: (dirPath) => ipcRenderer.send('explorer:watchDir', dirPath),
+    unwatchDir: (dirPath) => ipcRenderer.send('explorer:unwatchDir', dirPath),
     onChanges: createListener('explorer:changes'),
     onWatchLimitWarning: createListener('explorer:watchLimitWarning')
   },

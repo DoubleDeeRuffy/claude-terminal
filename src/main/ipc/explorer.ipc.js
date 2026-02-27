@@ -1,23 +1,31 @@
 /**
  * Explorer IPC Handlers - File Watcher Service
- * Watches a project directory for filesystem changes using chokidar,
- * and pushes debounced, batched change events to the renderer process.
+ * Watches directories currently expanded in the file explorer UI using
+ * per-directory shallow (depth:0) chokidar watchers.
+ *
+ * Design: Only directories that are currently expanded in the UI have active watchers.
+ * This reduces OS file handles from thousands (recursive) to typically 1-50 (expanded only).
  */
 
 const { ipcMain } = require('electron');
 const chokidar = require('chokidar');
+const path = require('path');
 
 // ==================== MODULE STATE ====================
 
 /** BrowserWindow reference set by registerExplorerHandlers */
 let mainWindow = null;
 
-/** Current chokidar FSWatcher instance */
-let activeWatcher = null;
+/**
+ * Per-directory shallow watcher map.
+ * Keys: absolute dirPath string
+ * Values: { watcher: FSWatcher, watchId: number }
+ */
+const dirWatchers = new Map();
 
 /**
- * Incremented on each startWatch call to invalidate in-flight debounce timers
- * from a previous watcher. Stale events whose capturedWatchId !== watchId are discarded.
+ * Monotonically increasing counter. Each watchDir call captures its own myWatchId
+ * so stale debounce callbacks can be discarded.
  */
 let watchId = 0;
 
@@ -29,9 +37,6 @@ let debounceTimer = null;
 
 /** Debounce window in milliseconds — within the 300-500ms range per decision */
 const DEBOUNCE_MS = 350;
-
-/** Soft limit on the total number of watched paths */
-const SOFT_LIMIT = 10000;
 
 // ==================== IGNORE PATTERNS ====================
 
@@ -63,11 +68,9 @@ function makeIgnoredFn() {
 
 /**
  * Flushes pendingChanges to the renderer via IPC.
- * Discards the call if myWatchId no longer matches the current watchId (stale watcher).
- * @param {number} myWatchId - watchId captured when the watcher was created
+ * @param {number} myWatchId - watchId captured when this flush was scheduled (unused now — stale filtering is per-event)
  */
 function flushChanges(myWatchId) {
-  if (myWatchId !== watchId) return; // stale watcher — discard
   if (pendingChanges.length === 0) return;
 
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -78,89 +81,100 @@ function flushChanges(myWatchId) {
   debounceTimer = null;
 }
 
-// ==================== WATCHER LIFECYCLE ====================
-
 /**
- * Stops the current watcher and cancels any pending flush.
- * Increments watchId to invalidate in-flight debounce timers.
+ * Pushes a single change event and (re)schedules the debounce flush.
+ * Drops the event silently if the watcher for watchedDir is no longer active or has been replaced.
+ * @param {'add'|'remove'} type - Change type
+ * @param {string} filePath - Absolute path of the changed entry
+ * @param {boolean} isDirectory - Whether the entry is a directory
+ * @param {number} myWatchId - watchId captured when this watcher's closure was created
+ * @param {string} watchedDir - The directory this watcher is watching
  */
-function stopWatch() {
-  watchId++; // invalidate any pending debounce callbacks from the old watcher
+function pushChange(type, filePath, isDirectory, myWatchId, watchedDir) {
+  const entry = dirWatchers.get(watchedDir);
+  if (!entry || entry.watchId !== myWatchId) return; // stale watcher — discard
+
+  pendingChanges.push({ type, path: filePath, isDirectory });
 
   if (debounceTimer !== null) {
     clearTimeout(debounceTimer);
-    debounceTimer = null;
   }
-
-  pendingChanges = [];
-
-  if (activeWatcher) {
-    activeWatcher.close(); // fire-and-forget — safe, chokidar handles this internally
-    activeWatcher = null;
-  }
+  debounceTimer = setTimeout(() => flushChanges(myWatchId), DEBOUNCE_MS);
 }
 
+// ==================== WATCHER LIFECYCLE ====================
+
 /**
- * Starts watching projectPath for filesystem changes.
- * Any previously active watcher is stopped first.
- * @param {string} projectPath - Absolute path to the project directory
+ * Starts watching a single directory with a shallow (depth:0) chokidar watcher.
+ * If a watcher for this directory is already active, returns immediately.
+ * @param {string} dirPath - Absolute path to the directory to watch
  */
-function startWatch(projectPath) {
-  stopWatch(); // stop any existing watcher and bump watchId
+function watchDir(dirPath) {
+  if (dirWatchers.has(dirPath)) return; // already watching
 
-  const myWatchId = watchId; // capture the new watchId for this watcher's closures
+  watchId++;
+  const myWatchId = watchId;
 
-  activeWatcher = chokidar.watch(projectPath, {
+  const watcher = chokidar.watch(dirPath, {
     ignored: makeIgnoredFn(),
-    persistent: true,             // activates chokidar's native error listener (handler.js:175-198) which swallows EPERM on Windows directory deletion
+    persistent: true,             // activates chokidar's native error listener which swallows EPERM on Windows directory deletion
     ignoreInitial: true,          // only report changes, not the initial directory scan
-    ignorePermissionErrors: true, // silently ignore EACCES/EPERM from subdirectories the user lacks read access to
+    ignorePermissionErrors: true, // silently ignore EACCES/EPERM from subdirectories
+    depth: 0,                     // shallow: only direct children of dirPath
     awaitWriteFinish: {
       stabilityThreshold: 200,
       pollInterval: 100
     }
   });
 
-  /**
-   * Pushes a single change event and (re)schedules the debounce flush.
-   * Drops the event silently if this watcher has become stale.
-   * @param {'add'|'remove'} type - Change type
-   * @param {string} filePath - Absolute path of the changed entry
-   * @param {boolean} isDirectory - Whether the entry is a directory
-   */
-  function pushChange(type, filePath, isDirectory) {
-    if (myWatchId !== watchId) return; // stale watcher — discard
-
-    pendingChanges.push({ type, path: filePath, isDirectory });
-
-    if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-    }
-    debounceTimer = setTimeout(() => flushChanges(myWatchId), DEBOUNCE_MS);
-  }
-
-  activeWatcher
-    .on('add',       (p) => pushChange('add',    p, false))
-    .on('addDir',    (p) => pushChange('add',    p, true))
-    .on('unlink',    (p) => pushChange('remove', p, false))
-    .on('unlinkDir', (p) => pushChange('remove', p, true))
-    .on('ready', () => {
-      if (myWatchId !== watchId) return;
-      // Check soft limit — sum the length of all watched path arrays
-      const watched = activeWatcher.getWatched();
-      const totalPaths = Object.values(watched).reduce((acc, arr) => acc + arr.length, 0);
-      if (totalPaths > SOFT_LIMIT) {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('explorer:watchLimitWarning', {
-            count: totalPaths,
-            limit: SOFT_LIMIT
-          });
-        }
-      }
-    })
+  watcher
+    .on('add',       (p) => pushChange('add',    p, false, myWatchId, dirPath))
+    .on('addDir',    (p) => pushChange('add',    p, true,  myWatchId, dirPath))
+    .on('unlink',    (p) => pushChange('remove', p, false, myWatchId, dirPath))
+    .on('unlinkDir', (p) => pushChange('remove', p, true,  myWatchId, dirPath))
     .on('error', () => {
       // Silently ignore errors (e.g. permission denied on subdirectories)
     });
+
+  dirWatchers.set(dirPath, { watcher, watchId: myWatchId });
+}
+
+/**
+ * Stops the watcher for a single directory and removes it from the map.
+ * No-op if the directory is not currently being watched.
+ * @param {string} dirPath - Absolute path to the directory to unwatch
+ */
+function unwatchDir(dirPath) {
+  const entry = dirWatchers.get(dirPath);
+  if (!entry) return;
+
+  entry.watcher.close(); // fire-and-forget — safe, chokidar handles this internally
+  dirWatchers.delete(dirPath);
+}
+
+/**
+ * Stops all active per-directory watchers and clears pending state.
+ */
+function stopAllDirWatchers() {
+  for (const entry of dirWatchers.values()) {
+    entry.watcher.close();
+  }
+  dirWatchers.clear();
+
+  pendingChanges = [];
+
+  if (debounceTimer !== null) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+/**
+ * Public stop function — stops all watchers.
+ * Kept for backwards compatibility (called by app shutdown in main.js).
+ */
+function stopWatch() {
+  stopAllDirWatchers();
 }
 
 // ==================== IPC REGISTRATION ====================
@@ -173,13 +187,19 @@ function startWatch(projectPath) {
 function registerExplorerHandlers(mw) {
   mainWindow = mw;
 
-  // Fire-and-forget: start watching a project directory
-  ipcMain.on('explorer:startWatch', (event, projectPath) => {
-    if (!projectPath || typeof projectPath !== 'string') return;
-    startWatch(projectPath);
+  // Start watching a single directory (shallow, depth:0)
+  ipcMain.on('explorer:watchDir', (event, dirPath) => {
+    if (!dirPath || typeof dirPath !== 'string') return;
+    watchDir(dirPath);
   });
 
-  // Fire-and-forget: stop any active watcher
+  // Stop watching a single directory
+  ipcMain.on('explorer:unwatchDir', (event, dirPath) => {
+    if (!dirPath || typeof dirPath !== 'string') return;
+    unwatchDir(dirPath);
+  });
+
+  // Stop all watchers (project deselect / collapse-all / refresh)
   ipcMain.on('explorer:stopWatch', () => {
     stopWatch();
   });
