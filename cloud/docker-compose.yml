@@ -9,7 +9,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./data/claude:/root/.claude
-      - ./data/gitconfig:/root/.gitconfig
-      - ./data/git-credentials:/root/.git-credentials
+      - ./data/gitdata:/root/.gitdata
+    environment:
+      - GIT_CONFIG_GLOBAL=/root/.gitdata/.gitconfig
     env_file: .env
     restart: unless-stopped

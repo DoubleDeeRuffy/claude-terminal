@@ -105,10 +105,10 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     CLAUDE_VERSION=""
     # Check from host-side volumes first, fallback to docker exec
     [ -f data/claude/.credentials.json ] && HAS_CREDS="yes"
-    GIT_NAME_VAL=$(grep 'name\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
-    GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+    GIT_NAME_VAL=$(grep 'name\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+    GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
     [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
-    [ -s data/git-credentials ] && HAS_GIT_TOKEN="yes"
+    [ -s data/gitdata/.git-credentials ] && HAS_GIT_TOKEN="yes"
     if [ -n "$CONTAINER_UP" ]; then
       CLAUDE_VERSION=$(docker exec ct-cloud /root/.local/bin/claude --version 2>/dev/null || true)
       # Fallback: check inside container if host-side volume not yet synced
@@ -118,7 +118,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         GIT_EMAIL_VAL=$(docker exec ct-cloud git config --global user.email 2>/dev/null || true)
         [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
       fi
-      [ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
+      [ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.gitdata/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
       USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
     fi
 
@@ -166,9 +166,9 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     case "$UPDATE_ACTION" in
       1)
         echo ""
-        mkdir -p data/users data/claude
-        touch data/gitconfig data/git-credentials
-        chmod 600 data/git-credentials 2>/dev/null || true
+        mkdir -p data/users data/claude data/gitdata
+        touch data/gitdata/.gitconfig data/gitdata/.git-credentials
+        chmod 600 data/gitdata/.git-credentials 2>/dev/null || true
         echo -e "  ${CYAN}Rebuilding containers...${NC}"
         docker compose up -d --build
         sleep 3
@@ -215,9 +215,9 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     echo ""
 
     # Rebuild (source may have changed)
-    mkdir -p data/users data/claude
-    touch data/gitconfig data/git-credentials
-    chmod 600 data/git-credentials 2>/dev/null || true
+    mkdir -p data/users data/claude data/gitdata
+    touch data/gitdata/.gitconfig data/gitdata/.git-credentials
+    chmod 600 data/gitdata/.git-credentials 2>/dev/null || true
     echo -e "  ${CYAN}Rebuilding containers...${NC}"
     docker compose up -d --build
     sleep 3
@@ -284,9 +284,9 @@ echo ""
 # ══════════════════════════════════════════════
 
 if [ "$IS_UPDATE" = false ]; then
-  mkdir -p data/users data/claude
-  touch data/gitconfig data/git-credentials
-  chmod 600 data/git-credentials
+  mkdir -p data/users data/claude data/gitdata
+  touch data/gitdata/.gitconfig data/gitdata/.git-credentials
+  chmod 600 data/gitdata/.git-credentials
 
   echo -e "  ${CYAN}Building and starting containers...${NC}"
   docker compose up -d --build
@@ -357,8 +357,8 @@ echo ""
 # ══════════════════════════════════════════════
 
 # Re-check git config (host-side first, container fallback)
-GIT_NAME_VAL=$(grep 'name\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
-GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+GIT_NAME_VAL=$(grep 'name\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
+GIT_EMAIL_VAL=$(grep 'email\s*=' data/gitdata/.gitconfig 2>/dev/null | sed 's/.*=\s*//' || true)
 HAS_GIT_NAME="no"
 [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
 if [ "$HAS_GIT_NAME" = "no" ]; then
@@ -367,8 +367,8 @@ if [ "$HAS_GIT_NAME" = "no" ]; then
   [ -n "$GIT_NAME_VAL" ] && HAS_GIT_NAME="yes"
 fi
 HAS_GIT_TOKEN="no"
-[ -s data/git-credentials ] && HAS_GIT_TOKEN="yes"
-[ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
+[ -s data/gitdata/.git-credentials ] && HAS_GIT_TOKEN="yes"
+[ "$HAS_GIT_TOKEN" = "no" ] && docker exec ct-cloud bash -c 'test -s /root/.gitdata/.git-credentials' 2>/dev/null && HAS_GIT_TOKEN="yes"
 
 if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_GIT_NAME" = "yes" ] && [ "$HAS_GIT_TOKEN" = "yes" ]; then
   echo -e "  ${GREEN}✓ Git identity${NC} ${DIM}($GIT_NAME_VAL <$GIT_EMAIL_VAL>)${NC}"
@@ -443,12 +443,12 @@ else
       read -p "  GitHub token (press Enter to skip): " GH_TOKEN
 
       if [ -n "$GH_TOKEN" ]; then
-        docker exec ct-cloud git config --global credential.helper store
-        docker exec ct-cloud bash -c "echo 'https://oauth2:${GH_TOKEN}@github.com' > /root/.git-credentials && chmod 600 /root/.git-credentials"
+        docker exec ct-cloud git config --global credential.helper 'store --file /root/.gitdata/.git-credentials'
+        docker exec ct-cloud bash -c "echo 'https://oauth2:${GH_TOKEN}@github.com' > /root/.gitdata/.git-credentials && chmod 600 /root/.gitdata/.git-credentials"
         echo -e "  ${GREEN}✓ GitHub token saved${NC}"
       else
         echo -e "  ${DIM}Skipped — add a token later:${NC}"
-        echo -e "  ${DIM}  docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.git-credentials\"${NC}"
+        echo -e "  ${DIM}  docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.gitdata/.git-credentials\"${NC}"
       fi
     fi
   fi
@@ -794,7 +794,7 @@ fi
 echo -e "  ${DIM}────────────────────────────────────${NC}"
 echo -e "  ${DIM}Manage users:  docker exec ct-cloud node dist/cli.js user add <name>${NC}"
 echo -e "  ${DIM}Claude auth:   docker exec -it ct-cloud claude login${NC}"
-echo -e "  ${DIM}Git token:     docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.git-credentials\"${NC}"
+echo -e "  ${DIM}Git token:     docker exec ct-cloud bash -c \"echo 'https://oauth2:TOKEN@github.com' > /root/.gitdata/.git-credentials\"${NC}"
 echo -e "  ${DIM}View logs:     docker compose -f $INSTALL_DIR/cloud/docker-compose.yml logs -f${NC}"
 echo -e "  ${DIM}Manual update: $INSTALL_DIR/cloud/update.sh${NC}"
 echo -e "  ${DIM}Update logs:   /var/log/ct-cloud-update.log${NC}"
