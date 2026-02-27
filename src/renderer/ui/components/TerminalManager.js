@@ -160,6 +160,9 @@ const terminalContext = new Map();        // id -> { taskName, lastTool, toolCou
 const lastActivePerProject = new Map();
 // Track scroll position per terminal at leave-time (for scroll restoration on project switch)
 const savedScrollPositions = new Map();
+// ── Per-project activation history stack (Phase 23 — browser-like tab-close behavior) ──
+// Map<projectId, number[]> — most-recently-activated tab ID is the last element
+const tabActivationHistory = new Map();
 
 /**
  * Scan terminal buffer for definitive completion signals.
@@ -1234,6 +1237,11 @@ function setActiveTerminal(id) {
     // Record this terminal as last-active for its project
     if (newProjectId) {
       lastActivePerProject.set(newProjectId, id);
+      // Append to per-project activation history (Phase 23 — browser-like tab-close)
+      if (!tabActivationHistory.has(newProjectId)) {
+        tabActivationHistory.set(newProjectId, []);
+      }
+      tabActivationHistory.get(newProjectId).push(id);
     }
 
     // Restore scroll position of the incoming terminal (deferred until DOM is visible)
