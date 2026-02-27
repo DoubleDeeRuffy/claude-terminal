@@ -3,6 +3,8 @@ const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
 const { getAgents } = require('../../services/AgentService');
 const { getSkills } = require('../../services/SkillService');
 const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphService');
+const { projectsState } = require('../../state/projects.state');
+const { getDatabaseConnections } = require('../../state/database.state');
 
 let ctx = null;
 
@@ -28,14 +30,23 @@ const HOOK_TYPES = [
 ];
 
 const STEP_TYPES = [
-  { type: 'trigger',   label: 'Trigger',   color: 'success',  icon: svgPlay(11), desc: 'Déclencheur du workflow' },
-  { type: 'claude',    label: 'Claude',    color: 'accent',   icon: svgClaude(), desc: 'Prompt, Agent ou Skill' },
-  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),  desc: 'Commande bash' },
-  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),    desc: 'Opération git' },
-  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),   desc: 'Requête API' },
-  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify(), desc: 'Notification' },
-  { type: 'wait',      label: 'Wait',      color: 'muted',    icon: svgWait(),   desc: 'Temporisation' },
-  { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),   desc: 'Branchement' },
+  { type: 'trigger',   label: 'Trigger',   color: 'success',  icon: svgPlay(11),     desc: 'Déclencheur du workflow' },
+  // ── Actions ──
+  { type: 'claude',    label: 'Claude',    color: 'accent',   icon: svgClaude(),     desc: 'Prompt, Agent ou Skill',  category: 'action' },
+  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),      desc: 'Commande bash',           category: 'action' },
+  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),        desc: 'Opération git',           category: 'action' },
+  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),       desc: 'Requête API',             category: 'action' },
+  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify(),     desc: 'Notification',            category: 'action' },
+  // ── Data ──
+  { type: 'project',   label: 'Project',   color: 'pink',     icon: svgProject(),    desc: 'Cibler un projet',        category: 'data' },
+  { type: 'file',      label: 'File',      color: 'lime',     icon: svgFile(),       desc: 'Opération fichier',       category: 'data' },
+  { type: 'db',        label: 'Database',  color: 'orange',   icon: svgDb(),         desc: 'Requête base de données', category: 'data' },
+  { type: 'variable',  label: 'Variable',  color: 'violet',   icon: svgVariable(),   desc: 'Lire/écrire une variable',category: 'data' },
+  // ── Flow ──
+  { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),       desc: 'Branchement conditionnel',category: 'flow' },
+  { type: 'loop',      label: 'Loop',      color: 'sky',      icon: svgLoop(),       desc: 'Itérer sur une liste',    category: 'flow' },
+  { type: 'wait',      label: 'Wait',      color: 'muted',    icon: svgWait(),       desc: 'Temporisation',           category: 'flow' },
+  { type: 'log',       label: 'Log',       color: 'slate',    icon: svgLog(),        desc: 'Écrire dans le log',      category: 'flow' },
 ];
 
 const GIT_ACTIONS = [
@@ -703,17 +714,25 @@ function openEditor(workflowId = null) {
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-palette" id="wf-ed-palette">
-          <div class="wf-palette-title">Nodes</div>
-          ${nodeTypes.map(st => `
-            <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="Cliquer pour ajouter ${st.label}">
-              <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
-              <div class="wf-palette-text">
-                <span class="wf-palette-label">${st.label}</span>
-                <span class="wf-palette-desc">${st.desc}</span>
-              </div>
-              <svg class="wf-palette-add" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-            </div>
-          `).join('')}
+          ${[
+            { key: 'action', title: 'Actions' },
+            { key: 'data',   title: 'Données' },
+            { key: 'flow',   title: 'Contrôle' },
+          ].map(cat => {
+            const items = nodeTypes.filter(st => st.category === cat.key);
+            if (!items.length) return '';
+            return `<div class="wf-palette-title">${cat.title}</div>` +
+              items.map(st => `
+                <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="Cliquer pour ajouter ${st.label}">
+                  <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
+                  <div class="wf-palette-text">
+                    <span class="wf-palette-label">${st.label}</span>
+                    <span class="wf-palette-desc">${st.desc}</span>
+                  </div>
+                  <svg class="wf-palette-add" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                </div>
+              `).join('');
+          }).join('')}
           <div class="wf-palette-hint">Cliquer pour ajouter au canvas</div>
         </div>
         <div class="wf-editor-canvas-wrap" id="wf-ed-canvas-wrap">
@@ -800,23 +819,27 @@ function openEditor(workflowId = null) {
             </div>
           </div>
           <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">Scope</label>
+            <label class="wf-step-edit-label">${svgScope()} Scope d'exécution</label>
+            <span class="wf-field-hint">Sur quels projets ce workflow peut s'exécuter</span>
             <select class="wf-step-edit-input wf-props-input" data-prop="scope">
-              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>Projet courant</option>
+              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>Projet courant uniquement</option>
               <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>Projet spécifique</option>
               <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>Tous les projets</option>
             </select>
           </div>
           <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">Concurrence</label>
+            <label class="wf-step-edit-label">${svgConc()} Concurrence</label>
+            <span class="wf-field-hint">Comportement si le workflow est déjà en cours</span>
             <select class="wf-step-edit-input wf-props-input" data-prop="concurrency">
-              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>Skip (ne pas relancer si en cours)</option>
+              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>Skip (ignorer si en cours)</option>
               <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>Queue (file d'attente)</option>
-              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>Parallel</option>
+              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>Parallel (instances multiples)</option>
             </select>
           </div>
         </div>
       `;
+      // Upgrade native selects to custom dropdowns
+      upgradeSelectsToDropdowns(propsEl);
       // Bind workflow option inputs
       propsEl.querySelectorAll('.wf-props-input').forEach(input => {
         input.addEventListener('change', () => {
@@ -838,30 +861,34 @@ function openEditor(workflowId = null) {
     if (nodeType === 'trigger') {
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Type de déclencheur</label>
+          <label class="wf-step-edit-label">${svgTriggerType()} Déclencheur</label>
+          <span class="wf-field-hint">Comment ce workflow démarre</span>
           <select class="wf-step-edit-input wf-node-prop" data-key="triggerType">
-            <option value="manual" ${props.triggerType === 'manual' ? 'selected' : ''}>Manuel</option>
-            <option value="cron" ${props.triggerType === 'cron' ? 'selected' : ''}>Cron (planifié)</option>
+            <option value="manual" ${props.triggerType === 'manual' ? 'selected' : ''}>Manuel (bouton play)</option>
+            <option value="cron" ${props.triggerType === 'cron' ? 'selected' : ''}>Planifié (cron)</option>
             <option value="hook" ${props.triggerType === 'hook' ? 'selected' : ''}>Hook Claude</option>
-            <option value="on_workflow" ${props.triggerType === 'on_workflow' ? 'selected' : ''}>Après workflow</option>
+            <option value="on_workflow" ${props.triggerType === 'on_workflow' ? 'selected' : ''}>Après un workflow</option>
           </select>
         </div>
         ${props.triggerType === 'cron' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Expression cron</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="*/5 * * * *" style="font-family:monospace" />
+          <label class="wf-step-edit-label">${svgClock()} Expression cron</label>
+          <span class="wf-field-hint">min heure jour mois jour-semaine</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="*/5 * * * *" />
         </div>` : ''}
         ${props.triggerType === 'hook' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Type de hook</label>
+          <label class="wf-step-edit-label">${svgHook()} Type de hook</label>
+          <span class="wf-field-hint">Événement Claude qui déclenche le workflow</span>
           <select class="wf-step-edit-input wf-node-prop" data-key="hookType">
-            ${HOOK_TYPES.map(h => `<option value="${h.value}" ${props.hookType === h.value ? 'selected' : ''}>${h.label}</option>`).join('')}
+            ${HOOK_TYPES.map(h => `<option value="${h.value}" ${props.hookType === h.value ? 'selected' : ''}>${h.label} — ${h.desc}</option>`).join('')}
           </select>
         </div>` : ''}
         ${props.triggerType === 'on_workflow' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Workflow source</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="Nom du workflow" />
+          <label class="wf-step-edit-label">${svgLink()} Workflow source</label>
+          <span class="wf-field-hint">Nom du workflow à surveiller</span>
+          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="deploy-production" />
         </div>` : ''}
       `;
     }
@@ -872,7 +899,7 @@ function openEditor(workflowId = null) {
       const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Mode</label>
+          <label class="wf-step-edit-label">${svgMode()} Mode d'exécution</label>
           <div class="wf-claude-mode-tabs">
             <button class="wf-claude-mode-tab ${mode === 'prompt' ? 'active' : ''}" data-mode="prompt">
               ${svgPrompt(16)}
@@ -890,112 +917,152 @@ function openEditor(workflowId = null) {
         </div>
         ${mode === 'prompt' || !mode ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Prompt</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="4" placeholder="Votre prompt ici…">${escapeHtml(props.prompt || '')}</textarea>
+          <label class="wf-step-edit-label">${svgPrompt(10)} Prompt</label>
+          <span class="wf-field-hint">Instructions envoyées à Claude</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="5" placeholder="Analyse ce fichier et résume les changements...">${escapeHtml(props.prompt || '')}</textarea>
         </div>` : ''}
         ${mode === 'agent' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Agent</label>
+          <label class="wf-step-edit-label">${svgAgent(10)} Agent</label>
+          <span class="wf-field-hint">Worker autonome avec contexte isolé</span>
           <div class="wf-agent-grid">
             ${agents.length ? agents.map(a => `
               <div class="wf-agent-card ${props.agentId === a.id ? 'active' : ''}" data-agent-id="${a.id}">
-                <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
-                <span class="wf-agent-card-desc">${escapeHtml(a.description || '')}</span>
+                <span class="wf-agent-card-icon">${svgAgent(14)}</span>
+                <div class="wf-agent-card-text">
+                  <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
+                  ${a.description ? `<span class="wf-agent-card-desc">${escapeHtml(a.description)}</span>` : ''}
+                </div>
+                <svg class="wf-agent-card-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               </div>
-            `).join('') : '<span class="wf-agent-empty">Aucun agent détecté</span>'}
+            `).join('') : '<div class="wf-agent-empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Aucun agent dans ~/.claude/agents/</div>'}
           </div>
         </div>
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Instructions additionnelles</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Instructions optionnelles…">${escapeHtml(props.prompt || '')}</textarea>
+          <label class="wf-step-edit-label">${svgPrompt(10)} Instructions</label>
+          <span class="wf-field-hint">Contexte additionnel pour l'agent</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Focus on performance issues...">${escapeHtml(props.prompt || '')}</textarea>
         </div>` : ''}
         ${mode === 'skill' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Skill</label>
+          <label class="wf-step-edit-label">${svgSkill(10)} Skill</label>
+          <span class="wf-field-hint">Commande spécialisée à invoquer</span>
           <div class="wf-agent-grid">
             ${skills.length ? skills.map(s => `
               <div class="wf-agent-card ${props.skillId === s.id ? 'active' : ''}" data-skill-id="${s.id}">
-                <span class="wf-agent-card-name">${escapeHtml(s.name)}</span>
-                <span class="wf-agent-card-desc">${escapeHtml(s.description || '')}</span>
+                <span class="wf-agent-card-icon">${svgSkill(14)}</span>
+                <div class="wf-agent-card-text">
+                  <span class="wf-agent-card-name">${escapeHtml(s.name)}</span>
+                  ${s.description ? `<span class="wf-agent-card-desc">${escapeHtml(s.description)}</span>` : ''}
+                </div>
+                <svg class="wf-agent-card-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               </div>
-            `).join('') : '<span class="wf-agent-empty">Aucun skill détecté</span>'}
+            `).join('') : '<div class="wf-agent-empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Aucun skill dans ~/.claude/skills/</div>'}
           </div>
         </div>
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Instructions additionnelles</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Instructions optionnelles…">${escapeHtml(props.prompt || '')}</textarea>
+          <label class="wf-step-edit-label">${svgPrompt(10)} Arguments</label>
+          <span class="wf-field-hint">Texte passé au skill comme argument</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Arguments optionnels...">${escapeHtml(props.prompt || '')}</textarea>
         </div>` : ''}
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Modèle</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="model">
-            <option value="" ${!props.model ? 'selected' : ''}>Par défaut</option>
-            <option value="sonnet" ${props.model === 'sonnet' ? 'selected' : ''}>Sonnet</option>
-            <option value="opus" ${props.model === 'opus' ? 'selected' : ''}>Opus</option>
-            <option value="haiku" ${props.model === 'haiku' ? 'selected' : ''}>Haiku</option>
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Effort</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="effort">
-            <option value="" ${!props.effort ? 'selected' : ''}>Par défaut</option>
-            <option value="low" ${props.effort === 'low' ? 'selected' : ''}>Low</option>
-            <option value="medium" ${props.effort === 'medium' ? 'selected' : ''}>Medium</option>
-            <option value="high" ${props.effort === 'high' ? 'selected' : ''}>High</option>
-          </select>
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">Modèle</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="model">
+              <option value="" ${!props.model ? 'selected' : ''}>Auto</option>
+              <option value="sonnet" ${props.model === 'sonnet' ? 'selected' : ''}>Sonnet</option>
+              <option value="opus" ${props.model === 'opus' ? 'selected' : ''}>Opus</option>
+              <option value="haiku" ${props.model === 'haiku' ? 'selected' : ''}>Haiku</option>
+            </select>
+          </div>
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">Effort</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="effort">
+              <option value="" ${!props.effort ? 'selected' : ''}>Auto</option>
+              <option value="low" ${props.effort === 'low' ? 'selected' : ''}>Low</option>
+              <option value="medium" ${props.effort === 'medium' ? 'selected' : ''}>Medium</option>
+              <option value="high" ${props.effort === 'high' ? 'selected' : ''}>High</option>
+            </select>
+          </div>
         </div>
       `;
     }
     // Shell node
     else if (nodeType === 'shell') {
+      const allProjects = projectsState.get().projects || [];
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Commande</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="command" rows="3" style="font-family:monospace" placeholder="npm test">${escapeHtml(props.command || '')}</textarea>
+          <label class="wf-step-edit-label">${svgProject()} Exécuter dans</label>
+          <span class="wf-field-hint">Répertoire de travail de la commande</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgShell()} Commande</label>
+          <span class="wf-field-hint">Commande bash exécutée dans un terminal</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="command" rows="3" placeholder="npm run build && npm test">${escapeHtml(props.command || '')}</textarea>
         </div>
       `;
     }
     // Git node
     else if (nodeType === 'git') {
+      const allProjects = projectsState.get().projects || [];
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Action</label>
+          <label class="wf-step-edit-label">${svgProject()} Projet cible</label>
+          <span class="wf-field-hint">Dépôt git sur lequel opérer</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgGit()} Action</label>
           <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            ${GIT_ACTIONS.map(a => `<option value="${a.value}" ${props.action === a.value ? 'selected' : ''}>${a.label}</option>`).join('')}
+            ${GIT_ACTIONS.map(a => `<option value="${a.value}" ${props.action === a.value ? 'selected' : ''}>${a.label} — ${a.desc}</option>`).join('')}
           </select>
         </div>
         ${props.action === 'commit' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Message</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="message" value="${escapeHtml(props.message || '')}" placeholder="Commit message" />
+          <label class="wf-step-edit-label">${svgEdit()} Message de commit</label>
+          <span class="wf-field-hint">Convention: type(scope): description</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="message" value="${escapeHtml(props.message || '')}" placeholder="feat(auth): add password reset" />
         </div>` : ''}
         ${props.action === 'checkout' || props.action === 'merge' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Branche</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="branch" value="${escapeHtml(props.branch || '')}" placeholder="main" />
+          <label class="wf-step-edit-label">${svgBranch()} Branche</label>
+          <span class="wf-field-hint">Nom de la branche git</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="branch" value="${escapeHtml(props.branch || '')}" placeholder="feature/my-branch" />
         </div>` : ''}
       `;
     }
     // HTTP node
     else if (nodeType === 'http') {
       fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Méthode</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="method">
-            ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${props.method === m ? 'selected' : ''}>${m}</option>`).join('')}
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">URL</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="url" value="${escapeHtml(props.url || '')}" placeholder="https://api.example.com" style="font-family:monospace" />
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field" style="width:100px;flex-shrink:0">
+            <label class="wf-step-edit-label">Méthode</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="method">
+              ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${props.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div class="wf-step-edit-field" style="flex:1">
+            <label class="wf-step-edit-label">URL</label>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="url" value="${escapeHtml(props.url || '')}" placeholder="https://api.example.com/v1/users" />
+          </div>
         </div>
         ${['POST','PUT','PATCH'].includes(props.method) ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Headers (JSON)</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="headers" rows="2" style="font-family:monospace" placeholder='{"Content-Type":"application/json"}'>${escapeHtml(props.headers || '')}</textarea>
+          <label class="wf-step-edit-label">${svgCode()} Headers</label>
+          <span class="wf-field-hint">Objet JSON des en-têtes HTTP</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="headers" rows="2" placeholder='{"Authorization": "Bearer $token"}'>${escapeHtml(props.headers || '')}</textarea>
         </div>
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Body</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="body" rows="3" style="font-family:monospace">${escapeHtml(props.body || '')}</textarea>
+          <label class="wf-step-edit-label">${svgCode()} Body</label>
+          <span class="wf-field-hint">Corps de la requête (JSON)</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="body" rows="3" placeholder='{"name": "John", "email": "john@example.com"}'>${escapeHtml(props.body || '')}</textarea>
         </div>` : ''}
       `;
     }
@@ -1003,12 +1070,13 @@ function openEditor(workflowId = null) {
     else if (nodeType === 'notify') {
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Titre</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="title" value="${escapeHtml(props.title || '')}" placeholder="Notification" />
+          <label class="wf-step-edit-label">${svgNotify()} Titre</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="title" value="${escapeHtml(props.title || '')}" placeholder="Build terminé" />
         </div>
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Message</label>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3">${escapeHtml(props.message || '')}</textarea>
+          <label class="wf-step-edit-label">${svgEdit()} Message</label>
+          <span class="wf-field-hint">Supporte les variables: $ctx.project, $prev.output</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Le build de $ctx.project est terminé avec succès.">${escapeHtml(props.message || '')}</textarea>
         </div>
       `;
     }
@@ -1016,8 +1084,9 @@ function openEditor(workflowId = null) {
     else if (nodeType === 'wait') {
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Durée</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="duration" value="${escapeHtml(props.duration || '5s')}" placeholder="5s, 1m, 1h" />
+          <label class="wf-step-edit-label">${svgWait()} Durée</label>
+          <span class="wf-field-hint">Formats: 5s, 2m, 1h, 500ms</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="duration" value="${escapeHtml(props.duration || '5s')}" placeholder="5s" />
         </div>
       `;
     }
@@ -1025,24 +1094,177 @@ function openEditor(workflowId = null) {
     else if (nodeType === 'condition') {
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Variable</label>
+          <label class="wf-step-edit-label">${svgVariable()} Variable</label>
+          <span class="wf-field-hint">Donnée à évaluer</span>
           <select class="wf-step-edit-input wf-node-prop" data-key="variable">
             ${CONDITION_VARS.map(v => `<option value="${v.value}" ${props.variable === v.value ? 'selected' : ''}>${v.label}</option>`).join('')}
           </select>
         </div>
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">Opérateur</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="operator">
+              ${CONDITION_OPS.map(o => `<option value="${o.value}" ${props.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">Valeur</label>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="0" />
+          </div>
+        </div>
+      `;
+    }
+    // Project node
+    else if (nodeType === 'project') {
+      const allProjects = projectsState.get().projects || [];
+      fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Opérateur</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="operator">
-            ${CONDITION_OPS.map(o => `<option value="${o.value}" ${props.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+          <label class="wf-step-edit-label">${svgProject()} Projet</label>
+          <span class="wf-field-hint">Projet cible de cette opération</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="">-- Choisir un projet --</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
           </select>
         </div>
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">Valeur</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="main" />
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <span class="wf-field-hint">Opération à effectuer sur le projet</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="set_context" ${props.action === 'set_context' ? 'selected' : ''}>Définir comme contexte actif</option>
+            <option value="open" ${props.action === 'open' ? 'selected' : ''}>Ouvrir dans l'éditeur</option>
+            <option value="build" ${props.action === 'build' ? 'selected' : ''}>Lancer le build</option>
+            <option value="install" ${props.action === 'install' ? 'selected' : ''}>Installer les dépendances</option>
+            <option value="test" ${props.action === 'test' ? 'selected' : ''}>Exécuter les tests</option>
+          </select>
+        </div>
+      `;
+    }
+    // File node
+    else if (nodeType === 'file') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="read" ${props.action === 'read' ? 'selected' : ''}>Lire le fichier</option>
+            <option value="write" ${props.action === 'write' ? 'selected' : ''}>Écrire (remplacer)</option>
+            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la fin</option>
+            <option value="copy" ${props.action === 'copy' ? 'selected' : ''}>Copier</option>
+            <option value="delete" ${props.action === 'delete' ? 'selected' : ''}>Supprimer</option>
+            <option value="exists" ${props.action === 'exists' ? 'selected' : ''}>Vérifier existence</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Chemin</label>
+          <span class="wf-field-hint">Chemin relatif ou absolu du fichier</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="path" value="${escapeHtml(props.path || '')}" placeholder="./src/index.js" />
+        </div>
+        ${props.action === 'copy' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Destination</label>
+          <span class="wf-field-hint">Chemin cible pour la copie</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="destination" value="${escapeHtml(props.destination || '')}" placeholder="./backup/index.js.bak" />
+        </div>` : ''}
+        ${props.action === 'write' || props.action === 'append' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Contenu</label>
+          <span class="wf-field-hint">Texte ou données à écrire dans le fichier</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="content" rows="4" placeholder="console.log('Hello world');">${escapeHtml(props.content || '')}</textarea>
+        </div>` : ''}
+      `;
+    }
+    // DB node
+    else if (nodeType === 'db') {
+      const dbConns = getDatabaseConnections() || [];
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgDb()} Connexion</label>
+          <span class="wf-field-hint">Base de données configurée dans l'app</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="connection">
+            <option value="">-- Choisir une connexion --</option>
+            ${dbConns.map(c => `<option value="${c.id}" ${props.connection === c.id ? 'selected' : ''}>${escapeHtml(c.name)} (${c.type || 'sql'})</option>`).join('')}
+          </select>
+          ${!dbConns.length ? '<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">Aucune connexion — configurez-en dans l\'onglet Database</span>' : ''}
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Requête SQL</label>
+          <span class="wf-field-hint">SELECT, INSERT, UPDATE, DELETE, SHOW TABLES...</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="query" rows="5" placeholder="SELECT * FROM users\nWHERE active = 1\nORDER BY created_at DESC\nLIMIT 100">${escapeHtml(props.query || '')}</textarea>
+        </div>
+      `;
+    }
+    // Loop node
+    else if (nodeType === 'loop') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgLoop()} Source d'itération</label>
+          <span class="wf-field-hint">D'où viennent les items à parcourir</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="source">
+            <option value="projects" ${props.source === 'projects' ? 'selected' : ''}>Tous les projets enregistrés</option>
+            <option value="files" ${props.source === 'files' ? 'selected' : ''}>Fichiers (pattern glob)</option>
+            <option value="previous_output" ${props.source === 'previous_output' ? 'selected' : ''}>Sortie du node précédent</option>
+            <option value="custom" ${props.source === 'custom' ? 'selected' : ''}>Liste personnalisée</option>
+          </select>
+        </div>
+        ${props.source === 'files' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Pattern glob</label>
+          <span class="wf-field-hint">Expression pour trouver les fichiers</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" value="${escapeHtml(props.filter || '')}" placeholder="src/**/*.test.js" />
+        </div>` : ''}
+        ${props.source === 'custom' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Items</label>
+          <span class="wf-field-hint">Un item par ligne</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" rows="4" placeholder="api-service\nweb-app\nworker">${escapeHtml(props.filter || '')}</textarea>
+        </div>` : ''}
+      `;
+    }
+    // Variable node
+    else if (nodeType === 'variable') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="set" ${props.action === 'set' ? 'selected' : ''}>Définir une valeur</option>
+            <option value="get" ${props.action === 'get' ? 'selected' : ''}>Lire la valeur</option>
+            <option value="increment" ${props.action === 'increment' ? 'selected' : ''}>Incrémenter (+n)</option>
+            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la liste</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgVariable()} Nom</label>
+          <span class="wf-field-hint">Identifiant unique de la variable</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="name" value="${escapeHtml(props.name || '')}" placeholder="buildCount" />
+        </div>
+        ${props.action !== 'get' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Valeur</label>
+          <span class="wf-field-hint">${props.action === 'increment' ? 'Incrément (nombre)' : 'Valeur à assigner'}</span>
+          <input class="wf-step-edit-input wf-node-prop ${props.action === 'increment' ? 'wf-field-mono' : ''}" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="${props.action === 'increment' ? '1' : 'production'}" ${props.action === 'increment' ? 'type="number"' : ''} />
+        </div>` : ''}
+      `;
+    }
+    // Log node
+    else if (nodeType === 'log') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgLog()} Niveau</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="level">
+            <option value="debug" ${props.level === 'debug' ? 'selected' : ''}>Debug (gris)</option>
+            <option value="info" ${props.level === 'info' ? 'selected' : ''}>Info (bleu)</option>
+            <option value="warn" ${props.level === 'warn' ? 'selected' : ''}>Warning (jaune)</option>
+            <option value="error" ${props.level === 'error' ? 'selected' : ''}>Error (rouge)</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Message</label>
+          <span class="wf-field-hint">Variables: $ctx.project, $prev.output, $loop.item</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Build finished for $ctx.project in $prev.duration">${escapeHtml(props.message || '')}</textarea>
         </div>
       `;
     }
 
+    const customTitle = node.properties._customTitle || '';
     propsEl.innerHTML = `
       <div class="wf-props-section" data-node-color="${typeInfo.color}">
         <div class="wf-props-header">
@@ -1053,9 +1275,23 @@ function openEditor(workflowId = null) {
           </div>
           <span class="wf-props-badge wf-props-badge--${typeInfo.color}">${nodeType.toUpperCase()}</span>
         </div>
+        ${nodeType !== 'trigger' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Nom personnalisé</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="_customTitle" value="${escapeHtml(customTitle)}" placeholder="${typeInfo.label}" />
+        </div>` : ''}
         ${fieldsHtml}
+        ${nodeType !== 'trigger' ? `
+        <div class="wf-props-divider"></div>
+        <button class="wf-props-delete" id="wf-props-delete-node">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          Supprimer ce node
+        </button>` : ''}
       </div>
     `;
+
+    // Upgrade native selects to custom dropdowns
+    upgradeSelectsToDropdowns(propsEl);
 
     // ── Bind property inputs ──
     propsEl.querySelectorAll('.wf-node-prop').forEach(input => {
@@ -1113,6 +1349,29 @@ function openEditor(workflowId = null) {
         card.classList.add('active');
       });
     });
+
+    // Delete node button
+    const deleteBtn = propsEl.querySelector('#wf-props-delete-node');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        graphService.graph.remove(node);
+        editorDraft.dirty = true;
+        renderProperties(null);
+        updateStatusBar();
+        graphService.canvas.setDirty(true, true);
+      });
+    }
+
+    // Custom title update (sync to node title)
+    const titleInput = propsEl.querySelector('[data-key="_customTitle"]');
+    if (titleInput) {
+      titleInput.addEventListener('input', () => {
+        node.properties._customTitle = titleInput.value;
+        node.title = titleInput.value || typeInfo.label;
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+      });
+    }
   };
 
   // ── Graph events ──
@@ -1406,7 +1665,7 @@ function statusLabel(s) {
 /* ─── SVG icons ─────────────────────────────────────────────────────────────── */
 
 function svgWorkflow(s = 14) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
-function svgAgent() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>`; }
+function svgAgent(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>`; }
 function svgShell() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`; }
 function svgGit() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`; }
 function svgHttp() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
@@ -1426,5 +1685,113 @@ function svgRuns() { return `<svg width="10" height="10" viewBox="0 0 24 24" fil
 function svgClaude(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7v1a7 7 0 0 0 14 0V9a7 7 0 0 0-7-7z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/><path d="M8 18v2a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2"/></svg>`; }
 function svgPrompt(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`; }
 function svgSkill(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`; }
+function svgProject(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`; }
+function svgFile(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`; }
+function svgDb(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`; }
+function svgLoop(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`; }
+function svgVariable(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></svg>`; }
+function svgLog(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`; }
+function svgTriggerType(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`; }
+function svgLink(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
+function svgMode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`; }
+function svgEdit(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`; }
+function svgBranch(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`; }
+function svgCode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`; }
+
+/**
+ * Replace native <select> elements with custom styled dropdowns.
+ * Each select is hidden and wrapped by a .wf-dropdown that syncs value back.
+ */
+function upgradeSelectsToDropdowns(container) {
+  container.querySelectorAll('select.wf-step-edit-input, select.wf-node-prop').forEach(sel => {
+    if (sel.dataset.upgraded) return;
+    sel.dataset.upgraded = '1';
+    sel.style.display = 'none';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'wf-dropdown';
+    sel.parentNode.insertBefore(wrapper, sel.nextSibling);
+
+    // Build trigger button
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'wf-dropdown-trigger';
+    wrapper.appendChild(trigger);
+
+    // Build menu
+    const menu = document.createElement('div');
+    menu.className = 'wf-dropdown-menu';
+    wrapper.appendChild(menu);
+
+    const chevron = `<svg class="wf-dropdown-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+    function buildOptions() {
+      const selected = sel.value;
+      const selectedOpt = sel.options[sel.selectedIndex];
+      trigger.innerHTML = `<span class="wf-dropdown-text">${selectedOpt ? escapeHtml(selectedOpt.textContent) : ''}</span>${chevron}`;
+      if (!selected && selectedOpt && selectedOpt.value === '') {
+        trigger.classList.add('wf-dropdown-placeholder');
+      } else {
+        trigger.classList.remove('wf-dropdown-placeholder');
+      }
+
+      menu.innerHTML = '';
+      Array.from(sel.options).forEach(opt => {
+        const item = document.createElement('div');
+        item.className = 'wf-dropdown-item' + (opt.value === selected ? ' active' : '');
+        item.dataset.value = opt.value;
+        item.innerHTML = `<span>${escapeHtml(opt.textContent)}</span>${opt.value === selected ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}`;
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          sel.value = opt.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          closeMenu();
+          buildOptions();
+        });
+        menu.appendChild(item);
+      });
+    }
+
+    function openMenu() {
+      if (wrapper.classList.contains('open')) { closeMenu(); return; }
+      // Close any other open dropdowns
+      document.querySelectorAll('.wf-dropdown.open').forEach(d => d.classList.remove('open'));
+      wrapper.classList.add('open');
+      // Scroll active item into view
+      const activeItem = menu.querySelector('.wf-dropdown-item.active');
+      if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+    }
+
+    function closeMenu() {
+      wrapper.classList.remove('open');
+    }
+
+    trigger.addEventListener('click', (e) => { e.stopPropagation(); openMenu(); });
+
+    // Close on outside click
+    const outsideHandler = (e) => {
+      if (!wrapper.contains(e.target)) closeMenu();
+    };
+    document.addEventListener('click', outsideHandler, true);
+
+    // Close on escape
+    const escHandler = (e) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+    document.addEventListener('keydown', escHandler, true);
+
+    // Cleanup document listeners when dropdown is removed from DOM
+    const cleanupObs = new MutationObserver(() => {
+      if (!wrapper.isConnected) {
+        document.removeEventListener('click', outsideHandler, true);
+        document.removeEventListener('keydown', escHandler, true);
+        cleanupObs.disconnect();
+      }
+    });
+    cleanupObs.observe(wrapper.parentNode || document.body, { childList: true, subtree: true });
+
+    buildOptions();
+  });
+}
 
 module.exports = { init, load };

@@ -18,6 +18,12 @@ const NODE_COLORS = {
   notify:    { bg: '#111', border: '#222', accent: '#fbbf24', accentDim: 'rgba(251,191,36,.08)' },
   wait:      { bg: '#111', border: '#222', accent: '#6b7280', accentDim: 'rgba(107,114,128,.08)' },
   condition: { bg: '#111', border: '#222', accent: '#4ade80', accentDim: 'rgba(74,222,128,.08)' },
+  project:   { bg: '#111', border: '#222', accent: '#f472b6', accentDim: 'rgba(244,114,182,.08)' },
+  file:      { bg: '#111', border: '#222', accent: '#a3e635', accentDim: 'rgba(163,230,53,.08)' },
+  db:        { bg: '#111', border: '#222', accent: '#fb923c', accentDim: 'rgba(251,146,60,.08)' },
+  loop:      { bg: '#111', border: '#222', accent: '#38bdf8', accentDim: 'rgba(56,189,248,.08)' },
+  variable:  { bg: '#111', border: '#222', accent: '#c084fc', accentDim: 'rgba(192,132,252,.08)' },
+  log:       { bg: '#111', border: '#222', accent: '#94a3b8', accentDim: 'rgba(148,163,184,.08)' },
 };
 
 const STATUS_COLORS = {
@@ -554,6 +560,146 @@ ConditionNode.prototype.onDrawForeground = function(ctx) {
   ctx.fillText('FALSE', this.size[0] - 26, slotH * 1 + 12);
 };
 
+// ── Project Node ──────────────────────────────────────────────────────────────
+function ProjectNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.addOutput('Error', LiteGraph.EVENT);
+  this.properties = { projectId: '', projectName: '', action: 'set_context' };
+  this.addWidget('combo', 'Action', 'set_context', (v) => { this.properties.action = v; }, {
+    values: ['set_context', 'open', 'build', 'install', 'test']
+  });
+  this.addWidget('text', 'Project', '', (v) => { this.properties.projectName = v; });
+  this.size = [220, 84];
+}
+ProjectNode.title = 'Project';
+ProjectNode.desc = 'Cibler un projet';
+ProjectNode.prototype = Object.create(LGraphNode.prototype);
+ProjectNode.prototype.constructor = ProjectNode;
+ProjectNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  drawBadge(ctx, this.properties.action.toUpperCase().replace('_', ' '), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+  if (this.properties.projectName) {
+    ctx.fillStyle = '#555';
+    ctx.font = `10px ${FONT}`;
+    ctx.textAlign = 'left';
+    const name = this.properties.projectName.length > 28
+      ? this.properties.projectName.slice(0, 28) + '...' : this.properties.projectName;
+    ctx.fillText(name, 10, this.size[1] - 6);
+  }
+};
+
+// ── File Node ─────────────────────────────────────────────────────────────────
+function FileNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.addOutput('Error', LiteGraph.EVENT);
+  this.properties = { action: 'read', path: '', destination: '', content: '' };
+  this.addWidget('combo', 'Action', 'read', (v) => { this.properties.action = v; }, {
+    values: ['read', 'write', 'append', 'copy', 'delete', 'exists']
+  });
+  this.addWidget('text', 'Path', '', (v) => { this.properties.path = v; });
+  this.size = [220, 84];
+}
+FileNode.title = 'File';
+FileNode.desc = 'Opération fichier';
+FileNode.prototype = Object.create(LGraphNode.prototype);
+FileNode.prototype.constructor = FileNode;
+FileNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  drawBadge(ctx, this.properties.action.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
+// ── DB Node ───────────────────────────────────────────────────────────────────
+function DbNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.addOutput('Error', LiteGraph.EVENT);
+  this.properties = { connection: '', query: '', action: 'query' };
+  this.addWidget('combo', 'Action', 'query', (v) => { this.properties.action = v; }, {
+    values: ['query', 'execute', 'list_tables', 'describe']
+  });
+  this.addWidget('text', 'Query', '', (v) => { this.properties.query = v; });
+  this.size = [220, 84];
+}
+DbNode.title = 'Database';
+DbNode.desc = 'Requête base de données';
+DbNode.prototype = Object.create(LGraphNode.prototype);
+DbNode.prototype.constructor = DbNode;
+DbNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  drawBadge(ctx, this.properties.action.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
+// ── Loop Node ─────────────────────────────────────────────────────────────────
+function LoopNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addInput('Items', 'array');
+  this.addOutput('Each', LiteGraph.EVENT);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.properties = { source: 'projects', filter: '' };
+  this.addWidget('combo', 'Source', 'projects', (v) => { this.properties.source = v; }, {
+    values: ['projects', 'files', 'previous_output', 'custom']
+  });
+  this.size = [200, 84];
+}
+LoopNode.title = 'Loop';
+LoopNode.desc = 'Itérer sur une liste';
+LoopNode.prototype = Object.create(LGraphNode.prototype);
+LoopNode.prototype.constructor = LoopNode;
+LoopNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  drawBadge(ctx, this.properties.source.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
+// ── Variable Node ─────────────────────────────────────────────────────────────
+function VariableNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.addOutput('Value', 'string');
+  this.properties = { action: 'set', name: '', value: '' };
+  this.addWidget('combo', 'Action', 'set', (v) => { this.properties.action = v; }, {
+    values: ['set', 'get', 'increment', 'append']
+  });
+  this.addWidget('text', 'Name', '', (v) => { this.properties.name = v; });
+  this.size = [200, 84];
+}
+VariableNode.title = 'Variable';
+VariableNode.desc = 'Lire/écrire une variable';
+VariableNode.prototype = Object.create(LGraphNode.prototype);
+VariableNode.prototype.constructor = VariableNode;
+VariableNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  drawBadge(ctx, this.properties.action.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+  if (this.properties.name) {
+    ctx.fillStyle = '#555';
+    ctx.font = `10px "Cascadia Code", "Fira Code", monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText('$' + this.properties.name, 10, this.size[1] - 6);
+  }
+};
+
+// ── Log Node ──────────────────────────────────────────────────────────────────
+function LogNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.properties = { level: 'info', message: '' };
+  this.addWidget('combo', 'Level', 'info', (v) => { this.properties.level = v; }, {
+    values: ['debug', 'info', 'warn', 'error']
+  });
+  this.addWidget('text', 'Message', '', (v) => { this.properties.message = v; });
+  this.size = [200, 76];
+}
+LogNode.title = 'Log';
+LogNode.desc = 'Écrire dans le log';
+LogNode.prototype = Object.create(LGraphNode.prototype);
+LogNode.prototype.constructor = LogNode;
+LogNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  const levelColors = { debug: '#94a3b8', info: '#60a5fa', warn: '#fbbf24', error: '#ef4444' };
+  drawBadge(ctx, this.properties.level.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, levelColors[this.properties.level] || c.accent);
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // NODE REGISTRATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -570,6 +716,12 @@ function registerAllNodeTypes() {
     ['workflow/notify',    NotifyNode,    NODE_COLORS.notify],
     ['workflow/wait',      WaitNode,      NODE_COLORS.wait],
     ['workflow/condition', ConditionNode, NODE_COLORS.condition],
+    ['workflow/project',   ProjectNode,   NODE_COLORS.project],
+    ['workflow/file',      FileNode,      NODE_COLORS.file],
+    ['workflow/db',        DbNode,        NODE_COLORS.db],
+    ['workflow/loop',      LoopNode,      NODE_COLORS.loop],
+    ['workflow/variable',  VariableNode,  NODE_COLORS.variable],
+    ['workflow/log',       LogNode,       NODE_COLORS.log],
   ];
 
   for (const [typeName, NodeClass, colors] of types) {

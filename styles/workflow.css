@@ -12,6 +12,12 @@
   --wf-warning: #fbbf24;
   --wf-muted:   #666;
   --wf-success: #4ade80;
+  --wf-pink:    #f472b6;
+  --wf-lime:    #a3e635;
+  --wf-orange:  #fb923c;
+  --wf-violet:  #c084fc;
+  --wf-sky:     #38bdf8;
+  --wf-slate:   #94a3b8;
   --wf-card-bg: rgba(255,255,255,.025);
   --wf-border:  rgba(255,255,255,.06);
   --wf-glow:    0 0 0 1px rgba(255,255,255,.04);
@@ -373,6 +379,12 @@
 .wf-chip--warning { background: rgba(251,191,36,.1);  color: var(--wf-warning); }
 .wf-chip--muted   { background: rgba(255,255,255,.05); color: var(--text-secondary); }
 .wf-chip--success { background: rgba(74,222,128,.1);  color: var(--wf-success); }
+.wf-chip--pink    { background: rgba(244,114,182,.1); color: var(--wf-pink); }
+.wf-chip--lime    { background: rgba(163,230,53,.1);  color: var(--wf-lime); }
+.wf-chip--orange  { background: rgba(251,146,60,.1);  color: var(--wf-orange); }
+.wf-chip--violet  { background: rgba(192,132,252,.1); color: var(--wf-violet); }
+.wf-chip--sky     { background: rgba(56,189,248,.1);  color: var(--wf-sky); }
+.wf-chip--slate   { background: rgba(148,163,184,.1); color: var(--wf-slate); }
 
 /* ─── Status pills ───────────────────────────────────────────────────────── */
 
@@ -2845,7 +2857,7 @@ select.wf-step-edit-input {
 
 /* ── Properties: section & header ── */
 .wf-props-section {
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex; flex-direction: column; gap: 6px;
   animation: wfPropsIn .25s ease;
 }
 @keyframes wfPropsIn {
@@ -2855,11 +2867,11 @@ select.wf-step-edit-input {
 
 .wf-props-header {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
+  padding: 11px 13px;
   border-radius: 10px;
   background: rgba(255,255,255,.02);
   border: 1px solid rgba(255,255,255,.04);
-  margin-bottom: 4px;
+  margin-bottom: 10px;
   position: relative;
   overflow: hidden;
 }
@@ -2877,6 +2889,12 @@ select.wf-step-edit-input {
 .wf-props-section[data-node-color="warning"] .wf-props-header::before { background: var(--wf-warning); }
 .wf-props-section[data-node-color="muted"] .wf-props-header::before   { background: var(--text-muted); }
 .wf-props-section[data-node-color="success"] .wf-props-header::before { background: var(--wf-success); }
+.wf-props-section[data-node-color="pink"] .wf-props-header::before    { background: var(--wf-pink); }
+.wf-props-section[data-node-color="lime"] .wf-props-header::before    { background: var(--wf-lime); }
+.wf-props-section[data-node-color="orange"] .wf-props-header::before  { background: var(--wf-orange); }
+.wf-props-section[data-node-color="violet"] .wf-props-header::before  { background: var(--wf-violet); }
+.wf-props-section[data-node-color="sky"] .wf-props-header::before     { background: var(--wf-sky); }
+.wf-props-section[data-node-color="slate"] .wf-props-header::before   { background: var(--wf-slate); }
 
 .wf-props-header--workflow {
   gap: 8px;
@@ -2924,72 +2942,320 @@ select.wf-step-edit-input {
 .wf-props-badge--warning { background: rgba(251,191,36,.12);  color: var(--wf-warning); }
 .wf-props-badge--muted   { background: rgba(255,255,255,.06); color: var(--text-muted); }
 .wf-props-badge--success { background: rgba(74,222,128,.12);  color: var(--wf-success); }
+.wf-props-badge--pink    { background: rgba(244,114,182,.12); color: var(--wf-pink); }
+.wf-props-badge--lime    { background: rgba(163,230,53,.12);  color: var(--wf-lime); }
+.wf-props-badge--orange  { background: rgba(251,146,60,.12);  color: var(--wf-orange); }
+.wf-props-badge--violet  { background: rgba(192,132,252,.12); color: var(--wf-violet); }
+.wf-props-badge--sky     { background: rgba(56,189,248,.12);  color: var(--wf-sky); }
+.wf-props-badge--slate   { background: rgba(148,163,184,.12); color: var(--wf-slate); }
 
 /* ── Properties: field layout ── */
 .wf-editor-properties .wf-step-edit-field {
-  margin-bottom: 4px;
+  margin-bottom: 10px;
 }
 .wf-editor-properties .wf-step-edit-label {
-  font-size: 9.5px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .07em;
-  color: rgba(255,255,255,.35);
-  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: rgba(255,255,255,.72);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.wf-editor-properties .wf-step-edit-label svg {
+  opacity: .45;
+  flex-shrink: 0;
+}
+.wf-editor-properties .wf-field-hint {
   display: block;
+  font-size: 10px;
+  color: rgba(255,255,255,.25);
+  margin-bottom: 6px;
+  line-height: 1.4;
+  letter-spacing: .01em;
+}
+
+/* ── Properties: field row (side by side) ── */
+.wf-editor-properties .wf-field-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.wf-editor-properties .wf-field-row .wf-step-edit-field {
+  margin-bottom: 0;
+}
+.wf-editor-properties .wf-field-half {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ── Properties: inputs, selects, textareas ── */
 .wf-editor-properties .wf-step-edit-input,
 .wf-editor-properties .wf-node-prop {
   width: 100%;
-  background: rgba(255,255,255,.025);
-  border: 1.5px solid rgba(255,255,255,.07);
-  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 6px;
   color: var(--text-primary);
   font-size: 12px;
-  padding: 9px 12px;
-  transition: all .2s cubic-bezier(.4,0,.2,1);
+  padding: 8px 11px;
+  transition: border-color .15s, background .15s, box-shadow .15s;
   font-family: inherit;
   box-sizing: border-box;
 }
 .wf-editor-properties .wf-step-edit-input:hover,
 .wf-editor-properties .wf-node-prop:hover {
-  border-color: rgba(255,255,255,.14);
-  background: rgba(255,255,255,.035);
+  border-color: rgba(255,255,255,.15);
+  background: rgba(255,255,255,.055);
 }
 .wf-editor-properties .wf-step-edit-input:focus,
 .wf-editor-properties .wf-node-prop:focus {
   outline: none;
-  border-color: rgba(217,119,6,.5);
-  box-shadow: 0 0 0 3px rgba(217,119,6,.08), inset 0 1px 2px rgba(0,0,0,.15);
-  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.22);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.04);
+  background: rgba(255,255,255,.06);
 }
 .wf-editor-properties .wf-step-edit-input::placeholder,
 .wf-editor-properties .wf-node-prop::placeholder {
-  color: var(--text-muted); opacity: .5;
+  color: rgba(255,255,255,.2);
 }
 
-/* Select with custom chevron */
-.wf-editor-properties select.wf-step-edit-input,
-.wf-editor-properties select.wf-node-prop {
+/* Monospace fields (code, paths, SQL) */
+.wf-editor-properties .wf-field-mono {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  font-size: 11.5px;
+  letter-spacing: -.02em;
+  background: rgba(0,0,0,.25);
+  border-color: rgba(255,255,255,.06);
+}
+.wf-editor-properties .wf-field-mono:focus {
+  background: rgba(0,0,0,.3);
+  border-color: rgba(255,255,255,.18);
+}
+
+/* Hide native selects that have been upgraded */
+.wf-editor-properties select[data-upgraded] { display: none !important; }
+
+/* ── Custom dropdown ── */
+.wf-dropdown {
+  position: relative;
+  width: 100%;
+}
+.wf-dropdown-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 8px 11px;
   cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 32px;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color .15s, background .15s;
 }
-.wf-editor-properties select.wf-step-edit-input:focus,
-.wf-editor-properties select.wf-node-prop:focus {
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23d97706' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+.wf-dropdown-trigger:hover {
+  border-color: rgba(255,255,255,.15);
+  background: rgba(255,255,255,.055);
 }
+.wf-dropdown.open .wf-dropdown-trigger {
+  border-color: rgba(255,255,255,.22);
+  background: rgba(255,255,255,.06);
+}
+.wf-dropdown-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-dropdown-placeholder .wf-dropdown-text {
+  color: rgba(255,255,255,.25);
+}
+.wf-dropdown-chevron {
+  flex-shrink: 0;
+  color: rgba(255,255,255,.3);
+  transition: transform .2s ease;
+}
+.wf-dropdown.open .wf-dropdown-chevron {
+  transform: rotate(180deg);
+  color: rgba(255,255,255,.5);
+}
+
+/* Menu */
+.wf-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: #161618;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.03);
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wf-dropdown.open .wf-dropdown-menu {
+  display: block;
+  animation: wfDropIn .15s ease;
+}
+@keyframes wfDropIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.wf-dropdown-menu::-webkit-scrollbar { width: 4px; }
+.wf-dropdown-menu::-webkit-scrollbar-track { background: transparent; }
+.wf-dropdown-menu::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.08);
+  border-radius: 4px;
+}
+.wf-dropdown-menu::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.14); }
+
+/* Items */
+.wf-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background .1s, color .1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-dropdown-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.wf-dropdown-item:hover {
+  background: rgba(255,255,255,.07);
+  color: var(--text-primary);
+}
+.wf-dropdown-item.active {
+  background: rgba(255,255,255,.05);
+  color: #fff;
+  font-weight: 500;
+}
+.wf-dropdown-item.active svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Node-color accent on dropdown trigger when open */
+.wf-props-section[data-node-color="accent"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(217,119,6,.4); }
+.wf-props-section[data-node-color="info"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(96,165,250,.35); }
+.wf-props-section[data-node-color="purple"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(167,139,250,.35); }
+.wf-props-section[data-node-color="cyan"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(34,211,238,.3); }
+.wf-props-section[data-node-color="warning"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(251,191,36,.3); }
+.wf-props-section[data-node-color="success"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(74,222,128,.3); }
+.wf-props-section[data-node-color="pink"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(244,114,182,.3); }
+.wf-props-section[data-node-color="lime"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(163,230,53,.25); }
+.wf-props-section[data-node-color="orange"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(251,146,60,.35); }
+.wf-props-section[data-node-color="violet"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(192,132,252,.35); }
+.wf-props-section[data-node-color="sky"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(56,189,248,.3); }
+.wf-props-section[data-node-color="slate"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(148,163,184,.3); }
+.wf-props-section[data-node-color="muted"] .wf-dropdown.open .wf-dropdown-trigger { border-color: rgba(255,255,255,.18); }
+
+/* Active item check color per node type */
+.wf-props-section[data-node-color="accent"] .wf-dropdown-item.active svg { color: var(--wf-accent); }
+.wf-props-section[data-node-color="info"] .wf-dropdown-item.active svg { color: var(--wf-info); }
+.wf-props-section[data-node-color="purple"] .wf-dropdown-item.active svg { color: var(--wf-purple); }
+.wf-props-section[data-node-color="cyan"] .wf-dropdown-item.active svg { color: var(--wf-cyan); }
+.wf-props-section[data-node-color="warning"] .wf-dropdown-item.active svg { color: var(--wf-warning); }
+.wf-props-section[data-node-color="success"] .wf-dropdown-item.active svg { color: var(--wf-success); }
+.wf-props-section[data-node-color="pink"] .wf-dropdown-item.active svg { color: var(--wf-pink); }
+.wf-props-section[data-node-color="lime"] .wf-dropdown-item.active svg { color: var(--wf-lime); }
+.wf-props-section[data-node-color="orange"] .wf-dropdown-item.active svg { color: var(--wf-orange); }
+.wf-props-section[data-node-color="violet"] .wf-dropdown-item.active svg { color: var(--wf-violet); }
+.wf-props-section[data-node-color="sky"] .wf-dropdown-item.active svg { color: var(--wf-sky); }
+.wf-props-section[data-node-color="slate"] .wf-dropdown-item.active svg { color: var(--wf-slate); }
 
 /* Textarea */
 .wf-editor-properties textarea.wf-step-edit-input,
 .wf-editor-properties textarea.wf-node-prop {
   resize: vertical;
-  min-height: 64px;
+  min-height: 60px;
   line-height: 1.55;
+}
+
+/* ── Node-color accent on focus (per type) ── */
+.wf-props-section[data-node-color="accent"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="accent"] .wf-node-prop:focus {
+  border-color: rgba(217,119,6,.45);
+  box-shadow: 0 0 0 2px rgba(217,119,6,.08);
+}
+.wf-props-section[data-node-color="info"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="info"] .wf-node-prop:focus {
+  border-color: rgba(96,165,250,.4);
+  box-shadow: 0 0 0 2px rgba(96,165,250,.07);
+}
+.wf-props-section[data-node-color="purple"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="purple"] .wf-node-prop:focus {
+  border-color: rgba(167,139,250,.4);
+  box-shadow: 0 0 0 2px rgba(167,139,250,.07);
+}
+.wf-props-section[data-node-color="cyan"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="cyan"] .wf-node-prop:focus {
+  border-color: rgba(34,211,238,.35);
+  box-shadow: 0 0 0 2px rgba(34,211,238,.06);
+}
+.wf-props-section[data-node-color="warning"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="warning"] .wf-node-prop:focus {
+  border-color: rgba(251,191,36,.35);
+  box-shadow: 0 0 0 2px rgba(251,191,36,.06);
+}
+.wf-props-section[data-node-color="success"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="success"] .wf-node-prop:focus {
+  border-color: rgba(74,222,128,.35);
+  box-shadow: 0 0 0 2px rgba(74,222,128,.06);
+}
+.wf-props-section[data-node-color="pink"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="pink"] .wf-node-prop:focus {
+  border-color: rgba(244,114,182,.35);
+  box-shadow: 0 0 0 2px rgba(244,114,182,.06);
+}
+.wf-props-section[data-node-color="lime"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="lime"] .wf-node-prop:focus {
+  border-color: rgba(163,230,53,.3);
+  box-shadow: 0 0 0 2px rgba(163,230,53,.05);
+}
+.wf-props-section[data-node-color="orange"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="orange"] .wf-node-prop:focus {
+  border-color: rgba(251,146,60,.4);
+  box-shadow: 0 0 0 2px rgba(251,146,60,.07);
+}
+.wf-props-section[data-node-color="violet"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="violet"] .wf-node-prop:focus {
+  border-color: rgba(192,132,252,.4);
+  box-shadow: 0 0 0 2px rgba(192,132,252,.07);
+}
+.wf-props-section[data-node-color="sky"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="sky"] .wf-node-prop:focus {
+  border-color: rgba(56,189,248,.35);
+  box-shadow: 0 0 0 2px rgba(56,189,248,.06);
+}
+.wf-props-section[data-node-color="slate"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="slate"] .wf-node-prop:focus {
+  border-color: rgba(148,163,184,.35);
+  box-shadow: 0 0 0 2px rgba(148,163,184,.06);
+}
+.wf-props-section[data-node-color="muted"] .wf-step-edit-input:focus,
+.wf-props-section[data-node-color="muted"] .wf-node-prop:focus {
+  border-color: rgba(255,255,255,.2);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.04);
 }
 
 /* ── Properties: Claude mode tabs (Prompt / Agent / Skill) ── */
@@ -3029,15 +3295,16 @@ select.wf-step-edit-input {
 /* ── Properties: Agent/Skill cards ── */
 .wf-editor-properties .wf-agent-grid {
   display: flex; flex-direction: column; gap: 4px;
-  max-height: 200px; overflow-y: auto;
+  max-height: 220px; overflow-y: auto;
 }
 .wf-editor-properties .wf-agent-grid::-webkit-scrollbar { width: 2px; }
 .wf-editor-properties .wf-agent-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 2px; }
 
 .wf-editor-properties .wf-agent-card {
+  display: flex; align-items: center; gap: 9px;
   padding: 9px 11px;
-  background: rgba(255,255,255,.02);
-  border: 1.5px solid rgba(255,255,255,.05);
+  background: rgba(255,255,255,.03);
+  border: 1.5px solid rgba(255,255,255,.06);
   border-radius: 8px;
   cursor: pointer;
   transition: all .2s cubic-bezier(.4,0,.2,1);
@@ -3052,8 +3319,8 @@ select.wf-step-edit-input {
   border-radius: 0 2px 2px 0;
 }
 .wf-editor-properties .wf-agent-card:hover {
-  border-color: rgba(255,255,255,.12);
-  background: rgba(255,255,255,.04);
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.055);
 }
 .wf-editor-properties .wf-agent-card.active {
   border-color: rgba(217,119,6,.4);
@@ -3063,18 +3330,85 @@ select.wf-step-edit-input {
 .wf-editor-properties .wf-agent-card.active::before {
   background: var(--accent);
 }
+.wf-editor-properties .wf-agent-card-icon {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.05);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all .2s;
+}
+.wf-editor-properties .wf-agent-card.active .wf-agent-card-icon {
+  background: rgba(217,119,6,.1);
+  border-color: rgba(217,119,6,.2);
+  color: var(--accent);
+}
+.wf-editor-properties .wf-agent-card-text {
+  flex: 1; min-width: 0;
+}
 .wf-editor-properties .wf-agent-card-name {
   font-size: 11px; font-weight: 600;
   color: var(--text-primary);
   display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .wf-editor-properties .wf-agent-card-desc {
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--text-muted);
   display: block;
-  margin-top: 2px;
+  margin-top: 1px;
   line-height: 1.35;
-  opacity: .7;
+  opacity: .6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-editor-properties .wf-agent-card-check {
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.wf-editor-properties .wf-agent-card.active .wf-agent-card-check {
+  opacity: 1;
+}
+.wf-editor-properties .wf-agent-empty {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: .5;
+  border: 1px dashed rgba(255,255,255,.08);
+  border-radius: 8px;
+  justify-content: center;
+}
+
+/* ── Properties: divider & delete ── */
+.wf-props-divider {
+  height: 1px;
+  background: rgba(255,255,255,.05);
+  margin: 14px 0 10px;
+}
+.wf-props-delete {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 11px; font-weight: 500;
+  color: rgba(255,255,255,.3);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.04);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.wf-props-delete:hover {
+  color: var(--danger);
+  border-color: rgba(239,68,68,.2);
+  background: rgba(239,68,68,.05);
 }
 
 /* ── Status bar ───────────────────────────────────────────────────────────── */
