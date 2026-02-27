@@ -1386,12 +1386,25 @@ async function refreshCloudProjects() {
     if (!cloudProjects || !Array.isArray(cloudProjects)) return;
     const cloudNames = new Set(cloudProjects.map(p => p.name));
     const localProjects = projectsState.get().projects || [];
+
+    // Fetch sync metadata from main process (lastSync, errors, watcher status)
+    let syncStatuses = {};
+    try {
+      syncStatuses = await api.cloud.getSyncStatus({}) || {};
+    } catch { /* ignore if not available */ }
+
     for (const p of localProjects) {
       const name = p.name || path.basename(p.path);
-      const cur = cloudUploadStatus.get(p.id);
+      const cur = cloudUploadStatus.get(p.id) || {};
       if (cloudNames.has(name)) {
-        cloudUploadStatus.set(p.id, { ...cur, synced: true });
-      } else if (cur?.synced) {
+        const meta = syncStatuses[p.id];
+        cloudUploadStatus.set(p.id, {
+          ...cur,
+          synced: true,
+          lastSync: meta?.lastSync || cur.lastSync || null,
+          lastError: meta?.lastError || null,
+        });
+      } else if (cur.synced) {
         cloudUploadStatus.delete(p.id);
       }
     }
@@ -1574,6 +1587,7 @@ if (api.cloud?.onUploadProgress) {
 // Refresh cloud projects on status change and at startup
 function _updateCloudConnected(connected) {
   cloudConnected = connected;
+  if (!connected) cloudUploadStatus.clear();
   ProjectList.setExternalState({ cloudConnected });
   ProjectList.render();
 }
