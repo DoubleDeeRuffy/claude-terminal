@@ -28,6 +28,7 @@ const HOOK_TYPES = [
 ];
 
 const STEP_TYPES = [
+  { type: 'trigger',   label: 'Trigger',   color: 'success',  icon: svgPlay(11), desc: 'Déclencheur du workflow' },
   { type: 'claude',    label: 'Claude',    color: 'accent',   icon: svgClaude(), desc: 'Prompt, Agent ou Skill' },
   { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),  desc: 'Commande bash' },
   { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),    desc: 'Opération git' },
@@ -535,10 +536,11 @@ function renderWorkflowList(el) {
     const id = card.dataset.id;
     card.querySelector('.wf-card-body').addEventListener('click', (e) => {
       // Don't trigger detail when clicking interactive elements
-      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
+      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
       openDetail(id);
     });
     card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
+    card.querySelector('.wf-card-edit')?.addEventListener('click', e => { e.stopPropagation(); openEditor(id); });
     const toggle = card.querySelector('.wf-card-toggle');
     if (toggle) {
       toggle.addEventListener('change', e => { e.stopPropagation(); toggleWorkflow(id, e.target.checked); });
@@ -589,6 +591,7 @@ function cardHtml(wf) {
             ${runCount > 0 ? `<span class="wf-card-stat wf-card-stat--rate">${Math.round(successCount / runCount * 100)}%</span>` : ''}
             ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
+          <button class="wf-card-edit" title="Modifier"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           <button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>
         </div>
       </div>
@@ -676,51 +679,63 @@ function openEditor(workflowId = null) {
 
   // Store previous panel content for restore
   const prevContent = panel.innerHTML;
-  const nodeTypes = STEP_TYPES.map(st => st);
+  const nodeTypes = STEP_TYPES.filter(st => st.type !== 'trigger');
 
   // ── Build editor HTML ──
   panel.innerHTML = `
     <div class="wf-editor">
       <div class="wf-editor-toolbar">
-        <button class="wf-editor-back" id="wf-ed-back">${svgX(14)} Retour</button>
+        <button class="wf-editor-back" id="wf-ed-back"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg> Retour</button>
+        <div class="wf-editor-toolbar-sep"></div>
         <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Nom du workflow…" />
+        <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
         <div class="wf-editor-toolbar-sep"></div>
         <div class="wf-editor-zoom">
-          <button id="wf-ed-zoom-out">−</button>
+          <button id="wf-ed-zoom-out" title="Zoom out">−</button>
           <span id="wf-ed-zoom-label">100%</span>
-          <button id="wf-ed-zoom-in">+</button>
-          <button id="wf-ed-zoom-fit">Fit</button>
+          <button id="wf-ed-zoom-in" title="Zoom in">+</button>
+          <button id="wf-ed-zoom-reset" title="Reset to 100%">1:1</button>
+          <button id="wf-ed-zoom-fit" title="Fit all nodes">Fit</button>
         </div>
         <div class="wf-editor-toolbar-sep"></div>
-        <button class="wf-editor-btn" id="wf-ed-run">${svgPlay(10)} Run</button>
-        <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save">Save</button>
+        <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run">${svgPlay(10)} Run</button>
+        <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save</button>
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-palette" id="wf-ed-palette">
           <div class="wf-palette-title">Nodes</div>
           ${nodeTypes.map(st => `
-            <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}">
+            <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="Cliquer pour ajouter ${st.label}">
               <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
               <div class="wf-palette-text">
                 <span class="wf-palette-label">${st.label}</span>
                 <span class="wf-palette-desc">${st.desc}</span>
               </div>
+              <svg class="wf-palette-add" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
             </div>
           `).join('')}
+          <div class="wf-palette-hint">Cliquer pour ajouter au canvas</div>
         </div>
         <div class="wf-editor-canvas-wrap" id="wf-ed-canvas-wrap">
           <canvas id="wf-litegraph-canvas"></canvas>
         </div>
         <div class="wf-editor-properties" id="wf-ed-properties">
           <div class="wf-props-empty">
-            <svg class="wf-props-empty-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-            <p class="wf-props-empty-text">Sélectionnez un node<br>pour voir ses propriétés</p>
+            <div class="wf-props-empty-icon-wrap">
+              <svg class="wf-props-empty-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+            </div>
+            <div class="wf-props-empty-title">Propriétés</div>
+            <p class="wf-props-empty-text">Sélectionnez un node pour<br>configurer ses paramètres</p>
           </div>
         </div>
       </div>
       <div class="wf-editor-statusbar">
-        <span id="wf-ed-nodecount">0 nodes</span>
-        <span id="wf-ed-zoom-pct">100%</span>
+        <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 nodes</span>
+        <span class="wf-sb-sep"></span>
+        <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || 'Sans titre'}</span>
+        <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">Modifié</span>
+        <span class="wf-sb-spacer"></span>
+        <span class="wf-sb-section" id="wf-ed-zoom-pct">100%</span>
       </div>
     </div>
   `;
@@ -742,13 +757,20 @@ function openEditor(workflowId = null) {
 
   // ── Status bar updates ──
   const updateStatusBar = () => {
+    const count = graphService.getNodeCount();
     const countEl = panel.querySelector('#wf-ed-nodecount');
     const zoomEl = panel.querySelector('#wf-ed-zoom-pct');
     const zoomLabel = panel.querySelector('#wf-ed-zoom-label');
-    if (countEl) countEl.textContent = `${graphService.getNodeCount()} nodes`;
+    const sbName = panel.querySelector('#wf-ed-sb-name');
+    const sbDirty = panel.querySelector('#wf-ed-sb-dirty');
+    const toolbarDirty = panel.querySelector('#wf-ed-dirty');
+    if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} node${count !== 1 ? 's' : ''}`;
     const pct = Math.round(graphService.getZoom() * 100);
     if (zoomEl) zoomEl.textContent = `${pct}%`;
     if (zoomLabel) zoomLabel.textContent = `${pct}%`;
+    if (sbName) sbName.textContent = editorDraft.name || 'Sans titre';
+    if (sbDirty) sbDirty.style.display = editorDraft.dirty ? '' : 'none';
+    if (toolbarDirty) toolbarDirty.style.display = editorDraft.dirty ? '' : 'none';
   };
   updateStatusBar();
 
@@ -1132,6 +1154,10 @@ function openEditor(workflowId = null) {
     graphService.setZoom(graphService.getZoom() / 1.2);
     updateStatusBar();
   });
+  panel.querySelector('#wf-ed-zoom-reset')?.addEventListener('click', () => {
+    graphService.setZoom(1);
+    updateStatusBar();
+  });
   panel.querySelector('#wf-ed-zoom-fit').addEventListener('click', () => {
     graphService.zoomToFit();
     updateStatusBar();
@@ -1155,6 +1181,7 @@ function openEditor(workflowId = null) {
     const res = await api.save(workflow);
     if (res?.success) {
       editorDraft.dirty = false;
+      updateStatusBar();
       await refreshData();
       // Update workflowId if new
       if (!workflowId && res.id) {

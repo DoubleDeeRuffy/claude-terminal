@@ -454,6 +454,26 @@
   box-shadow: 0 2px 8px rgba(217,119,6,.15);
 }
 .wf-card-run span { line-height: 1; }
+.wf-card-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .2s var(--wf-ease);
+  flex-shrink: 0;
+  opacity: 0;
+}
+.wf-card:hover .wf-card-edit { opacity: 1; }
+.wf-card-edit:hover {
+  background: rgba(255,255,255,.08);
+  border-color: rgba(255,255,255,.12);
+  color: var(--text-primary);
+}
 
 /* ─── Run history (timeline) ─────────────────────────────────────────────── */
 
@@ -2612,6 +2632,35 @@ select.wf-step-edit-input {
   box-shadow: 0 2px 12px rgba(217,119,6,.3);
   color: #fff;
 }
+.wf-editor-btn--run {
+  color: var(--wf-success);
+  border-color: rgba(74,222,128,.15);
+  background: rgba(74,222,128,.06);
+}
+.wf-editor-btn--run:hover {
+  background: rgba(74,222,128,.14);
+  border-color: rgba(74,222,128,.25);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(74,222,128,.15);
+}
+.wf-editor-dirty {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: wfDirtyPulse 2s ease-in-out infinite;
+}
+@keyframes wfDirtyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+#wf-ed-zoom-reset {
+  font-size: 10px !important;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  padding: 0 6px !important;
+  width: auto !important;
+}
 
 /* ── Body (3-column layout) ───────────────────────────────────────────────── */
 .wf-editor-body {
@@ -2641,11 +2690,12 @@ select.wf-step-edit-input {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 10px;
   border-radius: 8px;
-  cursor: pointer;
+  cursor: grab;
   transition: all .15s var(--wf-ease);
   border: 1px solid transparent;
   position: relative;
 }
+.wf-palette-item:active { cursor: grabbing; }
 .wf-palette-item::after {
   content: '';
   position: absolute;
@@ -2694,6 +2744,26 @@ select.wf-step-edit-input {
 .wf-palette-item:hover .wf-palette-desc {
   opacity: .7;
 }
+.wf-palette-add {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: all .15s;
+  margin-left: auto;
+}
+.wf-palette-item:hover .wf-palette-add {
+  opacity: .5;
+  color: var(--accent);
+}
+.wf-palette-hint {
+  margin-top: auto;
+  padding: 10px 8px 2px;
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: .35;
+  text-align: center;
+  letter-spacing: .02em;
+}
 
 /* ── Canvas (center) ──────────────────────────────────────────────────────── */
 .wf-editor-canvas-wrap {
@@ -2738,6 +2808,25 @@ select.wf-step-edit-input {
 .wf-editor-properties::-webkit-scrollbar { width: 3px; }
 .wf-editor-properties::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 3px; }
 
+.wf-props-empty-icon-wrap {
+  width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.05);
+  margin-bottom: 12px;
+}
+.wf-props-empty-icon-wrap svg {
+  color: var(--text-muted);
+  opacity: .5;
+}
+.wf-props-empty-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: -.01em;
+}
 .wf-props-empty {
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -2990,7 +3079,7 @@ select.wf-step-edit-input {
 
 /* ── Status bar ───────────────────────────────────────────────────────────── */
 .wf-editor-statusbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center;
   padding: 3px 14px;
   height: 24px;
   border-top: 1px solid rgba(255,255,255,.04);
@@ -2999,7 +3088,33 @@ select.wf-step-edit-input {
   background: rgba(255,255,255,.012);
   font-variant-numeric: tabular-nums;
   opacity: .7;
+  gap: 0;
 }
+.wf-sb-section {
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.wf-sb-section svg { opacity: .5; }
+.wf-sb-sep {
+  width: 1px; height: 10px;
+  background: rgba(255,255,255,.08);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+.wf-sb-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-sb-dirty {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 9px;
+  padding-left: 6px;
+}
+.wf-sb-spacer { flex: 1; }
 
 /* ── LiteGraph dark theme overrides ───────────────────────────────────────── */
 
