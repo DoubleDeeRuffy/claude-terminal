@@ -17,6 +17,7 @@ const minecraftService = require('../../project-types/minecraft/main/MinecraftSe
 const remoteServer = require('./RemoteServer');
 const workflowService = require('./WorkflowService');
 const databaseService = require('./DatabaseService');
+const cloudSyncService = require('./CloudSyncService');
 
 /**
  * Initialize all services with main window reference
@@ -38,6 +39,8 @@ function initializeServices(mainWindow) {
   workflowService.setMainWindow(mainWindow);
   workflowService.setDeps({ chatService });
   workflowService.init();
+
+  cloudSyncService.setMainWindow(mainWindow);
 
   // Provision unified MCP in global Claude settings
   databaseService.provisionGlobalMcp().catch(() => {});
@@ -139,6 +142,7 @@ function cleanupServices() {
   hookEventServer.stop();
   remoteServer.stop();
   workflowService.destroy();
+  cloudSyncService.stop();
   if (_mcpPollTimer) clearInterval(_mcpPollTimer);
 }
 
@@ -155,6 +159,7 @@ module.exports = {
   minecraftService,
   remoteServer,
   workflowService,
+  cloudSyncService,
   initializeServices,
   cleanupServices
 };

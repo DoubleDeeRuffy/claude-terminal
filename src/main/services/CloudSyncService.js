@@ -1,0 +1,403 @@
+/**
+ * CloudSyncService
+ * Orchestrates bidirectional cloud sync:
+ * - Local→Cloud: auto-upload incremental changes via FileWatcherService
+ * - Cloud→Local: background polling for pending changes from headless sessions
+ * Runs entirely in main process, independent of renderer tab state.
+ */
+
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+const { settingsFile, projectsFile } = require('../utils/paths');
+const fileWatcherService = require('./FileWatcherService');
+
+const POLL_INTERVAL_MS = 30000;
+const SYNC_META_FILE = path.join(os.homedir(), '.claude-terminal', 'cloud-sync-meta.json');
+
+let _mainWindow = null;
+let _pollTimer = null;
+let _isPolling = false;
+
+/** @type {Map<string, { lastSyncTimestamp: number, projectPath: string }>} */
+let _syncMeta = new Map();
+
+/** @type {Map<string, { message: string, timestamp: number }>} */
+let _lastErrors = new Map();
+
+// ── Public API ──
+
+function setMainWindow(win) {
+  _mainWindow = win;
+}
+
+/**
+ * Start background sync (called when cloud connects).
+ */
+function start() {
+  _loadSyncMetadata();
+  _startPolling();
+  _startWatchingAllSyncedProjects();
+
+  fileWatcherService.onChanges((projectId, changes) => {
+    _handleLocalChanges(projectId, changes);
+  });
+
+  console.log('[CloudSync] Started');
+}
+
+/**
+ * Stop all sync activities (called when cloud disconnects or app quits).
+ */
+function stop() {
+  _stopPolling();
+  fileWatcherService.unwatchAll();
+  _saveSyncMetadata();
+  console.log('[CloudSync] Stopped');
+}
+
+/**
+ * Register a project for auto-sync after initial upload.
+ * @param {string} projectId
+ * @param {string} projectPath
+ */
+function registerProject(projectId, projectPath) {
+  _syncMeta.set(projectId, { lastSyncTimestamp: Date.now(), projectPath });
+  _saveSyncMetadata();
+  fileWatcherService.watch(projectId, projectPath).catch(err => {
+    console.error(`[CloudSync] Failed to start watcher for ${projectId}:`, err.message);
+  });
+  console.log(`[CloudSync] Registered project: ${projectId}`);
+}
+
+/**
+ * Unregister a project from auto-sync.
+ * @param {string} projectId
+ */
+function unregisterProject(projectId) {
+  _syncMeta.delete(projectId);
+  _saveSyncMetadata();
+  fileWatcherService.unwatch(projectId);
+}
+
+/**
+ * Check if a project is registered for auto-sync.
+ * @param {string} projectId
+ * @returns {boolean}
+ */
+function isRegistered(projectId) {
+  return _syncMeta.has(projectId);
+}
+
+/**
+ * Get last sync timestamp for a project.
+ * @param {string} projectId
+ * @returns {number|null}
+ */
+function getLastSyncTimestamp(projectId) {
+  return _syncMeta.get(projectId)?.lastSyncTimestamp || null;
+}
+
+/**
+ * Update the last sync timestamp (after a successful download).
+ * @param {string} projectId
+ */
+function updateSyncTimestamp(projectId) {
+  const meta = _syncMeta.get(projectId);
+  if (meta) {
+    meta.lastSyncTimestamp = Date.now();
+    _saveSyncMetadata();
+  }
+  // Clear error on successful sync
+  _lastErrors.delete(projectId);
+}
+
+/**
+ * Get full sync status for a project.
+ * @param {string} projectId
+ * @returns {{ registered: boolean, lastSync: number|null, watching: boolean, lastError: { message: string, timestamp: number }|null }}
+ */
+function getSyncStatus(projectId) {
+  const meta = _syncMeta.get(projectId);
+  return {
+    registered: !!meta,
+    lastSync: meta?.lastSyncTimestamp || null,
+    watching: fileWatcherService.isWatching(projectId),
+    lastError: _lastErrors.get(projectId) || null,
+  };
+}
+
+/**
+ * Get sync statuses for all registered projects.
+ * @returns {Object<string, { registered: boolean, lastSync: number|null, watching: boolean, lastError: object|null }>}
+ */
+function getAllSyncStatuses() {
+  const result = {};
+  for (const [projectId] of _syncMeta) {
+    result[projectId] = getSyncStatus(projectId);
+  }
+  return result;
+}
+
+// ── Background polling (Cloud→Local) ──
+
+function _startPolling() {
+  _stopPolling();
+  _pollTimer = setInterval(() => _pollForChanges(), POLL_INTERVAL_MS);
+  // Immediate first check
+  _pollForChanges();
+}
+
+function _stopPolling() {
+  if (_pollTimer) {
+    clearInterval(_pollTimer);
+    _pollTimer = null;
+  }
+}
+
+async function _pollForChanges() {
+  if (_isPolling) return;
+  _isPolling = true;
+
+  try {
+    const { url, key } = _getCloudConfig();
+    if (!url || !key) return;
+    const headers = { 'Authorization': `Bearer ${key}` };
+
+    const projectsResp = await fetch(`${url}/api/projects`, { headers });
+    if (!projectsResp.ok) return;
+    const { projects } = await projectsResp.json();
+
+    const allChanges = [];
+    for (const project of projects) {
+      try {
+        const changesResp = await fetch(
+          `${url}/api/projects/${encodeURIComponent(project.name)}/changes`,
+          { headers }
+        );
+        if (!changesResp.ok) continue;
+        const { changes } = await changesResp.json();
+        if (changes && changes.length > 0) {
+          allChanges.push({ projectName: project.name, changes });
+        }
+      } catch {
+        // Skip this project on error
+      }
+    }
+
+    if (_mainWindow && !_mainWindow.isDestroyed()) {
+      _mainWindow.webContents.send('cloud:pending-changes', { changes: allChanges });
+    }
+  } catch (err) {
+    console.warn('[CloudSync] Poll error:', err.message);
+  } finally {
+    _isPolling = false;
+  }
+}
+
+// ── Local→Cloud incremental upload ──
+
+async function _handleLocalChanges(projectId, changes) {
+  try {
+    const { url, key } = _getCloudConfig();
+    const project = _getProjectById(projectId);
+    if (!project || !url || !key) return;
+
+    const projectName = project.name || path.basename(project.path);
+
+    // Notify renderer
+    _sendToRenderer('cloud:auto-sync-status', {
+      projectId,
+      status: 'uploading',
+      fileCount: changes.size,
+    });
+
+    // Build incremental zip
+    const archiver = require('archiver');
+    const zipPath = path.join(os.tmpdir(), `ct-incremental-${Date.now()}.zip`);
+
+    await new Promise((resolve, reject) => {
+      const output = fs.createWriteStream(zipPath);
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      output.on('close', resolve);
+      archive.on('error', reject);
+      archive.pipe(output);
+
+      for (const [relativePath, type] of changes) {
+        if (type === 'unlink') {
+          // .DELETED marker (empty file) — matches download flow convention
+          archive.append('', { name: relativePath + '.DELETED' });
+        } else {
+          const absPath = path.join(project.path, relativePath);
+          if (fs.existsSync(absPath)) {
+            archive.file(absPath, { name: relativePath.replace(/\\/g, '/') });
+          }
+        }
+      }
+
+      archive.finalize();
+    });
+
+    // Upload incremental zip
+    const FormData = require('form-data');
+    const formData = new FormData();
+    formData.append('zip', fs.createReadStream(zipPath), {
+      filename: `${projectName}-incremental.zip`,
+      contentType: 'application/zip',
+    });
+
+    const http = url.startsWith('https') ? require('https') : require('http');
+    const urlObj = new URL(`${url}/api/projects/${encodeURIComponent(projectName)}/sync`);
+
+    await new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: urlObj.hostname,
+        port: urlObj.port,
+        path: urlObj.pathname,
+        method: 'POST',
+        headers: {
+          ...formData.getHeaders(),
+          'Authorization': `Bearer ${key}`,
+        },
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => body += chunk);
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(body ? JSON.parse(body) : {});
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}: ${body.substring(0, 200)}`));
+          }
+        });
+      });
+      req.on('error', reject);
+      formData.pipe(req);
+    });
+
+    // Update timestamp
+    const meta = _syncMeta.get(projectId);
+    if (meta) {
+      meta.lastSyncTimestamp = Date.now();
+      _saveSyncMetadata();
+    }
+
+    // Update sync timestamp + clear error
+    const meta = _syncMeta.get(projectId);
+    if (meta) { meta.lastSyncTimestamp = Date.now(); _saveSyncMetadata(); }
+    _lastErrors.delete(projectId);
+
+    _sendToRenderer('cloud:auto-sync-status', {
+      projectId,
+      status: 'synced',
+      fileCount: changes.size,
+    });
+
+    // Cleanup
+    await fs.promises.unlink(zipPath).catch(() => {});
+
+    console.log(`[CloudSync] Incremental upload: ${changes.size} files for ${projectName}`);
+  } catch (err) {
+    console.error(`[CloudSync] Incremental upload failed for ${projectId}:`, err.message);
+    _lastErrors.set(projectId, { message: err.message, timestamp: Date.now() });
+    _sendToRenderer('cloud:auto-sync-status', {
+      projectId,
+      status: 'error',
+      error: err.message,
+    });
+  }
+}
+
+// ── Helpers ──
+
+function _sendToRenderer(channel, data) {
+  if (_mainWindow && !_mainWindow.isDestroyed()) {
+    _mainWindow.webContents.send(channel, data);
+  }
+}
+
+function _getCloudConfig() {
+  try {
+    if (fs.existsSync(settingsFile)) {
+      const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+      const url = settings.cloudServerUrl?.replace(/\/$/, '');
+      const key = settings.cloudApiKey;
+      return { url, key };
+    }
+  } catch {}
+  return {};
+}
+
+function _getProjectById(projectId) {
+  try {
+    if (fs.existsSync(projectsFile)) {
+      const data = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+      return (data.projects || []).find(p => p.id === projectId);
+    }
+  } catch {}
+  return null;
+}
+
+function _startWatchingAllSyncedProjects() {
+  try {
+    if (!fs.existsSync(projectsFile)) return;
+    const data = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+    const projects = data.projects || [];
+    const toRemove = [];
+
+    for (const [projectId, meta] of _syncMeta) {
+      const project = projects.find(p => p.id === projectId);
+      if (project && project.path && fs.existsSync(project.path)) {
+        fileWatcherService.watch(projectId, project.path).catch(err => {
+          console.error(`[CloudSync] Failed to start watcher for ${projectId}:`, err.message);
+        });
+      } else {
+        toRemove.push(projectId);
+      }
+    }
+
+    // Clean up stale entries
+    for (const id of toRemove) {
+      _syncMeta.delete(id);
+    }
+    if (toRemove.length > 0) _saveSyncMetadata();
+  } catch (err) {
+    console.warn('[CloudSync] Error starting watchers:', err.message);
+  }
+}
+
+function _loadSyncMetadata() {
+  try {
+    if (fs.existsSync(SYNC_META_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(SYNC_META_FILE, 'utf8'));
+      _syncMeta = new Map(Object.entries(raw));
+    }
+  } catch {
+    _syncMeta = new Map();
+  }
+}
+
+function _saveSyncMetadata() {
+  try {
+    const data = Object.fromEntries(_syncMeta);
+    const dir = path.dirname(SYNC_META_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const tmpFile = SYNC_META_FILE + '.tmp';
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2));
+    fs.renameSync(tmpFile, SYNC_META_FILE);
+  } catch (err) {
+    console.warn('[CloudSync] Failed to save sync metadata:', err.message);
+  }
+}
+
+module.exports = {
+  setMainWindow,
+  start,
+  stop,
+  registerProject,
+  unregisterProject,
+  isRegistered,
+  getLastSyncTimestamp,
+  updateSyncTimestamp,
+  getSyncStatus,
+  getAllSyncStatuses,
+};
