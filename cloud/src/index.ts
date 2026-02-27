@@ -74,6 +74,9 @@ export async function startServer(): Promise<void> {
   // Relay WS server (handles /relay upgrade)
   relayServer = new RelayServer(server);
 
+  // Wire relay into session manager so stream events go through relay WS
+  sessionManager.setRelayServer(relayServer);
+
   // Session stream WS (handles /api/sessions/:id/stream upgrade)
   const sessionWss = new WebSocketServer({ noServer: true });
 
