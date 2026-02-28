@@ -249,6 +249,10 @@ class WorkflowService {
     return storage.getRecentRuns(limit);
   }
 
+  clearAllRuns() {
+    storage.clearAllRuns();
+  }
+
   getRun(runId) {
     return storage.getRun(runId);
   }
@@ -487,7 +491,23 @@ class WorkflowService {
         ? RUN_STATUS.SUCCESS
         : RUN_STATUS.FAILED;
 
-    const patch = { status, duration: `${duration}s`, finishedAt: new Date().toISOString() };
+    // Build final steps array with statuses and outputs
+    const finalSteps = (run.steps || []).map(s => {
+      const tracked = result.stepStatuses?.get(s.id);
+      if (tracked) {
+        return { ...s, status: tracked.status, output: tracked.output };
+      }
+      // Steps that were never reached remain pending → mark as skipped
+      if (s.status === 'pending') return { ...s, status: 'skipped' };
+      return s;
+    });
+
+    const patch = {
+      status,
+      duration: `${duration}s`,
+      finishedAt: new Date().toISOString(),
+      steps: finalSteps,
+    };
     storage.updateRun(run.id, patch);
 
     // Persist large output payload separately

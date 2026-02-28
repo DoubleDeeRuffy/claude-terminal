@@ -784,6 +784,7 @@ class WorkflowRunner {
     ]);
 
     const stepOutputs = {};
+    this._stepStatuses = new Map(); // Track final step statuses for persistence
 
     const globalTimeoutMs = workflow.timeout ? parseMs(workflow.timeout) : null;
     const globalTimer = globalTimeoutMs
@@ -799,12 +800,12 @@ class WorkflowRunner {
         const steps = workflow.steps || [];
         await this._runSteps(steps, vars, run.id, abort.signal, stepOutputs, workflow);
       }
-      return { success: true, outputs: stepOutputs };
+      return { success: true, outputs: stepOutputs, stepStatuses: this._stepStatuses };
     } catch (err) {
       if (abort.signal.aborted) {
-        return { success: false, cancelled: true, outputs: stepOutputs, error: 'Cancelled' };
+        return { success: false, cancelled: true, outputs: stepOutputs, stepStatuses: this._stepStatuses, error: 'Cancelled' };
       }
-      return { success: false, outputs: stepOutputs, error: err.message };
+      return { success: false, outputs: stepOutputs, stepStatuses: this._stepStatuses, error: err.message };
     } finally {
       if (globalTimer) clearTimeout(globalTimer);
     }
@@ -1451,6 +1452,10 @@ class WorkflowRunner {
   // ─── Event emission ─────────────────────────────────────────────────────────
 
   _emitStep(runId, step, status, output, attempt) {
+    // Track final step status for persistence (overwrite — last status wins)
+    if (this._stepStatuses && status !== 'running' && status !== 'retrying') {
+      this._stepStatuses.set(step.id, { status, output: this._safeOutput(output) });
+    }
     this._send('workflow-step-update', {
       runId,
       stepId:  step.id,
