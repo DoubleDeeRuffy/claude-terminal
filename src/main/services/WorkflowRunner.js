@@ -349,22 +349,29 @@ async function runDbStep(config, vars, databaseService) {
   const connConfig = connections.find(c => c.id === connId);
   if (!connConfig) throw new Error(`Database connection "${connId}" not found`);
 
-  // Connect if not already connected
-  try {
-    await databaseService.connect(connId, connConfig);
-  } catch {
-    // May already be connected — ignore
+  // Retrieve password from OS keychain (passwords are stripped from disk config)
+  const cred = await databaseService.getCredential(connId);
+  if (cred?.success && cred.password) {
+    connConfig.password = cred.password;
+  }
+
+  // Connect (or reconnect) to the database
+  const connResult = await databaseService.connect(connId, connConfig);
+  if (!connResult?.success) {
+    throw new Error(`Database connection failed: ${connResult?.error || 'Unknown error'}`);
   }
 
   if (action === 'schema') {
     const schema = await databaseService.getSchema(connId, { force: true });
-    const tables = schema?.tables || [];
+    if (!schema?.success) throw new Error(schema?.error || 'Failed to get schema');
+    const tables = schema.tables || [];
     return { tables, tableCount: tables.length };
   }
 
   if (action === 'tables') {
     const schema = await databaseService.getSchema(connId, { force: true });
-    const tables = (schema?.tables || []).map(t => t.name || t.table_name || t);
+    if (!schema?.success) throw new Error(schema?.error || 'Failed to get schema');
+    const tables = (schema.tables || []).map(t => t.name || t.table_name || t);
     return { tables, tableCount: tables.length };
   }
 
@@ -1007,8 +1014,13 @@ class WorkflowRunner {
     if (!output) return null;
     if (Array.isArray(output)) return output;
     if (Array.isArray(output.rows)) return output.rows;
+    if (Array.isArray(output.tables)) return output.tables;
     if (Array.isArray(output.items)) return output.items;
     if (Array.isArray(output.content)) return output.content;
+    // Last resort: look for any array property
+    for (const key of Object.keys(output)) {
+      if (Array.isArray(output[key]) && output[key].length > 0) return output[key];
+    }
     return null;
   }
 
