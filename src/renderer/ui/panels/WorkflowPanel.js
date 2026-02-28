@@ -212,14 +212,32 @@ function renderWorkflowList(el) {
     return;
   }
 
-  el.innerHTML = `<div class="wf-list">${state.workflows.map(wf => cardHtml(wf)).join('')}</div>`;
+  // Sort: favorites first, then by last run date
+  const sorted = [...state.workflows].sort((a, b) => {
+    if (a.favorite && !b.favorite) return -1;
+    if (!a.favorite && b.favorite) return 1;
+    const aRun = state.runs.find(r => r.workflowId === a.id);
+    const bRun = state.runs.find(r => r.workflowId === b.id);
+    return (bRun?.startedAt || 0) - (aRun?.startedAt || 0);
+  });
+  el.innerHTML = `<div class="wf-list">${sorted.map(wf => cardHtml(wf)).join('')}</div>`;
 
   el.querySelectorAll('.wf-card').forEach(card => {
     const id = card.dataset.id;
     card.querySelector('.wf-card-body').addEventListener('click', (e) => {
       // Don't trigger detail when clicking interactive elements
-      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
+      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle') || e.target.closest('.wf-card-fav')) return;
       openDetail(id);
+    });
+
+    // Favorite toggle
+    card.querySelector('.wf-card-fav')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const wf = state.workflows.find(w => w.id === id);
+      if (!wf) return;
+      wf.favorite = !wf.favorite;
+      await api?.save({ ...wf });
+      renderContent();
     });
     card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
     card.querySelector('.wf-card-edit')?.addEventListener('click', e => { e.stopPropagation(); openEditor(id); });
@@ -262,6 +280,9 @@ function cardHtml(wf) {
       <div class="wf-card-body">
         <div class="wf-card-top">
           <div class="wf-card-title-row">
+            <button class="wf-card-fav ${wf.favorite ? 'wf-card-fav--active' : ''}" title="${wf.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}">
+              <svg width="12" height="12" viewBox="0 0 24 24" ${wf.favorite ? 'fill="currentColor"' : 'fill="none"'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
             <span class="wf-card-name">${escapeHtml(wf.name)}</span>
             ${!wf.enabled ? '<span class="wf-card-paused">PAUSED</span>' : ''}
           </div>
@@ -402,6 +423,7 @@ function renderRunHistory(el) {
 function renderRunDetail(el, run) {
   const wf = state.workflows.find(w => w.id === run.workflowId);
   const steps = run.steps || [];
+  const totalDuration = run.duration || steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
 
   el.innerHTML = `
     <div class="wf-run-detail">
@@ -419,24 +441,36 @@ function renderRunDetail(el, run) {
             <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
           </div>
         </div>
-        <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+        <div class="wf-run-detail-actions">
+          ${wf ? `<button class="wf-run-detail-rerun" id="wf-run-rerun" title="Relancer ce workflow">
+            ${svgPlay(10)} Re-run
+          </button>` : ''}
+          <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+        </div>
       </div>
       <div class="wf-run-detail-steps">
         ${steps.map((step, i) => {
           const sType = (step.type || step.name || '').split('.')[0];
           const info = findStepType(sType);
           const hasOutput = step.output != null;
+          const isFailed = step.status === 'failed';
+          const errorMsg = isFailed && step.error ? step.error : (isFailed && typeof step.output === 'string' && step.output.length < 500 ? step.output : null);
+          const pct = Math.max(2, Math.round(((step.duration || 0) / totalDuration) * 100));
           return `
-            <div class="wf-run-step wf-run-step--${step.status}" data-step-idx="${i}">
+            <div class="wf-run-step wf-run-step--${step.status} ${isFailed ? 'wf-run-step--error-highlight' : ''}" data-step-idx="${i}">
               <div class="wf-run-step-header">
                 <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
                 <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
                 <span class="wf-run-step-type">${escapeHtml(sType)}</span>
+                <div class="wf-run-step-timing">
+                  <div class="wf-run-step-timing-bar" style="width:${pct}%"></div>
+                </div>
                 <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
                 <span class="wf-run-step-status-icon">${step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…'}</span>
                 ${hasOutput ? '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' : ''}
               </div>
-              ${hasOutput ? `<div class="wf-run-step-output" style="display:none"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
+              ${errorMsg ? `<div class="wf-run-step-error"><span class="wf-run-step-error-label">Error</span> ${escapeHtml(errorMsg)}</div>` : ''}
+              ${hasOutput ? `<div class="wf-run-step-output" style="display:${isFailed ? 'block' : 'none'}"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
             </div>
           `;
         }).join('')}
@@ -446,6 +480,11 @@ function renderRunDetail(el, run) {
 
   // Back button
   el.querySelector('#wf-run-back').addEventListener('click', () => renderContent());
+
+  // Re-run button
+  el.querySelector('#wf-run-rerun')?.addEventListener('click', async () => {
+    if (run.workflowId) await triggerWorkflow(run.workflowId);
+  });
 
   // Toggle step outputs
   el.querySelectorAll('.wf-run-step').forEach(stepEl => {

@@ -4889,3 +4889,122 @@ select.wf-step-edit-input {
   padding: 2px 0;
   user-select: none;
 }
+
+/* ── Favorites star button ─────────────────────────────────────────────── */
+.wf-card-fav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,.15);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all .15s var(--wf-ease);
+}
+.wf-card-fav:hover {
+  color: rgba(251,191,36,.6);
+  background: rgba(251,191,36,.06);
+}
+.wf-card-fav--active {
+  color: #fbbf24;
+}
+.wf-card-fav--active:hover {
+  color: #f59e0b;
+  background: rgba(251,191,36,.1);
+}
+
+/* ── Run detail: actions bar ───────────────────────────────────────────── */
+.wf-run-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wf-run-detail-rerun {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 6px;
+  background: rgba(255,255,255,.04);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s var(--wf-ease);
+}
+.wf-run-detail-rerun:hover {
+  background: rgba(255,255,255,.08);
+  border-color: rgba(255,255,255,.12);
+  color: var(--text-primary);
+}
+.wf-run-detail-rerun svg {
+  opacity: .7;
+}
+
+/* ── Run step: timing bar ──────────────────────────────────────────────── */
+.wf-run-step-timing {
+  flex: 1;
+  height: 3px;
+  min-width: 40px;
+  max-width: 120px;
+  background: rgba(255,255,255,.04);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0 4px;
+}
+.wf-run-step-timing-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(255,255,255,.12);
+  transition: width .3s ease-out;
+}
+.wf-run-step--success .wf-run-step-timing-bar {
+  background: rgba(34,197,94,.35);
+}
+.wf-run-step--failed .wf-run-step-timing-bar {
+  background: rgba(239,68,68,.4);
+}
+.wf-run-step--running .wf-run-step-timing-bar {
+  background: rgba(245,158,11,.35);
+}
+
+/* ── Run step: error message ───────────────────────────────────────────── */
+.wf-run-step-error {
+  padding: 6px 10px;
+  margin: 4px 0 0 28px;
+  font-size: 11px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: rgba(239,68,68,.8);
+  background: rgba(239,68,68,.06);
+  border: 1px solid rgba(239,68,68,.1);
+  border-radius: 6px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.wf-run-step-error-label {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #ef4444;
+  background: rgba(239,68,68,.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+/* ── Run step: error highlight ─────────────────────────────────────────── */
+.wf-run-step--error-highlight {
+  border-left: 2px solid rgba(239,68,68,.4);
+  padding-left: 10px;
+}
