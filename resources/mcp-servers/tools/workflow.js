@@ -156,36 +156,169 @@ function nextLinkId(graph) {
   return links.length ? Math.max(...links.map(l => l[0])) + 1 : 1;
 }
 
-// Returns the default inputs/outputs slot definitions for a node type
-function getNodeSlots(type) {
-  const T = -1; // LiteGraph wildcard type
-  const stdIn  = [{ name: 'In',    type: T, link: null }];
-  const stdOut = (names) => names.map((n, i) => ({ name: n, type: T, links: [], slot_index: i }));
+// Pin type constants (mirror of PIN_TYPES in WorkflowGraphService.js)
+// exec=-1 (LiteGraph EVENT), data pins are typed strings
+const EXEC = -1;
 
+function slot(name, type) {
+  return { name, type, link: null };
+}
+function outSlot(name, type, i) {
+  return { name, type, links: [], slot_index: i };
+}
+function execIn()  { return [slot('In', EXEC)]; }
+function execOut(...names) { return names.map((n, i) => outSlot(n, EXEC, i)); }
+
+// Returns the default inputs/outputs slot definitions for a node type
+// Includes typed data pins (string/number/boolean/array/object/any)
+function getNodeSlots(type) {
   switch (type) {
     case 'workflow/trigger':
-      return { inputs: [], outputs: stdOut(['Start']) };
+      return { inputs: [], outputs: execOut('Start') };
+
+    case 'workflow/claude':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',  EXEC,     0),
+          outSlot('Error', EXEC,     1),
+          outSlot('output','string', 2),
+        ],
+      };
+
+    case 'workflow/shell':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',    EXEC,     0),
+          outSlot('Error',   EXEC,     1),
+          outSlot('stdout',  'string', 2),
+          outSlot('stderr',  'string', 3),
+          outSlot('exitCode','number', 4),
+        ],
+      };
+
+    case 'workflow/git':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',   EXEC,     0),
+          outSlot('Error',  EXEC,     1),
+          outSlot('output', 'string', 2),
+        ],
+      };
+
+    case 'workflow/http':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',   EXEC,     0),
+          outSlot('Error',  EXEC,     1),
+          outSlot('body',   'object', 2),
+          outSlot('status', 'number', 3),
+          outSlot('ok',     'boolean',4),
+        ],
+      };
+
+    case 'workflow/db':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',     EXEC,     0),
+          outSlot('Error',    EXEC,     1),
+          outSlot('rows',     'array',  2),
+          outSlot('rowCount', 'number', 3),
+          outSlot('firstRow', 'object', 4),
+        ],
+      };
+
+    case 'workflow/file':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',    EXEC,      0),
+          outSlot('Error',   EXEC,      1),
+          outSlot('content', 'string',  2),
+          outSlot('exists',  'boolean', 3),
+        ],
+      };
+
     case 'workflow/condition':
-      return { inputs: stdIn, outputs: stdOut(['TRUE', 'FALSE']) };
+      return { inputs: execIn(), outputs: execOut('TRUE', 'FALSE') };
+
     case 'workflow/loop':
-      return { inputs: stdIn, outputs: stdOut(['Each', 'Done']) };
+      return {
+        inputs: [
+          slot('In',    EXEC),
+          slot('array', 'array'),
+        ],
+        outputs: [
+          outSlot('Each',  EXEC,    0),
+          outSlot('Done',  EXEC,    1),
+          outSlot('item',  'any',   2),
+          outSlot('index', 'number',3),
+        ],
+      };
+
+    case 'workflow/variable':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',  EXEC,  0),
+          outSlot('value', 'any', 1),
+        ],
+      };
+
+    case 'workflow/get_variable':
+      // Pure node: no exec pins, just a data output
+      return {
+        inputs: [],
+        outputs: [outSlot('value', 'any', 0)],
+      };
+
+    case 'workflow/transform':
+      return {
+        inputs: [
+          slot('In',    EXEC),
+          slot('input', 'any'),
+        ],
+        outputs: [
+          outSlot('Done',   EXEC,  0),
+          outSlot('Error',  EXEC,  1),
+          outSlot('result', 'any', 2),
+        ],
+      };
+
+    case 'workflow/log':
+      return {
+        inputs: [
+          slot('In',      EXEC),
+          slot('message', 'string'),
+        ],
+        outputs: execOut('Done'),
+      };
+
     case 'workflow/notify':
     case 'workflow/wait':
-    case 'workflow/log':
-    case 'workflow/variable':
-      return { inputs: stdIn, outputs: stdOut(['Done']) };
-    case 'workflow/transform':
-      // Transform/JSON: Done + Error
-      return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };
+      return { inputs: execIn(), outputs: execOut('Done') };
+
     case 'workflow/subworkflow':
-      // Sub-workflow: Done + Error
-      return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',    EXEC,     0),
+          outSlot('Error',   EXEC,     1),
+          outSlot('outputs', 'object', 2),
+        ],
+      };
+
     case 'workflow/switch':
-      // Switch/Case: default output only (cases are dynamic, agent should use update_node to set Cases)
-      return { inputs: stdIn, outputs: stdOut(['Default']) };
+      // Switch: default output only (cases are dynamic — use workflow_update_node to set Cases)
+      return { inputs: execIn(), outputs: execOut('Default') };
+
     default:
-      // shell, claude, git, http, db, file → Done + Error
-      return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };
+      // Fallback: Done + Error
+      return { inputs: execIn(), outputs: execOut('Done', 'Error') };
   }
 }
 
@@ -265,7 +398,7 @@ const tools = [
   },
   {
     name: 'workflow_add_node',
-    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable',
+    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -321,6 +454,17 @@ const tools = [
         node_id: { type: 'number', description: 'Node ID to delete' },
       },
       required: ['workflow', 'node_id'],
+    },
+  },
+  {
+    name: 'workflow_get_variables',
+    description: 'List all variables declared in a workflow. Shows variable nodes (Set/Get), their type (string/number/boolean/array/object/any), and current default value. Also lists get_variable nodes that reference variables not defined in this workflow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+      },
+      required: ['workflow'],
     },
   },
   {
@@ -396,16 +540,51 @@ async function handle(name, args) {
         output += `Dependencies: ${wf.dependsOn.map(d => `${d.workflow} (max_age: ${d.max_age || '—'})`).join(', ')}\n`;
       }
 
-      output += `\n## Steps (${(wf.steps || []).length})\n`;
-      for (const step of (wf.steps || [])) {
-        output += `  ${step.id}: ${step.type}`;
-        if (step.type === 'agent') output += ` — "${(step.config?.prompt || '').slice(0, 80)}"`;
-        if (step.type === 'shell') output += ` — ${(step.config?.command || '').slice(0, 80)}`;
-        if (step.type === 'http') output += ` — ${step.config?.method || 'GET'} ${(step.config?.url || '').slice(0, 60)}`;
-        if (step.type === 'git') output += ` — ${(step.config?.actions || []).map(a => a.type || a).join(', ')}`;
-        if (step.type === 'notify') output += ` — "${(step.config?.title || '').slice(0, 60)}"`;
-        if (step.condition) output += ` [if ${step.condition}]`;
-        output += '\n';
+      // Display graph nodes (LiteGraph format)
+      const graphNodes = (wf.graph && wf.graph.nodes) || [];
+      const graphLinks = (wf.graph && wf.graph.links) || [];
+      if (graphNodes.length) {
+        output += `\n## Graph Nodes (${graphNodes.length})\n`;
+        for (const node of graphNodes) {
+          const ntype = (node.type || '').replace('workflow/', '');
+          const title = node.properties?._customTitle ? ` "${node.properties._customTitle}"` : '';
+          output += `  [${node.id}] ${ntype}${title}`;
+          const props = Object.entries(node.properties || {})
+            .filter(([k, v]) => !k.startsWith('_') && v !== '' && v !== null && v !== undefined)
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+          if (props.length) output += ` — ${props.slice(0, 4).join(', ')}`;
+          output += '\n';
+        }
+        output += `\n## Links (${graphLinks.length})\n`;
+        for (const l of graphLinks) {
+          const srcNode = graphNodes.find(n => n.id === l[1]);
+          const dstNode = graphNodes.find(n => n.id === l[3]);
+          const srcType = (srcNode?.type || '').replace('workflow/', '');
+          const dstType = (dstNode?.type || '').replace('workflow/', '');
+          const srcOut = srcNode?.outputs?.[l[2]]?.name || `slot${l[2]}`;
+          const dstIn  = dstNode?.inputs?.[l[4]]?.name  || `slot${l[4]}`;
+          output += `  ${srcType}[${l[1]}].${srcOut} → ${dstType}[${l[3]}].${dstIn}\n`;
+        }
+
+        // Show declared variables (variable nodes with action=set)
+        const varNodes = graphNodes.filter(n => n.type === 'workflow/variable' && n.properties?.action === 'set' && n.properties?.name);
+        const getVarNodes = graphNodes.filter(n => n.type === 'workflow/get_variable' && n.properties?.name);
+        if (varNodes.length || getVarNodes.length) {
+          output += `\n## Variables\n`;
+          for (const n of varNodes) {
+            const t = n.properties.varType || 'any';
+            output += `  SET ${n.properties.name} (${t})`;
+            if (n.properties.value) output += ` = ${String(n.properties.value).slice(0, 40)}`;
+            output += '\n';
+          }
+          for (const n of getVarNodes) {
+            const t = n.properties.varType || 'any';
+            const alreadyShown = varNodes.some(v => v.properties.name === n.properties.name);
+            if (!alreadyShown) output += `  GET ${n.properties.name} (${t}) — referenced but not defined in this workflow\n`;
+          }
+        }
+      } else {
+        output += `\nNo graph nodes yet. Use workflow_add_node to start building.\n`;
       }
 
       if (runs.length) {
@@ -523,6 +702,69 @@ async function handle(name, args) {
       });
 
       return ok(`Active runs (${active.length}):\n\n${lines.join('\n')}`);
+    }
+
+    // ── workflow_get_variables ───────────────────────────────────────────────
+
+    if (name === 'workflow_get_variables') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
+
+      const nodes = (wf.graph && wf.graph.nodes) || [];
+      const defined = new Map();
+      const referenced = new Map();
+
+      for (const n of nodes) {
+        if (n.type === 'workflow/variable' && n.properties?.name) {
+          const name2 = n.properties.name;
+          const t = n.properties.varType || 'any';
+          const val = n.properties.value;
+          const action = n.properties.action || 'set';
+          if (!defined.has(name2)) defined.set(name2, []);
+          defined.get(name2).push({ action, type: t, value: val, nodeId: n.id });
+        }
+        if (n.type === 'workflow/get_variable' && n.properties?.name) {
+          const name2 = n.properties.name;
+          const t = n.properties.varType || 'any';
+          if (!referenced.has(name2)) referenced.set(name2, []);
+          referenced.get(name2).push({ type: t, nodeId: n.id });
+        }
+      }
+
+      if (!defined.size && !referenced.size) {
+        return ok(`No variables in workflow "${wf.name}".\n\nTo add a variable:\n- Use workflow_add_node with type "workflow/variable" and properties { name: "myVar", action: "set", value: "initial", varType: "string" }\n- Or use workflow_add_node with type "workflow/get_variable" and properties { name: "myVar", varType: "string" } to read a variable inline (no exec pins needed).`);
+      }
+
+      let out = `# Variables in "${wf.name}"\n\n`;
+
+      if (defined.size) {
+        out += `## Declared Variables (${defined.size})\n`;
+        for (const [varName, usages] of defined) {
+          const types = [...new Set(usages.map(u => u.type))].join('/');
+          const setUsages = usages.filter(u => u.action === 'set');
+          const val = setUsages[0]?.value;
+          out += `  ${varName} (${types})`;
+          if (val !== undefined && val !== '') out += ` = ${JSON.stringify(val)}`;
+          out += ` — nodes: ${usages.map(u => `[${u.nodeId}] ${u.action}`).join(', ')}\n`;
+        }
+        out += '\n';
+      }
+
+      if (referenced.size) {
+        const unreferenced = [...referenced.entries()].filter(([n]) => !defined.has(n));
+        if (unreferenced.length) {
+          out += `## Get Variable References (not defined in this workflow — ${unreferenced.length})\n`;
+          for (const [varName, usages] of unreferenced) {
+            const types = [...new Set(usages.map(u => u.type))].join('/');
+            out += `  ${varName} (${types}) — nodes: ${usages.map(u => `[${u.nodeId}]`).join(', ')}\n`;
+          }
+          out += '\n';
+        }
+      }
+
+      out += `Tip: Connect a "workflow/get_variable" node output directly to any data input pin to pass a variable value without exec flow.`;
+      return ok(out);
     }
 
     // ── workflow_get_graph ───────────────────────────────────────────────────
