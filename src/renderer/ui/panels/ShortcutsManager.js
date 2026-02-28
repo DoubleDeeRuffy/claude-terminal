@@ -25,6 +25,15 @@ const DEFAULT_SHORTCUTS = {
   toggleFileExplorer: { key: 'Ctrl+E', labelKey: 'shortcuts.toggleFileExplorer' }
 };
 
+const TERMINAL_SHORTCUTS = {
+  ctrlC: { labelKey: 'shortcuts.terminalCopy', defaultEnabled: true },
+  ctrlV: { labelKey: 'shortcuts.terminalPaste', defaultEnabled: true },
+  ctrlArrow: { labelKey: 'shortcuts.terminalWordJump', defaultEnabled: false },
+  ctrlTab: { labelKey: 'shortcuts.terminalTabSwitch', defaultEnabled: true },
+  rightClickPaste: { labelKey: 'shortcuts.terminalRightClickPaste', defaultEnabled: true },
+  rightClickCopyPaste: { labelKey: 'shortcuts.terminalRightClickCopyPaste', defaultEnabled: false }
+};
+
 let shortcutCaptureState = {
   active: false,
   shortcutId: null,
@@ -221,6 +230,40 @@ function renderShortcutsPanel() {
     </div>
   `;
 
+  // Terminal shortcuts section
+  const terminalShortcuts = ctx.settingsState.get().terminalShortcuts || {};
+
+  html += `
+    <div class="settings-group">
+      <div class="settings-group-title">${t('shortcuts.terminalShortcutsTitle')}</div>
+      <div class="settings-card">
+        <div class="shortcuts-list">
+  `;
+
+  for (const [id, config] of Object.entries(TERMINAL_SHORTCUTS)) {
+    const isEnabled = terminalShortcuts[id]?.enabled !== undefined
+      ? terminalShortcuts[id].enabled
+      : config.defaultEnabled;
+
+    html += `
+      <div class="shortcut-row">
+        <div class="shortcut-label">${t(config.labelKey)}</div>
+        <div class="shortcut-controls">
+          <label class="settings-toggle">
+            <input type="checkbox" class="terminal-shortcut-toggle" data-shortcut-id="${id}" ${isEnabled ? 'checked' : ''}>
+            <span class="settings-toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  html += `
+        </div>
+      </div>
+    </div>
+  `;
+
   return html;
 }
 
@@ -242,6 +285,23 @@ function setupShortcutsPanelHandlers() {
       if (panel) {
         panel.innerHTML = renderShortcutsPanel();
         setupShortcutsPanelHandlers();
+      }
+    };
+  });
+
+  document.querySelectorAll('.terminal-shortcut-toggle').forEach(toggle => {
+    toggle.onchange = () => {
+      const id = toggle.dataset.shortcutId;
+      const terminalShortcuts = { ...(ctx.settingsState.get().terminalShortcuts || {}) };
+      terminalShortcuts[id] = { ...terminalShortcuts[id], enabled: toggle.checked };
+      ctx.settingsState.setProp('terminalShortcuts', terminalShortcuts);
+      ctx.saveSettings();
+      // Sync Ctrl+Tab enabled state to main process
+      if (id === 'ctrlTab') {
+        const api = window.electron_api;
+        if (api?.window?.setCtrlTabEnabled) {
+          api.window.setCtrlTabEnabled(toggle.checked);
+        }
       }
     };
   });

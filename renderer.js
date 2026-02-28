@@ -2019,10 +2019,37 @@ TerminalManager.setCallbacks({
 });
 
 // Listen for Ctrl+Arrow forwarded from main process (bypasses Windows Snap)
+// Ctrl+Left/Right: word-jump in active terminal (VT escape sequences)
+// Ctrl+Up/Down: switches projects
 api.window.onCtrlArrow((dir) => {
-  if (dir === 'left' || dir === 'right') switchTerminal(dir);
-  else if (dir === 'up' || dir === 'down') switchProject(dir);
+  if (dir === 'up' || dir === 'down') {
+    switchProject(dir);
+  } else if (dir === 'left' || dir === 'right') {
+    // Word-jump when enabled, fall back to tab switching when disabled
+    const ts = settingsState.get().terminalShortcuts || {};
+    if (ts.ctrlArrow?.enabled === false) {
+      switchTerminal(dir);
+    } else {
+      const activeId = terminalsState.get().activeTerminal;
+      if (activeId) {
+        const seq = dir === 'left' ? '\x1b[1;5D' : '\x1b[1;5C';
+        api.terminal.input({ id: activeId, data: seq });
+      }
+    }
+  }
 });
+
+// Listen for Ctrl+Tab/Ctrl+Shift+Tab forwarded from main process (Chromium swallows Tab)
+api.window.onCtrlTab((dir) => {
+  switchTerminal(dir);
+});
+
+// Sync Ctrl+Tab enabled state to main process on startup
+{
+  const ts = settingsState.get().terminalShortcuts || {};
+  const ctrlTabEnabled = ts.ctrlTab?.enabled !== false;
+  api.window.setCtrlTabEnabled(ctrlTabEnabled);
+}
 
 // Setup FileExplorer
 FileExplorer.setCallbacks({

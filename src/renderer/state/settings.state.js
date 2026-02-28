@@ -38,6 +38,7 @@ const defaultSettings = {
   cloudServerUrl: '', // Cloud relay server URL (e.g. 'https://cloud.example.com')
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
   cloudAutoConnect: true, // Auto-connect to cloud relay on startup
+  terminalShortcuts: {}, // Terminal shortcut toggles (empty = all enabled by default)
   telemetryEnabled: false, // Opt-in anonymous telemetry
   telemetryUuid: null, // Random UUID for anonymous tracking
   telemetryCategories: { app: true, features: true, errors: true }, // Granular event categories

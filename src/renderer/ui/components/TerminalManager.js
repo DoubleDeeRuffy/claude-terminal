@@ -42,6 +42,7 @@ const {
 } = require('../themes/terminal-themes');
 const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
+const { showContextMenu } = require('./ContextMenu');
 const ContextPromptService = require('../../services/ContextPromptService');
 
 // Lazy require to avoid circular dependency
@@ -464,12 +465,31 @@ function extractTerminalContext(terminal) {
 
 
 /**
- * Setup paste handler to prevent double-paste issue
- * xterm.js + Electron can trigger paste twice, so we handle it manually
- * @param {HTMLElement} wrapper - Terminal wrapper element
- * @param {string|number} terminalId - Terminal ID for IPC
- * @param {string} inputChannel - IPC channel for input
+ * Shared paste helper — encapsulates debounce + clipboard read + IPC dispatch.
+ * Used by setupPasteHandler, setupClipboardShortcuts, createTerminalKeyHandler,
+ * and the right-click context menu.
  */
+function performPaste(terminalId, inputChannel = 'terminal-input') {
+  const now = Date.now();
+  if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
+  lastPasteTime = now;
+  const sendPaste = (text) => {
+    if (!text) return;
+    // Normalize line endings: \r\n → \r, then lone \n → \r (terminal convention)
+    text = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+    if (inputChannel === 'fivem-input') {
+      api.fivem.input({ projectIndex: terminalId, data: text });
+    } else if (inputChannel === 'webapp-input') {
+      api.webapp.input({ projectIndex: terminalId, data: text });
+    } else {
+      api.terminal.input({ id: terminalId, data: text });
+    }
+  };
+  navigator.clipboard.readText()
+    .then(sendPaste)
+    .catch(() => api.app.clipboardRead().then(sendPaste));
+}
+
 /**
  * Setup DOM-level clipboard shortcuts (capture phase, before xterm intercepts)
  * xterm.js 6.x handles Ctrl+Shift+V internally but fails in Electron — we must intercept first.
@@ -1411,6 +1431,7 @@ async function createTerminal(project, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -1713,6 +1734,7 @@ function createTypeConsole(project, projectIndex) {
   // Prevent double-paste issue
   setupPasteHandler(consoleView, projectIndex, `${typeId}-input`);
   setupClipboardShortcuts(consoleView, terminal, projectIndex, `${typeId}-input`);
+  setupRightClickHandler(consoleView, terminal, projectIndex, `${typeId}-input`);
 
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
@@ -2853,6 +2875,7 @@ async function resumeSession(project, sessionId, options = {}) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler for global shortcuts and copy/paste
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3010,6 +3033,7 @@ async function createTerminalWithPrompt(project, prompt) {
   // Prevent double-paste issue
   setupPasteHandler(wrapper, id, 'terminal-input');
   setupClipboardShortcuts(wrapper, terminal, id, 'terminal-input');
+  setupRightClickHandler(wrapper, terminal, id, 'terminal-input');
 
   // Custom key handler
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, id, 'terminal-input'));
@@ -3926,6 +3950,7 @@ async function switchTerminalMode(id) {
     // Setup paste handler and key handler (use ptyId for PTY input routing)
     setupPasteHandler(wrapper, ptyId, 'terminal-input');
     setupClipboardShortcuts(wrapper, terminal, ptyId, 'terminal-input');
+    setupRightClickHandler(wrapper, terminal, ptyId, 'terminal-input');
     terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, ptyId, 'terminal-input'));
 
     // Title change

@@ -472,7 +472,14 @@
     "quickPicker": "Sélecteur rapide",
     "newProject": "Nouveau projet",
     "newTerminal": "Nouveau terminal",
-    "toggleFileExplorer": "Explorateur de fichiers"
+    "toggleFileExplorer": "Explorateur de fichiers",
+    "terminalShortcutsTitle": "Raccourcis terminal",
+    "terminalCopy": "Copier la sélection (Ctrl+C)",
+    "terminalPaste": "Coller le presse-papiers (Ctrl+V)",
+    "terminalWordJump": "Saut de mot au lieu de changement d'onglet (Ctrl+Flèche)",
+    "terminalTabSwitch": "Changer d'onglet (Ctrl+Tab)",
+    "terminalRightClickPaste": "Coller au clic droit",
+    "terminalRightClickCopyPaste": "Copier/coller au clic droit (style Windows Terminal)"
   },
   "contextMenu": {
     "newSubfolder": "Nouveau sous-dossier",

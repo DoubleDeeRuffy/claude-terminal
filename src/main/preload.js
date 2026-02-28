@@ -216,7 +216,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
     setTitle: (title) => ipcRenderer.send('set-window-title', title),
-    onCtrlArrow: createListener('ctrl-arrow')
+    onCtrlArrow: createListener('ctrl-arrow'),
+    onCtrlTab: createListener('ctrl-tab'),
+    setCtrlTabEnabled: (enabled) => ipcRenderer.send('set-ctrl-tab-enabled', enabled)
   },
 
   app: {
