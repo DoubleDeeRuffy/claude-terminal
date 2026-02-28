@@ -545,6 +545,7 @@ const STEP_TYPES = [
   { type: 'variable',  label: 'Variable',  color: 'violet',   icon: svgVariable(),   desc: 'Lire/écrire une variable',category: 'data' },
   // ── Transform ──
   { type: 'transform',    label: 'Transform',    color: 'teal',    icon: svgTransform(),    desc: 'Transformer des données',     category: 'data' },
+  { type: 'get_variable', label: 'Get Var',      color: 'violet',  icon: svgGetVar(),       desc: 'Lire une variable (pure)',     category: 'data' },
   // ── Flow ──
   { type: 'condition',   label: 'Condition',    color: 'success', icon: svgCond(),         desc: 'Branchement conditionnel',    category: 'flow' },
   { type: 'loop',        label: 'Loop',         color: 'sky',     icon: svgLoop(),         desc: 'Itérer sur une liste',        category: 'flow' },
@@ -3108,6 +3109,7 @@ function svgCode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 
 function svgTrash(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`; }
 function svgCopy(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`; }
 function svgTransform(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="m8 7-4 4 4 4"/><path d="m16 7 4 4-4 4"/></svg>`; }
+function svgGetVar(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/></svg>`; }
 function svgSwitch(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/><path d="M21 22v-5l-9-9"/></svg>`; }
 function svgSubworkflow(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="6" height="6" rx="1"/><rect x="16" y="7" width="6" height="6" rx="1"/><path d="M8 10h8"/><path d="M12 3v4"/><path d="M12 17v4"/></svg>`; }
 function svgTeal(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20"/><path d="M6 8l-4 4 4 4"/><path d="M18 8l4 4-4 4"/></svg>`; }

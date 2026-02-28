@@ -60,6 +60,54 @@ const NODE_DATA_TYPES = {
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
+// ── Pin type system ──────────────────────────────────────────────────────────
+// exec pins = flow control, data pins = typed values (string/number/etc.)
+const PIN_TYPES = {
+  exec:    { color: '#707070' },  // control flow — square shape by default in LiteGraph
+  string:  { color: '#c8c8c8' },
+  number:  { color: '#60a5fa' },
+  boolean: { color: '#4ade80' },
+  array:   { color: '#fb923c' },
+  object:  { color: '#a78bfa' },
+  any:     { color: '#6b7280' },
+};
+
+// Map data type → compatible input types (exec must connect to exec only)
+const TYPE_COMPAT = {
+  exec:    new Set(['exec']),
+  string:  new Set(['string', 'any']),
+  number:  new Set(['number', 'any', 'boolean']),
+  boolean: new Set(['boolean', 'any', 'number']),
+  array:   new Set(['array', 'any']),
+  object:  new Set(['object', 'any']),
+  any:     new Set(['any', 'string', 'number', 'boolean', 'array', 'object']),
+};
+
+// Map of node type → array of data output descriptors { name, type, key }
+// 'key' = the property name in the runtime output object
+const NODE_DATA_OUTPUTS = {
+  claude:      [{ name: 'output', type: 'string', key: 'output' }],
+  shell:       [{ name: 'stdout', type: 'string', key: 'stdout' }, { name: 'stderr', type: 'string', key: 'stderr' }, { name: 'exitCode', type: 'number', key: 'exitCode' }],
+  git:         [{ name: 'output', type: 'string', key: 'output' }],
+  http:        [{ name: 'body', type: 'object', key: 'body' }, { name: 'status', type: 'number', key: 'status' }, { name: 'ok', type: 'boolean', key: 'ok' }],
+  db:          [{ name: 'rows', type: 'array', key: 'rows' }, { name: 'rowCount', type: 'number', key: 'rowCount' }, { name: 'firstRow', type: 'object', key: 'firstRow' }],
+  file:        [{ name: 'content', type: 'string', key: 'content' }, { name: 'exists', type: 'boolean', key: 'exists' }],
+  variable:    [{ name: 'value', type: 'any', key: 'value' }],
+  transform:   [{ name: 'result', type: 'any', key: 'result' }],
+  subworkflow: [{ name: 'outputs', type: 'object', key: 'outputs' }],
+  loop:        [{ name: 'item', type: 'any', key: 'item' }, { name: 'index', type: 'number', key: 'index' }],
+  get_variable:[{ name: 'value', type: 'any', key: 'value' }],
+};
+
+// Map node type → slot index of the first data output (after exec slots)
+// Used by runtime to know slot → key mapping
+const NODE_DATA_OUT_OFFSET = {
+  trigger: 1, claude: 2, shell: 2, git: 2, http: 2, db: 2, file: 2,
+  notify: 1, wait: 1, log: 1, condition: 2, loop: 2,
+  variable: 1, transform: 2, subworkflow: 2, switch: 0,
+  get_variable: 0,
+};
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function hexToRgba(hex, a) {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -505,6 +553,25 @@ function installWidgetOverrides(canvasInstance) {
 
 // ── LiteGraph global config ──────────────────────────────────────────────────
 function configureLiteGraphDefaults() {
+  // Register typed slot colors so LiteGraph draws the right color per type
+  for (const [typeName, cfg] of Object.entries(PIN_TYPES)) {
+    LiteGraph.registerNodeAndSlotType({ type: typeName }, { color_on: cfg.color, color_off: hexToRgba(cfg.color, 0.35) });
+  }
+
+  // Override connection validation: exec↔exec only, data types must be compatible
+  LiteGraph.isValidConnection = function(a_type, b_type) {
+    // LiteGraph internal special values → treat as exec
+    const normalize = (t) => {
+      if (t === LiteGraph.EVENT || t === LiteGraph.ACTION || t === -1 || t === 0) return 'exec';
+      if (typeof t !== 'string') return 'any';
+      return t;
+    };
+    const ta = normalize(a_type);
+    const tb = normalize(b_type);
+    const compat = TYPE_COMPAT[ta] || TYPE_COMPAT.any;
+    return compat.has(tb);
+  };
+
   LiteGraph.CANVAS_GRID_SIZE = 20;
   LiteGraph.NODE_TITLE_HEIGHT = 28;
   LiteGraph.NODE_SLOT_HEIGHT = 18;
@@ -526,12 +593,20 @@ function configureLiteGraphDefaults() {
   LiteGraph.WIDGET_OUTLINE_COLOR = '#1e1e22';
   LiteGraph.WIDGET_TEXT_COLOR = '#aaa';
   LiteGraph.WIDGET_SECONDARY_TEXT_COLOR = '#555';
-  LiteGraph.LINK_COLOR = '#2a2a30';
-  LiteGraph.EVENT_LINK_COLOR = '#d97706';
-  LiteGraph.CONNECTING_LINK_COLOR = '#f59e0b';
+  LiteGraph.LINK_COLOR = '#707070';          // exec links: gray
+  LiteGraph.EVENT_LINK_COLOR = '#707070';     // legacy event links: same
+  LiteGraph.CONNECTING_LINK_COLOR = '#f59e0b'; // link being dragged: accent
 
   // Make default selection outline invisible — we draw our own in onDrawTitle
   LiteGraph.NODE_BOX_OUTLINE_COLOR = 'transparent';
+}
+
+// ─── Helper: add typed data outputs from NODE_DATA_OUTPUTS map ───────────────
+function addDataOutputs(node, nodeType) {
+  const defs = NODE_DATA_OUTPUTS[nodeType] || [];
+  for (const def of defs) {
+    node.addOutput(def.name, def.type);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -540,7 +615,7 @@ function configureLiteGraphDefaults() {
 
 // ── Trigger Node ─────────────────────────────────────────────────────────────
 function TriggerNode() {
-  this.addOutput('Start', LiteGraph.EVENT);
+  this.addOutput('Start', 'exec');
   this.properties = { triggerType: 'manual', triggerValue: '', hookType: 'PostToolUse' };
   this.addWidget('combo', 'Type', 'manual', (v) => { this.properties.triggerType = v; }, {
     values: ['manual', 'cron', 'hook', 'on_workflow']
@@ -561,9 +636,10 @@ TriggerNode.prototype.getExtraMenuOptions = function() { return []; };
 
 // ── Claude Node ──────────────────────────────────────────────────────────────
 function ClaudeNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'claude');
   this.properties = {
     mode: 'prompt', prompt: '', agentId: '', skillId: '',
     model: 'sonnet', effort: 'normal', outputSchema: null
@@ -593,9 +669,10 @@ ClaudeNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Shell Node ───────────────────────────────────────────────────────────────
 function ShellNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'shell');
   this.properties = { command: '' };
   this.addWidget('text', 'Command', '', (v) => { this.properties.command = v; });
   this.size = [220, this.computeSize()[1]];
@@ -617,9 +694,10 @@ ShellNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Git Node ─────────────────────────────────────────────────────────────────
 function GitNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'git');
   this.properties = { action: 'pull', branch: '', message: '' };
   this.addWidget('combo', 'Action', 'pull', (v) => { this.properties.action = v; }, {
     values: ['pull', 'push', 'commit', 'checkout', 'merge', 'stash', 'stash-pop', 'reset']
@@ -637,9 +715,10 @@ GitNode.prototype.onDrawForeground = function(ctx) {
 
 // ── HTTP Node ────────────────────────────────────────────────────────────────
 function HttpNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'http');
   this.properties = { method: 'GET', url: '', headers: '', body: '' };
   this.addWidget('combo', 'Method', 'GET', (v) => { this.properties.method = v; }, {
     values: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -661,8 +740,8 @@ HttpNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Notify Node ──────────────────────────────────────────────────────────────
 function NotifyNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
   this.properties = { title: '', message: '' };
   this.addWidget('text', 'Title', '', (v) => { this.properties.title = v; });
   this.addWidget('text', 'Message', '', (v) => { this.properties.message = v; });
@@ -675,8 +754,8 @@ NotifyNode.prototype.constructor = NotifyNode;
 
 // ── Wait Node ────────────────────────────────────────────────────────────────
 function WaitNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
   this.properties = { mode: 'duration', duration: '5s', timeout: '' };
   this.addWidget('combo', 'Mode', 'duration', (v) => {
     this.properties.mode = v;
@@ -702,9 +781,9 @@ WaitNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Condition Node ───────────────────────────────────────────────────────────
 function ConditionNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('TRUE', LiteGraph.EVENT);
-  this.addOutput('FALSE', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('TRUE', 'exec');
+  this.addOutput('FALSE', 'exec');
   this.properties = {
     conditionMode: 'builder',
     variable: '', operator: '==', value: '',
@@ -769,9 +848,9 @@ ConditionNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Project Node ──────────────────────────────────────────────────────────────
 function ProjectNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
   this.properties = { projectId: '', projectName: '', action: 'set_context' };
   this.addWidget('combo', 'Action', 'set_context', (v) => { this.properties.action = v; }, {
     values: ['set_context', 'open', 'build', 'install', 'test']
@@ -798,9 +877,10 @@ ProjectNode.prototype.onDrawForeground = function(ctx) {
 
 // ── File Node ─────────────────────────────────────────────────────────────────
 function FileNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'file');
   this.properties = { action: 'read', path: '', destination: '', content: '' };
   this.addWidget('combo', 'Action', 'read', (v) => { this.properties.action = v; }, {
     values: ['read', 'write', 'append', 'copy', 'delete', 'exists']
@@ -819,9 +899,10 @@ FileNode.prototype.onDrawForeground = function(ctx) {
 
 // ── DB Node ───────────────────────────────────────────────────────────────────
 function DbNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'db');
   this.properties = { connection: '', query: '', action: 'query' };
   this.addWidget('combo', 'Action', 'query', (v) => { this.properties.action = v; }, {
     values: ['query', 'schema', 'tables']
@@ -840,11 +921,15 @@ DbNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Loop Node ─────────────────────────────────────────────────────────────────
 function LoopNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addInput('Items', 'array');
-  this.addOutput('Each', LiteGraph.EVENT);
-  this.addOutput('Done', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addInput('items', 'array');   // data input: receives the array to iterate
+  this.addOutput('Each', 'exec');
+  this.addOutput('Done', 'exec');
+  // Data outputs: item + index (always present), plus dynamic schema outputs
+  this.addOutput('item', 'any');
+  this.addOutput('index', 'number');
   this.properties = { source: 'auto', items: '', mode: 'sequential', maxIterations: '' };
+  this._itemSchema = [];  // array of string key names when schema is known
   this.addWidget('combo', 'Source', 'auto', (v) => { this.properties.source = v; }, {
     values: ['auto', 'projects', 'files', 'custom']
   });
@@ -865,12 +950,35 @@ LoopNode.prototype.onDrawForeground = function(ctx) {
   const label = this.properties.mode === 'parallel' ? 'PARALLEL' : this.properties.source.toUpperCase();
   drawBadge(ctx, label, this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, modeColor);
 };
+// Called when a connection is made/broken — propagate schema from source
+LoopNode.prototype.onConnectionsChange = function(type, slot, connected, link_info) {
+  if (type !== LiteGraph.INPUT || slot !== 1) return; // only "items" slot (slot 1)
+  // Remove any dynamic schema outputs (beyond base 4: Each, Done, item, index)
+  while (this.outputs && this.outputs.length > 4) {
+    this.removeOutput(this.outputs.length - 1);
+  }
+  this._itemSchema = [];
+  if (!connected || !link_info || !this.graph) return;
+
+  // Get source node output schema
+  const srcNode = this.graph.getNodeById(link_info.origin_id);
+  if (!srcNode || !srcNode._outputSchema) return;
+  const schema = srcNode._outputSchema;  // array of key names e.g. ['id','name','email']
+  if (!Array.isArray(schema) || !schema.length) return;
+
+  this._itemSchema = schema;
+  for (const key of schema) {
+    this.addOutput('item.' + key, 'any');
+  }
+  this.size[1] = this.computeSize()[1];
+  if (this.graph) this.graph.setDirtyCanvas(true, true);
+};
 
 // ── Variable Node ─────────────────────────────────────────────────────────────
 function VariableNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Value', 'string');
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  addDataOutputs(this, 'variable');
   this.properties = { action: 'set', name: '', value: '' };
   this.addWidget('combo', 'Action', 'set', (v) => { this.properties.action = v; }, {
     values: ['set', 'get', 'increment', 'append']
@@ -895,8 +1003,9 @@ VariableNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Log Node ──────────────────────────────────────────────────────────────────
 function LogNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addInput('message', 'string');  // data input: connect directly from upstream
+  this.addOutput('Done', 'exec');
   this.properties = { level: 'info', message: '' };
   this.addWidget('combo', 'Level', 'info', (v) => { this.properties.level = v; }, {
     values: ['debug', 'info', 'warn', 'error']
@@ -916,9 +1025,11 @@ LogNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Transform Node ────────────────────────────────────────────────────────────
 function TransformNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addInput('input', 'any');   // data input: the array/object to transform
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'transform');
   this.properties = {
     operation: 'map',
     input: '',
@@ -944,9 +1055,10 @@ TransformNode.prototype.onDrawForeground = function(ctx) {
 
 // ── Sub-workflow Node ─────────────────────────────────────────────────────────
 function SubworkflowNode() {
-  this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('Done', LiteGraph.EVENT);
-  this.addOutput('Error', LiteGraph.EVENT);
+  this.addInput('In', 'exec');
+  this.addOutput('Done', 'exec');
+  this.addOutput('Error', 'exec');
+  addDataOutputs(this, 'subworkflow');
   this.properties = {
     workflow: '',
     inputVars: '',
@@ -974,7 +1086,7 @@ SubworkflowNode.prototype.onDrawForeground = function(ctx) {
 // ── Switch Node ───────────────────────────────────────────────────────────────
 // Dynamic outputs: one per case + default
 function SwitchNode() {
-  this.addInput('In', LiteGraph.ACTION);
+  this.addInput('In', 'exec');
   this.properties = {
     variable: '',
     cases: 'case1,case2,case3',
@@ -998,15 +1110,38 @@ SwitchNode.prototype._rebuildOutputs = function() {
   const cases = (this.properties.cases || '')
     .split(',').map(c => c.trim()).filter(Boolean);
   for (const c of cases) {
-    this.addOutput(c, LiteGraph.EVENT);
+    this.addOutput(c, 'exec');
   }
-  this.addOutput('default', LiteGraph.EVENT);
+  this.addOutput('default', 'exec');
   if (this.size) this.size[1] = this.computeSize()[1];
 };
 SwitchNode.prototype.onDrawForeground = function(ctx) {
   const c = getNodeColors(this);
   const varName = this.properties.variable || '$var';
   drawBadge(ctx, varName.slice(0, 14), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
+// ── Get Variable Node (pure — no exec pins) ───────────────────────────────────
+// Like Unreal "Get" nodes: can connect directly to any data pin without exec flow
+function GetVariableNode() {
+  // NO exec input/output — pure data getter
+  this.addOutput('value', 'any');
+  this.properties = { name: '' };
+  this.addWidget('text', 'Name', '', (v) => { this.properties.name = v; });
+  this.size = [170, this.computeSize()[1]];
+}
+GetVariableNode.title = 'Get Variable';
+GetVariableNode.desc = 'Lire une variable sans flux exec';
+NODE_COLORS.get_variable = { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' };
+GetVariableNode.prototype = Object.create(LGraphNode.prototype);
+GetVariableNode.prototype.constructor = GetVariableNode;
+GetVariableNode.prototype.onDrawForeground = function(ctx) {
+  if (this.properties.name) {
+    ctx.fillStyle = '#555';
+    ctx.font = `10px "Cascadia Code", "Fira Code", monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText('$' + this.properties.name, 10, this.size[1] - 6);
+  }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1031,9 +1166,10 @@ function registerAllNodeTypes() {
     ['workflow/loop',      LoopNode,      NODE_COLORS.loop],
     ['workflow/variable',    VariableNode,    NODE_COLORS.variable],
     ['workflow/log',         LogNode,         NODE_COLORS.log],
-    ['workflow/transform',   TransformNode,   NODE_COLORS.transform],
-    ['workflow/subworkflow', SubworkflowNode, NODE_COLORS.subworkflow],
-    ['workflow/switch',      SwitchNode,      NODE_COLORS.switch],
+    ['workflow/transform',    TransformNode,    NODE_COLORS.transform],
+    ['workflow/subworkflow',  SubworkflowNode,  NODE_COLORS.subworkflow],
+    ['workflow/switch',       SwitchNode,       NODE_COLORS.switch],
+    ['workflow/get_variable', GetVariableNode,  NODE_COLORS.get_variable],
   ];
 
   for (const [typeName, NodeClass, colors] of types) {
@@ -1580,6 +1716,29 @@ class WorkflowGraphService {
 
   setNodeOutput(nodeId, output) {
     this._lastRunOutputs.set(nodeId, output);
+
+    // Propagate schema to LiteGraph node for dynamic Loop pin expansion
+    if (!this.graph || !output) return;
+    const node = this.graph.getNodeById(nodeId);
+    if (!node) return;
+
+    // Extract schema: if output has an array property (rows, items, etc.), read its keys
+    let schema = null;
+    if (Array.isArray(output) && output.length > 0 && typeof output[0] === 'object') {
+      schema = Object.keys(output[0]);
+    } else if (output && typeof output === 'object') {
+      for (const key of ['rows', 'items', 'content', 'tables']) {
+        const arr = output[key];
+        if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object') {
+          schema = Object.keys(arr[0]);
+          break;
+        }
+      }
+    }
+
+    if (schema && schema.length > 0) {
+      node._outputSchema = schema;
+    }
   }
 
   getNodeOutput(nodeId) {

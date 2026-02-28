@@ -79,6 +79,46 @@ function resolveDeep(obj, vars) {
   return obj;
 }
 
+// ─── Data pin output schemas (mirrors WorkflowGraphService.js) ───────────────
+// Maps node type → ordered list of data output descriptors
+// Slot index = NODE_DATA_OUT_OFFSET[type] + array index
+const NODE_DATA_OUTPUTS = {
+  claude:      [{ key: 'output' }],
+  shell:       [{ key: 'stdout' }, { key: 'stderr' }, { key: 'exitCode' }],
+  git:         [{ key: 'output' }],
+  http:        [{ key: 'body' }, { key: 'status' }, { key: 'ok' }],
+  db:          [{ key: 'rows' }, { key: 'rowCount' }, { key: 'firstRow' }],
+  file:        [{ key: 'content' }, { key: 'exists' }],
+  variable:    [{ key: 'value' }],
+  transform:   [{ key: 'result' }],
+  subworkflow: [{ key: 'outputs' }],
+  loop:        [{ key: 'item' }, { key: 'index' }],
+  get_variable:[{ key: 'value' }],
+};
+
+// Maps node type → first data output slot index (after exec slots)
+const NODE_DATA_OUT_OFFSET = {
+  trigger: 1, claude: 2, shell: 2, git: 2, http: 2, db: 2, file: 2,
+  notify: 1, wait: 1, log: 1, condition: 2, loop: 2,
+  variable: 1, transform: 2, subworkflow: 2, switch: 0,
+  get_variable: 0,
+};
+
+/**
+ * Given an origin node type and output slot index, return the output key.
+ * e.g. shell, slot 2 → 'stdout' (offset 2, first data slot 0 → key 'stdout')
+ * @param {string} nodeType
+ * @param {number} slotIndex
+ * @returns {string|null}
+ */
+function getOutputKeyForSlot(nodeType, slotIndex) {
+  const offset  = NODE_DATA_OUT_OFFSET[nodeType] ?? 0;
+  const dataIdx = slotIndex - offset;
+  const outputs = NODE_DATA_OUTPUTS[nodeType];
+  if (!outputs || dataIdx < 0 || dataIdx >= outputs.length) return null;
+  return outputs[dataIdx].key;
+}
+
 // ─── Safe condition evaluation ────────────────────────────────────────────────
 
 /**
@@ -1079,10 +1119,13 @@ class WorkflowRunner {
 
       // Convert node to step format for the dispatcher
       const stepType = nodeData.type.replace('workflow/', '');
+      // Merge data pin inputs (Blueprint-style) on top of step properties
+      const dataInputs = this._resolveDataInputs(nodeId, vars, incoming, nodeById);
       const step = {
         id:   `node_${nodeData.id}`,
         type: stepType,
         ...(nodeData.properties || {}),
+        ...dataInputs,
       };
 
       if (stepType === 'condition') {
@@ -1220,6 +1263,56 @@ class WorkflowRunner {
   }
 
   /**
+   * Resolve data pin connections for a node before dispatch.
+   * Iterates each non-exec input slot, finds the connected origin node's output,
+   * and returns an object of { inputName: resolvedValue } to merge into step props.
+   *
+   * @param {number} nodeId
+   * @param {Map<number,any>} vars
+   * @param {Map} incoming  - nodeId → Map<targetSlot, {originId, originSlot}[]>
+   * @param {Map} nodeById  - nodeId → node data
+   * @returns {Object}
+   */
+  _resolveDataInputs(nodeId, vars, incoming, nodeById) {
+    const node = nodeById.get(nodeId);
+    if (!node || !node.inputs) return {};
+
+    const resolved = {};
+    const inSlots = incoming.get(nodeId);
+    if (!inSlots) return {};
+
+    for (const [slotIdx, links] of inSlots) {
+      if (!links || !links.length) continue;
+
+      // Determine if this slot is an exec slot by checking link type
+      // LiteGraph serializes exec links with type -1 (EVENT) or 'exec'
+      const nodeInput = node.inputs ? node.inputs[slotIdx] : null;
+      const slotType = nodeInput?.type ?? links[0]?.type ?? null;
+      // Skip exec slots (type -1, 'exec', or LiteGraph.EVENT constant)
+      if (slotType === -1 || slotType === 'exec' || slotIdx === 0) continue;
+
+      const { originId, originSlot } = links[0];
+      const originStepId = `node_${originId}`;
+      const originOutput = vars.get(originStepId);
+      if (originOutput == null) continue;
+
+      // Get the output key from slot mapping
+      const originNode = nodeById.get(originId);
+      const originType = originNode?.type?.replace('workflow/', '') ?? '';
+      const outputKey = getOutputKeyForSlot(originType, originSlot);
+
+      // Get the input name for this slot
+      const inputName = nodeInput?.name ?? null;
+      if (!inputName) continue;
+
+      const value = outputKey != null ? originOutput[outputKey] : originOutput;
+      if (value !== undefined) resolved[inputName] = value;
+    }
+
+    return resolved;
+  }
+
+  /**
    * Get the list of node IDs connected to a specific output slot.
    * @param {number} nodeId
    * @param {number} slotIndex
@@ -1343,10 +1436,13 @@ class WorkflowRunner {
       if (!nodeData) continue;
 
       const stepType = nodeData.type.replace('workflow/', '');
+      // Merge data pin inputs (Blueprint-style) on top of step properties
+      const dataInputs = this._resolveDataInputs(nodeId, vars, incoming, nodeById);
       const step = {
         id:   `node_${nodeData.id}`,
         type: stepType,
         ...(nodeData.properties || {}),
+        ...dataInputs,
       };
 
       if (stepType === 'condition') {
@@ -1574,6 +1670,13 @@ class WorkflowRunner {
 
     if (type === 'switch') {
       return runSwitchStep(step, vars);
+    }
+
+    if (type === 'get_variable') {
+      // Pure getter node — read a named variable from vars
+      const varName = step.name || '';
+      const value = vars.get(varName) ?? vars.get(`var_${varName}`) ?? null;
+      return { value };
     }
 
     // ── Project-type native steps (fivem.ensure, api.request, …) ─────────────
