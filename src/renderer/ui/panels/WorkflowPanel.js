@@ -599,6 +599,13 @@ function openEditor(workflowId = null) {
             <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
             <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
           </div>
+          <div class="wf-editor-toolbar-sep"></div>
+          <button class="wf-ed-hist-btn" id="wf-ed-comment" title="Add comment zone (C)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg>
+          </button>
+          <button class="wf-ed-hist-btn" id="wf-ed-minimap" title="Toggle minimap (M)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </button>
         </div>
 
         <!-- Right: actions -->
@@ -1938,6 +1945,22 @@ function openEditor(workflowId = null) {
     updateStatusBar();
   });
 
+  // Comment zone
+  panel.querySelector('#wf-ed-comment')?.addEventListener('click', () => {
+    const s = graphService._scale || 1;
+    const ox = graphService._offsetX || 0;
+    const oy = graphService._offsetY || 0;
+    const cx = (-ox / s) + 200;
+    const cy = (-oy / s) + 100;
+    graphService.addComment([cx, cy], [300, 200], 'Comment');
+    updateStatusBar();
+  });
+
+  // Minimap toggle
+  panel.querySelector('#wf-ed-minimap')?.addEventListener('click', () => {
+    graphService.toggleMinimap();
+  });
+
   // Undo / Redo
   panel.querySelector('#wf-ed-undo').addEventListener('click', () => {
     graphService.undo();
@@ -2283,6 +2306,22 @@ Rules:
     if (e.key === 'f' && !inInput && !e.ctrlKey && !e.metaKey) {
       graphService.zoomToFit();
       updateStatusBar();
+      return;
+    }
+    // C — Add comment zone
+    if (e.key === 'c' && !inInput && !e.ctrlKey && !e.metaKey) {
+      const s = graphService._scale || 1;
+      const ox = graphService._offsetX || 0;
+      const oy = graphService._offsetY || 0;
+      const cx = (-ox / s) + 200;
+      const cy = (-oy / s) + 100;
+      graphService.addComment([cx, cy], [300, 200], 'Comment');
+      updateStatusBar();
+      return;
+    }
+    // M — Toggle minimap
+    if (e.key === 'm' && !inInput && !e.ctrlKey && !e.metaKey) {
+      graphService.toggleMinimap();
       return;
     }
   };

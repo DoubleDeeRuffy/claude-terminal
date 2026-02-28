@@ -380,9 +380,19 @@ class WorkflowGraphEngine {
 
     // ── Interaction state ──
     this._selectedNodes = new Set();  // node id set
-    this._dragging = null;            // { type: 'node'|'pan'|'link'|'box', ... }
+    this._dragging = null;            // { type: 'node'|'pan'|'link'|'box'|'comment'|'comment-resize', ... }
     this._hoveredNode = null;
-    this._hoveredPin = null;
+    this._hoveredPin = null;          // { node, slotIndex, isOutput, slot }
+
+    // ── Clipboard ──
+    this._clipboard = null;           // { nodes, links } serialized
+
+    // ── Comments ──
+    this._comments = [];              // { id, pos:[x,y], size:[w,h], title, color }
+    this._nextCommentId = 1;
+
+    // ── Minimap ──
+    this._showMinimap = true;
 
     // ── History ──
     this._undoStack = [];
@@ -456,6 +466,7 @@ class WorkflowGraphEngine {
     }
     this._nodes = [];
     this._links.clear();
+    this._comments = [];
     this.canvasElement = null;
     this._ctx = null;
     this.onNodeSelected = null;
@@ -756,15 +767,31 @@ class WorkflowGraphEngine {
       links.push([link.id, link.origin_id, link.origin_slot, link.target_id, link.target_slot, type]);
     }
 
-    return { nodes, links, last_node_id: this._nextNodeId, last_link_id: this._nextLinkId };
+    const comments = this._comments.map(c => ({
+      id: c.id, pos: [...c.pos], size: [...c.size], title: c.title, color: c.color,
+    }));
+
+    return { nodes, links, comments, last_node_id: this._nextNodeId, last_link_id: this._nextLinkId };
   }
 
   _configure(data) {
     this._nodes = [];
     this._links.clear();
     this._selectedNodes.clear();
+    this._comments = [];
 
     if (!data) return;
+
+    // Load comments
+    if (Array.isArray(data.comments)) {
+      for (const c of data.comments) {
+        this._comments.push({
+          id: c.id, pos: [...c.pos], size: [...c.size],
+          title: c.title || 'Comment', color: c.color || '#f59e0b',
+        });
+        if (c.id >= this._nextCommentId) this._nextCommentId = c.id + 1;
+      }
+    }
 
     // Repair slot refs first
     this._repairSlotRefs(data);
@@ -903,8 +930,10 @@ class WorkflowGraphEngine {
     this._nodes = [];
     this._links.clear();
     this._selectedNodes.clear();
+    this._comments = [];
     this._nextNodeId = 1;
     this._nextLinkId = 1;
+    this._nextCommentId = 1;
 
     const trigger = this.addNode('workflow/trigger', [100, 200]);
     if (trigger) trigger.removable = false;
@@ -1154,21 +1183,31 @@ class WorkflowGraphEngine {
     ctx.scale(this._scale, this._scale);
 
     this._drawGrid(ctx, W, H);
+    this._drawComments(ctx);
     this._drawLinks(ctx);
     for (const node of this._nodes) this._drawNode(ctx, node);
 
     // Draw rubber-band link during drag
     if (this._dragging?.type === 'link') {
       const d = this._dragging;
+      const slotType = d.slot?.type === -1 ? 'exec' : (d.slot?.type || 'any');
+      const linkColor = (PIN_TYPES[slotType] || PIN_TYPES.any).color;
       ctx.save();
-      ctx.strokeStyle = '#f59e0b';
+      ctx.strokeStyle = linkColor;
       ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
+      ctx.globalAlpha = 0.8;
+      // Bezier curve
+      const dx = Math.abs(d.curX - d.startX) * 0.5;
       ctx.beginPath();
-      ctx.moveTo(d.startX, d.startY);
-      ctx.lineTo(d.curX, d.curY);
+      if (d.isOutput) {
+        ctx.moveTo(d.startX, d.startY);
+        ctx.bezierCurveTo(d.startX + dx, d.startY, d.curX - dx, d.curY, d.curX, d.curY);
+      } else {
+        ctx.moveTo(d.startX, d.startY);
+        ctx.bezierCurveTo(d.startX - dx, d.startY, d.curX + dx, d.curY, d.curX, d.curY);
+      }
       ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
       ctx.restore();
     }
 
@@ -1189,6 +1228,11 @@ class WorkflowGraphEngine {
     }
 
     ctx.restore();
+
+    // Minimap (drawn in screen space, after ctx.restore)
+    if (this._showMinimap && this._nodes.length > 1) {
+      this._drawMinimap(ctx, W, H);
+    }
   }
 
   _drawGrid(ctx, vpW, vpH) {
@@ -1380,6 +1424,9 @@ class WorkflowGraphEngine {
   _drawPins(ctx, node, bodyY) {
     const w = node.size[0];
     const x = node.pos[0];
+    const hp = this._hoveredPin;
+    const isDraggingLink = this._dragging?.type === 'link';
+    const dragSlotType = isDraggingLink ? (this._dragging.slot?.type === -1 ? 'exec' : (this._dragging.slot?.type || 'any')) : null;
 
     ctx.save();
     ctx.font = `500 11px ${FONT}`;
@@ -1394,31 +1441,42 @@ class WorkflowGraphEngine {
         const py = bodyY + (i + 0.5) * SLOT_H;
         const px = x + w;
         const hasLinks = slot.links && slot.links.length > 0;
+        const isHovered = hp && hp.node === node && hp.slotIndex === i && hp.isOutput;
+        // During link drag, dim incompatible pins
+        const isCompat = isDraggingLink && !this._dragging.isOutput ? isValidConnection(pinType, dragSlotType) : true;
+        const dimmed = isDraggingLink && !isCompat;
+
+        ctx.save();
+        if (dimmed) ctx.globalAlpha = 0.2;
 
         if (isExec) {
-          drawDiamond(ctx, px, py, DIAMOND_R);
-          if (hasLinks) { ctx.fillStyle = '#ccc'; ctx.fill(); }
-          else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
+          drawDiamond(ctx, px, py, isHovered ? DIAMOND_R + 2 : DIAMOND_R);
+          if (hasLinks || isHovered) {
+            ctx.fillStyle = isHovered ? '#fff' : '#ccc'; ctx.fill();
+            if (isHovered) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 8; ctx.fill(); }
+          } else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
         } else {
           const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
-          ctx.save();
-          if (hasLinks) { ctx.shadowColor = pinColor; ctx.shadowBlur = 6; }
+          const r = isHovered ? PIN_R + 2 : PIN_R;
           ctx.beginPath();
-          ctx.arc(px, py, PIN_R, 0, Math.PI * 2);
-          if (hasLinks) { ctx.fillStyle = pinColor; ctx.fill(); }
-          else { ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke(); }
-          ctx.restore();
-
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          if (hasLinks || isHovered) {
+            ctx.shadowColor = pinColor; ctx.shadowBlur = isHovered ? 12 : 6;
+            ctx.fillStyle = pinColor; ctx.fill();
+          } else {
+            ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
+          }
           // Label
           const label = slot.name || '';
           if (label) {
+            ctx.shadowBlur = 0;
             ctx.fillStyle = pinColor;
-            ctx.globalAlpha = 0.7;
+            ctx.globalAlpha = isHovered ? 1 : 0.7;
             ctx.textAlign = 'right';
             ctx.fillText(label, x + w - 12, py);
-            ctx.globalAlpha = 1;
           }
         }
+        ctx.restore();
       }
     }
 
@@ -1431,30 +1489,40 @@ class WorkflowGraphEngine {
         const py = bodyY + (i + 0.5) * SLOT_H;
         const px = x;
         const hasLink = slot.link != null;
+        const isHovered = hp && hp.node === node && hp.slotIndex === i && !hp.isOutput;
+        const isCompat = isDraggingLink && this._dragging.isOutput ? isValidConnection(dragSlotType, pinType) : true;
+        const dimmed = isDraggingLink && !isCompat;
+
+        ctx.save();
+        if (dimmed) ctx.globalAlpha = 0.2;
 
         if (isExec) {
-          drawDiamond(ctx, px, py, DIAMOND_R);
-          if (hasLink) { ctx.fillStyle = '#ccc'; ctx.fill(); }
-          else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
+          drawDiamond(ctx, px, py, isHovered ? DIAMOND_R + 2 : DIAMOND_R);
+          if (hasLink || isHovered) {
+            ctx.fillStyle = isHovered ? '#fff' : '#ccc'; ctx.fill();
+            if (isHovered) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 8; ctx.fill(); }
+          } else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
         } else {
           const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
-          ctx.save();
-          if (hasLink) { ctx.shadowColor = pinColor; ctx.shadowBlur = 6; }
+          const r = isHovered ? PIN_R + 2 : PIN_R;
           ctx.beginPath();
-          ctx.arc(px, py, PIN_R, 0, Math.PI * 2);
-          if (hasLink) { ctx.fillStyle = pinColor; ctx.fill(); }
-          else { ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke(); }
-          ctx.restore();
-
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          if (hasLink || isHovered) {
+            ctx.shadowColor = pinColor; ctx.shadowBlur = isHovered ? 12 : 6;
+            ctx.fillStyle = pinColor; ctx.fill();
+          } else {
+            ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
+          }
           const label = slot.name || '';
           if (label) {
+            ctx.shadowBlur = 0;
             ctx.fillStyle = pinColor;
-            ctx.globalAlpha = 0.7;
+            ctx.globalAlpha = isHovered ? 1 : 0.7;
             ctx.textAlign = 'left';
             ctx.fillText(label, x + 12, py);
-            ctx.globalAlpha = 1;
           }
         }
+        ctx.restore();
       }
     }
 
@@ -1681,6 +1749,35 @@ class WorkflowGraphEngine {
       return;
     }
 
+    // Check comment resize edges
+    const resizeComment = this._hitTestCommentEdge(cx, cy);
+    if (resizeComment) {
+      this._dragging = {
+        type: 'comment-resize', comment: resizeComment,
+        startCX: cx, startCY: cy,
+        origW: resizeComment.size[0], origH: resizeComment.size[1],
+      };
+      return;
+    }
+
+    // Check comment headers (drag)
+    const headerComment = this._hitTestCommentHeader(cx, cy);
+    if (headerComment) {
+      const contained = new Map();
+      for (const n of this._nodes) {
+        if (this._isNodeInsideComment(n, headerComment)) {
+          contained.set(n.id, [...n.pos]);
+        }
+      }
+      this._dragging = {
+        type: 'comment', comment: headerComment,
+        startCX: cx, startCY: cy,
+        origX: headerComment.pos[0], origY: headerComment.pos[1],
+        nodeStarts: contained,
+      };
+      return;
+    }
+
     // Check nodes
     const node = this._hitTestNode(cx, cy);
     if (node) {
@@ -1724,9 +1821,24 @@ class WorkflowGraphEngine {
   }
 
   _handleMouseMove(e) {
-    if (!this._dragging) return;
     const [sx, sy] = this._getMousePos(e);
     const [cx, cy] = this._screenToCanvas(sx, sy);
+
+    // ── Hover tracking (always) ──
+    if (!this._dragging) {
+      const oldHover = this._hoveredPin;
+      this._hoveredPin = this._hitTestPin(cx, cy);
+      if (oldHover !== this._hoveredPin) this._markDirty();
+      // Cursor hint
+      if (this.canvasElement) {
+        if (this._hoveredPin) this.canvasElement.style.cursor = 'crosshair';
+        else if (this._hitTestNode(cx, cy)) this.canvasElement.style.cursor = 'grab';
+        else if (this._hitTestCommentEdge(cx, cy)) this.canvasElement.style.cursor = 'nwse-resize';
+        else if (this._hitTestCommentHeader(cx, cy)) this.canvasElement.style.cursor = 'move';
+        else this.canvasElement.style.cursor = 'default';
+      }
+      return;
+    }
     const d = this._dragging;
 
     if (d.type === 'pan') {
@@ -1747,6 +1859,23 @@ class WorkflowGraphEngine {
     } else if (d.type === 'link') {
       d.curX = cx;
       d.curY = cy;
+      // Track hover target during link drag
+      this._hoveredPin = this._hitTestPin(cx, cy);
+      this._markDirty();
+    } else if (d.type === 'comment') {
+      const dx = cx - d.startCX;
+      const dy = cy - d.startCY;
+      d.comment.pos[0] = d.origX + dx;
+      d.comment.pos[1] = d.origY + dy;
+      // Move contained nodes
+      for (const [nId, startPos] of d.nodeStarts) {
+        const n = this._getNodeById(nId);
+        if (n) { n.pos[0] = startPos[0] + dx; n.pos[1] = startPos[1] + dy; }
+      }
+      this._markDirty();
+    } else if (d.type === 'comment-resize') {
+      d.comment.size[0] = Math.max(120, d.origW + (cx - d.startCX));
+      d.comment.size[1] = Math.max(60, d.origH + (cy - d.startCY));
       this._markDirty();
     } else if (d.type === 'box') {
       d.curX = cx;
@@ -1772,7 +1901,17 @@ class WorkflowGraphEngine {
     const d = this._dragging;
 
     if (d.type === 'node') {
-      // Snapshot after drag
+      // Snap to grid
+      for (const id of this._selectedNodes) {
+        const n = this._getNodeById(id);
+        if (n) {
+          n.pos[0] = Math.round(n.pos[0] / GRID_SIZE) * GRID_SIZE;
+          n.pos[1] = Math.round(n.pos[1] / GRID_SIZE) * GRID_SIZE;
+        }
+      }
+      this.pushSnapshot();
+      this._notifyChanged();
+    } else if (d.type === 'comment' || d.type === 'comment-resize') {
       this.pushSnapshot();
       this._notifyChanged();
     } else if (d.type === 'link') {
@@ -1831,6 +1970,12 @@ class WorkflowGraphEngine {
     } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       this.selectAll();
+    } else if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      this._copySelected();
+    } else if (e.key === 'v' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      this._pasteClipboard();
     } else if (e.key === 'd' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       this.duplicateSelected();
@@ -1840,9 +1985,22 @@ class WorkflowGraphEngine {
   _handleDblClick(e) {
     const [sx, sy] = this._getMousePos(e);
     const [cx, cy] = this._screenToCanvas(sx, sy);
+
+    // Double-click on comment header → edit title
+    const comment = this._hitTestCommentHeader(cx, cy);
+    if (comment) {
+      const title = prompt('Comment title:', comment.title || '');
+      if (title !== null) {
+        comment.title = title;
+        this._markDirty();
+        this._notifyChanged();
+        this.pushSnapshot();
+      }
+      return;
+    }
+
     const node = this._hitTestNode(cx, cy);
     if (node) {
-      // Double-click on node: check if it's a widget area for inline editing
       this._handleWidgetClick(node, cx, cy);
     }
   }
@@ -1944,6 +2102,256 @@ class WorkflowGraphEngine {
       }
     };
     setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+  }
+
+  // ═══ COPY / PASTE ═══════════════════════════════════════════════════════
+
+  _copySelected() {
+    if (!this._selectedNodes.size) return;
+    const nodeIds = new Set(this._selectedNodes);
+    const nodes = this._nodes.filter(n => nodeIds.has(n.id)).map(n => ({
+      id: n.id, type: n.type, pos: [...n.pos], size: [...n.size],
+      properties: JSON.parse(JSON.stringify(n.properties)),
+      widgets_values: n.widgets ? n.widgets.map(w => w.value) : [],
+    }));
+    // Capture links between selected nodes
+    const links = [];
+    for (const [, link] of this._links) {
+      if (nodeIds.has(link.origin_id) && nodeIds.has(link.target_id)) {
+        links.push({ ...link });
+      }
+    }
+    this._clipboard = { nodes, links };
+  }
+
+  _pasteClipboard() {
+    if (!this._clipboard?.nodes?.length) return;
+    const idMap = new Map();
+    const newNodes = [];
+
+    this._deselectAll();
+    this._historyPaused = true;
+
+    for (const sn of this._clipboard.nodes) {
+      const node = this.addNode(sn.type, [sn.pos[0] + 40, sn.pos[1] + 40]);
+      if (!node) continue;
+      Object.assign(node.properties, JSON.parse(JSON.stringify(sn.properties)));
+      for (let i = 0; i < Math.min(sn.widgets_values.length, node.widgets.length); i++) {
+        node.widgets[i].value = sn.widgets_values[i];
+      }
+      if (node.type === 'workflow/switch') this._rebuildSwitchOutputs(node);
+      idMap.set(sn.id, node.id);
+      newNodes.push(node);
+    }
+
+    // Recreate links between pasted nodes
+    for (const link of this._clipboard.links) {
+      const newFrom = idMap.get(link.origin_id);
+      const newTo = idMap.get(link.target_id);
+      if (newFrom && newTo) this._addLink(newFrom, link.origin_slot, newTo, link.target_slot);
+    }
+
+    this._historyPaused = false;
+    this._deselectAll();
+    for (const n of newNodes) this._selectNode(n, true);
+    this._markDirty();
+    this._notifyChanged();
+    this.pushSnapshot();
+  }
+
+  // ═══ COMMENTS (group zones) ═════════════════════════════════════════════
+
+  addComment(pos, size, title, color) {
+    const id = this._nextCommentId++;
+    const comment = {
+      id,
+      pos: pos || [100, 100],
+      size: size || [300, 200],
+      title: title || 'Comment',
+      color: color || '#f59e0b',
+    };
+    this._comments.push(comment);
+    this._markDirty();
+    this._notifyChanged();
+    this.pushSnapshot();
+    return comment;
+  }
+
+  deleteComment(commentId) {
+    const idx = this._comments.findIndex(c => c.id === commentId);
+    if (idx >= 0) {
+      this._comments.splice(idx, 1);
+      this._markDirty();
+      this._notifyChanged();
+      this.pushSnapshot();
+    }
+  }
+
+  getComments() { return this._comments; }
+
+  _isNodeInsideComment(node, comment) {
+    const nx = node.pos[0], ny = node.pos[1];
+    const cx = comment.pos[0], cy = comment.pos[1];
+    return nx >= cx && ny >= cy + 28 &&
+           nx + node.size[0] <= cx + comment.size[0] &&
+           ny + TITLE_H + node.size[1] <= cy + comment.size[1];
+  }
+
+  _hitTestCommentHeader(cx, cy) {
+    for (let i = this._comments.length - 1; i >= 0; i--) {
+      const c = this._comments[i];
+      if (cx >= c.pos[0] && cx <= c.pos[0] + c.size[0] &&
+          cy >= c.pos[1] && cy <= c.pos[1] + 28) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  _hitTestCommentEdge(cx, cy) {
+    const margin = 12;
+    for (let i = this._comments.length - 1; i >= 0; i--) {
+      const c = this._comments[i];
+      const rx = c.pos[0] + c.size[0];
+      const ry = c.pos[1] + c.size[1];
+      if (Math.abs(cx - rx) < margin && Math.abs(cy - ry) < margin) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  _drawComments(ctx) {
+    for (const c of this._comments) {
+      const x = c.pos[0], y = c.pos[1], w = c.size[0], h = c.size[1];
+      const col = c.color || '#f59e0b';
+
+      // Background
+      ctx.save();
+      roundRect(ctx, x, y, w, h, 6);
+      ctx.fillStyle = hexToRgba(col, 0.06);
+      ctx.fill();
+
+      // Border
+      ctx.strokeStyle = hexToRgba(col, 0.2);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Header bar
+      ctx.fillStyle = hexToRgba(col, 0.12);
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y);
+      ctx.lineTo(x + w - 6, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + 6);
+      ctx.lineTo(x + w, y + 28);
+      ctx.lineTo(x, y + 28);
+      ctx.lineTo(x, y + 6);
+      ctx.quadraticCurveTo(x, y, x + 6, y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Title
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.8;
+      ctx.font = `600 11px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.fillText(c.title || 'Comment', x + 10, y + 18);
+      ctx.globalAlpha = 1;
+
+      // Resize handle (bottom-right)
+      ctx.fillStyle = hexToRgba(col, 0.3);
+      ctx.beginPath();
+      ctx.moveTo(x + w, y + h);
+      ctx.lineTo(x + w - 10, y + h);
+      ctx.lineTo(x + w, y + h - 10);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  // ═══ MINIMAP ════════════════════════════════════════════════════════════
+
+  toggleMinimap() { this._showMinimap = !this._showMinimap; this._markDirty(); }
+
+  _drawMinimap(ctx, vpW, vpH) {
+    const mapW = 160, mapH = 100, padding = 12;
+    const mapX = vpW - mapW - padding;
+    const mapY = vpH - mapH - padding;
+
+    // Compute bounds
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of this._nodes) {
+      if (n.pos[0] < minX) minX = n.pos[0];
+      if (n.pos[1] < minY) minY = n.pos[1];
+      if (n.pos[0] + n.size[0] > maxX) maxX = n.pos[0] + n.size[0];
+      if (n.pos[1] + n.size[1] + TITLE_H > maxY) maxY = n.pos[1] + n.size[1] + TITLE_H;
+    }
+    const graphW = maxX - minX + 80;
+    const graphH = maxY - minY + 80;
+    const sx = mapW / graphW;
+    const sy = mapH / graphH;
+    const s = Math.min(sx, sy);
+
+    // Background
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    roundRect(ctx, mapX - 1, mapY - 1, mapW + 2, mapH + 2, 6);
+    ctx.fillStyle = '#0d0d0f';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.08)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Clip to minimap
+    ctx.beginPath();
+    ctx.rect(mapX, mapY, mapW, mapH);
+    ctx.clip();
+
+    const ox = mapX + (mapW - graphW * s) / 2 - (minX - 40) * s;
+    const oy = mapY + (mapH - graphH * s) / 2 - (minY - 40) * s;
+
+    // Draw links
+    ctx.strokeStyle = 'rgba(255,255,255,.1)';
+    ctx.lineWidth = 0.5;
+    for (const [, link] of this._links) {
+      const src = this._getNodeById(link.origin_id);
+      const dst = this._getNodeById(link.target_id);
+      if (!src || !dst) continue;
+      ctx.beginPath();
+      ctx.moveTo(ox + (src.pos[0] + src.size[0]) * s, oy + (src.pos[1] + TITLE_H * 0.5) * s);
+      ctx.lineTo(ox + dst.pos[0] * s, oy + (dst.pos[1] + TITLE_H * 0.5) * s);
+      ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const n of this._nodes) {
+      const c = getNodeColors(n);
+      const nx = ox + n.pos[0] * s;
+      const ny = oy + n.pos[1] * s;
+      const nw = Math.max(n.size[0] * s, 3);
+      const nh = Math.max((n.size[1] + TITLE_H) * s, 2);
+      ctx.fillStyle = n.is_selected ? c.accent : hexToRgba(c.accent, 0.5);
+      ctx.fillRect(nx, ny, nw, nh);
+    }
+
+    // Draw viewport rectangle
+    const vx1 = -this._offsetX / this._scale;
+    const vy1 = -this._offsetY / this._scale;
+    const vx2 = vx1 + vpW / this._scale;
+    const vy2 = vy1 + vpH / this._scale;
+    ctx.strokeStyle = 'rgba(255,255,255,.4)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      ox + vx1 * s, oy + vy1 * s,
+      (vx2 - vx1) * s, (vy2 - vy1) * s,
+    );
+
+    ctx.restore();
   }
 
   // ═══ TEST NODE ════════════════════════════════════════════════════════════
