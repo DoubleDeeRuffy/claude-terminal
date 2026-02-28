@@ -1111,6 +1111,8 @@ class WorkflowGraphService {
     if (!this.graph) return;
     this.graph.clear();
     if (workflow.graph) {
+      // Repair slot refs before passing to LiteGraph so connections render correctly
+      this._repairSlotRefs(workflow.graph);
       this.graph.configure(workflow.graph);
     } else if (workflow.steps) {
       this._migrateLegacySteps(workflow);
@@ -1131,6 +1133,28 @@ class WorkflowGraphService {
     if (trigger) trigger.removable = false;
     this.canvas.ds.reset();
     this.canvas.setDirty(true, true);
+  }
+
+  // Rebuild inputs[].link and outputs[].links from the graph.links[] array.
+  // Fixes workflows where slot references are missing (e.g. created by MCP tools).
+  _repairSlotRefs(graph) {
+    if (!graph || !Array.isArray(graph.links)) return;
+    for (const node of graph.nodes || []) {
+      if (node.outputs) { for (const o of node.outputs) { if (!Array.isArray(o.links)) o.links = []; } }
+      if (node.inputs)  { for (const i of node.inputs)  { if (i.link === undefined) i.link = null; } }
+    }
+    for (const link of graph.links) {
+      const [linkId, fromId, fromSlot, toId, toSlot] = link;
+      const src = (graph.nodes || []).find(n => n.id === fromId);
+      const dst = (graph.nodes || []).find(n => n.id === toId);
+      if (src && src.outputs && src.outputs[fromSlot]) {
+        if (!Array.isArray(src.outputs[fromSlot].links)) src.outputs[fromSlot].links = [];
+        if (!src.outputs[fromSlot].links.includes(linkId)) src.outputs[fromSlot].links.push(linkId);
+      }
+      if (dst && dst.inputs && dst.inputs[toSlot]) {
+        dst.inputs[toSlot].link = linkId;
+      }
+    }
   }
 
   _migrateLegacySteps(workflow) {

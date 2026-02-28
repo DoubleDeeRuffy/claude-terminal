@@ -111,6 +111,8 @@ function loadWorkflowDef(nameOrId) {
 }
 
 function saveWorkflowDef(workflow) {
+  // Always repair slot refs before saving so the graph renders correctly in LiteGraph
+  if (workflow.graph) repairSlotRefs(workflow.graph);
   const file = path.join(getDataDir(), 'workflows', 'definitions.json');
   let defs = [];
   try { if (fs.existsSync(file)) defs = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
@@ -122,6 +124,28 @@ function saveWorkflowDef(workflow) {
   fs.renameSync(tmp, file);
 }
 
+// Rebuilds inputs[].link and outputs[].links from the graph.links[] array.
+// Fixes legacy workflows where slot references were missing.
+function repairSlotRefs(graph) {
+  if (!graph || !graph.links) return;
+  for (const node of graph.nodes || []) {
+    if (node.outputs) for (const o of node.outputs) { if (!Array.isArray(o.links)) o.links = []; }
+    if (node.inputs)  for (const i of node.inputs)  { if (i.link === undefined) i.link = null; }
+  }
+  for (const link of graph.links) {
+    const [linkId, fromId, fromSlot, toId, toSlot] = link;
+    const src = (graph.nodes || []).find(n => n.id === fromId);
+    const dst = (graph.nodes || []).find(n => n.id === toId);
+    if (src && src.outputs && src.outputs[fromSlot]) {
+      if (!Array.isArray(src.outputs[fromSlot].links)) src.outputs[fromSlot].links = [];
+      if (!src.outputs[fromSlot].links.includes(linkId)) src.outputs[fromSlot].links.push(linkId);
+    }
+    if (dst && dst.inputs && dst.inputs[toSlot]) {
+      dst.inputs[toSlot].link = linkId;
+    }
+  }
+}
+
 function nextNodeId(graph) {
   const nodes = (graph && graph.nodes) || [];
   return nodes.length ? Math.max(...nodes.map(n => n.id)) + 1 : 1;
@@ -130,6 +154,30 @@ function nextNodeId(graph) {
 function nextLinkId(graph) {
   const links = (graph && graph.links) || [];
   return links.length ? Math.max(...links.map(l => l[0])) + 1 : 1;
+}
+
+// Returns the default inputs/outputs slot definitions for a node type
+function getNodeSlots(type) {
+  const T = -1; // LiteGraph wildcard type
+  const stdIn  = [{ name: 'In',    type: T, link: null }];
+  const stdOut = (names) => names.map((n, i) => ({ name: n, type: T, links: [], slot_index: i }));
+
+  switch (type) {
+    case 'workflow/trigger':
+      return { inputs: [], outputs: stdOut(['Start']) };
+    case 'workflow/condition':
+      return { inputs: stdIn, outputs: stdOut(['TRUE', 'FALSE']) };
+    case 'workflow/loop':
+      return { inputs: stdIn, outputs: stdOut(['Each', 'Done']) };
+    case 'workflow/notify':
+    case 'workflow/wait':
+    case 'workflow/log':
+    case 'workflow/variable':
+      return { inputs: stdIn, outputs: stdOut(['Done']) };
+    default:
+      // shell, claude, git, http, db, file → Done + Error
+      return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };
+  }
 }
 
 // -- Tool definitions ---------------------------------------------------------
@@ -511,11 +559,17 @@ async function handle(name, args) {
 
       // Build default trigger node
       const triggerType = args.trigger_type || 'manual';
+      const triggerSlots = getNodeSlots('workflow/trigger');
       const triggerNode = {
         id: 1,
         type: 'workflow/trigger',
         pos: [100, 100],
         size: [180, 60],
+        flags: {},
+        order: 1,
+        mode: 0,
+        inputs: triggerSlots.inputs,
+        outputs: triggerSlots.outputs,
         properties: {
           triggerType,
           triggerValue: args.trigger_value || '',
@@ -552,11 +606,17 @@ async function handle(name, args) {
       const graph = wf.graph || { nodes: [], links: [], groups: [] };
       const nodeId = nextNodeId(graph);
 
+      const slots = getNodeSlots(args.type);
       const node = {
         id: nodeId,
         type: args.type,
         pos: args.pos || [100, 100 + nodeId * 160],
         size: [200, 80],
+        flags: {},
+        order: nodeId,
+        mode: 0,
+        inputs: slots.inputs,
+        outputs: slots.outputs,
         properties: args.properties || {},
       };
       if (args.title) node.properties._customTitle = args.title;
@@ -599,6 +659,27 @@ async function handle(name, args) {
       // LiteGraph link format: [link_id, origin_id, origin_slot, target_id, target_slot, type]
       const link = [linkId, from_node, from_slot, to_node, to_slot, -1];
       graph.links = [...(graph.links || []), link];
+
+      // Update outputs[from_slot].links on source node
+      const srcNode = nodes.find(n => n.id === from_node);
+      if (srcNode) {
+        if (!srcNode.outputs) srcNode.outputs = getNodeSlots(srcNode.type).outputs;
+        if (srcNode.outputs[from_slot]) {
+          if (!srcNode.outputs[from_slot].links) srcNode.outputs[from_slot].links = [];
+          if (!srcNode.outputs[from_slot].links.includes(linkId)) {
+            srcNode.outputs[from_slot].links.push(linkId);
+          }
+        }
+      }
+
+      // Update inputs[to_slot].link on target node
+      const dstNode = nodes.find(n => n.id === to_node);
+      if (dstNode) {
+        if (!dstNode.inputs) dstNode.inputs = getNodeSlots(dstNode.type).inputs;
+        if (dstNode.inputs[to_slot]) {
+          dstNode.inputs[to_slot].link = linkId;
+        }
+      }
 
       wf.graph = graph;
       wf.updatedAt = new Date().toISOString();
@@ -654,9 +735,26 @@ async function handle(name, args) {
       graph.nodes = (graph.nodes || []).filter(n => n.id !== args.node_id);
       if (graph.nodes.length === beforeCount) return fail(`Node ${args.node_id} not found in graph.`);
 
-      // Remove all links connected to this node
-      const removedLinks = (graph.links || []).filter(l => l[1] === args.node_id || l[3] === args.node_id).length;
+      // Remove all links connected to this node and clean up slot references
+      const removedLinkIds = new Set(
+        (graph.links || []).filter(l => l[1] === args.node_id || l[3] === args.node_id).map(l => l[0])
+      );
+      const removedLinks = removedLinkIds.size;
       graph.links = (graph.links || []).filter(l => l[1] !== args.node_id && l[3] !== args.node_id);
+
+      // Clean orphaned link references from remaining nodes' slots
+      for (const n of graph.nodes || []) {
+        if (n.outputs) {
+          for (const out of n.outputs) {
+            if (out.links) out.links = out.links.filter(lid => !removedLinkIds.has(lid));
+          }
+        }
+        if (n.inputs) {
+          for (const inp of n.inputs) {
+            if (removedLinkIds.has(inp.link)) inp.link = null;
+          }
+        }
+      }
 
       wf.graph = graph;
       wf.updatedAt = new Date().toISOString();
