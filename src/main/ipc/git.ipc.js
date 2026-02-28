@@ -231,6 +231,7 @@ function registerGitHandlers() {
 
   // Create worktree
   ipcMain.handle('git-worktree-create', async (event, { projectPath, worktreePath, branch, newBranch, startPoint }) => {
+    sendFeaturePing('worktree:create');
     return createWorktree(projectPath, worktreePath, { branch, newBranch, startPoint });
   });
 

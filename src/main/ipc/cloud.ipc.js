@@ -12,6 +12,7 @@ const fs = require('fs');
 const { cloudRelayClient } = require('../services/CloudRelayClient');
 const remoteServer = require('../services/RemoteServer');
 const cloudSyncService = require('../services/CloudSyncService');
+const { sendFeaturePing } = require('../services/TelemetryService');
 const { zipProject } = require('../utils/zipProject');
 const { settingsFile } = require('../utils/paths');
 
@@ -60,6 +61,7 @@ function registerCloudHandlers() {
   // ── Relay connect/disconnect ──
 
   ipcMain.handle('cloud:connect', async (_event, { serverUrl, apiKey }) => {
+    sendFeaturePing('cloud:connect');
     if (remoteServer.getServerInfo().running) {
       remoteServer.stop();
     }
