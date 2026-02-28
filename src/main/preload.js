@@ -336,8 +336,6 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== TELEMETRY ====================
   telemetry: {
     getStatus: () => ipcRenderer.invoke('telemetry:get-status'),
-    sendEvent: (params) => ipcRenderer.invoke('telemetry:send-event', params),
-    sendFeature: (params) => ipcRenderer.invoke('telemetry:send-feature', params),
   },
 
   // ==================== CLOUD RELAY ====================

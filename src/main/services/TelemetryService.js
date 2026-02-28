@@ -1,7 +1,7 @@
 /**
  * TelemetryService
  * Anonymous usage tracking with opt-in consent.
- * Sends pings to the telemetry backend. Silent failure — never blocks the app.
+ * Batches pings and flushes to the telemetry backend. Silent failure — never blocks the app.
  */
 
 const https = require('https');
@@ -9,32 +9,175 @@ const { app } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const { randomUUID } = require('crypto');
-const { settingsFile } = require('../utils/paths');
+const { settingsFile, projectsFile } = require('../utils/paths');
 
 const TELEMETRY_URL = process.env.TELEMETRY_URL || 'https://telemetry.claudeterminal.dev';
 const PING_PATH = '/api/v1/ping';
+const BATCH_PATH = '/api/v1/batch';
 const TIMEOUT = 5000;
+const FLUSH_INTERVAL = 30 * 1000; // 30s
 
 // Client-side rate limit: 1 ping per event_type per minute
 const lastPingTimes = new Map();
 const ONE_MINUTE = 60 * 1000;
 
-// ── Settings helpers ──
+// Session tracking
+const sessionStartTime = Date.now();
+
+// ── Settings cache ──
+
+let cachedSettings = null;
+let settingsMtime = 0;
 
 function loadSettings() {
   try {
     if (!fs.existsSync(settingsFile)) return null;
-    return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    const stat = fs.statSync(settingsFile);
+    if (cachedSettings && stat.mtimeMs === settingsMtime) return cachedSettings;
+    cachedSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    settingsMtime = stat.mtimeMs;
+    return cachedSettings;
   } catch {
     return null;
   }
 }
 
-function saveUuid(uuid) {
+function saveSetting(key, value) {
   try {
     const settings = loadSettings() || {};
-    settings.telemetryUuid = uuid;
+    settings[key] = value;
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
+    cachedSettings = settings;
+  } catch {
+    // silent
+  }
+}
+
+// ── Path stripping for error privacy ──
+
+function stripUserPaths(str) {
+  if (!str) return '';
+  return str
+    .replace(/[A-Z]:\\Users\\[^\\]+\\/gi, '<home>\\')
+    .replace(/\/home\/[^/]+\//g, '<home>/')
+    .replace(/\/Users\/[^/]+\//g, '<home>/');
+}
+
+// ── Project type counting ──
+
+function getProjectTypeCounts() {
+  try {
+    if (!fs.existsSync(projectsFile)) return {};
+    const data = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+    const projects = data.projects || [];
+    const counts = {};
+    for (const p of projects) {
+      const type = p.type || 'general';
+      counts[type] = (counts[type] || 0) + 1;
+    }
+    return counts;
+  } catch {
+    return {};
+  }
+}
+
+// ── Batching ──
+
+const eventBuffer = [];
+let flushTimer = null;
+
+function startFlushTimer() {
+  if (flushTimer) return;
+  flushTimer = setInterval(() => flushBuffer(), FLUSH_INTERVAL);
+  if (flushTimer.unref) flushTimer.unref();
+}
+
+function flushBuffer() {
+  if (eventBuffer.length === 0) return;
+
+  const settings = loadSettings();
+  if (!settings || !settings.telemetryEnabled) {
+    eventBuffer.length = 0;
+    return;
+  }
+
+  let uuid = settings.telemetryUuid;
+  if (!uuid) {
+    uuid = randomUUID();
+    saveSetting('telemetryUuid', uuid);
+  }
+
+  const commonFields = {
+    uuid,
+    app_version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    os_version: `${os.type()} ${os.release()}`,
+    locale: settings.language || app.getLocale() || 'en',
+    first_seen_version: settings.firstSeenVersion || app.getVersion()
+  };
+
+  const events = eventBuffer.splice(0);
+
+  // Try batch endpoint first, fall back to individual pings
+  const payload = JSON.stringify({
+    ...commonFields,
+    events: events.map(e => ({ event_type: e.eventType, metadata: e.metadata, ts: e.ts }))
+  });
+
+  const url = new URL(TELEMETRY_URL);
+
+  const req = https.request({
+    hostname: url.hostname,
+    port: url.port || 443,
+    path: BATCH_PATH,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+      'User-Agent': `ClaudeTerminal/${app.getVersion()}`
+    },
+    timeout: TIMEOUT
+  }, (res) => {
+    res.resume();
+    if (res.statusCode === 404) {
+      // Batch endpoint not available, send individually
+      for (const event of events) {
+        sendSingle(commonFields, event.eventType, event.metadata);
+      }
+    }
+  });
+
+  req.on('error', () => {});
+  req.on('timeout', () => req.destroy());
+  req.write(payload);
+  req.end();
+}
+
+function sendSingle(commonFields, eventType, metadata) {
+  try {
+    const payload = JSON.stringify({ ...commonFields, event_type: eventType, metadata });
+    const url = new URL(TELEMETRY_URL);
+
+    const req = https.request({
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: PING_PATH,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        'User-Agent': `ClaudeTerminal/${commonFields.app_version}`
+      },
+      timeout: TIMEOUT
+    }, (res) => {
+      res.resume();
+    });
+
+    req.on('error', () => {});
+    req.on('timeout', () => req.destroy());
+    req.write(payload);
+    req.end();
   } catch {
     // silent
   }
@@ -50,7 +193,7 @@ function canSend(eventType) {
 }
 
 /**
- * Send a telemetry ping to the backend.
+ * Queue a telemetry ping (batched, flushed every 30s).
  * @param {string} eventType - e.g. "app:start", "features:terminal:create"
  * @param {Object} [metadata={}]
  */
@@ -66,61 +209,33 @@ function sendPing(eventType, metadata = {}) {
 
     // Client rate limit
     if (!canSend(eventType)) return;
+    lastPingTimes.set(eventType, Date.now());
 
-    // Ensure UUID
-    let uuid = settings.telemetryUuid;
-    if (!uuid) {
-      uuid = randomUUID();
-      saveUuid(uuid);
-    }
-
-    const payload = JSON.stringify({
-      uuid,
-      event_type: eventType,
-      app_version: app.getVersion(),
-      platform: process.platform,
-      arch: process.arch,
-      os_version: `${os.type()} ${os.release()}`,
-      locale: settings.language || app.getLocale() || 'en',
-      metadata
-    });
-
-    const url = new URL(TELEMETRY_URL);
-
-    const req = https.request({
-      hostname: url.hostname,
-      port: url.port || 443,
-      path: PING_PATH,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-        'User-Agent': `ClaudeTerminal/${app.getVersion()}`
-      },
-      timeout: TIMEOUT
-    }, (res) => {
-      // Drain response
-      res.resume();
-      if (res.statusCode === 200 || res.statusCode === 201) {
-        lastPingTimes.set(eventType, Date.now());
-      }
-    });
-
-    req.on('error', () => {}); // silent
-    req.on('timeout', () => req.destroy());
-    req.write(payload);
-    req.end();
+    eventBuffer.push({ eventType, metadata, ts: Date.now() });
+    startFlushTimer();
   } catch {
     // silent — never block the app
   }
 }
 
 function sendStartupPing() {
-  sendPing('app:start');
+  // Ensure first_seen_version is persisted
+  const settings = loadSettings();
+  if (settings && !settings.firstSeenVersion) {
+    saveSetting('firstSeenVersion', app.getVersion());
+  }
+
+  sendPing('app:start', {
+    project_types: getProjectTypeCounts()
+  });
 }
 
 function sendQuitPing() {
-  sendPing('app:quit');
+  const durationMs = Date.now() - sessionStartTime;
+  const durationMin = Math.round(durationMs / 60000);
+  sendPing('app:quit', { session_duration_min: durationMin });
+  // Flush immediately on quit — don't lose the event
+  flushBuffer();
 }
 
 function sendFeaturePing(feature, metadata = {}) {
@@ -129,8 +244,8 @@ function sendFeaturePing(feature, metadata = {}) {
 
 function sendErrorPing(error) {
   sendPing('errors:uncaught', {
-    message: error?.message || String(error),
-    stack: error?.stack?.split('\n')[0] || ''
+    message: stripUserPaths(error?.message || String(error)),
+    stack: stripUserPaths(error?.stack?.split('\n')[0] || '')
   });
 }
 
