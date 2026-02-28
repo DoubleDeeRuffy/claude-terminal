@@ -702,9 +702,11 @@ function installWidgetOverrides(canvasInstance) {
 
 // ── LiteGraph global config ──────────────────────────────────────────────────
 function configureLiteGraphDefaults() {
-  // Register typed slot colors so LiteGraph draws the right color per type
-  for (const [typeName, cfg] of Object.entries(PIN_TYPES)) {
-    LiteGraph.registerNodeAndSlotType({ type: typeName }, { color_on: cfg.color, color_off: hexToRgba(cfg.color, 0.35) });
+  // Register typed slot colors as TRANSPARENT for slot indicators
+  // (we draw our own custom pins in onDrawForeground — diamonds for exec, circles with glow for data)
+  // Wire colors are set separately via link_type_colors below.
+  for (const [typeName] of Object.entries(PIN_TYPES)) {
+    LiteGraph.registerNodeAndSlotType({ type: typeName }, { color_on: 'transparent', color_off: 'transparent' });
   }
 
   // Color links by their data type — LiteGraph checks LGraphCanvas.link_type_colors[link.type]
@@ -746,14 +748,14 @@ function configureLiteGraphDefaults() {
   LiteGraph.NODE_SUBTEXT_SIZE = 10;
   LiteGraph.NODE_DEFAULT_COLOR = '#1c1c20';
   LiteGraph.NODE_DEFAULT_BGCOLOR = '#101012';
-  LiteGraph.NODE_DEFAULT_BOXCOLOR = '#555';
+  LiteGraph.NODE_DEFAULT_BOXCOLOR = 'transparent'; // hide native slot dots — we draw our own
   LiteGraph.DEFAULT_SHADOW_COLOR = 'rgba(0,0,0,0.4)';
   LiteGraph.WIDGET_BGCOLOR = '#0b0b0d';
   LiteGraph.WIDGET_OUTLINE_COLOR = '#1e1e22';
   LiteGraph.WIDGET_TEXT_COLOR = '#aaa';
   LiteGraph.WIDGET_SECONDARY_TEXT_COLOR = '#555';
   LiteGraph.LINK_COLOR = '#707070';          // exec links: gray
-  LiteGraph.EVENT_LINK_COLOR = '#707070';     // legacy event links: same
+  LiteGraph.EVENT_LINK_COLOR = 'transparent'; // hide native EVENT slot indicators (wires use link_type_colors)
   LiteGraph.CONNECTING_LINK_COLOR = '#f59e0b'; // link being dragged: accent
 
   // Make default selection outline invisible — we draw our own in onDrawTitle
@@ -1645,10 +1647,19 @@ class WorkflowGraphService {
     this.canvas.render_title_colored = false;
     this.canvas.use_gradients = false;
 
+    // Slot indicator fallback colors → transparent (we draw custom pins in onDrawForeground)
+    // Wire colors are handled by link_type_colors, not this.
     this.canvas.default_connection_color = {
-      input_off: '#2a2a30', input_on: '#d97706',
-      output_off: '#2a2a30', output_on: '#d97706',
+      input_off: 'transparent', input_on: 'transparent',
+      output_off: 'transparent', output_on: 'transparent',
     };
+
+    // Also hide EVENT/ACTION type slot indicators (numeric type -1)
+    if (this.canvas.default_connection_color_byType) {
+      this.canvas.default_connection_color_byType[-1] = 'transparent';
+      this.canvas.default_connection_color_byType[LiteGraph.EVENT] = 'transparent';
+      this.canvas.default_connection_color_byType[LiteGraph.ACTION] = 'transparent';
+    }
 
     this.canvas.ds.min_scale = 0.3;
     this.canvas.ds.max_scale = 3;
