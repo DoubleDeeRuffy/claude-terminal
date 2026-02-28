@@ -10,20 +10,20 @@ const { getSkills } = require('./SkillService');
 
 // ── Node type colors ────────────────────────────────────────────────────────
 const NODE_COLORS = {
-  trigger:   { bg: '#111', border: '#222', accent: '#4ade80', accentDim: 'rgba(74,222,128,.08)' },
-  claude:    { bg: '#111', border: '#222', accent: '#f59e0b', accentDim: 'rgba(245,158,11,.08)' },
-  shell:     { bg: '#111', border: '#222', accent: '#60a5fa', accentDim: 'rgba(96,165,250,.08)' },
-  git:       { bg: '#111', border: '#222', accent: '#a78bfa', accentDim: 'rgba(167,139,250,.08)' },
-  http:      { bg: '#111', border: '#222', accent: '#22d3ee', accentDim: 'rgba(34,211,238,.08)' },
-  notify:    { bg: '#111', border: '#222', accent: '#fbbf24', accentDim: 'rgba(251,191,36,.08)' },
-  wait:      { bg: '#111', border: '#222', accent: '#6b7280', accentDim: 'rgba(107,114,128,.08)' },
-  condition: { bg: '#111', border: '#222', accent: '#4ade80', accentDim: 'rgba(74,222,128,.08)' },
-  project:   { bg: '#111', border: '#222', accent: '#f472b6', accentDim: 'rgba(244,114,182,.08)' },
-  file:      { bg: '#111', border: '#222', accent: '#a3e635', accentDim: 'rgba(163,230,53,.08)' },
-  db:        { bg: '#111', border: '#222', accent: '#fb923c', accentDim: 'rgba(251,146,60,.08)' },
-  loop:      { bg: '#111', border: '#222', accent: '#38bdf8', accentDim: 'rgba(56,189,248,.08)' },
-  variable:  { bg: '#111', border: '#222', accent: '#c084fc', accentDim: 'rgba(192,132,252,.08)' },
-  log:       { bg: '#111', border: '#222', accent: '#94a3b8', accentDim: 'rgba(148,163,184,.08)' },
+  trigger:   { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
+  claude:    { bg: '#101012', border: '#1c1c20', accent: '#f59e0b', accentDim: 'rgba(245,158,11,.06)' },
+  shell:     { bg: '#101012', border: '#1c1c20', accent: '#60a5fa', accentDim: 'rgba(96,165,250,.06)' },
+  git:       { bg: '#101012', border: '#1c1c20', accent: '#a78bfa', accentDim: 'rgba(167,139,250,.06)' },
+  http:      { bg: '#101012', border: '#1c1c20', accent: '#22d3ee', accentDim: 'rgba(34,211,238,.06)' },
+  notify:    { bg: '#101012', border: '#1c1c20', accent: '#fbbf24', accentDim: 'rgba(251,191,36,.06)' },
+  wait:      { bg: '#101012', border: '#1c1c20', accent: '#6b7280', accentDim: 'rgba(107,114,128,.06)' },
+  condition: { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
+  project:   { bg: '#101012', border: '#1c1c20', accent: '#f472b6', accentDim: 'rgba(244,114,182,.06)' },
+  file:      { bg: '#101012', border: '#1c1c20', accent: '#a3e635', accentDim: 'rgba(163,230,53,.06)' },
+  db:        { bg: '#101012', border: '#1c1c20', accent: '#fb923c', accentDim: 'rgba(251,146,60,.06)' },
+  loop:      { bg: '#101012', border: '#1c1c20', accent: '#38bdf8', accentDim: 'rgba(56,189,248,.06)' },
+  variable:  { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' },
+  log:       { bg: '#101012', border: '#1c1c20', accent: '#94a3b8', accentDim: 'rgba(148,163,184,.06)' },
 };
 
 const STATUS_COLORS = {
@@ -101,10 +101,10 @@ function installCustomRendering(NodeClass) {
   NodeClass.prototype.onDrawTitleBar = function(ctx, titleHeight, size, scale) {
     const c = getNodeColors(this);
     const w = size[0] + 1;
-    const r = 6;
+    const r = 8;
 
-    // Title background
-    ctx.fillStyle = '#161616';
+    // Title background — slightly lighter than body
+    ctx.fillStyle = '#141416';
     ctx.beginPath();
     ctx.moveTo(r, -titleHeight);
     ctx.lineTo(w - r, -titleHeight);
@@ -116,21 +116,23 @@ function installCustomRendering(NodeClass) {
     ctx.closePath();
     ctx.fill();
 
-    // Thin accent stripe at very top (2.5px)
+    // Thin accent stripe at very top (2px)
     ctx.fillStyle = c.accent;
+    ctx.globalAlpha = 0.8;
     ctx.beginPath();
     ctx.moveTo(r, -titleHeight);
     ctx.lineTo(w - r, -titleHeight);
     ctx.quadraticCurveTo(w, -titleHeight, w, -titleHeight + r);
-    ctx.lineTo(w, -titleHeight + 2.5);
-    ctx.lineTo(0, -titleHeight + 2.5);
+    ctx.lineTo(w, -titleHeight + 2);
+    ctx.lineTo(0, -titleHeight + 2);
     ctx.lineTo(0, -titleHeight + r);
     ctx.quadraticCurveTo(0, -titleHeight, r, -titleHeight);
     ctx.closePath();
     ctx.fill();
+    ctx.globalAlpha = 1;
 
-    // Subtle separator
-    ctx.fillStyle = 'rgba(255,255,255,.04)';
+    // Subtle separator line
+    ctx.fillStyle = 'rgba(255,255,255,.03)';
     ctx.fillRect(0, -1, w, 1);
   };
 
@@ -152,18 +154,28 @@ function installCustomRendering(NodeClass) {
 
     // Draw title text
     ctx.font = `600 11px ${FONT}`;
-    ctx.fillStyle = this.is_selected ? '#fff' : '#ccc';
+    ctx.fillStyle = this.is_selected ? '#fff' : '#bbb';
     ctx.textAlign = 'left';
     const title = this.getTitle ? this.getTitle() : this.title;
     ctx.fillText(title, 22, -titleHeight * 0.5 + 4);
 
     // Draw selection outline (we disabled the default via NODE_BOX_OUTLINE_COLOR)
     if (this.is_selected) {
-      const r = 6;
-      ctx.strokeStyle = hexToRgba(c.accent, 0.45);
+      const r = 8;
+      ctx.strokeStyle = hexToRgba(c.accent, 0.35);
       ctx.lineWidth = 1.5;
+      roundRect(ctx, -0.5, -titleHeight - 0.5, w + 2, h + titleHeight + 1, r);
+      ctx.stroke();
+
+      // Subtle glow
+      ctx.shadowColor = hexToRgba(c.accent, 0.15);
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = 'transparent';
+      ctx.lineWidth = 0;
       roundRect(ctx, 0, -titleHeight, w + 1, h + titleHeight, r);
       ctx.stroke();
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
     }
   };
 
@@ -173,10 +185,10 @@ function installCustomRendering(NodeClass) {
     const c = getNodeColors(this);
     const w = this.size[0];
     const h = this.size[1];
-    const r = 6;
+    const r = 8;
 
     // Body fill
-    ctx.fillStyle = '#111';
+    ctx.fillStyle = '#101012';
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(w, 0);
@@ -188,18 +200,25 @@ function installCustomRendering(NodeClass) {
     ctx.closePath();
     ctx.fill();
 
-    // Subtle accent glow at top
-    const grad = ctx.createLinearGradient(0, 0, 0, 16);
+    // Subtle accent glow at top (shorter, softer)
+    const grad = ctx.createLinearGradient(0, 0, 0, 12);
     grad.addColorStop(0, c.accentDim);
     grad.addColorStop(1, 'transparent');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, 16);
+    ctx.fillRect(0, 0, w, 12);
+
+    // Outer border — soft, barely visible
+    ctx.strokeStyle = 'rgba(255,255,255,.04)';
+    ctx.lineWidth = 0.5;
+    roundRect(ctx, 0, -LiteGraph.NODE_TITLE_HEIGHT, w + 1, h + LiteGraph.NODE_TITLE_HEIGHT, r);
+    ctx.stroke();
 
     // Run status bar (left edge)
     if (this._runStatus && STATUS_COLORS[this._runStatus]) {
       const sc = STATUS_COLORS[this._runStatus];
       ctx.fillStyle = sc;
-      ctx.fillRect(0, 0, 2, h);
+      roundRect(ctx, 0, 0, 2.5, h, 1);
+      ctx.fill();
     }
 
     if (origOnDrawBackground) origOnDrawBackground.call(this, ctx, canvas);
@@ -237,21 +256,21 @@ function installWidgetOverrides(canvasInstance) {
       switch (w.type) {
         case 'combo':
         case 'number': {
-          roundRect(ctx, margin, y, innerW, H, 4);
-          ctx.fillStyle = '#0d0d0d';
+          roundRect(ctx, margin, y, innerW, H, 5);
+          ctx.fillStyle = '#0a0a0c';
           ctx.fill();
-          ctx.strokeStyle = '#222';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#1e1e22';
+          ctx.lineWidth = 0.5;
           ctx.stroke();
 
           if (show_text) {
-            ctx.fillStyle = '#555';
+            ctx.fillStyle = '#4a4a50';
             ctx.font = `500 10px ${FONT}`;
             ctx.textAlign = 'left';
             ctx.fillText(w.label || w.name, margin + 8, y + H * 0.65);
 
-            ctx.fillStyle = '#bbb';
-            ctx.font = `500 11px ${FONT}`;
+            ctx.fillStyle = '#b0b0b8';
+            ctx.font = `600 10.5px ${FONT}`;
             ctx.textAlign = 'right';
             let val = w.type === 'number'
               ? Number(w.value).toFixed(w.options.precision != null ? w.options.precision : 3)
@@ -266,11 +285,11 @@ function installWidgetOverrides(canvasInstance) {
 
         case 'text':
         case 'string': {
-          roundRect(ctx, margin, y, innerW, H, 4);
-          ctx.fillStyle = '#0d0d0d';
+          roundRect(ctx, margin, y, innerW, H, 5);
+          ctx.fillStyle = '#0a0a0c';
           ctx.fill();
-          ctx.strokeStyle = '#222';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#1e1e22';
+          ctx.lineWidth = 0.5;
           ctx.stroke();
 
           if (show_text) {
@@ -279,14 +298,14 @@ function installWidgetOverrides(canvasInstance) {
             ctx.rect(margin, y, innerW, H);
             ctx.clip();
 
-            ctx.fillStyle = '#555';
+            ctx.fillStyle = '#4a4a50';
             ctx.font = `500 10px ${FONT}`;
             ctx.textAlign = 'left';
             ctx.fillText(w.label || w.name, margin + 8, y + H * 0.65);
 
             if (w.value) {
-              ctx.fillStyle = '#999';
-              ctx.font = `11px ${FONT}`;
+              ctx.fillStyle = '#888';
+              ctx.font = `10.5px ${FONT}`;
               ctx.textAlign = 'right';
               ctx.fillText(String(w.value), ww - margin - 8, y + H * 0.65);
             }
@@ -297,40 +316,40 @@ function installWidgetOverrides(canvasInstance) {
         }
 
         case 'toggle': {
-          roundRect(ctx, margin, y, innerW, H, 4);
-          ctx.fillStyle = '#0d0d0d';
+          roundRect(ctx, margin, y, innerW, H, 5);
+          ctx.fillStyle = '#0a0a0c';
           ctx.fill();
-          ctx.strokeStyle = '#222';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#1e1e22';
+          ctx.lineWidth = 0.5;
           ctx.stroke();
 
           if (show_text) {
-            ctx.fillStyle = '#555';
+            ctx.fillStyle = '#4a4a50';
             ctx.font = `500 10px ${FONT}`;
             ctx.textAlign = 'left';
             ctx.fillText(w.label || w.name, margin + 8, y + H * 0.65);
 
             const dotX = ww - margin - 12;
             ctx.beginPath();
-            ctx.arc(dotX, y + H * 0.5, 4, 0, Math.PI * 2);
-            ctx.fillStyle = w.value ? '#d97706' : '#333';
+            ctx.arc(dotX, y + H * 0.5, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = w.value ? '#d97706' : '#2a2a30';
             ctx.fill();
           }
           break;
         }
 
         case 'button': {
-          roundRect(ctx, margin, y, innerW, H, 4);
-          ctx.fillStyle = w.clicked ? '#1a1a1a' : '#0f0f0f';
+          roundRect(ctx, margin, y, innerW, H, 5);
+          ctx.fillStyle = w.clicked ? '#161618' : '#0d0d0f';
           ctx.fill();
-          ctx.strokeStyle = '#2a2a2a';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#1e1e22';
+          ctx.lineWidth = 0.5;
           ctx.stroke();
           if (w.clicked) { w.clicked = false; this.dirty_canvas = true; }
 
           if (show_text) {
-            ctx.fillStyle = '#bbb';
-            ctx.font = `600 11px ${FONT}`;
+            ctx.fillStyle = '#aaa';
+            ctx.font = `600 10.5px ${FONT}`;
             ctx.textAlign = 'center';
             ctx.fillText(w.label || w.name, ww * 0.5, y + H * 0.65);
           }
@@ -364,18 +383,18 @@ function configureLiteGraphDefaults() {
   LiteGraph.NODE_TITLE_COLOR = '#ddd';
   LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff';
   LiteGraph.NODE_TEXT_SIZE = 11;
-  LiteGraph.NODE_TEXT_COLOR = '#888';
+  LiteGraph.NODE_TEXT_COLOR = '#777';
   LiteGraph.NODE_SUBTEXT_SIZE = 10;
-  LiteGraph.NODE_DEFAULT_COLOR = '#222';
-  LiteGraph.NODE_DEFAULT_BGCOLOR = '#111';
+  LiteGraph.NODE_DEFAULT_COLOR = '#1c1c20';
+  LiteGraph.NODE_DEFAULT_BGCOLOR = '#101012';
   LiteGraph.NODE_DEFAULT_BOXCOLOR = '#555';
   LiteGraph.NODE_DEFAULT_SHAPE = 'box';
-  LiteGraph.DEFAULT_SHADOW_COLOR = 'rgba(0,0,0,0.3)';
-  LiteGraph.WIDGET_BGCOLOR = '#0d0d0d';
-  LiteGraph.WIDGET_OUTLINE_COLOR = '#222';
-  LiteGraph.WIDGET_TEXT_COLOR = '#bbb';
+  LiteGraph.DEFAULT_SHADOW_COLOR = 'rgba(0,0,0,0.4)';
+  LiteGraph.WIDGET_BGCOLOR = '#0b0b0d';
+  LiteGraph.WIDGET_OUTLINE_COLOR = '#1e1e22';
+  LiteGraph.WIDGET_TEXT_COLOR = '#aaa';
   LiteGraph.WIDGET_SECONDARY_TEXT_COLOR = '#555';
-  LiteGraph.LINK_COLOR = '#333';
+  LiteGraph.LINK_COLOR = '#2a2a30';
   LiteGraph.EVENT_LINK_COLOR = '#d97706';
   LiteGraph.CONNECTING_LINK_COLOR = '#f59e0b';
 
@@ -637,9 +656,9 @@ function LoopNode() {
   this.addInput('Items', 'array');
   this.addOutput('Each', LiteGraph.EVENT);
   this.addOutput('Done', LiteGraph.EVENT);
-  this.properties = { source: 'projects', filter: '' };
-  this.addWidget('combo', 'Source', 'projects', (v) => { this.properties.source = v; }, {
-    values: ['projects', 'files', 'previous_output', 'custom']
+  this.properties = { source: 'auto', filter: '' };
+  this.addWidget('combo', 'Source', 'auto', (v) => { this.properties.source = v; }, {
+    values: ['auto', 'projects', 'files', 'custom']
   });
   this.size = [200, 84];
 }
@@ -759,8 +778,8 @@ class WorkflowGraphService {
     this.canvas = new LGraphCanvas(canvasElement, this.graph);
 
     // Canvas theme
-    this.canvas.background_color = '#0a0a0a';
-    this.canvas.clear_background_color = '#0a0a0a';
+    this.canvas.background_color = '#08080a';
+    this.canvas.clear_background_color = '#08080a';
     this.canvas.render_shadows = false;
     this.canvas.render_connections_shadows = false;
     this.canvas.show_info = false;
@@ -769,19 +788,19 @@ class WorkflowGraphService {
     this.canvas.allow_interaction = true;
     this.canvas.render_curved_connections = true;
     this.canvas.render_connection_arrows = false;
-    this.canvas.connections_width = 2;
-    this.canvas.default_link_color = '#333';
+    this.canvas.connections_width = 1.5;
+    this.canvas.default_link_color = '#2a2a30';
     this.canvas.highquality_render = true;
     this.canvas.inner_text_font = `11px ${FONT}`;
-    this.canvas.title_text_font = `600 12px ${FONT}`;
-    this.canvas.node_title_color = 'transparent'; // We draw our own title text
-    this.canvas.round_radius = 6;
+    this.canvas.title_text_font = `600 11px ${FONT}`;
+    this.canvas.node_title_color = 'transparent';
+    this.canvas.round_radius = 8;
     this.canvas.render_title_colored = false;
     this.canvas.use_gradients = false;
 
     this.canvas.default_connection_color = {
-      input_off: '#333', input_on: '#d97706',
-      output_off: '#333', output_on: '#d97706',
+      input_off: '#2a2a30', input_on: '#d97706',
+      output_off: '#2a2a30', output_on: '#d97706',
     };
 
     this.canvas.ds.min_scale = 0.3;

@@ -28,6 +28,108 @@ const HOOK_TYPES = [
   { value: 'WorktreeRemove',   label: 'WorktreeRemove',   desc: 'Suppression de worktree' },
 ];
 
+// Output properties produced by each node type — used for autocomplete suggestions
+const NODE_OUTPUTS = {
+  claude:    ['output', 'success'],
+  shell:     ['stdout', 'stderr', 'exitCode'],
+  git:       ['output', 'success', 'action'],
+  http:      ['status', 'ok', 'body'],
+  file:      ['content', 'success', 'exists'],
+  db:        ['rows', 'columns', 'rowCount', 'duration', 'firstRow'],
+  condition: ['result', 'value'],
+  wait:      ['waited', 'timedOut'],
+  notify:    ['sent', 'message'],
+  project:   ['success', 'action'],
+  variable:  ['name', 'value', 'action'],
+  log:       ['level', 'message', 'logged'],
+  loop:      ['items', 'count'],
+};
+
+/**
+ * Get autocomplete suggestions for variable references.
+ * @param {Object} graph - LiteGraph graph instance
+ * @param {number} currentNodeId - The node currently being edited
+ * @param {string} filterText - Text typed after '$' to filter results
+ * @returns {Array<{category: string, label: string, value: string, detail: string}>}
+ */
+function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
+  const suggestions = [];
+  const filter = (filterText || '').toLowerCase();
+
+  // Category 1: Context variables
+  const ctxVars = [
+    { value: '$ctx.project',  detail: 'Chemin du projet' },
+    { value: '$ctx.branch',   detail: 'Branche Git active' },
+    { value: '$ctx.date',     detail: 'Date du jour' },
+    { value: '$ctx.trigger',  detail: 'Type de déclencheur' },
+  ];
+  for (const v of ctxVars) {
+    if (v.value.toLowerCase().includes(filter)) {
+      suggestions.push({ category: 'Contexte', label: v.value, value: v.value, detail: v.detail });
+    }
+  }
+
+  // Category 2: Loop variables
+  const loopVars = [
+    { value: '$loop.item',  detail: 'Élément courant' },
+    { value: '$loop.index', detail: 'Index (0-based)' },
+    { value: '$loop.total', detail: 'Nombre total d\'items' },
+  ];
+  for (const v of loopVars) {
+    if (v.value.toLowerCase().includes(filter)) {
+      suggestions.push({ category: 'Loop', label: v.value, value: v.value, detail: v.detail });
+    }
+  }
+
+  // Category 3: Node outputs
+  if (graph && graph._nodes) {
+    for (const node of graph._nodes) {
+      if (node.id === currentNodeId) continue;
+      const nodeType = (node.type || '').replace('workflow/', '');
+      if (nodeType === 'trigger') continue;
+      const outputs = NODE_OUTPUTS[nodeType];
+      if (!outputs) continue;
+
+      const nodeLabel = node.title || nodeType;
+      const prefix = `$node_${node.id}`;
+
+      for (const prop of outputs) {
+        const full = `${prefix}.${prop}`;
+        if (full.toLowerCase().includes(filter) || nodeLabel.toLowerCase().includes(filter)) {
+          suggestions.push({
+            category: 'Nodes',
+            label: full,
+            value: full,
+            detail: `${nodeLabel} → ${prop}`,
+          });
+        }
+      }
+    }
+  }
+
+  // Category 4: Custom variables (from Variable nodes with action=set)
+  if (graph && graph._nodes) {
+    for (const node of graph._nodes) {
+      const nodeType = (node.type || '').replace('workflow/', '');
+      if (nodeType !== 'variable') continue;
+      if (node.properties?.action !== 'set') continue;
+      const varName = node.properties?.name;
+      if (!varName) continue;
+      const full = `$${varName}`;
+      if (full.toLowerCase().includes(filter)) {
+        suggestions.push({
+          category: 'Variables',
+          label: full,
+          value: full,
+          detail: `Variable custom`,
+        });
+      }
+    }
+  }
+
+  return suggestions;
+}
+
 const STEP_TYPES = [
   { type: 'trigger',   label: 'Trigger',   color: 'success',  icon: svgPlay(11),     desc: 'Déclencheur du workflow' },
   // ── Actions ──
@@ -733,17 +835,11 @@ function openEditor(workflowId = null) {
             if (!items.length) return '';
             return `<div class="wf-palette-title">${cat.title}</div>` +
               items.map(st => `
-                <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="Cliquer pour ajouter ${st.label}">
+                <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" data-tooltip="${st.label}" title="${st.label} — ${st.desc}">
                   <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
-                  <div class="wf-palette-text">
-                    <span class="wf-palette-label">${st.label}</span>
-                    <span class="wf-palette-desc">${st.desc}</span>
-                  </div>
-                  <svg class="wf-palette-add" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
                 </div>
               `).join('');
           }).join('')}
-          <div class="wf-palette-hint">Cliquer pour ajouter au canvas</div>
         </div>
         <div class="wf-editor-canvas-wrap" id="wf-ed-canvas-wrap">
           <canvas id="wf-litegraph-canvas"></canvas>
@@ -1085,7 +1181,7 @@ function openEditor(workflowId = null) {
         </div>
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgEdit()} Message</label>
-          <span class="wf-field-hint">Supporte les variables: $ctx.project, $prev.output</span>
+          <span class="wf-field-hint">Variables : $ctx.project, $ctx.branch, $node_X.output</span>
           <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Le build de $ctx.project est terminé avec succès.">${escapeHtml(props.message || '')}</textarea>
         </div>
       `;
@@ -1210,7 +1306,7 @@ function openEditor(workflowId = null) {
         ${dbAction === 'query' ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCode()} Requête SQL</label>
-          <span class="wf-field-hint">Supporte les variables : $ctx.project, $prev.output, $loop.item</span>
+          <span class="wf-field-hint">Variables : $ctx.project, $node_X.stdout, $myVar</span>
           <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="query" rows="5" placeholder="SELECT * FROM users\nWHERE active = 1\nORDER BY created_at DESC">${escapeHtml(props.query || '')}</textarea>
         </div>
         <div class="wf-field-row">
@@ -1226,22 +1322,22 @@ function openEditor(workflowId = null) {
           </div>
         </div>` : ''}
         <div class="wf-db-output-hint">
-          <div class="wf-db-output-title">${svgTriggerType()} Sortie disponible</div>
+          <div class="wf-db-output-title">${svgTriggerType()} Sortie disponible ${props.outputVar ? `<code style="margin-left:4px;font-size:10px">$${escapeHtml(props.outputVar)}</code>` : ''}</div>
           ${dbAction === 'query' ? `
           <div class="wf-db-output-items">
-            <code>$nodeId.rows</code> <span>tableau des résultats</span>
-            <code>$nodeId.columns</code> <span>noms des colonnes</span>
-            <code>$nodeId.rowCount</code> <span>nombre de lignes</span>
-            <code>$nodeId.duration</code> <span>temps d'exécution (ms)</span>
-            <code>$nodeId.firstRow</code> <span>première ligne (objet)</span>
+            <code>$node_${node.id}.rows</code> <span>tableau des résultats</span>
+            <code>$node_${node.id}.columns</code> <span>noms des colonnes</span>
+            <code>$node_${node.id}.rowCount</code> <span>nombre de lignes</span>
+            <code>$node_${node.id}.duration</code> <span>temps d'exécution (ms)</span>
+            <code>$node_${node.id}.firstRow</code> <span>première ligne (objet)</span>
           </div>` : dbAction === 'schema' ? `
           <div class="wf-db-output-items">
-            <code>$nodeId.tables</code> <span>liste des tables avec colonnes</span>
-            <code>$nodeId.tableCount</code> <span>nombre de tables</span>
+            <code>$node_${node.id}.tables</code> <span>liste des tables avec colonnes</span>
+            <code>$node_${node.id}.tableCount</code> <span>nombre de tables</span>
           </div>` : `
           <div class="wf-db-output-items">
-            <code>$nodeId.tables</code> <span>liste des noms de tables</span>
-            <code>$nodeId.tableCount</code> <span>nombre de tables</span>
+            <code>$node_${node.id}.tables</code> <span>liste des noms de tables</span>
+            <code>$node_${node.id}.tableCount</code> <span>nombre de tables</span>
           </div>`}
         </div>
       `;
@@ -1253,9 +1349,9 @@ function openEditor(workflowId = null) {
           <label class="wf-step-edit-label">${svgLoop()} Source d'itération</label>
           <span class="wf-field-hint">D'où viennent les items à parcourir</span>
           <select class="wf-step-edit-input wf-node-prop" data-key="source">
+            <option value="auto" ${(!props.source || props.source === 'auto' || props.source === 'previous_output') ? 'selected' : ''}>Automatique (depuis node connecté)</option>
             <option value="projects" ${props.source === 'projects' ? 'selected' : ''}>Tous les projets enregistrés</option>
             <option value="files" ${props.source === 'files' ? 'selected' : ''}>Fichiers (pattern glob)</option>
-            <option value="previous_output" ${props.source === 'previous_output' ? 'selected' : ''}>Sortie du node précédent</option>
             <option value="custom" ${props.source === 'custom' ? 'selected' : ''}>Liste personnalisée</option>
           </select>
         </div>
@@ -1312,13 +1408,14 @@ function openEditor(workflowId = null) {
         </div>
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgEdit()} Message</label>
-          <span class="wf-field-hint">Variables: $ctx.project, $prev.output, $loop.item</span>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Build finished for $ctx.project in $prev.duration">${escapeHtml(props.message || '')}</textarea>
+          <span class="wf-field-hint">Variables : $ctx.project, $ctx.branch, $node_X.stdout</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Build finished for $ctx.project">${escapeHtml(props.message || '')}</textarea>
         </div>
       `;
     }
 
     const customTitle = node.properties._customTitle || '';
+    const nodeStepId = `node_${node.id}`;
     propsEl.innerHTML = `
       <div class="wf-props-section" data-node-color="${typeInfo.color}">
         <div class="wf-props-header">
@@ -1329,6 +1426,7 @@ function openEditor(workflowId = null) {
           </div>
           <span class="wf-props-badge wf-props-badge--${typeInfo.color}">${nodeType.toUpperCase()}</span>
         </div>
+        ${nodeType !== 'trigger' ? `<div class="wf-node-id-badge"><code>$${nodeStepId}</code> <span>ID de ce node pour les variables</span></div>` : ''}
         ${nodeType !== 'trigger' ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgEdit()} Nom personnalisé</label>
@@ -1368,6 +1466,9 @@ function openEditor(workflowId = null) {
       input.addEventListener('input', handler);
       input.addEventListener('change', handler);
     });
+
+    // ── Autocomplete for $variable references ──
+    setupAutocomplete(propsEl, node, graphService);
 
     // Claude mode tabs
     propsEl.querySelectorAll('.wf-claude-mode-tab').forEach(tab => {
@@ -1845,6 +1946,152 @@ function upgradeSelectsToDropdowns(container) {
     cleanupObs.observe(wrapper.parentNode || document.body, { childList: true, subtree: true });
 
     buildOptions();
+  });
+}
+
+// ── Autocomplete for $variable references ────────────────────────────────────
+function setupAutocomplete(container, node, graphService) {
+  // Only wire up text inputs and textareas that accept variables
+  const fields = container.querySelectorAll('input.wf-node-prop[type="text"], input.wf-node-prop:not([type]), textarea.wf-node-prop, input.wf-field-mono, textarea.wf-field-mono');
+  if (!fields.length) return;
+
+  // Shared popup element (reuse across fields)
+  let popup = container.querySelector('.wf-autocomplete-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.className = 'wf-autocomplete-popup';
+    popup.style.display = 'none';
+    container.appendChild(popup);
+  }
+
+  let activeField = null;
+  let activeIndex = 0;
+  let currentSuggestions = [];
+  let dollarPos = -1;
+
+  function hidePopup() {
+    popup.style.display = 'none';
+    activeField = null;
+    currentSuggestions = [];
+    activeIndex = 0;
+  }
+
+  function insertSuggestion(value) {
+    if (!activeField || dollarPos < 0) return;
+    const before = activeField.value.substring(0, dollarPos);
+    const after = activeField.value.substring(activeField.selectionStart);
+    activeField.value = before + value + after;
+    const newPos = dollarPos + value.length;
+    activeField.setSelectionRange(newPos, newPos);
+    activeField.dispatchEvent(new Event('input', { bubbles: true }));
+    hidePopup();
+    activeField.focus();
+  }
+
+  function renderPopup(suggestions, anchorField) {
+    if (!suggestions.length) { hidePopup(); return; }
+    currentSuggestions = suggestions;
+    activeIndex = 0;
+
+    // Group by category
+    const groups = {};
+    for (const s of suggestions) {
+      if (!groups[s.category]) groups[s.category] = [];
+      groups[s.category].push(s);
+    }
+
+    let html = '';
+    for (const [cat, items] of Object.entries(groups)) {
+      html += `<div class="wf-ac-category">${escapeHtml(cat)}</div>`;
+      for (const item of items) {
+        const idx = suggestions.indexOf(item);
+        html += `<div class="wf-ac-item${idx === 0 ? ' active' : ''}" data-idx="${idx}">
+          <span class="wf-ac-label">${escapeHtml(item.label)}</span>
+          <span class="wf-ac-detail">${escapeHtml(item.detail)}</span>
+        </div>`;
+      }
+    }
+    popup.innerHTML = html;
+
+    // Position below the field
+    const rect = anchorField.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    popup.style.top = (rect.bottom - containerRect.top + 2) + 'px';
+    popup.style.left = (rect.left - containerRect.left) + 'px';
+    popup.style.width = rect.width + 'px';
+    popup.style.display = 'block';
+
+    // Click handlers on items
+    popup.querySelectorAll('.wf-ac-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const idx = parseInt(el.dataset.idx, 10);
+        insertSuggestion(currentSuggestions[idx].value);
+      });
+    });
+  }
+
+  function updateActiveItem() {
+    popup.querySelectorAll('.wf-ac-item').forEach((el, i) => {
+      el.classList.toggle('active', i === activeIndex);
+    });
+    // Scroll into view
+    const activeEl = popup.querySelector('.wf-ac-item.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  fields.forEach(field => {
+    field.addEventListener('input', () => {
+      const val = field.value;
+      const cursor = field.selectionStart;
+
+      // Find the $ before cursor
+      let dPos = -1;
+      for (let i = cursor - 1; i >= 0; i--) {
+        const ch = val[i];
+        if (ch === '$') { dPos = i; break; }
+        if (!/[\w.]/.test(ch)) break;
+      }
+
+      if (dPos < 0) { hidePopup(); return; }
+
+      dollarPos = dPos;
+      activeField = field;
+      const filterText = val.substring(dPos, cursor);
+
+      const graph = graphService?.graph;
+      const suggestions = getAutocompleteSuggestions(graph, node?.id, filterText);
+      renderPopup(suggestions, field);
+    });
+
+    field.addEventListener('keydown', (e) => {
+      if (popup.style.display === 'none') return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, currentSuggestions.length - 1);
+        updateActiveItem();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        updateActiveItem();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (currentSuggestions.length > 0) {
+          e.preventDefault();
+          insertSuggestion(currentSuggestions[activeIndex].value);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        hidePopup();
+      }
+    });
+
+    field.addEventListener('blur', () => {
+      // Small delay to allow mousedown on popup items
+      setTimeout(() => {
+        if (popup.style.display !== 'none') hidePopup();
+      }, 150);
+    });
   });
 }
 

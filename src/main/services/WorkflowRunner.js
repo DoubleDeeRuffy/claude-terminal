@@ -19,7 +19,7 @@
 
 'use strict';
 
-const { execFile }  = require('child_process');
+const { exec, execFile } = require('child_process');
 const fs            = require('fs');
 const path          = require('path');
 const crypto        = require('crypto');
@@ -126,16 +126,14 @@ function runShellStep(config, vars, signal) {
     const cwd     = resolveVars(config.cwd || process.cwd(), vars);
     const timeout = config.timeout ? parseMs(config.timeout) : 60_000;
 
-    // Split into argv-style array (simple: split on space, honour quoted strings)
-    const args = parseCommand(command);
-    if (!args.length) return resolve({ exitCode: 0, stdout: '', stderr: '' });
+    if (!command.trim()) return resolve({ exitCode: 0, stdout: '', stderr: '' });
 
-    const [cmd, ...rest] = args;
     let child;
     const onAbort = () => { try { child?.kill('SIGKILL'); } catch {} };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    child = execFile(cmd, rest, { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
+    // Use exec with shell: true to support pipes, &&, redirections, env vars
+    child = exec(command, { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
       signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) return reject(new Error('Cancelled'));
       resolve({ exitCode: err?.code ?? 0, stdout: stdout || '', stderr: stderr || '' });
@@ -164,7 +162,44 @@ function parseCommand(cmd) {
 // ─── Git step ─────────────────────────────────────────────────────────────────
 
 async function runGitStep(config, vars) {
-  const cwd     = resolveVars(config.cwd || '', vars);
+  // Resolve cwd: prefer explicit cwd, then resolve projectId to a path via ctx
+  let cwd = resolveVars(config.cwd || '', vars);
+  if (!cwd && config.projectId) {
+    // projectId is stored but we need the project path — use ctx.project as fallback
+    const ctx = vars.get('ctx') || {};
+    cwd = ctx.project || '';
+  }
+  if (!cwd) {
+    const ctx = vars.get('ctx') || {};
+    cwd = ctx.project || process.cwd();
+  }
+
+  // Support graph-based node format: config.action = 'pull'|'push'|'commit'|etc.
+  if (config.action && !config.actions) {
+    const action = config.action;
+    const branch = resolveVars(config.branch || '', vars);
+    const message = resolveVars(config.message || '', vars);
+    let res;
+
+    switch (action) {
+      case 'pull':       res = await gitPull(cwd); break;
+      case 'push':       res = await gitPush(cwd); break;
+      case 'commit':     {
+        await gitStageFiles(cwd, config.files || ['.']);
+        res = await gitCommit(cwd, message || 'workflow commit');
+        break;
+      }
+      case 'checkout':   res = await checkoutBranch(cwd, branch); break;
+      case 'merge':      res = await spawnGit(cwd, ['merge', branch]); break;
+      case 'stash':      res = await spawnGit(cwd, ['stash']); break;
+      case 'stash-pop':  res = await spawnGit(cwd, ['stash', 'pop']); break;
+      case 'reset':      res = await spawnGit(cwd, ['reset', '--hard', 'HEAD']); break;
+      default:           res = { success: false, error: `Unknown git action: ${action}` };
+    }
+    return { success: res.success !== false, output: res.output || res.stdout || '', action };
+  }
+
+  // Legacy format: config.actions array or single config with pull/push/commit keys
   const actions = Array.isArray(config.actions) ? config.actions : [config];
 
   const results = [];
@@ -197,8 +232,21 @@ async function runGitStep(config, vars) {
 async function runHttpStep(config, vars, signal) {
   const url     = resolveVars(config.url || '', vars);
   const method  = (config.method || 'GET').toUpperCase();
-  const headers = resolveDeep(config.headers || {}, vars);
-  const body    = config.body ? JSON.stringify(resolveDeep(config.body, vars)) : undefined;
+
+  // Headers may come as a JSON string from the panel or as an object from legacy format
+  let rawHeaders = config.headers || {};
+  if (typeof rawHeaders === 'string') {
+    try { rawHeaders = JSON.parse(resolveVars(rawHeaders, vars)); } catch { rawHeaders = {}; }
+  }
+  const headers = resolveDeep(rawHeaders, vars);
+
+  // Body may come as a JSON string from the panel or as an object
+  let rawBody = config.body;
+  if (typeof rawBody === 'string') {
+    rawBody = resolveVars(rawBody, vars);
+    try { rawBody = JSON.parse(rawBody); } catch { /* keep as string */ }
+  }
+  const body = rawBody ? JSON.stringify(resolveDeep(rawBody, vars)) : undefined;
   const timeout = config.timeout ? parseMs(config.timeout) : 30_000;
 
   const aborter = new AbortController();
@@ -246,7 +294,7 @@ function assertPathWithinProject(filePath, vars) {
 async function runFileStep(config, vars) {
   const action  = config.action || 'read';
   const p       = resolveVars(config.path || '', vars);
-  const dest    = resolveVars(config.dest || '', vars);
+  const dest    = resolveVars(config.destination || config.dest || '', vars);
   const content = resolveVars(config.content || '', vars);
 
   // Validate paths stay within the project directory
@@ -340,10 +388,100 @@ async function runDbStep(config, vars, databaseService) {
   return { rows, columns, rowCount, duration, firstRow };
 }
 
+// ─── Project step ─────────────────────────────────────────────────────────────
+
+/**
+ * Run a project-related operation (set_context, open, build, install, test).
+ * @param {Object} config
+ * @param {Map}    vars
+ * @param {Function} sendFn
+ */
+async function runProjectStep(config, vars, sendFn) {
+  const action = config.action || 'set_context';
+  const projectId = config.projectId || '';
+  const ctx = vars.get('ctx') || {};
+
+  if (action === 'set_context') {
+    // Update the workflow context to use this project for subsequent steps
+    if (projectId) ctx.activeProjectId = projectId;
+    vars.set('ctx', ctx);
+    return { success: true, action, projectId };
+  }
+
+  // For open/build/install/test — delegate to renderer via sendFn
+  sendFn('workflow-project-action', { action, projectId: projectId || ctx.activeProjectId || '' });
+  return { success: true, action, projectId };
+}
+
+// ─── Variable step ────────────────────────────────────────────────────────────
+
+/**
+ * Manipulate workflow-level variables (set, get, increment, append).
+ * @param {Object} config
+ * @param {Map}    vars
+ */
+function runVariableStep(config, vars) {
+  const action = config.action || 'set';
+  const name   = config.name || '';
+  if (!name) throw new Error('Variable node: no name specified');
+
+  const currentValue = vars.get(name);
+
+  switch (action) {
+    case 'set': {
+      const value = resolveVars(config.value || '', vars);
+      vars.set(name, value);
+      return { name, value, action: 'set' };
+    }
+    case 'get': {
+      return { name, value: currentValue ?? null, action: 'get' };
+    }
+    case 'increment': {
+      const increment = parseFloat(config.value) || 1;
+      const newValue = (parseFloat(currentValue) || 0) + increment;
+      vars.set(name, newValue);
+      return { name, value: newValue, action: 'increment' };
+    }
+    case 'append': {
+      const value = resolveVars(config.value || '', vars);
+      const arr = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+      arr.push(value);
+      vars.set(name, arr);
+      return { name, value: arr, action: 'append' };
+    }
+    default:
+      throw new Error(`Variable node: unknown action "${action}"`);
+  }
+}
+
+// ─── Log step ─────────────────────────────────────────────────────────────────
+
+/**
+ * Write a message to the workflow run log.
+ * @param {Object} config
+ * @param {Map}    vars
+ * @param {Function} sendFn
+ */
+function runLogStep(config, vars, sendFn) {
+  const level   = config.level || 'info';
+  const message = resolveVars(config.message || '', vars);
+
+  sendFn('workflow-log', { level, message, timestamp: Date.now() });
+  return { level, message, logged: true };
+}
+
 // ─── Condition step ───────────────────────────────────────────────────────────
 
 function runConditionStep(config, vars) {
-  const result = evalCondition(resolveVars(config.expression || 'true', vars), vars);
+  // Build expression from structured fields (variable + operator + value) if no explicit expression
+  let expression = config.expression;
+  if (!expression && config.variable) {
+    const variable = config.variable || '';
+    const operator = config.operator || '==';
+    const value    = config.value ?? '';
+    expression = `${variable} ${operator} ${value}`;
+  }
+  const result = evalCondition(resolveVars(expression || 'true', vars), vars);
   return { result, value: result };
 }
 
@@ -361,6 +499,14 @@ function runConditionStep(config, vars) {
  * @param {string} stepId
  */
 function runWaitStep(config, signal, waitCallbacks, runId, stepId) {
+  // Simple delay mode: if duration is set, just sleep for that time
+  const duration = config.duration;
+  if (duration) {
+    const ms = parseMs(duration);
+    return sleep(ms, signal).then(() => ({ waited: ms, timedOut: false }));
+  }
+
+  // Approval mode: wait for human callback or timeout
   return new Promise((resolve, reject) => {
     const key     = `${runId}::${stepId}`;
     const timeout = config.timeout ? parseMs(config.timeout) : null;
@@ -694,6 +840,15 @@ class WorkflowRunner {
       slots.get(link.originSlot).push(link.targetId);
     }
 
+    // Build incoming connections map: nodeId → Map<targetSlot, {originId, originSlot}[]>
+    const incoming = new Map();
+    for (const [, link] of linkById) {
+      if (!incoming.has(link.targetId)) incoming.set(link.targetId, new Map());
+      const slots = incoming.get(link.targetId);
+      if (!slots.has(link.targetSlot)) slots.set(link.targetSlot, []);
+      slots.get(link.targetSlot).push({ originId: link.originId, originSlot: link.originSlot });
+    }
+
     // Find the trigger node
     const triggerNode = nodes.find(n => n.type === 'workflow/trigger');
     if (!triggerNode) {
@@ -743,6 +898,63 @@ class WorkflowRunner {
         const condResult = outputResult?.result ?? outputResult?.value ?? true;
         const nextSlot = condResult ? 0 : 1;
         queue.push(...this._getNextNodes(nodeId, nextSlot, outgoing));
+      } else if (stepType === 'loop') {
+        // ── Loop node: resolve items, then execute body per-iteration ──
+        try {
+          this._emitStep(runId, step, 'running', null);
+
+          // 1. Resolve the items array
+          const items = this._resolveLoopItems(step, nodeId, vars, incoming);
+
+          // 2. Identify "Each" body nodes (slot 0) and "Done" continuation (slot 1)
+          const eachTargets = this._getNextNodes(nodeId, 0, outgoing);
+          const doneTargets = this._getNextNodes(nodeId, 1, outgoing);
+
+          // 3. Execute sub-BFS for each item
+          const allBodyVisited = new Set();
+          const iterationResults = [];
+
+          for (let idx = 0; idx < items.length; idx++) {
+            if (signal.aborted) throw new Error('Cancelled');
+
+            // Set loop context variables
+            vars.set('loop', { item: items[idx], index: idx, total: items.length });
+            vars.set('item', items[idx]);
+            vars.set('index', idx);
+
+            // Execute the "Each" body sub-graph
+            const { outputs, visitedNodes } = await this._executeSubGraph(
+              eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
+            );
+            iterationResults.push(outputs);
+            for (const nid of visitedNodes) allBodyVisited.add(nid);
+          }
+
+          // 4. Store loop result and emit success
+          const loopOutput = { items: iterationResults, count: items.length };
+          vars.set(step.id, loopOutput);
+          stepOutputs[step.id] = loopOutput;
+          this._emitStep(runId, step, 'success', loopOutput);
+
+          // 5. Clean up loop context
+          vars.delete('loop');
+          vars.delete('item');
+          vars.delete('index');
+
+          // 6. Mark body nodes as visited so main BFS skips them
+          for (const nid of allBodyVisited) visited.add(nid);
+
+          // 7. Follow "Done" path (slot 1) for continuation after loop
+          for (const tid of doneTargets) {
+            if (!visited.has(tid)) queue.push(tid);
+          }
+
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastError = err;
+          this._emitStep(runId, step, 'failed', { error: err.message });
+          throw err;
+        }
       } else {
         // Normal step: try to execute
         try {
@@ -784,6 +996,184 @@ class WorkflowRunner {
     const slots = outgoing.get(nodeId);
     if (!slots) return [];
     return slots.get(slotIndex) || [];
+  }
+
+  /**
+   * Extract an array from a node's output.
+   * Handles: plain arrays, { rows: [...] } (DB), { items: [...] }, { content: [...] }.
+   * @private
+   */
+  _extractArrayFromOutput(output) {
+    if (!output) return null;
+    if (Array.isArray(output)) return output;
+    if (Array.isArray(output.rows)) return output.rows;
+    if (Array.isArray(output.items)) return output.items;
+    if (Array.isArray(output.content)) return output.content;
+    return null;
+  }
+
+  /**
+   * Resolve loop items from source config (projects, files, custom).
+   * Does NOT handle previous_output/auto — that's done in _resolveLoopItems.
+   * @private
+   */
+  _resolveLoopSource(step, vars) {
+    const source = step.source || 'projects';
+
+    if (source === 'projects') {
+      const ctx = vars.get('ctx') || {};
+      return vars.get('_projectsList') || [ctx.project].filter(Boolean);
+    }
+
+    if (source === 'files') {
+      const filter = resolveVars(step.filter || '*', vars);
+      const ctx = vars.get('ctx') || {};
+      const baseDir = ctx.project || process.cwd();
+      try {
+        const glob = require('glob');
+        return glob.sync(filter, { cwd: baseDir, nodir: true });
+      } catch {
+        return fs.readdirSync(baseDir).filter(f => f.includes('.'));
+      }
+    }
+
+    if (source === 'custom') {
+      const raw = resolveVars(step.filter || '', vars);
+      return raw.split('\n').map(s => s.trim()).filter(Boolean);
+    }
+
+    return [];
+  }
+
+  /**
+   * Resolve items for a Loop node in graph mode.
+   * Priority:
+   *   1. Items input slot (slot 1) connected → use the origin node's output
+   *   2. source === 'previous_output' or 'auto' → predecessor on In slot (slot 0)
+   *   3. Other source values → projects, files, custom
+   * @private
+   */
+  _resolveLoopItems(step, nodeId, vars, incoming) {
+    // Strategy 1: Check if Items input slot (slot 1) is connected
+    const itemsInputs = incoming.get(nodeId)?.get(1) || [];
+    if (itemsInputs.length > 0) {
+      const { originId } = itemsInputs[0];
+      const originStepId = `node_${originId}`;
+      const originOutput = vars.get(originStepId);
+      const items = this._extractArrayFromOutput(originOutput);
+      if (items && items.length > 0) return items;
+    }
+
+    // Strategy 2: auto / previous_output → look at predecessor on In slot (slot 0)
+    const source = step.source || 'auto';
+    if (source === 'auto' || source === 'previous_output') {
+      const inInputs = incoming.get(nodeId)?.get(0) || [];
+      if (inInputs.length > 0) {
+        const { originId } = inInputs[0];
+        const originStepId = `node_${originId}`;
+        const originOutput = vars.get(originStepId);
+        const items = this._extractArrayFromOutput(originOutput);
+        if (items) return items;
+      }
+      // If nothing found, return empty array (don't fall through to source-based)
+      return [];
+    }
+
+    // Strategy 3: source-based resolution (projects, files, custom)
+    return this._resolveLoopSource(step, vars);
+  }
+
+  /**
+   * Execute a sub-graph for loop body iteration.
+   * Performs a mini-BFS from the given start nodes.
+   * @private
+   */
+  async _executeSubGraph(startNodeIds, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow) {
+    const subVisited = new Set();
+    const subQueue = [...startNodeIds];
+    const outputs = {};
+
+    while (subQueue.length > 0) {
+      if (signal.aborted) throw new Error('Cancelled');
+
+      const nodeId = subQueue.shift();
+      if (subVisited.has(nodeId)) continue;
+      subVisited.add(nodeId);
+
+      const nodeData = nodeById.get(nodeId);
+      if (!nodeData) continue;
+
+      const stepType = nodeData.type.replace('workflow/', '');
+      const step = {
+        id:   `node_${nodeData.id}`,
+        type: stepType,
+        ...(nodeData.properties || {}),
+      };
+
+      if (stepType === 'condition') {
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+        } catch (err) {
+          if (signal.aborted) throw err;
+          stepOutputs[step.id] = { result: false, value: false };
+        }
+        const condResult = stepOutputs[step.id]?.result ?? stepOutputs[step.id]?.value ?? true;
+        subQueue.push(...this._getNextNodes(nodeId, condResult ? 0 : 1, outgoing));
+      } else if (stepType === 'loop') {
+        // Nested loop — resolve items and recurse
+        this._emitStep(runId, step, 'running', null);
+        const nestedItems = this._resolveLoopItems(step, nodeId, vars, incoming);
+        const eachTargets = this._getNextNodes(nodeId, 0, outgoing);
+        const doneTargets = this._getNextNodes(nodeId, 1, outgoing);
+        const nestedResults = [];
+
+        for (let idx = 0; idx < nestedItems.length; idx++) {
+          if (signal.aborted) throw new Error('Cancelled');
+          vars.set('loop', { item: nestedItems[idx], index: idx, total: nestedItems.length });
+          vars.set('item', nestedItems[idx]);
+          vars.set('index', idx);
+          const { outputs: iterOut, visitedNodes } = await this._executeSubGraph(
+            eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
+          );
+          nestedResults.push(iterOut);
+          for (const nid of visitedNodes) subVisited.add(nid);
+        }
+
+        const loopOutput = { items: nestedResults, count: nestedItems.length };
+        vars.set(step.id, loopOutput);
+        stepOutputs[step.id] = loopOutput;
+        this._emitStep(runId, step, 'success', loopOutput);
+        outputs[step.id] = loopOutput;
+
+        vars.delete('loop');
+        vars.delete('item');
+        vars.delete('index');
+
+        for (const tid of doneTargets) {
+          if (!subVisited.has(tid)) subQueue.push(tid);
+        }
+      } else {
+        // Normal step
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+          subQueue.push(...this._getNextNodes(nodeId, 0, outgoing));
+        } catch (err) {
+          if (signal.aborted) throw err;
+          const errorTargets = this._getNextNodes(nodeId, 1, outgoing);
+          if (errorTargets.length > 0) {
+            vars.set(step.id, { error: err.message, success: false });
+            stepOutputs[step.id] = { error: err.message, success: false };
+            subQueue.push(...errorTargets);
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      outputs[step.id] = stepOutputs[step.id];
+    }
+
+    return { outputs, visitedNodes: subVisited };
   }
 
   /**
@@ -895,11 +1285,28 @@ class WorkflowRunner {
     }
 
     if (type === 'db') {
-      return runDbStep(step, vars, this._databaseService);
+      const result = await runDbStep(step, vars, this._databaseService);
+      // Also store under outputVar alias if configured (e.g. $dbResult.rows)
+      if (step.outputVar && step.id) {
+        vars.set(step.outputVar, result);
+      }
+      return result;
     }
 
     if (type === 'condition') {
       return runConditionStep(step, vars);
+    }
+
+    if (type === 'project') {
+      return runProjectStep(step, vars, this._send);
+    }
+
+    if (type === 'variable') {
+      return runVariableStep(step, vars);
+    }
+
+    if (type === 'log') {
+      return runLogStep(step, vars, this._send);
     }
 
     if (type === 'notify') {
@@ -934,18 +1341,37 @@ class WorkflowRunner {
   }
 
   /**
-   * loop step: iterate over vars[step.over], run sub-steps for each item.
+   * loop step (legacy): iterate over an array, run sub-steps for each item.
+   * Used for linear/legacy workflows with step.over + step.steps.
+   * Graph mode loops are handled directly in _executeGraph.
    * @private
    */
   async _runLoopStep(step, vars, runId, signal, workflow) {
-    const overKey = resolveVars(step.over || '', vars);
-    // Resolve the iterable — it may be a direct var key or a path into a var
-    const parts = overKey.replace(/^\$/, '').split('.');
-    let items = vars.get(parts[0]);
-    for (let i = 1; i < parts.length && items != null; i++) items = items[parts[i]];
+    let items;
+
+    if (step.source && !step.over) {
+      const source = step.source;
+      if (source === 'previous_output' || source === 'auto') {
+        // Scan vars for most recent array output from a node
+        for (const [key, val] of vars) {
+          if (!key.startsWith('node_') && !key.startsWith('step_')) continue;
+          const arr = this._extractArrayFromOutput(val);
+          if (arr) { items = arr; /* keep scanning — last one wins */ }
+        }
+        if (!items) items = [];
+      } else {
+        items = this._resolveLoopSource(step, vars);
+      }
+    } else {
+      // Legacy format: step.over = '$varName.path'
+      const overKey = resolveVars(step.over || '', vars);
+      const parts = overKey.replace(/^\$/, '').split('.');
+      items = vars.get(parts[0]);
+      for (let i = 1; i < parts.length && items != null; i++) items = items[parts[i]];
+    }
 
     if (!Array.isArray(items)) {
-      throw new Error(`loop: "${step.over}" did not resolve to an array`);
+      throw new Error(`loop: could not resolve items to an array (source: ${step.source || step.over})`);
     }
 
     const results = [];
@@ -955,13 +1381,18 @@ class WorkflowRunner {
       const itemVars = new Map(vars);
       itemVars.set('item', items[idx]);
       itemVars.set('index', idx);
+      itemVars.set('loop', { item: items[idx], index: idx, total: items.length });
 
-      const iterOutputs = {};
-      await this._runSteps(step.steps || [], itemVars, runId, signal, iterOutputs, workflow);
-      results.push(iterOutputs);
+      if (step.steps && step.steps.length > 0) {
+        const iterOutputs = {};
+        await this._runSteps(step.steps, itemVars, runId, signal, iterOutputs, workflow);
+        results.push(iterOutputs);
+      } else {
+        results.push(items[idx]);
+      }
     }
 
-    return { items: results };
+    return { items: results, count: items.length };
   }
 
   /**
