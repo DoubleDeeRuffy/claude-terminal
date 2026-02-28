@@ -560,12 +560,18 @@ function ClaudeNode() {
   this.addOutput('Error', LiteGraph.EVENT);
   this.properties = {
     mode: 'prompt', prompt: '', agentId: '', skillId: '',
-    model: '', effort: '', outputSchema: null
+    model: 'sonnet', effort: 'normal', outputSchema: null
   };
   this.addWidget('combo', 'Mode', 'prompt', (v) => { this.properties.mode = v; }, {
     values: ['prompt', 'agent', 'skill']
   });
   this.addWidget('text', 'Prompt', '', (v) => { this.properties.prompt = v; });
+  this.addWidget('combo', 'Model', 'sonnet', (v) => { this.properties.model = v; }, {
+    values: ['sonnet', 'haiku', 'opus']
+  });
+  this.addWidget('combo', 'Effort', 'normal', (v) => { this.properties.effort = v; }, {
+    values: ['low', 'normal', 'high']
+  });
   this.size = [220, this.computeSize()[1]];
 }
 ClaudeNode.title = 'Claude';
@@ -633,6 +639,8 @@ function HttpNode() {
     values: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   });
   this.addWidget('text', 'URL', '', (v) => { this.properties.url = v; });
+  this.addWidget('text', 'Headers', '', (v) => { this.properties.headers = v; });
+  this.addWidget('text', 'Body', '', (v) => { this.properties.body = v; });
   this.size = [220, this.computeSize()[1]];
 }
 HttpNode.title = 'HTTP';
@@ -651,6 +659,7 @@ function NotifyNode() {
   this.addOutput('Done', LiteGraph.EVENT);
   this.properties = { title: '', message: '' };
   this.addWidget('text', 'Title', '', (v) => { this.properties.title = v; });
+  this.addWidget('text', 'Message', '', (v) => { this.properties.message = v; });
   this.size = [200, this.computeSize()[1]];
 }
 NotifyNode.title = 'Notify';
@@ -662,47 +671,94 @@ NotifyNode.prototype.constructor = NotifyNode;
 function WaitNode() {
   this.addInput('In', LiteGraph.ACTION);
   this.addOutput('Done', LiteGraph.EVENT);
-  this.properties = { duration: '5s' };
+  this.properties = { mode: 'duration', duration: '5s', timeout: '' };
+  this.addWidget('combo', 'Mode', 'duration', (v) => {
+    this.properties.mode = v;
+    // Show/hide duration widget based on mode
+    if (this.widgets) {
+      const durWidget = this.widgets.find(w => w.name === 'Duration');
+      if (durWidget) durWidget.disabled = (v === 'approval');
+    }
+  }, { values: ['duration', 'approval'] });
   this.addWidget('text', 'Duration', '5s', (v) => { this.properties.duration = v; });
-  this.size = [180, this.computeSize()[1]];
+  this.addWidget('text', 'Timeout', '', (v) => { this.properties.timeout = v; });
+  this.size = [200, this.computeSize()[1]];
 }
 WaitNode.title = 'Wait';
-WaitNode.desc = 'Temporisation';
+WaitNode.desc = 'Temporisation ou approbation humaine';
 WaitNode.prototype = Object.create(LGraphNode.prototype);
 WaitNode.prototype.constructor = WaitNode;
+WaitNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  const label = this.properties.mode === 'approval' ? 'APPROVAL' : (this.properties.duration || '5s').toUpperCase();
+  drawBadge(ctx, label, this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
 
 // ── Condition Node ───────────────────────────────────────────────────────────
 function ConditionNode() {
   this.addInput('In', LiteGraph.ACTION);
-  this.addOutput(' ', LiteGraph.EVENT);
-  this.addOutput(' ', LiteGraph.EVENT);
-  this.properties = { variable: '$ctx.branch', operator: '==', value: '' };
+  this.addOutput('TRUE', LiteGraph.EVENT);
+  this.addOutput('FALSE', LiteGraph.EVENT);
+  this.properties = {
+    conditionMode: 'builder',
+    variable: '', operator: '==', value: '',
+    expression: ''
+  };
+
+  // Mode toggle: builder vs expression
+  this.addWidget('combo', 'Mode', 'builder', (v) => {
+    this.properties.conditionMode = v;
+    this._syncConditionWidgets();
+  }, { values: ['builder', 'expression'] });
+
+  // Builder widgets
+  this.addWidget('text', 'Variable', '', (v) => { this.properties.variable = v; });
+  this.addWidget('combo', 'Operator', '==', (v) => { this.properties.operator = v; }, {
+    values: ['==', '!=', '>', '<', '>=', '<=', 'contains', 'starts_with', 'matches', 'is_empty', 'is_not_empty']
+  });
+  this.addWidget('text', 'Value', '', (v) => { this.properties.value = v; });
+
+  // Expression widget (hidden by default in builder mode)
   this.addWidget('text', 'Expression', '', (v) => { this.properties.expression = v; });
-  this.size = [200, this.computeSize()[1]];
+
+  this._syncConditionWidgets();
+  this.size = [220, this.computeSize()[1]];
 }
 ConditionNode.title = 'Condition';
 ConditionNode.desc = 'Branchement conditionnel';
 ConditionNode.prototype = Object.create(LGraphNode.prototype);
 ConditionNode.prototype.constructor = ConditionNode;
+ConditionNode.prototype._syncConditionWidgets = function() {
+  if (!this.widgets) return;
+  const isBuilder = this.properties.conditionMode !== 'expression';
+  for (const w of this.widgets) {
+    if (w.name === 'Variable' || w.name === 'Operator' || w.name === 'Value') {
+      w.disabled = !isBuilder;
+    }
+    if (w.name === 'Expression') {
+      w.disabled = isBuilder;
+    }
+  }
+};
 ConditionNode.prototype.onDrawForeground = function(ctx) {
   const slotH = LiteGraph.NODE_SLOT_HEIGHT;
   ctx.font = `700 8px ${FONT}`;
 
-  // True badge near first output slot
+  // TRUE badge near first output slot
   ctx.fillStyle = 'rgba(74,222,128,.12)';
-  roundRect(ctx, this.size[0] - 36, slotH * 0 + 2, 24, 13, 3);
+  roundRect(ctx, this.size[0] - 38, slotH * 0 + 2, 26, 13, 3);
   ctx.fill();
   ctx.fillStyle = '#4ade80';
   ctx.textAlign = 'center';
-  ctx.fillText('TRUE', this.size[0] - 24, slotH * 0 + 12);
+  ctx.fillText('TRUE', this.size[0] - 25, slotH * 0 + 12);
 
-  // False badge near second output slot
+  // FALSE badge near second output slot
   ctx.fillStyle = 'rgba(239,68,68,.12)';
-  roundRect(ctx, this.size[0] - 40, slotH * 1 + 2, 28, 13, 3);
+  roundRect(ctx, this.size[0] - 43, slotH * 1 + 2, 31, 13, 3);
   ctx.fill();
   ctx.fillStyle = '#ef4444';
   ctx.textAlign = 'center';
-  ctx.fillText('FALSE', this.size[0] - 26, slotH * 1 + 12);
+  ctx.fillText('FALSE', this.size[0] - 27, slotH * 1 + 12);
 };
 
 // ── Project Node ──────────────────────────────────────────────────────────────
@@ -782,11 +838,16 @@ function LoopNode() {
   this.addInput('Items', 'array');
   this.addOutput('Each', LiteGraph.EVENT);
   this.addOutput('Done', LiteGraph.EVENT);
-  this.properties = { source: 'auto', filter: '' };
+  this.properties = { source: 'auto', items: '', mode: 'sequential', maxIterations: '' };
   this.addWidget('combo', 'Source', 'auto', (v) => { this.properties.source = v; }, {
     values: ['auto', 'projects', 'files', 'custom']
   });
-  this.size = [200, this.computeSize()[1]];
+  this.addWidget('text', 'Items', '', (v) => { this.properties.items = v; });
+  this.addWidget('combo', 'Mode', 'sequential', (v) => { this.properties.mode = v; }, {
+    values: ['sequential', 'parallel']
+  });
+  this.addWidget('text', 'Max items', '', (v) => { this.properties.maxIterations = v; });
+  this.size = [210, this.computeSize()[1]];
 }
 LoopNode.title = 'Loop';
 LoopNode.desc = 'Itérer sur une liste';
@@ -794,7 +855,9 @@ LoopNode.prototype = Object.create(LGraphNode.prototype);
 LoopNode.prototype.constructor = LoopNode;
 LoopNode.prototype.onDrawForeground = function(ctx) {
   const c = getNodeColors(this);
-  drawBadge(ctx, this.properties.source.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+  const modeColor = this.properties.mode === 'parallel' ? '#f59e0b' : c.accent;
+  const label = this.properties.mode === 'parallel' ? 'PARALLEL' : this.properties.source.toUpperCase();
+  drawBadge(ctx, label, this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, modeColor);
 };
 
 // ── Variable Node ─────────────────────────────────────────────────────────────
