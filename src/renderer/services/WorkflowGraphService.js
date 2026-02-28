@@ -950,22 +950,31 @@ LoopNode.prototype.onDrawForeground = function(ctx) {
   const label = this.properties.mode === 'parallel' ? 'PARALLEL' : this.properties.source.toUpperCase();
   drawBadge(ctx, label, this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, modeColor);
 };
-// Called when a connection is made/broken — propagate schema from source
+// Called when a connection is made/broken on the "items" data pin (slot 1)
 LoopNode.prototype.onConnectionsChange = function(type, slot, connected, link_info) {
-  if (type !== LiteGraph.INPUT || slot !== 1) return; // only "items" slot (slot 1)
-  // Remove any dynamic schema outputs (beyond base 4: Each, Done, item, index)
+  if (type !== LiteGraph.INPUT || slot !== 1) return; // only "items" data pin
+  // Remove dynamic schema outputs (beyond base 4: Each, Done, item, index)
   while (this.outputs && this.outputs.length > 4) {
     this.removeOutput(this.outputs.length - 1);
   }
   this._itemSchema = [];
   if (!connected || !link_info || !this.graph) return;
 
-  // Get source node output schema
+  // Only apply schema if already known from a previous run
   const srcNode = this.graph.getNodeById(link_info.origin_id);
   if (!srcNode || !srcNode._outputSchema) return;
-  const schema = srcNode._outputSchema;  // array of key names e.g. ['id','name','email']
+
+  const schema = srcNode._outputSchema;
   if (!Array.isArray(schema) || !schema.length) return;
 
+  this._applySchema(schema);
+};
+
+// Apply a schema array to dynamically add item.key outputs
+LoopNode.prototype._applySchema = function(schema) {
+  while (this.outputs && this.outputs.length > 4) {
+    this.removeOutput(this.outputs.length - 1);
+  }
   this._itemSchema = schema;
   for (const key of schema) {
     this.addOutput('item.' + key, 'any');
@@ -1717,27 +1726,57 @@ class WorkflowGraphService {
   setNodeOutput(nodeId, output) {
     this._lastRunOutputs.set(nodeId, output);
 
-    // Propagate schema to LiteGraph node for dynamic Loop pin expansion
     if (!this.graph || !output) return;
     const node = this.graph.getNodeById(nodeId);
     if (!node) return;
 
-    // Extract schema: if output has an array property (rows, items, etc.), read its keys
-    let schema = null;
-    if (Array.isArray(output) && output.length > 0 && typeof output[0] === 'object') {
-      schema = Object.keys(output[0]);
-    } else if (output && typeof output === 'object') {
-      for (const key of ['rows', 'items', 'content', 'tables']) {
+    // Extract item schema from the real output data
+    const schema = this._extractItemSchema(output);
+    if (!schema || !schema.length) return;
+
+    // Store schema on the source node for future connections
+    node._outputSchema = schema;
+
+    // Propagate schema to all Loop nodes connected downstream
+    this._propagateSchemaToLoops(node, schema);
+  }
+
+  /**
+   * Extract the item schema (array of key names) from a node's output.
+   * Looks for arrays of objects in: output itself, output.rows, output.items, etc.
+   */
+  _extractItemSchema(output) {
+    if (Array.isArray(output) && output.length > 0 && typeof output[0] === 'object' && output[0] !== null) {
+      return Object.keys(output[0]);
+    }
+    if (output && typeof output === 'object') {
+      for (const key of ['rows', 'items', 'content', 'tables', 'data', 'results']) {
         const arr = output[key];
-        if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object') {
-          schema = Object.keys(arr[0]);
-          break;
+        if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) {
+          return Object.keys(arr[0]);
         }
       }
     }
+    return null;
+  }
 
-    if (schema && schema.length > 0) {
-      node._outputSchema = schema;
+  /**
+   * Find all Loop nodes connected downstream from srcNode (via any output slot)
+   * and update their dynamic item.* outputs with the real schema.
+   */
+  _propagateSchemaToLoops(srcNode, schema) {
+    if (!srcNode.outputs) return;
+    for (const output of srcNode.outputs) {
+      if (!output.links) continue;
+      for (const linkId of output.links) {
+        const link = this.graph.links[linkId];
+        if (!link) continue;
+        const targetNode = this.graph.getNodeById(link.target_id);
+        if (!targetNode) continue;
+        if (targetNode.type === 'workflow/loop' && typeof targetNode._applySchema === 'function') {
+          targetNode._applySchema(schema);
+        }
+      }
     }
   }
 
