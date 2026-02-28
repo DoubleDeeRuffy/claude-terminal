@@ -79,45 +79,8 @@ function resolveDeep(obj, vars) {
   return obj;
 }
 
-// ─── Data pin output schemas (mirrors WorkflowGraphService.js) ───────────────
-// Maps node type → ordered list of data output descriptors
-// Slot index = NODE_DATA_OUT_OFFSET[type] + array index
-const NODE_DATA_OUTPUTS = {
-  claude:      [{ key: 'output' }],
-  shell:       [{ key: 'stdout' }, { key: 'stderr' }, { key: 'exitCode' }],
-  git:         [{ key: 'output' }],
-  http:        [{ key: 'body' }, { key: 'status' }, { key: 'ok' }],
-  db:          [{ key: 'rows' }, { key: 'rowCount' }, { key: 'firstRow' }],
-  file:        [{ key: 'content' }, { key: 'exists' }],
-  variable:    [{ key: 'value' }],
-  transform:   [{ key: 'result' }],
-  subworkflow: [{ key: 'outputs' }],
-  loop:        [{ key: 'item' }, { key: 'index' }],
-  get_variable:[{ key: 'value' }],
-};
-
-// Maps node type → first data output slot index (after exec slots)
-const NODE_DATA_OUT_OFFSET = {
-  trigger: 1, claude: 2, shell: 2, git: 2, http: 2, db: 2, file: 2,
-  notify: 1, wait: 1, log: 1, condition: 2, loop: 2,
-  variable: 1, transform: 2, subworkflow: 2, switch: 0,
-  get_variable: 0,
-};
-
-/**
- * Given an origin node type and output slot index, return the output key.
- * e.g. shell, slot 2 → 'stdout' (offset 2, first data slot 0 → key 'stdout')
- * @param {string} nodeType
- * @param {number} slotIndex
- * @returns {string|null}
- */
-function getOutputKeyForSlot(nodeType, slotIndex) {
-  const offset  = NODE_DATA_OUT_OFFSET[nodeType] ?? 0;
-  const dataIdx = slotIndex - offset;
-  const outputs = NODE_DATA_OUTPUTS[nodeType];
-  if (!outputs || dataIdx < 0 || dataIdx >= outputs.length) return null;
-  return outputs[dataIdx].key;
-}
+// ─── Data pin output schemas (shared source of truth) ────────────────────────
+const { getOutputKeyForSlot } = require('../../shared/workflow-schema');
 
 // ─── Safe condition evaluation ────────────────────────────────────────────────
 

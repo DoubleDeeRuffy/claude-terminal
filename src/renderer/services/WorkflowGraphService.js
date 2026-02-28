@@ -7,27 +7,11 @@
 const { LiteGraph, LGraph, LGraphCanvas, LGraphNode } = require('litegraph.js');
 const { getAgents } = require('./AgentService');
 const { getSkills } = require('./SkillService');
-
-// ── Node type colors ────────────────────────────────────────────────────────
-const NODE_COLORS = {
-  trigger:      { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
-  claude:       { bg: '#101012', border: '#1c1c20', accent: '#f59e0b', accentDim: 'rgba(245,158,11,.06)' },
-  shell:        { bg: '#101012', border: '#1c1c20', accent: '#60a5fa', accentDim: 'rgba(96,165,250,.06)' },
-  git:          { bg: '#101012', border: '#1c1c20', accent: '#a78bfa', accentDim: 'rgba(167,139,250,.06)' },
-  http:         { bg: '#101012', border: '#1c1c20', accent: '#22d3ee', accentDim: 'rgba(34,211,238,.06)' },
-  notify:       { bg: '#101012', border: '#1c1c20', accent: '#fbbf24', accentDim: 'rgba(251,191,36,.06)' },
-  wait:         { bg: '#101012', border: '#1c1c20', accent: '#6b7280', accentDim: 'rgba(107,114,128,.06)' },
-  condition:    { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
-  project:      { bg: '#101012', border: '#1c1c20', accent: '#f472b6', accentDim: 'rgba(244,114,182,.06)' },
-  file:         { bg: '#101012', border: '#1c1c20', accent: '#a3e635', accentDim: 'rgba(163,230,53,.06)' },
-  db:           { bg: '#101012', border: '#1c1c20', accent: '#fb923c', accentDim: 'rgba(251,146,60,.06)' },
-  loop:         { bg: '#101012', border: '#1c1c20', accent: '#38bdf8', accentDim: 'rgba(56,189,248,.06)' },
-  variable:     { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' },
-  log:          { bg: '#101012', border: '#1c1c20', accent: '#94a3b8', accentDim: 'rgba(148,163,184,.06)' },
-  transform:    { bg: '#101012', border: '#1c1c20', accent: '#2dd4bf', accentDim: 'rgba(45,212,191,.06)' },
-  subworkflow:  { bg: '#101012', border: '#1c1c20', accent: '#818cf8', accentDim: 'rgba(129,140,248,.06)' },
-  switch:       { bg: '#101012', border: '#1c1c20', accent: '#f87171', accentDim: 'rgba(248,113,113,.06)' },
-};
+const {
+  NODE_COLORS, PIN_TYPES, TYPE_COMPAT,
+  NODE_DATA_OUTPUTS, NODE_DATA_OUT_OFFSET,
+  getNodeColors,
+} = require('../../shared/workflow-schema');
 
 const STATUS_COLORS = {
   running: '#f59e0b',
@@ -37,54 +21,6 @@ const STATUS_COLORS = {
 };
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-
-// ── Pin type system ──────────────────────────────────────────────────────────
-// exec pins = flow control, data pins = typed values (string/number/etc.)
-const PIN_TYPES = {
-  exec:    { color: '#707070' },  // control flow — square shape by default in LiteGraph
-  string:  { color: '#c8c8c8' },
-  number:  { color: '#60a5fa' },
-  boolean: { color: '#4ade80' },
-  array:   { color: '#fb923c' },
-  object:  { color: '#a78bfa' },
-  any:     { color: '#6b7280' },
-};
-
-// Map data type → compatible input types (exec must connect to exec only)
-const TYPE_COMPAT = {
-  exec:    new Set(['exec']),
-  string:  new Set(['string', 'any']),
-  number:  new Set(['number', 'any', 'boolean']),
-  boolean: new Set(['boolean', 'any', 'number']),
-  array:   new Set(['array', 'any']),
-  object:  new Set(['object', 'any']),
-  any:     new Set(['any', 'string', 'number', 'boolean', 'array', 'object']),
-};
-
-// Map of node type → array of data output descriptors { name, type, key }
-// 'key' = the property name in the runtime output object
-const NODE_DATA_OUTPUTS = {
-  claude:      [{ name: 'output', type: 'string', key: 'output' }],
-  shell:       [{ name: 'stdout', type: 'string', key: 'stdout' }, { name: 'stderr', type: 'string', key: 'stderr' }, { name: 'exitCode', type: 'number', key: 'exitCode' }],
-  git:         [{ name: 'output', type: 'string', key: 'output' }],
-  http:        [{ name: 'body', type: 'object', key: 'body' }, { name: 'status', type: 'number', key: 'status' }, { name: 'ok', type: 'boolean', key: 'ok' }],
-  db:          [{ name: 'rows', type: 'array', key: 'rows' }, { name: 'rowCount', type: 'number', key: 'rowCount' }, { name: 'firstRow', type: 'object', key: 'firstRow' }],
-  file:        [{ name: 'content', type: 'string', key: 'content' }, { name: 'exists', type: 'boolean', key: 'exists' }],
-  variable:    [{ name: 'value', type: 'any', key: 'value' }],
-  transform:   [{ name: 'result', type: 'any', key: 'result' }],
-  subworkflow: [{ name: 'outputs', type: 'object', key: 'outputs' }],
-  loop:        [{ name: 'item', type: 'any', key: 'item' }, { name: 'index', type: 'number', key: 'index' }],
-  get_variable:[{ name: 'value', type: 'any', key: 'value' }],
-};
-
-// Map node type → slot index of the first data output (after exec slots)
-// Used by runtime to know slot → key mapping
-const NODE_DATA_OUT_OFFSET = {
-  trigger: 1, claude: 2, shell: 2, git: 2, http: 2, db: 2, file: 2,
-  notify: 1, wait: 1, log: 1, condition: 2, loop: 2,
-  variable: 1, transform: 2, subworkflow: 2, switch: 0,
-  get_variable: 0,
-};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function hexToRgba(hex, a) {
@@ -115,11 +51,6 @@ function drawDiamond(ctx, cx, cy, size) {
   ctx.lineTo(cx, cy + size);       // bottom
   ctx.lineTo(cx - size, cy);       // left
   ctx.closePath();
-}
-
-function getNodeColors(node) {
-  const type = (node.type || '').replace('workflow/', '');
-  return NODE_COLORS[type] || NODE_COLORS.wait;
 }
 
 // Draw a small badge (used for type labels in title bar)
@@ -1406,7 +1337,6 @@ function GetVariableNode() {
 }
 GetVariableNode.title = 'Get Variable';
 GetVariableNode.desc = 'Lire une variable sans flux exec';
-NODE_COLORS.get_variable = { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' };
 GetVariableNode.prototype = Object.create(LGraphNode.prototype);
 GetVariableNode.prototype.constructor = GetVariableNode;
 
