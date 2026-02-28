@@ -79,11 +79,14 @@ function saveTerminalSessionsImmediate() {
     const projects = projectsState.get().projects;
     const selectedFilter = projectsState.get().selectedProjectFilter;
 
-    // Group terminals by project
+    // Group terminals by project, using DOM tab order (reflects drag-and-drop reordering)
     const projectSessions = {};
+    const tabElements = document.querySelectorAll('#terminals-tabs .terminal-tab');
+    const orderedIds = Array.from(tabElements).map(el => el.dataset.id);
 
-    for (const [id, td] of terminals) {
-      if (!td.project?.id) continue;
+    for (const id of orderedIds) {
+      const td = terminals.get(id) || terminals.get(Number(id));
+      if (!td || !td.project?.id) continue;
 
       const projectId = td.project.id;
       if (!projectSessions[projectId]) {
