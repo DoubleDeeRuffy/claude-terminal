@@ -1449,31 +1449,49 @@ function openEditor(workflowId = null) {
   panel.innerHTML = `
     <div class="wf-editor">
       <div class="wf-editor-toolbar">
-        <button class="wf-editor-back" id="wf-ed-back"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg> Retour</button>
-        <div class="wf-editor-toolbar-sep"></div>
-        <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Nom du workflow…" />
-        <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
-        <div class="wf-editor-toolbar-sep"></div>
-        <div class="wf-editor-history">
-          <button class="wf-ed-hist-btn" id="wf-ed-undo" title="Undo (Ctrl+Z)" disabled>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+        <!-- Left: navigation + name -->
+        <div class="wf-editor-toolbar-left">
+          <button class="wf-editor-back" id="wf-ed-back">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+            Retour
           </button>
-          <button class="wf-ed-hist-btn" id="wf-ed-redo" title="Redo (Ctrl+Y)" disabled>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+          <div class="wf-editor-toolbar-sep"></div>
+          <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Sans titre…" />
+          <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
+        </div>
+
+        <!-- Center: history + zoom -->
+        <div class="wf-editor-toolbar-center">
+          <div class="wf-editor-history">
+            <button class="wf-ed-hist-btn" id="wf-ed-undo" title="Undo (Ctrl+Z)" disabled>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            </button>
+            <button class="wf-ed-hist-btn" id="wf-ed-redo" title="Redo (Ctrl+Y)" disabled>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+            </button>
+          </div>
+          <div class="wf-editor-toolbar-sep"></div>
+          <div class="wf-editor-zoom">
+            <button id="wf-ed-zoom-out" title="Zoom out (−)">−</button>
+            <span id="wf-ed-zoom-label">100%</span>
+            <button id="wf-ed-zoom-in" title="Zoom in (+)">+</button>
+            <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
+            <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
+          </div>
+        </div>
+
+        <!-- Right: actions -->
+        <div class="wf-editor-toolbar-right">
+          <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run" title="Lancer le workflow">
+            <span class="wf-btn-icon">▶</span>Run
+          </button>
+          <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="AI Workflow Builder">
+            <span class="wf-btn-icon wf-btn-icon--ai">✦</span>AI
+          </button>
+          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="Sauvegarder">
+            <span class="wf-btn-icon">💾</span>Save
           </button>
         </div>
-        <div class="wf-editor-toolbar-sep"></div>
-        <div class="wf-editor-zoom">
-          <button id="wf-ed-zoom-out" title="Zoom out (−)">−</button>
-          <span id="wf-ed-zoom-label">100%</span>
-          <button id="wf-ed-zoom-in" title="Zoom in (+)">+</button>
-          <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
-          <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
-        </div>
-        <div class="wf-editor-toolbar-sep"></div>
-        <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run">${svgPlay(10)} Run</button>
-        <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="AI Workflow Builder">✨ AI</button>
-        <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save</button>
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-palette" id="wf-ed-palette">
@@ -2515,10 +2533,10 @@ function openEditor(workflowId = null) {
     updateStatusBar();
   });
 
-  // Save
-  panel.querySelector('#wf-ed-save').addEventListener('click', async () => {
+  // ── Shared save logic ──
+  const saveWorkflow = async () => {
     const data = graphService.serializeToWorkflow();
-    if (!data) return;
+    if (!data) return false;
     const workflow = {
       ...(workflowId ? { id: workflowId } : {}),
       name: editorDraft.name,
@@ -2535,16 +2553,31 @@ function openEditor(workflowId = null) {
       editorDraft.dirty = false;
       updateStatusBar();
       await refreshData();
-      // Update workflowId if new
       if (!workflowId && res.id) {
         workflowId = res.id;
       }
+      return true;
     }
-  });
+    return false;
+  };
 
-  // Run
-  panel.querySelector('#wf-ed-run').addEventListener('click', () => {
-    if (workflowId) triggerWorkflow(workflowId);
+  // Save
+  panel.querySelector('#wf-ed-save').addEventListener('click', saveWorkflow);
+
+  // Run — save first if needed, then trigger
+  panel.querySelector('#wf-ed-run').addEventListener('click', async () => {
+    const btn = panel.querySelector('#wf-ed-run');
+    btn.disabled = true;
+    try {
+      // If workflow has no id yet (unsaved), save it first
+      if (!workflowId) {
+        const ok = await saveWorkflow();
+        if (!ok) return;
+      }
+      if (workflowId) await triggerWorkflow(workflowId);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // ── AI Workflow Builder ──
