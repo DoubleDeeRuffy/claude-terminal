@@ -996,6 +996,12 @@ function registerLiveListeners() {
     }
     renderContent();
   });
+
+  // MCP graph edit tools signal a reload after modifying definitions.json directly
+  api.onListUpdated(({ workflows }) => {
+    if (workflows) state.workflows = workflows;
+    renderContent();
+  });
 }
 
 /* ─── Panel shell ──────────────────────────────────────────────────────────── */

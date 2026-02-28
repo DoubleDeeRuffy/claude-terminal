@@ -59,6 +59,15 @@ function loadRunResult(runId) {
   return null;
 }
 
+function signalReload() {
+  try {
+    const triggerDir = path.join(getDataDir(), 'workflows', 'triggers');
+    if (!fs.existsSync(triggerDir)) fs.mkdirSync(triggerDir, { recursive: true });
+    const f = path.join(triggerDir, `reload_${Date.now()}.json`);
+    fs.writeFileSync(f, JSON.stringify({ action: 'reload', source: 'mcp', timestamp: new Date().toISOString() }), 'utf8');
+  } catch (e) { log('signalReload error:', e.message); }
+}
+
 function findWorkflow(nameOrId) {
   const defs = loadDefinitions();
   return defs.find(w =>
@@ -89,6 +98,38 @@ function formatDuration(ms) {
 function formatStatus(status) {
   const icons = { success: 'OK', failed: 'FAIL', running: 'RUN', cancelled: 'CANCEL', pending: 'WAIT', skipped: 'SKIP', queued: 'QUEUE' };
   return icons[status] || status;
+}
+
+// -- Graph helpers -------------------------------------------------------------
+
+function loadWorkflowDef(nameOrId) {
+  const defs = loadDefinitions();
+  return defs.find(w =>
+    w.id === nameOrId ||
+    (w.name || '').toLowerCase() === nameOrId.toLowerCase()
+  ) || null;
+}
+
+function saveWorkflowDef(workflow) {
+  const file = path.join(getDataDir(), 'workflows', 'definitions.json');
+  let defs = [];
+  try { if (fs.existsSync(file)) defs = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
+  const idx = defs.findIndex(w => w.id === workflow.id);
+  if (idx >= 0) defs[idx] = workflow;
+  else defs.push(workflow);
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(defs, null, 2), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
+function nextNodeId(graph) {
+  const nodes = (graph && graph.nodes) || [];
+  return nodes.length ? Math.max(...nodes.map(n => n.id)) + 1 : 1;
+}
+
+function nextLinkId(graph) {
+  const links = (graph && graph.links) || [];
+  return links.length ? Math.max(...links.map(l => l[0])) + 1 : 1;
 }
 
 // -- Tool definitions ---------------------------------------------------------
@@ -147,6 +188,94 @@ const tools = [
     name: 'workflow_status',
     description: 'Get currently active (running/queued) workflow executions.',
     inputSchema: { type: 'object', properties: {} },
+  },
+
+  // ── Graph editing tools ────────────────────────────────────────────────────
+
+  {
+    name: 'workflow_create',
+    description: 'Create a new workflow with an optional initial graph. Returns the new workflow ID. Use this to start building a workflow from scratch.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Workflow name (required)' },
+        trigger_type: { type: 'string', enum: ['manual', 'cron', 'hook', 'on_workflow'], description: 'Trigger type (default: manual)' },
+        trigger_value: { type: 'string', description: 'Cron expression or hook type depending on trigger_type' },
+        graph: { type: 'object', description: 'Optional full LiteGraph JSON { nodes[], links[] } to set immediately' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'workflow_add_node',
+    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+        type: { type: 'string', description: 'Node type (e.g. workflow/shell, workflow/condition)' },
+        pos: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Position [x, y] on the canvas. Layout tip: trigger at [100,100], chain downward +160px each step',
+        },
+        properties: { type: 'object', description: 'Node properties (command, prompt, variable, operator, value, etc.)' },
+        title: { type: 'string', description: 'Optional custom display title for the node' },
+      },
+      required: ['workflow', 'type'],
+    },
+  },
+  {
+    name: 'workflow_connect_nodes',
+    description: 'Connect an output slot of one node to an input slot of another. Slot conventions: most nodes have 1 input (slot 0) and outputs slot0=Done/True, slot1=Error/False. Condition: slot0=TRUE path, slot1=FALSE path. Loop: slot0=Each body, slot1=Done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+        from_node: { type: 'number', description: 'Origin node ID' },
+        from_slot: { type: 'number', description: 'Output slot index (0=Done/True/Start, 1=Error/False/Each)' },
+        to_node: { type: 'number', description: 'Target node ID' },
+        to_slot: { type: 'number', description: 'Input slot index (almost always 0)' },
+      },
+      required: ['workflow', 'from_node', 'from_slot', 'to_node', 'to_slot'],
+    },
+  },
+  {
+    name: 'workflow_update_node',
+    description: 'Update properties or title of an existing node in a workflow graph.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+        node_id: { type: 'number', description: 'Node ID to update' },
+        properties: { type: 'object', description: 'Properties to merge into the node (partial update)' },
+        title: { type: 'string', description: 'New custom title for the node' },
+      },
+      required: ['workflow', 'node_id'],
+    },
+  },
+  {
+    name: 'workflow_delete_node',
+    description: 'Delete a node (and all its connected links) from a workflow graph.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+        node_id: { type: 'number', description: 'Node ID to delete' },
+      },
+      required: ['workflow', 'node_id'],
+    },
+  },
+  {
+    name: 'workflow_get_graph',
+    description: 'Get the full graph (nodes + links) of a workflow in a readable format. Use this to understand the current structure before making changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+      },
+      required: ['workflow'],
+    },
   },
 ];
 
@@ -337,6 +466,205 @@ async function handle(name, args) {
       });
 
       return ok(`Active runs (${active.length}):\n\n${lines.join('\n')}`);
+    }
+
+    // ── workflow_get_graph ───────────────────────────────────────────────────
+
+    if (name === 'workflow_get_graph') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found. Use workflow_list to see available workflows.`);
+
+      const graph = wf.graph || { nodes: [], links: [] };
+      const nodes = graph.nodes || [];
+      const links = graph.links || [];
+
+      if (!nodes.length) return ok(`Workflow "${wf.name}" has an empty graph. Use workflow_add_node to start building.`);
+
+      const nodeLines = nodes.map(n => {
+        const props = Object.entries(n.properties || {})
+          .filter(([k]) => !k.startsWith('_'))
+          .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+          .join(', ');
+        const title = n.properties?._customTitle ? ` "${n.properties._customTitle}"` : '';
+        return `  Node ${n.id}: ${n.type}${title} @ [${(n.pos || [0,0]).join(',')}]${props ? `\n    props: ${props}` : ''}`;
+      });
+
+      // link[link_id, origin_id, origin_slot, target_id, target_slot, type]
+      const linkLines = links.map(l =>
+        `  Link: node${l[1]} slot${l[2]} → node${l[3]} slot${l[4]}`
+      );
+
+      let out = `# Graph: ${wf.name} (${wf.id})\n\n`;
+      out += `## Nodes (${nodes.length})\n${nodeLines.join('\n')}\n\n`;
+      out += `## Links (${links.length})\n${linkLines.join('\n') || '  (none)'}`;
+      return ok(out);
+    }
+
+    // ── workflow_create ──────────────────────────────────────────────────────
+
+    if (name === 'workflow_create') {
+      if (!args.name) return fail('Missing required parameter: name');
+
+      const crypto = require('crypto');
+      const id = `wf_${crypto.randomUUID().slice(0, 8)}`;
+
+      // Build default trigger node
+      const triggerType = args.trigger_type || 'manual';
+      const triggerNode = {
+        id: 1,
+        type: 'workflow/trigger',
+        pos: [100, 100],
+        size: [180, 60],
+        properties: {
+          triggerType,
+          triggerValue: args.trigger_value || '',
+        },
+      };
+
+      const graph = args.graph || { nodes: [triggerNode], links: [], groups: [] };
+
+      const workflow = {
+        id,
+        name: args.name,
+        enabled: true,
+        trigger: { type: triggerType, value: args.trigger_value || '' },
+        graph,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      saveWorkflowDef(workflow);
+      signalReload();
+      log(`Created workflow "${args.name}" (${id})`);
+      return ok(`Workflow "${args.name}" created successfully.\nID: ${id}\nTrigger: ${triggerType}\nNodes: ${graph.nodes.length} (trigger node added at ID 1)\n\nUse workflow_add_node with workflow="${id}" to add more nodes.`);
+    }
+
+    // ── workflow_add_node ────────────────────────────────────────────────────
+
+    if (name === 'workflow_add_node') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      if (!args.type) return fail('Missing required parameter: type');
+
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
+
+      const graph = wf.graph || { nodes: [], links: [], groups: [] };
+      const nodeId = nextNodeId(graph);
+
+      const node = {
+        id: nodeId,
+        type: args.type,
+        pos: args.pos || [100, 100 + nodeId * 160],
+        size: [200, 80],
+        properties: args.properties || {},
+      };
+      if (args.title) node.properties._customTitle = args.title;
+
+      graph.nodes = [...(graph.nodes || []), node];
+      wf.graph = graph;
+      wf.updatedAt = new Date().toISOString();
+      saveWorkflowDef(wf);
+      signalReload();
+
+      log(`Added node ${nodeId} (${args.type}) to workflow ${wf.id}`);
+      return ok(`Node added successfully.\nNode ID: ${nodeId}\nType: ${args.type}\nPosition: [${node.pos.join(',')}]\n\nUse this ID (${nodeId}) when connecting nodes with workflow_connect_nodes.`);
+    }
+
+    // ── workflow_connect_nodes ───────────────────────────────────────────────
+
+    if (name === 'workflow_connect_nodes') {
+      const { workflow: wfArg, from_node, from_slot, to_node, to_slot } = args;
+      if (!wfArg) return fail('Missing required parameter: workflow');
+      if (from_node == null || from_slot == null || to_node == null || to_slot == null) {
+        return fail('Missing required parameters: from_node, from_slot, to_node, to_slot');
+      }
+
+      const wf = loadWorkflowDef(wfArg);
+      if (!wf) return fail(`Workflow "${wfArg}" not found.`);
+
+      const graph = wf.graph || { nodes: [], links: [], groups: [] };
+      const nodes = graph.nodes || [];
+
+      if (!nodes.find(n => n.id === from_node)) return fail(`Node ${from_node} not found in graph.`);
+      if (!nodes.find(n => n.id === to_node)) return fail(`Node ${to_node} not found in graph.`);
+
+      // Check duplicate link
+      const existing = (graph.links || []).find(l =>
+        l[1] === from_node && l[2] === from_slot && l[3] === to_node && l[4] === to_slot
+      );
+      if (existing) return ok(`Link already exists between node ${from_node} slot ${from_slot} → node ${to_node} slot ${to_slot}.`);
+
+      const linkId = nextLinkId(graph);
+      // LiteGraph link format: [link_id, origin_id, origin_slot, target_id, target_slot, type]
+      const link = [linkId, from_node, from_slot, to_node, to_slot, -1];
+      graph.links = [...(graph.links || []), link];
+
+      wf.graph = graph;
+      wf.updatedAt = new Date().toISOString();
+      saveWorkflowDef(wf);
+      signalReload();
+
+      log(`Connected node ${from_node}:${from_slot} → node ${to_node}:${to_slot} in workflow ${wf.id}`);
+      return ok(`Connection created: node ${from_node} (slot ${from_slot}) → node ${to_node} (slot ${to_slot})`);
+    }
+
+    // ── workflow_update_node ─────────────────────────────────────────────────
+
+    if (name === 'workflow_update_node') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      if (args.node_id == null) return fail('Missing required parameter: node_id');
+
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
+
+      const graph = wf.graph || { nodes: [], links: [] };
+      const nodeIdx = (graph.nodes || []).findIndex(n => n.id === args.node_id);
+      if (nodeIdx < 0) return fail(`Node ${args.node_id} not found in graph.`);
+
+      const node = graph.nodes[nodeIdx];
+      if (args.properties) {
+        node.properties = { ...node.properties, ...args.properties };
+      }
+      if (args.title !== undefined) {
+        node.properties._customTitle = args.title;
+      }
+      graph.nodes[nodeIdx] = node;
+
+      wf.graph = graph;
+      wf.updatedAt = new Date().toISOString();
+      saveWorkflowDef(wf);
+      signalReload();
+
+      log(`Updated node ${args.node_id} in workflow ${wf.id}`);
+      return ok(`Node ${args.node_id} updated successfully.`);
+    }
+
+    // ── workflow_delete_node ─────────────────────────────────────────────────
+
+    if (name === 'workflow_delete_node') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      if (args.node_id == null) return fail('Missing required parameter: node_id');
+
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
+
+      const graph = wf.graph || { nodes: [], links: [] };
+      const beforeCount = (graph.nodes || []).length;
+      graph.nodes = (graph.nodes || []).filter(n => n.id !== args.node_id);
+      if (graph.nodes.length === beforeCount) return fail(`Node ${args.node_id} not found in graph.`);
+
+      // Remove all links connected to this node
+      const removedLinks = (graph.links || []).filter(l => l[1] === args.node_id || l[3] === args.node_id).length;
+      graph.links = (graph.links || []).filter(l => l[1] !== args.node_id && l[3] !== args.node_id);
+
+      wf.graph = graph;
+      wf.updatedAt = new Date().toISOString();
+      saveWorkflowDef(wf);
+      signalReload();
+
+      log(`Deleted node ${args.node_id} (+ ${removedLinks} links) from workflow ${wf.id}`);
+      return ok(`Node ${args.node_id} deleted (${removedLinks} link(s) also removed).`);
     }
 
     return fail(`Unknown workflow tool: ${name}`);

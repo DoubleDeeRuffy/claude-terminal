@@ -135,6 +135,11 @@ class WorkflowService {
             if (data.action === 'cancel' && data.runId) {
               this.cancel(data.runId);
               console.log(`[WorkflowService] MCP cancel: ${data.runId}`);
+            } else if (data.action === 'reload') {
+              // MCP graph edit tools signal a reload after modifying definitions.json directly
+              this._scheduler.reload(storage.loadWorkflows());
+              this._send('workflow-list-updated', { workflows: storage.loadWorkflows() });
+              console.log(`[WorkflowService] MCP reload: definitions refreshed`);
             } else if (data.workflowId) {
               this.trigger(data.workflowId, { trigger: 'mcp' });
               console.log(`[WorkflowService] MCP trigger: ${data.workflowId}`);

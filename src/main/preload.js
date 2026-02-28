@@ -453,5 +453,6 @@ contextBridge.exposeInMainWorld('electron_api', {
     onStepUpdate:     createListener('workflow-step-update'),
     onAgentMessage:   createListener('workflow-agent-message'),
     onNotifyDesktop:  createListener('workflow-notify-desktop'),
+    onListUpdated:    createListener('workflow-list-updated'),
   }
 });
