@@ -108,6 +108,15 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+function drawDiamond(ctx, cx, cy, size) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - size);       // top
+  ctx.lineTo(cx + size, cy);       // right
+  ctx.lineTo(cx, cy + size);       // bottom
+  ctx.lineTo(cx - size, cy);       // left
+  ctx.closePath();
+}
+
 function getNodeColors(node) {
   const type = (node.type || '').replace('workflow/', '');
   return NODE_COLORS[type] || NODE_COLORS.wait;
@@ -207,13 +216,13 @@ function installCustomRendering(NodeClass) {
   // Hide LiteGraph's default title text — we draw our own in onDrawTitle
   NodeClass.title_text_color = 'transparent';
 
-  // ── Custom title bar: flat dark + thin accent line at top ──
+  // ── Custom title bar: accent-tinted background (Unreal Blueprint style) ──
   NodeClass.prototype.onDrawTitleBar = function(ctx, titleHeight, size, scale) {
     const c = getNodeColors(this);
     const w = size[0] + 1;
     const r = 8;
 
-    // Title background — slightly lighter than body
+    // Title background — dark base
     ctx.fillStyle = '#141416';
     ctx.beginPath();
     ctx.moveTo(r, -titleHeight);
@@ -226,9 +235,13 @@ function installCustomRendering(NodeClass) {
     ctx.closePath();
     ctx.fill();
 
-    // Thin accent stripe at very top (2px)
+    // Accent tint overlay (18% opacity) — gives each node type its distinct color
+    ctx.fillStyle = hexToRgba(c.accent, 0.18);
+    ctx.fill();  // re-use same path
+
+    // Accent stripe at very top (2px)
     ctx.fillStyle = c.accent;
-    ctx.globalAlpha = 0.8;
+    ctx.globalAlpha = 0.85;
     ctx.beginPath();
     ctx.moveTo(r, -titleHeight);
     ctx.lineTo(w - r, -titleHeight);
@@ -246,13 +259,17 @@ function installCustomRendering(NodeClass) {
     ctx.fillRect(0, -1, w, 1);
   };
 
-  // ── Custom title box: small accent dot ──
+  // ── Custom title box: accent dot with glow ──
   NodeClass.prototype.onDrawTitleBox = function(ctx, titleHeight, size, scale) {
     const c = getNodeColors(this);
+    ctx.save();
+    ctx.shadowColor = c.accent;
+    ctx.shadowBlur = 4;
     ctx.fillStyle = c.accent;
     ctx.beginPath();
-    ctx.arc(12, -titleHeight * 0.5, 3, 0, Math.PI * 2);
+    ctx.arc(12, -titleHeight * 0.5, 4, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   };
 
   // ── Custom title text + selection outline + Test button ──
@@ -263,7 +280,7 @@ function installCustomRendering(NodeClass) {
     const h = this.size[1];
 
     // Draw title text
-    ctx.font = `600 11px ${FONT}`;
+    ctx.font = `600 12px ${FONT}`;
     ctx.fillStyle = this.is_selected ? '#fff' : '#bbb';
     ctx.textAlign = 'left';
     const title = this.getTitle ? this.getTitle() : this.title;
@@ -412,12 +429,12 @@ function installCustomRendering(NodeClass) {
     ctx.closePath();
     ctx.fill();
 
-    // Subtle accent glow at top (shorter, softer)
-    const grad = ctx.createLinearGradient(0, 0, 0, 12);
+    // Subtle accent glow at top
+    const grad = ctx.createLinearGradient(0, 0, 0, 18);
     grad.addColorStop(0, c.accentDim);
     grad.addColorStop(1, 'transparent');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, 12);
+    ctx.fillRect(0, 0, w, 18);
 
     // Outer border — soft, barely visible
     ctx.strokeStyle = 'rgba(255,255,255,.04)';
@@ -715,8 +732,8 @@ function configureLiteGraphDefaults() {
   };
 
   LiteGraph.CANVAS_GRID_SIZE = 20;
-  LiteGraph.NODE_TITLE_HEIGHT = 28;
-  LiteGraph.NODE_SLOT_HEIGHT = 18;
+  LiteGraph.NODE_TITLE_HEIGHT = 30;
+  LiteGraph.NODE_SLOT_HEIGHT = 22;
   LiteGraph.NODE_WIDGET_HEIGHT = 24;
   LiteGraph.NODE_WIDTH = 200;
   LiteGraph.NODE_MIN_WIDTH = 160;
@@ -725,11 +742,11 @@ function configureLiteGraphDefaults() {
   LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff';
   LiteGraph.NODE_TEXT_SIZE = 11;
   LiteGraph.NODE_TEXT_COLOR = 'transparent'; // hide native slot labels — we draw our own
+  LiteGraph.NODE_DEFAULT_SHAPE = LiteGraph.BOX_SHAPE; // consistent shape for pin override
   LiteGraph.NODE_SUBTEXT_SIZE = 10;
   LiteGraph.NODE_DEFAULT_COLOR = '#1c1c20';
   LiteGraph.NODE_DEFAULT_BGCOLOR = '#101012';
   LiteGraph.NODE_DEFAULT_BOXCOLOR = '#555';
-  LiteGraph.NODE_DEFAULT_SHAPE = 'box';
   LiteGraph.DEFAULT_SHADOW_COLOR = 'rgba(0,0,0,0.4)';
   LiteGraph.WIDGET_BGCOLOR = '#0b0b0d';
   LiteGraph.WIDGET_OUTLINE_COLOR = '#1e1e22';
@@ -1450,48 +1467,124 @@ function registerAllNodeTypes() {
       // 1. Node's own drawing (badges, previews)
       if (nodeOwnForeground) nodeOwnForeground.call(this, ctx);
 
-      // 2. Data pin labels — skip if collapsed
+      // 2. Custom pin rendering + labels (Blueprint style) — skip if collapsed
       if (this.flags && this.flags.collapsed) return;
       const slotH = LiteGraph.NODE_SLOT_HEIGHT;
       const w = this.size[0];
 
       ctx.save();
-      ctx.font = `500 9px ${FONT}`;
+      ctx.font = `500 11px ${FONT}`;
       ctx.textBaseline = 'middle';
 
-      // Output data labels — right-aligned, clear of the pin circle (18px margin)
+      // ── OUTPUT PINS (right side) ──
       if (this.outputs) {
         for (let i = 0; i < this.outputs.length; i++) {
           const slot = this.outputs[i];
           if (!slot) continue;
           const isExec = !slot.type || slot.type === 'exec' || slot.type === -1 || slot.type === LiteGraph.EVENT;
-          if (isExec) continue;
-          const label = slot.label || slot.name || '';
-          if (!label) continue;
           const sy = (i + 0.7) * slotH;
-          const pinColor = (PIN_TYPES[slot.type] || PIN_TYPES.any).color;
-          ctx.fillStyle = pinColor;
-          ctx.globalAlpha = 0.7;
-          ctx.textAlign = 'right';
-          ctx.fillText(label, w - 18, sy);
+          const px = w + 1;
+          const hasLinks = slot.links && slot.links.length > 0;
+
+          if (isExec) {
+            // Diamond shape for exec pins
+            ctx.save();
+            drawDiamond(ctx, px, sy, 5);
+            if (hasLinks) {
+              ctx.fillStyle = '#ccc';
+              ctx.fill();
+            } else {
+              ctx.strokeStyle = '#888';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+            ctx.restore();
+          } else {
+            // Circle with glow for data pins
+            const pinColor = (PIN_TYPES[slot.type] || PIN_TYPES.any).color;
+            ctx.save();
+            if (hasLinks) {
+              ctx.shadowColor = pinColor;
+              ctx.shadowBlur = 6;
+            }
+            ctx.beginPath();
+            ctx.arc(px, sy, 4.5, 0, Math.PI * 2);
+            if (hasLinks) {
+              ctx.fillStyle = pinColor;
+              ctx.fill();
+            } else {
+              ctx.strokeStyle = hexToRgba(pinColor, 0.6);
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+            ctx.restore();
+
+            // Label
+            const label = slot.label || slot.name || '';
+            if (label) {
+              ctx.fillStyle = pinColor;
+              ctx.globalAlpha = 0.7;
+              ctx.textAlign = 'right';
+              ctx.fillText(label, w - 20, sy);
+              ctx.globalAlpha = 1;
+            }
+          }
         }
       }
 
-      // Input data labels — left-aligned, clear of the pin circle (18px margin)
+      // ── INPUT PINS (left side) ──
       if (this.inputs) {
         for (let i = 0; i < this.inputs.length; i++) {
           const slot = this.inputs[i];
           if (!slot) continue;
           const isExec = !slot.type || slot.type === 'exec' || slot.type === -1 || slot.type === LiteGraph.EVENT;
-          if (isExec) continue;
-          const label = slot.label || slot.name || '';
-          if (!label) continue;
           const sy = (i + 0.7) * slotH;
-          const pinColor = (PIN_TYPES[slot.type] || PIN_TYPES.any).color;
-          ctx.fillStyle = pinColor;
-          ctx.globalAlpha = 0.7;
-          ctx.textAlign = 'left';
-          ctx.fillText(label, 18, sy);
+          const px = -1;
+          const hasLink = slot.link != null;
+
+          if (isExec) {
+            // Diamond shape for exec pins
+            ctx.save();
+            drawDiamond(ctx, px, sy, 5);
+            if (hasLink) {
+              ctx.fillStyle = '#ccc';
+              ctx.fill();
+            } else {
+              ctx.strokeStyle = '#888';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+            ctx.restore();
+          } else {
+            // Circle with glow for data pins
+            const pinColor = (PIN_TYPES[slot.type] || PIN_TYPES.any).color;
+            ctx.save();
+            if (hasLink) {
+              ctx.shadowColor = pinColor;
+              ctx.shadowBlur = 6;
+            }
+            ctx.beginPath();
+            ctx.arc(px, sy, 4.5, 0, Math.PI * 2);
+            if (hasLink) {
+              ctx.fillStyle = pinColor;
+              ctx.fill();
+            } else {
+              ctx.strokeStyle = hexToRgba(pinColor, 0.6);
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+            ctx.restore();
+
+            // Label
+            const label = slot.label || slot.name || '';
+            if (label) {
+              ctx.fillStyle = pinColor;
+              ctx.globalAlpha = 0.7;
+              ctx.textAlign = 'left';
+              ctx.fillText(label, 20, sy);
+              ctx.globalAlpha = 1;
+            }
+          }
         }
       }
 
