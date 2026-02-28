@@ -41,7 +41,7 @@ const defaultSettings = {
   cloudApiKey: '', // Cloud API key (e.g. 'ctc_abc123...')
   cloudAutoConnect: true, // Auto-connect to cloud relay on startup
   terminalShortcuts: {}, // Terminal shortcut toggles (empty = all enabled by default)
-  idleTimeout: 2, // Idle timeout in minutes for time tracking
+  idleTimeout: 120, // Idle timeout in seconds for time tracking
   projectsPanelWidth: null, // Saved projects panel width (null = CSS default)
   fileExplorerWidth: null, // Saved file explorer width (null = CSS default)
   telemetryEnabled: false, // Opt-in anonymous telemetry

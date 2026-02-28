@@ -26,26 +26,27 @@ const sessionContext = new Map();
 // projectId -> terminalId (the tab that was most recently focused)
 const lastActiveClaudeTab = new Map();
 
-// ── Consumer: Time Tracking (hooks-only — scraping uses existing direct calls in TerminalManager) ──
-function wireTimeTrackingConsumer() {
-  const { heartbeat, stopProject } = require('../state/timeTracking.state');
+// ── Consumer: Claude Activity Tracking (hooks-only — routes hook events to per-terminal Claude heartbeat) ──
+function wireClaudeActivityConsumer() {
+  const { claudeHeartbeat } = require('../state/claudeActivity.state');
 
   consumerUnsubscribers.push(
     eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      heartbeat(e.projectId, 'hooks');
+      const tid = lastActiveClaudeTab.get(e.projectId);
+      if (tid) claudeHeartbeat(tid);
     }),
-    eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
-      if (e.source !== 'hooks' || !e.projectId) return;
-      stopProject(e.projectId);
-    }),
+    // SESSION_END: no-op — Claude session ending should NOT stop user time tracking
+    // (user may still be typing). User time tracking stops via idle timeout or project switch.
     eventBus.on(EVENT_TYPES.TOOL_START, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      heartbeat(e.projectId, 'hooks');
+      const tid = lastActiveClaudeTab.get(e.projectId);
+      if (tid) claudeHeartbeat(tid);
     }),
     eventBus.on(EVENT_TYPES.TOOL_END, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      heartbeat(e.projectId, 'hooks');
+      const tid = lastActiveClaudeTab.get(e.projectId);
+      if (tid) claudeHeartbeat(tid);
     })
   );
 }
@@ -393,7 +394,7 @@ function initClaudeEvents() {
   const hooksEnabled = getSetting('hooksEnabled');
 
   // Wire consumers (they stay active regardless of provider)
-  wireTimeTrackingConsumer();
+  wireClaudeActivityConsumer();
   wireNotificationConsumer();
   wireAttentionConsumer();
   wireDashboardStatsConsumer();

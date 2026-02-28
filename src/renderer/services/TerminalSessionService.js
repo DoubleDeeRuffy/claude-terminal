@@ -90,20 +90,32 @@ function saveTerminalSessionsImmediate() {
         projectSessions[projectId] = { tabs: [], activeCwd: null, activeTabIndex: null };
       }
 
-      const tab = {
-        cwd: td.cwd || td.project.path,
-        isBasic: td.isBasic || false,
-        mode: td.mode || 'terminal',
-        claudeSessionId: td.claudeSessionId || null,
-        name: td.name || null,   // Phase 16: persist tab name
-      };
+      let tab;
+      if (td.type === 'file') {
+        tab = {
+          type: 'file',
+          filePath: td.filePath,
+          name: td.name || null,
+        };
+      } else {
+        tab = {
+          cwd: td.cwd || td.project.path,
+          isBasic: td.isBasic || false,
+          mode: td.mode || 'terminal',
+          claudeSessionId: td.claudeSessionId || null,
+          name: td.name || null,
+        };
+      }
 
       projectSessions[projectId].tabs.push(tab);
 
-      // Track active terminal's cwd and tab index
+      // Track active tab index (works for both terminal and file tabs)
       if (id === activeTerminalId) {
-        projectSessions[projectId].activeCwd = tab.cwd;
         projectSessions[projectId].activeTabIndex = projectSessions[projectId].tabs.length - 1;
+        // Keep activeCwd for backward compat with terminal tabs
+        if (td.type !== 'file') {
+          projectSessions[projectId].activeCwd = tab.cwd;
+        }
       }
     }
 

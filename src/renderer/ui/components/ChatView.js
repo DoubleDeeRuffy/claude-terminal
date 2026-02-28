@@ -8,7 +8,7 @@ const api = window.electron_api;
 const { escapeHtml, highlight } = require('../../utils');
 const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
-const { heartbeat } = require('../../state');
+const { heartbeat, claudeHeartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
 
 const MODEL_OPTIONS = [
@@ -2851,8 +2851,7 @@ function createChatView(wrapperEl, project, options = {}) {
 
   // Throttled output activity tracker (max 1 call/sec)
   function trackOutputActivity() {
-    if (!project?.id) return;
-    heartbeat(project.id, 'chat');
+    if (terminalId != null) claudeHeartbeat(terminalId);
   }
 
   function handleStreamEvent(event) {

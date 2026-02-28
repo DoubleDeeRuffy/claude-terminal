@@ -30,7 +30,9 @@ const {
   getSetting,
   setSetting,
   heartbeat,
-  stopProject
+  stopProject,
+  claudeHeartbeat,
+  removeClaudeTerminal
 } = require('../../state');
 const { Marked } = require('marked');
 const { escapeHtml, getFileIcon, highlight } = require('../../utils');
@@ -1304,6 +1306,7 @@ function setActiveTerminal(id) {
     // Handle project switch for time tracking
     const newProjectId = termData.project?.id;
     if (prevProjectId !== newProjectId) {
+      if (prevProjectId) stopProject(prevProjectId);
       if (newProjectId) heartbeat(newProjectId, 'terminal');
     }
 
@@ -1467,6 +1470,9 @@ function closeTerminal(id) {
       }
     });
   }
+
+  // Clean up Claude activity tracking for this terminal
+  removeClaudeTerminal(id);
 
   // Stop time tracking if no more terminals for this project
   if (!sameProjectTerminalId && closedProjectId) {
@@ -1657,8 +1663,7 @@ async function createTerminal(project, options = {}) {
     (data) => {
       terminal.write(data.data);
       resetOutputSilenceTimer(id);
-      const td = getTerminal(id);
-      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
+      claudeHeartbeat(id);
     },
     () => closeTerminal(id)
   );
@@ -3135,8 +3140,7 @@ async function resumeSession(project, sessionId, options = {}) {
     (data) => {
       terminal.write(data.data);
       resetOutputSilenceTimer(id);
-      const td = getTerminal(id);
-      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
+      claudeHeartbeat(id);
     },
     () => closeTerminal(id)
   );
@@ -4235,8 +4239,7 @@ async function switchTerminalMode(id) {
       (data) => {
         terminal.write(data.data);
         resetOutputSilenceTimer(id);
-        const td = getTerminal(id);
-        if (td?.project?.id) heartbeat(td.project.id, 'terminal');
+        claudeHeartbeat(id);
       },
       () => closeTerminal(id)
     );
