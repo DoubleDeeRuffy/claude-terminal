@@ -55,17 +55,68 @@ class WorkflowSchemaCache {
   }
 
   /**
+   * Get table names (sync, from cache only).
+   * @param {string} connectionId
+   * @returns {string[]|null}
+   */
+  getTableNames(connectionId) {
+    const cached = this._cache.get(connectionId);
+    if (!cached?.tables) return null;
+    return cached.tables.map(t => t.name);
+  }
+
+  /**
+   * Check if schema is already cached and fresh.
+   * @param {string} connectionId
+   * @returns {boolean}
+   */
+  hasCachedSchema(connectionId) {
+    const cached = this._cache.get(connectionId);
+    return !!(cached && (Date.now() - cached.timestamp) < TTL);
+  }
+
+  /**
    * Invalidate cache for a connection.
    */
   invalidate(connectionId) {
     this._cache.delete(connectionId);
   }
 
+  /**
+   * Set DB connection configs (from WorkflowPanel's _dbConnectionsCache).
+   * Needed to auto-connect before fetching schema.
+   */
+  setConnectionConfigs(configs) {
+    this._configs = configs || [];
+  }
+
   async _fetch(connectionId) {
     try {
       const api = window.electron_api?.database;
       if (!api) return null;
-      const result = await api.getSchema({ id: connectionId });
+
+      // First try to get schema directly
+      let result = await api.getSchema({ id: connectionId });
+
+      // If not connected, auto-connect then retry
+      if (!result?.success && result?.error === 'Not connected') {
+        const config = this._configs?.find(c => c.id === connectionId);
+        if (config) {
+          // Retrieve password from keychain for non-sqlite connections
+          const connectConfig = { ...config };
+          if (config.type !== 'sqlite') {
+            try {
+              const cred = await api.getCredential({ id: connectionId });
+              if (cred?.success && cred.password) connectConfig.password = cred.password;
+            } catch { /* no credential stored */ }
+          }
+          const connectResult = await api.connect({ id: connectionId, config: connectConfig });
+          if (connectResult?.success) {
+            result = await api.getSchema({ id: connectionId });
+          }
+        }
+      }
+
       if (result?.success && result.tables) {
         this._cache.set(connectionId, { tables: result.tables, timestamp: Date.now() });
         return result.tables;

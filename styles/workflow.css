@@ -3593,6 +3593,183 @@ select.wf-step-edit-input {
   text-align: right;
 }
 
+/* ── Smart SQL textarea ────────────────────────────────────────────────── */
+.wf-sql-templates {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.wf-sql-tpl {
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 4px;
+  color: rgba(255,255,255,.45);
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  letter-spacing: .3px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.wf-sql-tpl:hover {
+  background: rgba(var(--accent-rgb, 217,119,6), .1);
+  border-color: rgba(var(--accent-rgb, 217,119,6), .2);
+  color: var(--accent, #d97706);
+}
+.wf-sql-textarea {
+  resize: vertical;
+  min-height: 80px;
+  tab-size: 2;
+}
+/* SQL autocomplete popup */
+.wf-sql-ac-popup {
+  position: absolute;
+  z-index: 999;
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(18,18,22,.97);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  padding: 4px 0;
+  backdrop-filter: blur(12px);
+}
+.wf-sql-ac-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background .08s;
+}
+.wf-sql-ac-item:hover,
+.wf-sql-ac-item.active {
+  background: rgba(var(--accent-rgb, 217,119,6), .1);
+}
+.wf-sql-ac-name {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--accent, #d97706);
+  white-space: nowrap;
+}
+.wf-sql-ac-type {
+  font-size: 10px;
+  color: rgba(255,255,255,.3);
+  white-space: nowrap;
+}
+
+/* ── Variable Picker ───────────────────────────────────────────────────── */
+.wf-var-picker-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(var(--accent-rgb, 217,119,6), .1);
+  border: 1px solid rgba(var(--accent-rgb, 217,119,6), .15);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--accent, #d97706);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  opacity: 0;
+  transition: opacity .15s, background .1s;
+  z-index: 2;
+  line-height: 1.3;
+}
+.wf-step-edit-field:hover .wf-var-picker-btn,
+.wf-var-picker-btn:focus,
+.wf-var-picker-btn:active {
+  opacity: 1;
+}
+.wf-var-picker-btn:hover {
+  background: rgba(var(--accent-rgb, 217,119,6), .18);
+}
+.wf-var-picker {
+  position: absolute;
+  z-index: 1000;
+  background: rgba(18,18,22,.97);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.03);
+  backdrop-filter: blur(16px);
+  max-height: 300px;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  animation: wf-var-picker-in .15s ease-out;
+}
+@keyframes wf-var-picker-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.wf-var-picker-search {
+  padding: 6px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.wf-var-picker-search input {
+  width: 100%;
+  background: #0c0c0e;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 6px;
+  color: var(--text-primary, #e0e0e0);
+  padding: 6px 10px;
+  font-size: 11.5px;
+  outline: none;
+  box-sizing: border-box;
+}
+.wf-var-picker-search input:focus {
+  border-color: rgba(var(--accent-rgb, 217,119,6), .3);
+}
+.wf-var-picker-categories {
+  overflow-y: auto;
+  max-height: 250px;
+  padding: 4px 0;
+}
+.wf-var-picker-cat-title {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: rgba(255,255,255,.25);
+  padding: 6px 12px 3px;
+}
+.wf-var-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background .08s;
+}
+.wf-var-picker-item:hover {
+  background: rgba(255,255,255,.05);
+}
+.wf-var-picker-item code {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent, #d97706);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.wf-var-picker-item span {
+  font-size: 10px;
+  color: rgba(255,255,255,.3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-var-picker-empty {
+  padding: 16px 12px;
+  font-size: 11px;
+  color: rgba(255,255,255,.25);
+  text-align: center;
+  font-style: italic;
+}
+
 /* ── Auto-loop suggestion popup ─────────────────────────────────────────── */
 .wf-loop-suggest {
   position: absolute;

@@ -237,6 +237,196 @@ async function getDeepAutocompleteSuggestions(graph, currentNodeId, filterText) 
   return suggestions;
 }
 
+// ── Smart SQL textarea with autocomplete ─────────────────────────────────────
+
+/**
+ * Initialize the smart SQL textarea on a DB panel.
+ * Adds: SQL autocomplete (tables/columns), template buttons, schema prefetch.
+ */
+async function initSmartSQL(container, node, graphService) {
+  const connectionId = node.properties?.connection;
+  const textarea = container.querySelector('.wf-sql-textarea');
+  const templateBar = container.querySelector('.wf-sql-templates');
+  if (!textarea) return;
+
+  // Pass connection configs to schema cache for auto-connect
+  if (_dbConnectionsCache) schemaCache.setConnectionConfigs(_dbConnectionsCache);
+
+  // Autocomplete popup (shared with variable autocomplete but separate)
+  let sqlPopup = container.querySelector('.wf-sql-ac-popup');
+  if (!sqlPopup) {
+    sqlPopup = document.createElement('div');
+    sqlPopup.className = 'wf-sql-ac-popup';
+    sqlPopup.style.display = 'none';
+    container.appendChild(sqlPopup);
+  }
+
+  let acItems = [];
+  let acIndex = 0;
+  let acStart = -1; // cursor position where the current word starts
+
+  function hideSqlAc() {
+    sqlPopup.style.display = 'none';
+    acItems = [];
+    acIndex = 0;
+  }
+
+  function insertSqlAc(text) {
+    if (acStart < 0) return;
+    const before = textarea.value.substring(0, acStart);
+    const after = textarea.value.substring(textarea.selectionStart);
+    textarea.value = before + text + after;
+    const newPos = acStart + text.length;
+    textarea.setSelectionRange(newPos, newPos);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    hideSqlAc();
+    textarea.focus();
+  }
+
+  function renderSqlAc(items, wordStart) {
+    if (!items.length) { hideSqlAc(); return; }
+    acItems = items;
+    acIndex = 0;
+    acStart = wordStart;
+
+    sqlPopup.innerHTML = items.map((it, i) =>
+      `<div class="wf-sql-ac-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+        <span class="wf-sql-ac-name">${escapeHtml(it.name)}</span>
+        <span class="wf-sql-ac-type">${escapeHtml(it.type || '')}</span>
+      </div>`
+    ).join('');
+
+    // Position below textarea at cursor
+    const rect = textarea.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    sqlPopup.style.top = (rect.bottom - containerRect.top + 2) + 'px';
+    sqlPopup.style.left = (rect.left - containerRect.left) + 'px';
+    sqlPopup.style.width = rect.width + 'px';
+    sqlPopup.style.display = 'block';
+
+    sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        insertSqlAc(acItems[parseInt(el.dataset.idx, 10)].name);
+      });
+    });
+  }
+
+  // ── Prefetch schema ──
+  let tables = []; // [{name, columns: [{name, type, primaryKey}]}]
+  if (connectionId) {
+    try {
+      const fetched = await schemaCache.getSchema(connectionId);
+      tables = fetched || [];
+    } catch { /* silently fail */ }
+  }
+
+  // ── SQL Autocomplete logic ──
+  textarea.addEventListener('input', () => {
+    const val = textarea.value;
+    const cursor = textarea.selectionStart;
+    if (!tables.length) { hideSqlAc(); return; }
+
+    // Find current word (before cursor)
+    let wordStart = cursor;
+    while (wordStart > 0 && /[\w.]/.test(val[wordStart - 1])) wordStart--;
+    const word = val.substring(wordStart, cursor).toLowerCase();
+
+    if (!word) { hideSqlAc(); return; }
+
+    // Determine context: after FROM/INTO/UPDATE/JOIN → suggest tables
+    // after table. or known table ref → suggest columns
+    const beforeWord = val.substring(0, wordStart).replace(/\s+$/, '').toUpperCase();
+    const lastKeyword = beforeWord.match(/(FROM|INTO|UPDATE|JOIN|TABLE)\s*$/i);
+    const dotParts = word.split('.');
+
+    let suggestions = [];
+
+    if (dotParts.length === 2) {
+      // tableName.col → suggest columns of that table
+      const tableName = dotParts[0];
+      const colFilter = dotParts[1];
+      const table = tables.find(t => t.name.toLowerCase() === tableName);
+      if (table?.columns) {
+        suggestions = table.columns
+          .filter(c => (c.name || '').toLowerCase().startsWith(colFilter))
+          .map(c => ({ name: c.name, type: c.type + (c.primaryKey ? ' PK' : '') }));
+      }
+    } else if (lastKeyword) {
+      // After FROM/INTO/UPDATE/JOIN → suggest table names
+      suggestions = tables
+        .filter(t => t.name.toLowerCase().startsWith(word))
+        .map(t => ({ name: t.name, type: `${t.columns?.length || 0} cols` }));
+    } else {
+      // General context: suggest tables and SQL keywords if short
+      suggestions = tables
+        .filter(t => t.name.toLowerCase().startsWith(word))
+        .map(t => ({ name: t.name, type: 'table' }));
+      // Also suggest columns from all tables (deduplicated) if there's a match
+      if (word.length >= 2) {
+        const seen = new Set(suggestions.map(s => s.name));
+        for (const table of tables) {
+          for (const col of (table.columns || [])) {
+            const colName = col.name || '';
+            if (!seen.has(colName) && colName.toLowerCase().startsWith(word)) {
+              seen.add(colName);
+              suggestions.push({ name: colName, type: `${table.name}.${col.type || ''}` });
+            }
+          }
+        }
+      }
+    }
+
+    if (suggestions.length > 12) suggestions = suggestions.slice(0, 12);
+    renderSqlAc(suggestions, wordStart);
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    if (sqlPopup.style.display === 'none') return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      acIndex = Math.min(acIndex + 1, acItems.length - 1);
+      sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach((el, i) => el.classList.toggle('active', i === acIndex));
+      sqlPopup.querySelector('.wf-sql-ac-item.active')?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      acIndex = Math.max(acIndex - 1, 0);
+      sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach((el, i) => el.classList.toggle('active', i === acIndex));
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      if (acItems.length) { e.preventDefault(); insertSqlAc(acItems[acIndex].name); }
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); hideSqlAc();
+    }
+  });
+
+  textarea.addEventListener('blur', () => {
+    setTimeout(() => hideSqlAc(), 150);
+  });
+
+  // ── Template buttons ──
+  if (templateBar && tables.length) {
+    templateBar.querySelectorAll('.wf-sql-tpl').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tpl = btn.dataset.tpl;
+        const firstTable = tables[0]?.name || 'table_name';
+        let sql = '';
+        switch (tpl) {
+          case 'select': sql = `SELECT * FROM ${firstTable}\nWHERE \nORDER BY \nLIMIT 100`; break;
+          case 'insert': sql = `INSERT INTO ${firstTable} (col1, col2)\nVALUES ('val1', 'val2')`; break;
+          case 'update': sql = `UPDATE ${firstTable}\nSET col1 = 'val1'\nWHERE id = `; break;
+          case 'delete': sql = `DELETE FROM ${firstTable}\nWHERE id = `; break;
+        }
+        textarea.value = sql;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.focus();
+        // Position cursor after the first table name for easy editing
+        const tablePos = sql.indexOf(firstTable) + firstTable.length;
+        textarea.setSelectionRange(tablePos, tablePos);
+      });
+    });
+  }
+}
+
 /**
  * Build loop preview info by tracing the upstream connection.
  * Returns { html, itemDesc } for display in the Loop panel.
@@ -1635,8 +1825,14 @@ function openEditor(workflowId = null) {
         ${dbAction === 'query' ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCode()} Requête SQL</label>
-          <span class="wf-field-hint">Variables : $ctx.project, $node_X.stdout, $myVar</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="query" rows="5" placeholder="SELECT * FROM users\nWHERE active = 1\nORDER BY created_at DESC">${escapeHtml(props.query || '')}</textarea>
+          <div class="wf-sql-templates">
+            <button class="wf-sql-tpl" data-tpl="select">SELECT</button>
+            <button class="wf-sql-tpl" data-tpl="insert">INSERT</button>
+            <button class="wf-sql-tpl" data-tpl="update">UPDATE</button>
+            <button class="wf-sql-tpl" data-tpl="delete">DELETE</button>
+          </div>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-sql-textarea" data-key="query" rows="5" placeholder="SELECT * FROM users WHERE active = 1" spellcheck="false">${escapeHtml(props.query || '')}</textarea>
+          <span class="wf-field-hint">Autocomplete : tables et colonnes en tapant. Variables : $ctx, $node_X, $loop</span>
         </div>
         <div class="wf-field-row">
           <div class="wf-step-edit-field wf-field-half">
@@ -1800,8 +1996,12 @@ function openEditor(workflowId = null) {
           if (w) w.value = val;
         }
         graphService.canvas.setDirty(true, true);
-        // Re-render properties if field affects visibility (trigger type, method, action, mode)
-        if (['triggerType', 'method', 'action', 'mode'].includes(key)) {
+        // Invalidate schema cache when DB connection changes
+        if (key === 'connection') {
+          schemaCache.invalidate(val);
+        }
+        // Re-render properties if field affects visibility (trigger type, method, action, mode, connection)
+        if (['triggerType', 'method', 'action', 'mode', 'connection'].includes(key)) {
           renderProperties(node);
         }
       };
@@ -1812,9 +2012,9 @@ function openEditor(workflowId = null) {
     // ── Autocomplete for $variable references ──
     setupAutocomplete(propsEl, node, graphService);
 
-    // ── Prefetch DB schema when a DB node with connection is selected ──
-    if (nodeType === 'db' && node.properties?.connection) {
-      schemaCache.getSchema(node.properties.connection).catch(() => {});
+    // ── Initialize Smart SQL for DB nodes ──
+    if (nodeType === 'db') {
+      initSmartSQL(propsEl, node, graphService).catch(e => console.warn('[SmartSQL] init error:', e));
     }
 
     // Claude mode tabs
@@ -2515,6 +2715,26 @@ function setupAutocomplete(container, node, graphService) {
 
   let deepFetchId = 0; // debounce async deep suggestions
 
+  // ── Variable Picker button {x} ──
+  fields.forEach(field => {
+    // Skip selects, checkboxes, number-only inputs
+    if (field.tagName === 'SELECT' || field.type === 'number' || field.type === 'checkbox') return;
+    const wrapper = field.parentElement;
+    if (!wrapper || wrapper.querySelector('.wf-var-picker-btn')) return;
+    wrapper.style.position = 'relative';
+    const btn = document.createElement('button');
+    btn.className = 'wf-var-picker-btn';
+    btn.type = 'button';
+    btn.textContent = '{x}';
+    btn.title = 'Insérer une variable';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showVariablePicker(field, node, graphService, container);
+    });
+    wrapper.appendChild(btn);
+  });
+
   fields.forEach(field => {
     field.addEventListener('input', async () => {
       const val = field.value;
@@ -2583,6 +2803,121 @@ function setupAutocomplete(container, node, graphService) {
       }, 150);
     });
   });
+}
+
+// ── Variable Picker popup ─────────────────────────────────────────────────────
+let activeVarPicker = null;
+
+function showVariablePicker(anchorField, node, graphService, panelContainer) {
+  // Close existing picker
+  hideVariablePicker();
+
+  const graph = graphService?.graph;
+  const suggestions = getAutocompleteSuggestions(graph, node?.id, '$');
+
+  if (!suggestions.length) return;
+
+  // Group by category
+  const groups = {};
+  for (const s of suggestions) {
+    if (!groups[s.category]) groups[s.category] = [];
+    groups[s.category].push(s);
+  }
+
+  // Build picker DOM
+  const picker = document.createElement('div');
+  picker.className = 'wf-var-picker';
+
+  // Search input
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'wf-var-picker-search';
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Rechercher une variable...';
+  searchWrap.appendChild(searchInput);
+  picker.appendChild(searchWrap);
+
+  // Categories container
+  const catsEl = document.createElement('div');
+  catsEl.className = 'wf-var-picker-categories';
+
+  function renderItems(filter) {
+    catsEl.innerHTML = '';
+    const f = (filter || '').toLowerCase();
+    let anyVisible = false;
+    for (const [cat, items] of Object.entries(groups)) {
+      const filtered = f ? items.filter(i => i.label.toLowerCase().includes(f) || i.detail.toLowerCase().includes(f)) : items;
+      if (!filtered.length) continue;
+      anyVisible = true;
+      const catTitle = document.createElement('div');
+      catTitle.className = 'wf-var-picker-cat-title';
+      catTitle.textContent = cat;
+      catsEl.appendChild(catTitle);
+      for (const item of filtered) {
+        const row = document.createElement('div');
+        row.className = 'wf-var-picker-item';
+        row.innerHTML = `<code>${escapeHtml(item.label)}</code><span>${escapeHtml(item.detail)}</span>`;
+        row.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          insertVariableAtCursor(anchorField, item.value);
+          hideVariablePicker();
+        });
+        catsEl.appendChild(row);
+      }
+    }
+    if (!anyVisible) {
+      catsEl.innerHTML = '<div class="wf-var-picker-empty">Aucune variable trouvée</div>';
+    }
+  }
+
+  renderItems('');
+  picker.appendChild(catsEl);
+
+  // Position
+  const rect = anchorField.getBoundingClientRect();
+  const containerRect = panelContainer.getBoundingClientRect();
+  picker.style.top = (rect.bottom - containerRect.top + 4) + 'px';
+  picker.style.left = (rect.left - containerRect.left) + 'px';
+
+  panelContainer.appendChild(picker);
+  activeVarPicker = picker;
+  searchInput.focus();
+
+  // Search filter
+  searchInput.addEventListener('input', () => renderItems(searchInput.value));
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { hideVariablePicker(); anchorField.focus(); }
+  });
+
+  // Close on click outside
+  const closeHandler = (e) => {
+    if (!picker.contains(e.target) && e.target !== anchorField && !e.target.classList.contains('wf-var-picker-btn')) {
+      hideVariablePicker();
+      document.removeEventListener('mousedown', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('mousedown', closeHandler), 10);
+  picker._closeHandler = closeHandler;
+}
+
+function hideVariablePicker() {
+  if (activeVarPicker) {
+    if (activeVarPicker._closeHandler) document.removeEventListener('mousedown', activeVarPicker._closeHandler);
+    activeVarPicker.remove();
+    activeVarPicker = null;
+  }
+}
+
+function insertVariableAtCursor(field, variable) {
+  const start = field.selectionStart || 0;
+  const end = field.selectionEnd || 0;
+  const before = field.value.substring(0, start);
+  const after = field.value.substring(end);
+  field.value = before + variable + after;
+  const newPos = start + variable.length;
+  field.setSelectionRange(newPos, newPos);
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  field.focus();
 }
 
 module.exports = { init, load };
