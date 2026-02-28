@@ -2768,6 +2768,7 @@ YOUR ONLY ROLE: help the user build and modify the workflow currently open in th
 
 AVAILABLE MCP TOOLS:
 - workflow_get_graph(workflow) — read current nodes and links
+- workflow_get_variables(workflow) — list all variables defined and referenced in the workflow
 - workflow_add_node(workflow, type, pos, properties, title) — add a node
 - workflow_connect_nodes(workflow, from_node, from_slot, to_node, to_slot) — connect two nodes
 - workflow_update_node(workflow, node_id, properties, title) — update node properties
@@ -2775,69 +2776,103 @@ AVAILABLE MCP TOOLS:
 
 The "workflow" parameter is the name shown in the editor toolbar.
 
+PIN SYSTEM (Blueprint-style typed data pins):
+Each node has exec pins (flow control) AND data pins (typed values).
+Exec pins connect flow: slot0=Done/True, slot1=Error/False.
+Data pins carry values: string, number, boolean, array, object, any.
+Data pins can be connected directly between nodes — the runtime resolves values automatically.
+You do NOT need $node_X.stdout syntax when using data pin connections.
+
 NODE TYPES:
 
 workflow/trigger — Entry point (always the first node, required)
   triggerType: manual | cron | hook | on_workflow
   triggerValue: cron expression e.g. "0 9 * * 1-5"
-  Output: slot0=Start
+  Exec outputs: slot0=Start
 
 workflow/claude — AI task
   mode: prompt | agent | skill
   prompt, model, effort
-  Outputs: slot0=Done, slot1=Error
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: output (string)
 
 workflow/shell — Terminal command
   command (supports $vars)
-  Outputs: slot0=Done, slot1=Error
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: stdout (string), stderr (string), exitCode (number)
 
 workflow/git — Git operation
   action: pull | push | commit | checkout | merge | stash | stash-pop | reset
   branch, message
-  Outputs: slot0=Done, slot1=Error
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: output (string)
 
 workflow/http — HTTP request
   method: GET | POST | PUT | PATCH | DELETE
   url, headers (JSON string), body (JSON string)
-  Outputs: slot0=Done, slot1=Error
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: body (object), status (number), ok (boolean)
 
 workflow/db — SQL query
   connection (connection name), query (SQL with $vars)
-  Outputs: slot0=Done, slot1=Error
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: rows (array), rowCount (number), firstRow (object)
 
 workflow/file — File operation
   action: read | write | append | copy | delete | exists
   path, content
-  Outputs: slot0=Done, slot1=Error
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: content (string), exists (boolean)
 
 workflow/notify — Desktop notification
   title, message
-  Output: slot0=Done
+  Exec output: slot0=Done
 
 workflow/wait — Pause execution
   duration: "5s" | "2m" | "1h"
-  Output: slot0=Done
+  Exec output: slot0=Done
 
 workflow/log — Log a message
   level: debug | info | warn | error
   message (supports $vars)
-  Output: slot0=Done
+  Exec output: slot0=Done
 
 workflow/condition — Conditional branch
   variable (dot-path to value), operator: == | != | > | < | >= | <= | contains | starts_with | matches | is_empty | is_not_empty
   value
-  Outputs: slot0=TRUE path, slot1=FALSE path
+  Exec outputs: slot0=TRUE path, slot1=FALSE path
 
 workflow/loop — Iterate over a list
   source: auto | projects | files | custom
   items ($var pointing to an array)
-  Outputs: slot0=Each iteration (loop body), slot1=Done (after loop)
+  Exec outputs: slot0=Each iteration (loop body), slot1=Done (after loop)
+  Data outputs: item (any), index (number)
 
-workflow/variable — Store/retrieve a variable
+workflow/variable — Store/set a variable
   action: set | get | increment | append
   name, value
+  Exec output: slot0=Done
+  Data output: value (any)
 
-AVAILABLE VARIABLES IN PROPERTIES:
+workflow/get_variable — Read a variable (pure data node, NO exec pins)
+  name: variable name to read
+  varType: string | number | boolean | array | object | any
+  Data output: value (typed)
+  NOTE: This node has no exec input/output. Connect its data output directly to another node's data input.
+  Use workflow_get_variables to discover existing variables before adding this node.
+
+DATA PIN CONNECTION SLOTS (for workflow_connect_nodes):
+When connecting data pins, slot indices start AFTER the exec slots:
+  shell: stdout=slot2, stderr=slot3, exitCode=slot4
+  db: rows=slot2, rowCount=slot3, firstRow=slot4
+  http: body=slot2, status=slot3, ok=slot4
+  file: content=slot2, exists=slot3
+  loop: item=slot2, index=slot3
+  variable: value=slot1
+  get_variable: value=slot0
+  claude: output=slot2
+
+AVAILABLE VARIABLES IN PROPERTIES (legacy $var syntax, still works):
 $ctx.project — current project name
 $ctx.branch — active git branch
 $node_X.stdout — stdout output of node X (shell/git)
@@ -2893,8 +2928,20 @@ Rules:
       const homeDir = window.electron_nodeModules?.os?.homedir() || '';
       const aiProject = { path: homeDir };
       const wfName = editorDraft.name || (workflowId ? state.workflows.find(w => w.id === workflowId)?.name : null) || null;
+
+      // Inject existing variables from the graph into the system prompt
+      let varsContext = '';
+      if (typeof collectGraphVariables === 'function' && typeof graphService !== 'undefined' && graphService?.graph) {
+        const existingVars = collectGraphVariables(graphService.graph);
+        if (existingVars.length > 0) {
+          varsContext = '\n\nEXISTING VARIABLES IN THIS WORKFLOW:\n' +
+            existingVars.map(v => `- ${v.name} (${v.varType || 'any'})`).join('\n') +
+            '\nUse workflow/get_variable nodes with these names to read them.';
+        }
+      }
+
       const promptWithContext = wfName
-        ? `${WORKFLOW_SYSTEM_PROMPT}\n\nCURRENT WORKFLOW: "${wfName}" — this is the workflow open in the editor right now. Always use this name as the "workflow" parameter in your tool calls.`
+        ? `${WORKFLOW_SYSTEM_PROMPT}\n\nCURRENT WORKFLOW: "${wfName}" — this is the workflow open in the editor right now. Always use this name as the "workflow" parameter in your tool calls.${varsContext}`
         : WORKFLOW_SYSTEM_PROMPT;
       createChatView(aiPanelChat, aiProject, {
         systemPrompt: promptWithContext,
