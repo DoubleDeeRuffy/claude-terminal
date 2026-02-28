@@ -434,6 +434,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     enable:           (id, enabled)  => ipcRenderer.invoke('workflow-enable', { id, enabled }),
     // Execution
     trigger:          (id, opts)     => ipcRenderer.invoke('workflow-trigger', { id, opts }),
+    testNode:         (step, ctx)    => ipcRenderer.invoke('workflow-test-node', { step, ctx }),
     cancel:           (runId)        => ipcRenderer.invoke('workflow-cancel', { runId }),
     approveWait:      (runId, stepId, data) => ipcRenderer.invoke('workflow-approve-wait', { runId, stepId, data }),
     // History

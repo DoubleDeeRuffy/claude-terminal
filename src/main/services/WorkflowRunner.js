@@ -981,6 +981,27 @@ class WorkflowRunner {
   }
 
   /**
+   * Execute a single step in isolation (no BFS, no context).
+   * Used by the "Test Node" button in the graph editor.
+   * @param {Object} step     - step properties (id, type, ...properties)
+   * @param {Object} [ctx]    - optional context vars (project path, etc.)
+   * @returns {Promise<{ success: boolean, output: any, error?: string, duration: number }>}
+   */
+  async testStep(step, ctx = {}) {
+    const vars = new Map([
+      ['ctx', { project: ctx.project || '', date: new Date().toISOString(), trigger: 'test' }],
+    ]);
+    const abort = new AbortController();
+    const start = Date.now();
+    try {
+      const output = await this._dispatchStep(step, vars, 'test', abort.signal, null);
+      return { success: true, output, duration: Date.now() - start };
+    } catch (err) {
+      return { success: false, output: null, error: err.message, duration: Date.now() - start };
+    }
+  }
+
+  /**
    * Execute a full workflow run.
    * Supports both legacy steps[] format and new graph format.
    * @param {Object} workflow

@@ -467,6 +467,24 @@ class WorkflowService {
     return { success: true, runId };
   }
 
+  /**
+   * Test a single node in isolation (called from graph editor "Test" button).
+   * @param {Object} stepData  - { type, ...properties }
+   * @param {Object} [ctx]     - context hints (project path, etc.)
+   * @returns {Promise<{ success, output, error, duration }>}
+   */
+  async testNode(stepData, ctx = {}) {
+    const runner = new WorkflowRunner({
+      sendFn:              () => {},   // no-op: test output returned directly
+      chatService:         this._chatService,
+      waitCallbacks:       this._waitCallbacks,
+      projectTypeRegistry: this._projectTypeRegistry,
+      databaseService:     this._databaseService,
+      workflowService:     this,
+    });
+    return runner.testStep(stepData, ctx);
+  }
+
   async _executeRun(workflow, run, abortController, inProgress, opts) {
     // 1. Resolve dependencies
     let extraVars = new Map();

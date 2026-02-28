@@ -277,7 +277,7 @@ function installCustomRendering(NodeClass) {
     ctx.fill();
   };
 
-  // ── Custom title text + selection outline (drawn AFTER all default title rendering) ──
+  // ── Custom title text + selection outline + Test button ──
   NodeClass.prototype.onDrawTitle = function(ctx) {
     const c = getNodeColors(this);
     const titleHeight = LiteGraph.NODE_TITLE_HEIGHT;
@@ -290,6 +290,52 @@ function installCustomRendering(NodeClass) {
     ctx.textAlign = 'left';
     const title = this.getTitle ? this.getTitle() : this.title;
     ctx.fillText(title, 22, -titleHeight * 0.5 + 4);
+
+    // ── Test button (▶) — drawn in title bar, right side ──
+    const nodeType = (this.type || '').replace('workflow/', '');
+    const UNTESTABLE = new Set(['trigger', 'loop', 'condition', 'switch', 'subworkflow', 'wait', 'get_variable']);
+    if (!UNTESTABLE.has(nodeType)) {
+      const btnW = 20;
+      const btnH = 14;
+      const btnX = w - btnW - 4;
+      const btnY = -titleHeight * 0.5 - btnH * 0.5;
+      const ts = this._testState || 'idle'; // idle | running | success | error
+
+      // Button background
+      const btnColor = ts === 'running' ? '#f59e0b'
+                     : ts === 'success' ? '#22c55e'
+                     : ts === 'error'   ? '#ef4444'
+                     : 'rgba(255,255,255,0.08)';
+      ctx.fillStyle = btnColor;
+      ctx.globalAlpha = ts === 'idle' ? 0.7 : 0.9;
+      ctx.beginPath();
+      ctx.roundRect(btnX, btnY, btnW, btnH, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Icon
+      ctx.fillStyle = ts === 'idle' ? '#aaa' : '#fff';
+      ctx.font = `bold 8px ${FONT}`;
+      ctx.textAlign = 'center';
+      if (ts === 'running') {
+        // Spinner dots (3 dots animated via time)
+        const t = Math.floor(Date.now() / 300) % 3;
+        for (let i = 0; i < 3; i++) {
+          ctx.globalAlpha = i === t ? 1 : 0.3;
+          ctx.beginPath();
+          ctx.arc(btnX + 5 + i * 5, btnY + btnH * 0.5, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        const icon = ts === 'success' ? '✓' : ts === 'error' ? '✕' : '▶';
+        ctx.fillText(icon, btnX + btnW * 0.5, btnY + btnH * 0.5 + 3);
+      }
+      ctx.textAlign = 'left';
+
+      // Store button bounds for hit testing
+      this._testBtnBounds = { x: btnX, y: btnY, w: btnW, h: btnH, titleH: titleHeight };
+    }
 
     // Draw selection outline (we disabled the default via NODE_BOX_OUTLINE_COLOR)
     if (this.is_selected) {
@@ -309,6 +355,65 @@ function installCustomRendering(NodeClass) {
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
     }
+  };
+
+  // ── Test button click detection ──
+  const origOnMouseDown = NodeClass.prototype.onMouseDown;
+  NodeClass.prototype.onMouseDown = function(e, localPos, canvas) {
+    const b = this._testBtnBounds;
+    if (b) {
+      // localPos[1] < 0 means we're in the title bar area
+      // Title bar spans from -titleH to 0 on Y axis relative to node body origin
+      const lx = localPos[0];
+      const ly = localPos[1]; // negative values = title bar
+      // Button was drawn at (b.x, b.y) where b.y is relative to the draw origin
+      // onDrawTitle draws in title coordinate space: origin at (0, -titleH)
+      // so actual ly range for button: -titleH + b.y+titleH to -titleH + b.y+titleH + b.h
+      // Simplify: button is in title bar (ly < 0) and x is in range
+      if (ly < 0 && ly > -b.titleH && lx >= b.x && lx <= b.x + b.w) {
+        this._runTestNode();
+        return true; // consumed
+      }
+    }
+    if (origOnMouseDown) return origOnMouseDown.call(this, e, localPos, canvas);
+  };
+
+  // Test node execution
+  NodeClass.prototype._runTestNode = function() {
+    if (this._testState === 'running') return;
+    const api = window.electron_api;
+    if (!api?.workflow?.testNode) return;
+
+    this._testState = 'running';
+    this._testResult = null;
+    if (this.graph) this.graph.setDirtyCanvas(true, true);
+
+    const step = { id: `node_${this.id}`, type: (this.type || '').replace('workflow/', ''), ...(this.properties || {}) };
+    const ctx  = {};
+
+    api.workflow.testNode(step, ctx).then(result => {
+      this._testState  = result.success ? 'success' : 'error';
+      this._testResult = result;
+      if (this.graph) this.graph.setDirtyCanvas(true, true);
+      // Auto-reset to idle after 5s
+      setTimeout(() => {
+        this._testState = 'idle';
+        if (this.graph) this.graph.setDirtyCanvas(true, true);
+      }, 5000);
+      // Propagate schema if output contains array data (e.g. DB rows)
+      if (result.success && result.output) {
+        const graphService = window._workflowGraphService;
+        if (graphService) graphService.setNodeOutput(this.id, result.output);
+      }
+    }).catch(err => {
+      this._testState  = 'error';
+      this._testResult = { success: false, error: err.message };
+      if (this.graph) this.graph.setDirtyCanvas(true, true);
+      setTimeout(() => {
+        this._testState = 'idle';
+        if (this.graph) this.graph.setDirtyCanvas(true, true);
+      }, 5000);
+    });
   };
 
   // ── Custom body background ──
@@ -351,6 +456,57 @@ function installCustomRendering(NodeClass) {
       ctx.fillStyle = sc;
       roundRect(ctx, 0, 0, 2.5, h, 1);
       ctx.fill();
+    }
+
+    // ── Test result overlay (below node body) ──
+    if (this._testResult && (this._testState === 'success' || this._testState === 'error')) {
+      const res = this._testResult;
+      const PAD = 8;
+      const OY  = h + 6; // below node body
+      const OW  = w;
+
+      // Prepare lines
+      const lines = [];
+      if (res.success && res.output != null) {
+        const raw = JSON.stringify(res.output, null, 0);
+        // Split into ≤40-char chunks per property for readability
+        if (typeof res.output === 'object' && res.output !== null && !Array.isArray(res.output)) {
+          for (const [k, v] of Object.entries(res.output)) {
+            const val = typeof v === 'string' ? v.slice(0, 40) : JSON.stringify(v)?.slice(0, 40);
+            lines.push(`${k}: ${val}`);
+            if (lines.length >= 6) { lines.push('…'); break; }
+          }
+        } else {
+          const str = raw.slice(0, 200);
+          for (let i = 0; i < str.length; i += 36) lines.push(str.slice(i, i + 36));
+          if (lines.length > 6) { lines.splice(6); lines.push('…'); }
+        }
+        if (res.duration != null) lines.push(`⏱ ${res.duration}ms`);
+      } else if (!res.success) {
+        const errLines = (res.error || 'Error').slice(0, 120).split('\n');
+        for (const l of errLines.slice(0, 5)) lines.push(l.slice(0, 40));
+      }
+
+      const lineH = 13;
+      const OH = PAD * 1.5 + lines.length * lineH;
+
+      // Background
+      ctx.fillStyle = res.success ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+      ctx.strokeStyle = res.success ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.roundRect(0, OY, OW, OH, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      // Text
+      ctx.font = `10px "Cascadia Code", "Fira Code", monospace`;
+      ctx.fillStyle = res.success ? '#86efac' : '#fca5a5';
+      ctx.textAlign = 'left';
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], PAD, OY + PAD + i * lineH + 2);
+      }
+      ctx.textAlign = 'left';
     }
 
     if (origOnDrawBackground) origOnDrawBackground.call(this, ctx, canvas);
@@ -1428,6 +1584,17 @@ class WorkflowGraphService {
     };
 
     this.graph.status = LGraph.STATUS_STOPPED;
+
+    // Animation loop: redraw while any node is in 'running' test state (spinner)
+    const animLoop = () => {
+      if (this.graph && this.graph._nodes) {
+        const hasRunning = this.graph._nodes.some(n => n._testState === 'running');
+        if (hasRunning && this.canvas) this.canvas.setDirty(true, true);
+      }
+      this._animFrame = requestAnimationFrame(animLoop);
+    };
+    this._animFrame = requestAnimationFrame(animLoop);
+
     return this;
   }
 
@@ -1857,6 +2024,7 @@ class WorkflowGraphService {
   }
 
   destroy() {
+    if (this._animFrame) { cancelAnimationFrame(this._animFrame); this._animFrame = null; }
     if (this.graph) { this.graph.clear(); this.graph = null; }
     if (this.canvas) this.canvas = null;
     this.canvasElement = null;
@@ -1870,6 +2038,8 @@ let instance = null;
 
 function getGraphService() {
   if (!instance) instance = new WorkflowGraphService();
+  // Expose on window so node _runTestNode can access setNodeOutput
+  window._workflowGraphService = instance;
   return instance;
 }
 
