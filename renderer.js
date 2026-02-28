@@ -97,7 +97,7 @@ const {
 const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
-const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel } = require('./src/renderer/ui/panels');
+const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel } = require('./src/renderer/ui/panels');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
 // These work with the existing HTML modal elements in index.html
@@ -191,19 +191,38 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
         if (!fs.existsSync(project.path)) continue;
         if (!saved.tabs || saved.tabs.length === 0) continue;
 
-        for (const tab of saved.tabs) {
-          const cwd = fs.existsSync(tab.cwd) ? tab.cwd : project.path;
-          await TerminalManager.createTerminal(project, {
-            runClaude: !tab.isBasic,
-            cwd,
-            mode: tab.mode || null,
-            skipPermissions: settingsState.get().skipPermissions,
-            resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
-            name: tab.name || null,
-          });
+        const restoredIds = []; // Sparse array — index matches saved.tabs position
+
+        for (let tabIdx = 0; tabIdx < saved.tabs.length; tabIdx++) {
+          const tab = saved.tabs[tabIdx];
+          let restoredId = null;
+
+          if (tab.type === 'file') {
+            // File tab: check file exists, then open
+            if (tab.filePath && fs.existsSync(tab.filePath)) {
+              restoredId = TerminalManager.openFileTab(tab.filePath, project);
+            }
+          } else {
+            // Terminal tab: existing restore logic
+            const cwd = fs.existsSync(tab.cwd) ? tab.cwd : project.path;
+            restoredId = await TerminalManager.createTerminal(project, {
+              runClaude: !tab.isBasic,
+              cwd,
+              mode: tab.mode || null,
+              skipPermissions: settingsState.get().skipPermissions,
+              resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
+              name: tab.name || null,
+            });
+          }
+
+          restoredIds[tabIdx] = restoredId || null; // Keep index alignment with saved.tabs
         }
 
-        if (saved.activeCwd) {
+        // Restore active tab using activeTabIndex (works for all tab types)
+        if (saved.activeTabIndex != null && restoredIds[saved.activeTabIndex]) {
+          TerminalManager.setActiveTerminal(restoredIds[saved.activeTabIndex]);
+        } else if (saved.activeCwd) {
+          // Legacy fallback: match by cwd for terminal tabs
           const terminals = terminalsState.get().terminals;
           let activeId = null;
           terminals.forEach((td, id) => {
@@ -211,7 +230,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
               activeId = id;
             }
           });
-          if (activeId !== null) {
+          if (activeId) {
             TerminalManager.setActiveTerminal(activeId);
           }
         }
@@ -321,6 +340,9 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 
   // Initial git status check for all projects
   checkAllProjectsGitStatus();
+
+  // ── Cloud auto-connect on startup ──
+  _tryCloudAutoConnect();
 
   // Initialize keyboard shortcuts (needs settingsState loaded)
   ShortcutsManager.registerAllShortcuts();
@@ -1129,6 +1151,24 @@ function _toggleModalPin(sessionId) {
   return !!pins[sessionId];
 }
 
+// Custom session names (shared with TerminalManager via same file)
+const _modalNamesFile = path.join(window.electron_nodeModules.os.homedir(), '.claude-terminal', 'session-names.json');
+let _modalNamesCache = null;
+
+function _loadModalNames() {
+  if (_modalNamesCache) return _modalNamesCache;
+  try {
+    _modalNamesCache = JSON.parse(fs.readFileSync(_modalNamesFile, 'utf8'));
+  } catch {
+    _modalNamesCache = {};
+  }
+  return _modalNamesCache;
+}
+
+function _getModalCustomName(sessionId) {
+  return _loadModalNames()[sessionId] || '';
+}
+
 // SVG sprites for session modal
 const MODAL_SVG_DEFS = `<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
   <symbol id="sm-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></symbol>
@@ -1180,12 +1220,18 @@ function _truncateModalText(text, max) {
 function _preprocessModalSessions(sessions) {
   const now = Date.now();
   const pins = _loadModalPins();
+  _modalNamesCache = null; // invalidate cache so we always read fresh names
   return sessions.map(session => {
+    const customName = _getModalCustomName(session.sessionId);
     const promptResult = _cleanModalSessionText(session.firstPrompt);
     const summaryResult = _cleanModalSessionText(session.summary);
     const skillName = promptResult.skillName || summaryResult.skillName;
-    let displayTitle = '', displaySubtitle = '', isSkill = false;
-    if (summaryResult.text) { displayTitle = summaryResult.text; displaySubtitle = promptResult.text; }
+    let displayTitle = '', displaySubtitle = '', isSkill = false, isRenamed = false;
+    if (customName) {
+      displayTitle = customName;
+      isRenamed = true;
+      displaySubtitle = summaryResult.text || promptResult.text;
+    } else if (summaryResult.text) { displayTitle = summaryResult.text; displaySubtitle = promptResult.text; }
     else if (promptResult.text) { displayTitle = promptResult.text; }
     else if (skillName) { displayTitle = '/' + skillName; isSkill = true; }
     else { displayTitle = t('newProject.untitledConversation'); }
@@ -1193,7 +1239,7 @@ function _preprocessModalSessions(sessions) {
     const freshness = hoursAgo < 1 ? 'hot' : hoursAgo < 24 ? 'warm' : '';
     const searchText = (displayTitle + ' ' + displaySubtitle + ' ' + (session.gitBranch || '')).toLowerCase();
     const pinned = !!pins[session.sessionId];
-    return { ...session, displayTitle, displaySubtitle, isSkill, freshness, searchText, pinned };
+    return { ...session, displayTitle, displaySubtitle, isSkill, isRenamed, freshness, searchText, pinned };
   });
 }
 
@@ -1383,12 +1429,479 @@ window.closeModal = closeModal;
 window.createTerminalForProject = createTerminalForProject;
 window.projectsState = projectsState;
 
+// ========== CLOUD AUTO-CONNECT ==========
+async function _tryCloudAutoConnect() {
+  try {
+    const settings = settingsState.get();
+    if (settings.cloudAutoConnect === false) return;
+    if (!settings.cloudServerUrl || !settings.cloudApiKey) return;
+
+    // Check if already connected
+    const status = await api.cloud.status();
+    if (status.connected) return;
+
+    // Connect (this will trigger onStatusChange → _checkPendingChangesOnReconnect)
+    await api.cloud.connect({
+      serverUrl: settings.cloudServerUrl,
+      apiKey: settings.cloudApiKey,
+    });
+  } catch (e) {
+    console.warn('[CloudAutoConnect] Failed:', e.message);
+  }
+}
+
+// ========== CLOUD UPLOAD ==========
+// cloudUploadStatus: projectId -> { uploading?: boolean, synced?: boolean }
+const cloudUploadStatus = new Map();
+let cloudConnected = false;
+let _activeUploadToast = null;
+
+async function refreshCloudProjects() {
+  try {
+    const status = await api.cloud.status();
+    if (!status.connected) return;
+    const { projects: cloudProjects } = await api.cloud.getProjects();
+    if (!cloudProjects || !Array.isArray(cloudProjects)) return;
+    const cloudNames = new Set(cloudProjects.map(p => p.name));
+    const localProjects = projectsState.get().projects || [];
+
+    let syncStatuses = {};
+    try {
+      syncStatuses = await api.cloud.getSyncStatus({}) || {};
+    } catch { /* ignore if not available */ }
+
+    for (const p of localProjects) {
+      const name = p.name || path.basename(p.path);
+      const cur = cloudUploadStatus.get(p.id) || {};
+      if (cloudNames.has(name)) {
+        const meta = syncStatuses[p.id];
+        cloudUploadStatus.set(p.id, {
+          ...cur,
+          synced: true,
+          lastSync: meta?.lastSync || cur.lastSync || null,
+          lastError: meta?.lastError || null,
+        });
+      } else if (cur.synced) {
+        cloudUploadStatus.delete(p.id);
+      }
+    }
+    ProjectList.render();
+  } catch (err) {
+    if (err?.message?.includes('timed out') || err?.message?.includes('ECONNREFUSED') || err?.message?.includes('fetch')) {
+      showToast({ type: 'warning', title: t('cloud.networkErrorTitle'), message: t('cloud.networkErrorMessage'), duration: 5000 });
+    }
+  }
+}
+
+async function cloudUploadProject(projectId) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return;
+
+  try {
+    const status = await api.cloud.status();
+    if (!status.connected) {
+      showToast({ type: 'warning', title: t('cloud.uploadTitle'), message: t('cloud.disconnected') });
+      return;
+    }
+  } catch {
+    showToast({ type: 'warning', title: t('cloud.uploadTitle'), message: t('cloud.disconnected') });
+    return;
+  }
+
+  if (cloudUploadStatus.get(projectId)?.uploading) return;
+
+  cloudUploadStatus.set(projectId, { ...cloudUploadStatus.get(projectId), uploading: true });
+  ProjectList.render();
+
+  const projectName = project.name || path.basename(project.path);
+  _activeUploadToast = showToast({ type: 'info', title: t('cloud.uploadTitle'), message: t('cloud.uploadPhaseScanning'), duration: 0 });
+
+  const _uploadSafetyTimer = setTimeout(() => {
+    if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
+  }, 330_000);
+
+  try {
+    await api.cloud.uploadProject({ projectName, projectPath: project.path });
+    cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
+    api.cloud.registerAutoSync({ projectId, projectPath: project.path }).catch(() => {});
+    ProjectList.render();
+    clearTimeout(_uploadSafetyTimer);
+    if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
+    showToast({ type: 'success', title: t('cloud.uploadSuccess'), message: projectName });
+  } catch (err) {
+    const wasSynced = cloudUploadStatus.get(projectId)?.synced;
+    cloudUploadStatus.set(projectId, wasSynced ? { synced: true } : {});
+    if (!wasSynced) cloudUploadStatus.delete(projectId);
+    ProjectList.render();
+    clearTimeout(_uploadSafetyTimer);
+    if (_activeUploadToast) { _activeUploadToast.querySelector('.toast-close')?.click(); _activeUploadToast = null; }
+    showToast({ type: 'error', title: t('cloud.uploadError'), message: err.message || projectName });
+  }
+}
+
+async function cloudDeleteProject(projectId) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return;
+  const projectName = project.name || path.basename(project.path);
+
+  const confirmed = await ModalComponent.showConfirm({
+    title: t('cloud.deleteTitle'),
+    message: t('cloud.confirmCloudDelete', { name: projectName }),
+    confirmLabel: t('cloud.deleteTitle'),
+    danger: true,
+  });
+  if (!confirmed) return;
+
+  try {
+    await api.cloud.deleteProject({ projectId, projectName });
+    cloudUploadStatus.delete(projectId);
+    ProjectList.render();
+    showToast({ type: 'success', title: t('cloud.deleteSuccess'), message: projectName });
+  } catch (err) {
+    showToast({ type: 'error', title: t('cloud.deleteError'), message: err.message || projectName });
+  }
+}
+
+async function cloudSyncProject(projectId) {
+  const project = projectsState.get().projects.find(p => p.id === projectId);
+  if (!project) return;
+
+  const projectName = project.name || path.basename(project.path);
+  const status = cloudUploadStatus.get(projectId);
+  if (!status?.pendingChanges) return;
+
+  cloudUploadStatus.set(projectId, { ...status, syncing: true });
+  ProjectList.render();
+
+  try {
+    const { conflicts } = await api.cloud.checkConflicts({
+      projectName,
+      localProjectPath: project.path,
+    });
+
+    if (conflicts.length > 0) {
+      const resolutions = await _showConflictModal(conflicts);
+      if (!resolutions) {
+        cloudUploadStatus.set(projectId, { ...status, syncing: false });
+        ProjectList.render();
+        return;
+      }
+      await api.cloud.downloadWithResolutions({
+        projectName,
+        localProjectPath: project.path,
+        resolutions,
+      });
+    } else {
+      await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
+    }
+
+    cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
+    ProjectList.render();
+    showToast({ type: 'success', title: t('cloud.syncApplied'), message: projectName });
+    api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+  } catch (err) {
+    cloudUploadStatus.set(projectId, { ...status, syncing: false });
+    ProjectList.render();
+    showToast({ type: 'error', title: t('cloud.syncError'), message: err.message || projectName });
+  }
+}
+
+function _showConflictModal(conflicts) {
+  return new Promise((resolve) => {
+    const fileListHtml = conflicts.map(c => `
+      <div class="conflict-file-row">
+        <div class="conflict-file-name">${c.file}</div>
+        <div class="conflict-file-actions">
+          <label class="conflict-radio">
+            <input type="radio" name="conflict-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" value="cloud" checked>
+            <span>${t('cloud.conflictUseCloud')}</span>
+          </label>
+          <label class="conflict-radio">
+            <input type="radio" name="conflict-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" value="local">
+            <span>${t('cloud.conflictKeepLocal')}</span>
+          </label>
+          <label class="conflict-radio">
+            <input type="radio" name="conflict-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" value="both">
+            <span>${t('cloud.conflictKeepBoth')}</span>
+          </label>
+        </div>
+      </div>
+    `).join('');
+
+    const modalHtml = `
+      <div class="modal-overlay" id="conflict-modal-overlay">
+        <div class="modal-container modal-large">
+          <div class="modal-header">
+            <h3>${t('cloud.conflictTitle', { count: conflicts.length })}</h3>
+            <button class="modal-close" id="conflict-modal-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="conflict-description">${t('cloud.conflictDescription')}</p>
+            <div class="conflict-select-all" style="display:flex;gap:8px;margin-bottom:8px;">
+              <button class="btn-secondary btn-sm" id="conflict-all-cloud" style="font-size:var(--font-xs);padding:4px 10px;">${t('cloud.conflictAllCloud')}</button>
+              <button class="btn-secondary btn-sm" id="conflict-all-local" style="font-size:var(--font-xs);padding:4px 10px;">${t('cloud.conflictAllLocal')}</button>
+            </div>
+            <div class="conflict-file-list">${fileListHtml}</div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" id="conflict-cancel">${t('common.cancel')}</button>
+            <button class="btn-primary" id="conflict-apply">${t('cloud.conflictApply')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const overlay = document.getElementById('conflict-modal-overlay');
+
+    const cleanup = () => overlay?.remove();
+
+    document.getElementById('conflict-modal-close')?.addEventListener('click', () => { cleanup(); resolve(null); });
+    document.getElementById('conflict-cancel')?.addEventListener('click', () => { cleanup(); resolve(null); });
+    overlay?.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+    document.getElementById('conflict-all-cloud')?.addEventListener('click', () => {
+      overlay.querySelectorAll('input[type="radio"][value="cloud"]').forEach(r => { r.checked = true; });
+    });
+    document.getElementById('conflict-all-local')?.addEventListener('click', () => {
+      overlay.querySelectorAll('input[type="radio"][value="local"]').forEach(r => { r.checked = true; });
+    });
+
+    document.getElementById('conflict-apply')?.addEventListener('click', () => {
+      const resolutions = {};
+      for (const c of conflicts) {
+        const safeName = c.file.replace(/[^a-zA-Z0-9]/g, '_');
+        const selected = overlay.querySelector(`input[name="conflict-${safeName}"]:checked`);
+        resolutions[c.file] = selected?.value || 'cloud';
+      }
+      cleanup();
+      resolve(resolutions);
+    });
+  });
+}
+
+if (api.cloud?.onUploadProgress) {
+  api.cloud.onUploadProgress((progress) => {
+    if (!_activeUploadToast) return;
+    const msgEl = _activeUploadToast.querySelector('.toast-message');
+    if (!msgEl) return;
+    const phases = {
+      scanning: t('cloud.uploadPhaseScanning'),
+      compressing: t('cloud.uploadPhaseCompressing'),
+      uploading: t('cloud.uploadPhaseUploading'),
+      done: t('cloud.uploadSuccess'),
+    };
+    if (phases[progress.phase]) msgEl.textContent = phases[progress.phase];
+  });
+}
+
+function _updateCloudConnected(connected) {
+  cloudConnected = connected;
+  if (!connected) cloudUploadStatus.clear();
+  ProjectList.setExternalState({ cloudConnected });
+  ProjectList.render();
+}
+
+if (api.cloud?.onStatusChanged) {
+  api.cloud.onStatusChanged((status) => {
+    _updateCloudConnected(status.connected);
+    if (status.connected) {
+      refreshCloudProjects();
+      api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+      _checkAllProjectsDiff();
+    }
+  });
+}
+setTimeout(async () => {
+  try {
+    const s = await api.cloud.status();
+    if (s.connected) {
+      _updateCloudConnected(true);
+      refreshCloudProjects();
+      api.cloud.checkPendingChanges().then(r => _updateProjectPendingChanges(r.changes)).catch(() => {});
+      _checkAllProjectsDiff();
+    }
+  } catch { /* ignore */ }
+}, 3000);
+
+async function _checkAllProjectsDiff() {
+  try {
+    const statuses = await api.cloud.getSyncStatus({});
+    if (!statuses || typeof statuses !== 'object') return;
+    const localProjects = projectsState.get().projects || [];
+
+    const projectDiffs = [];
+    for (const [projectId, meta] of Object.entries(statuses)) {
+      if (!meta.registered) continue;
+      const project = localProjects.find(p => p.id === projectId);
+      if (!project) continue;
+      const projectName = project.name || path.basename(project.path);
+
+      try {
+        const diff = await api.cloud.compareFiles({ projectName, localProjectPath: project.path });
+        if (diff.onlyLocal.length === 0 && diff.onlyCloud.length === 0 && diff.sizeDiff.length === 0) continue;
+        projectDiffs.push({ projectId, project, projectName, diff });
+      } catch { /* skip this project */ }
+    }
+
+    if (projectDiffs.length === 0) return;
+
+    const actions = await _showBatchDiffModal(projectDiffs);
+    if (!actions) return;
+
+    for (const { projectId, projectName, action } of actions) {
+      const project = localProjects.find(p => p.id === projectId);
+      if (!project) continue;
+      try {
+        if (action === 'push') {
+          await cloudUploadProject(projectId);
+        } else if (action === 'pull') {
+          await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
+          cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
+          ProjectList.render();
+          showToast({ type: 'success', title: t('cloud.syncApplied'), message: projectName });
+        }
+      } catch { /* skip this project */ }
+    }
+  } catch { /* ignore */ }
+}
+
+function _showBatchDiffModal(projectDiffs) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+
+    const rowsHtml = projectDiffs.map((pd, i) => {
+      const total = pd.diff.onlyLocal.length + pd.diff.onlyCloud.length + pd.diff.sizeDiff.length;
+      const details = [];
+      if (pd.diff.onlyLocal.length) details.push(`<span style="color:var(--success);">${pd.diff.onlyLocal.length} ${t('cloud.diffLocalOnly')}</span>`);
+      if (pd.diff.onlyCloud.length) details.push(`<span style="color:var(--info);">${pd.diff.onlyCloud.length} ${t('cloud.diffCloudOnly')}</span>`);
+      if (pd.diff.sizeDiff.length) details.push(`<span style="color:var(--warning);">${pd.diff.sizeDiff.length} ${t('cloud.diffModified')}</span>`);
+      return `
+        <div class="batch-diff-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border-color);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${pd.projectName}</div>
+            <div style="font-size:var(--font-xs);color:var(--text-secondary);margin-top:2px;">${t('cloud.diffCount', { count: total })} — ${details.join(', ')}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;margin-left:12px;">
+            <label style="display:flex;align-items:center;gap:3px;font-size:var(--font-xs);cursor:pointer;color:var(--text-secondary);">
+              <input type="radio" name="batch-diff-${i}" value="skip" checked style="accent-color:var(--text-muted);"> ${t('cloud.diffSkip')}
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:var(--font-xs);cursor:pointer;color:var(--info);">
+              <input type="radio" name="batch-diff-${i}" value="pull" style="accent-color:var(--info);"> ${t('cloud.diffUseCloud')}
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:var(--font-xs);cursor:pointer;color:var(--success);">
+              <input type="radio" name="batch-diff-${i}" value="push" style="accent-color:var(--success);"> ${t('cloud.diffUseLocal')}
+            </label>
+          </div>
+        </div>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="modal-container modal-large" style="max-width:650px;">
+        <div class="modal-header">
+          <h3>${t('cloud.diffBatchTitle', { count: projectDiffs.length })}</h3>
+          <button class="modal-close batch-diff-close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:0;">
+          <p style="padding:12px 16px;margin:0;color:var(--text-secondary);font-size:var(--font-sm);">${t('cloud.diffBatchDescription')}</p>
+          <div style="max-height:400px;overflow-y:auto;">
+            ${rowsHtml}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary batch-diff-cancel">${t('common.cancel')}</button>
+          <button class="btn-primary batch-diff-apply">${t('cloud.conflictApply')}</button>
+        </div>
+      </div>`;
+
+    const cleanup = () => overlay.remove();
+
+    overlay.querySelector('.batch-diff-close').onclick = () => { cleanup(); resolve(null); };
+    overlay.querySelector('.batch-diff-cancel').onclick = () => { cleanup(); resolve(null); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+
+    overlay.querySelector('.batch-diff-apply').onclick = () => {
+      const results = projectDiffs.map((pd, i) => {
+        const selected = overlay.querySelector(`input[name="batch-diff-${i}"]:checked`);
+        return { projectId: pd.projectId, projectName: pd.projectName, action: selected?.value || 'skip' };
+      }).filter(r => r.action !== 'skip');
+      cleanup();
+      resolve(results);
+    };
+
+    document.body.appendChild(overlay);
+  });
+}
+
+function _updateProjectPendingChanges(changes) {
+  const localProjects = projectsState.get().projects || [];
+  for (const [id, status] of cloudUploadStatus.entries()) {
+    if (status.pendingChanges) {
+      cloudUploadStatus.set(id, { ...status, pendingChanges: false, pendingCount: 0 });
+    }
+  }
+  let totalPending = 0;
+  for (const { projectName, changes: fileChanges } of (changes || [])) {
+    const files = fileChanges.flatMap(c => c.changedFiles || []);
+    if (files.length === 0) continue;
+    totalPending += files.length;
+    const localProject = localProjects.find(p =>
+      p.name === projectName || path.basename(p.path) === projectName
+    );
+    if (localProject) {
+      const existing = cloudUploadStatus.get(localProject.id) || {};
+      cloudUploadStatus.set(localProject.id, { ...existing, pendingChanges: true, pendingCount: files.length });
+    }
+  }
+  _updateCloudTabBadge(totalPending);
+  ProjectList.render();
+}
+
+function _updateCloudTabBadge(count) {
+  const tab = document.querySelector('.nav-tab[data-tab="cloud-panel"]');
+  if (!tab) return;
+  let badge = tab.querySelector('.nav-tab-badge');
+  if (count > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'nav-tab-badge'; tab.appendChild(badge); }
+    badge.textContent = String(count);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+if (api.cloud?.onPendingChanges) {
+  api.cloud.onPendingChanges((data) => {
+    _updateProjectPendingChanges(data.changes);
+  });
+}
+
+if (api.cloud?.onAutoSyncStatus) {
+  api.cloud.onAutoSyncStatus(({ projectId, status, fileCount, error }) => {
+    const existing = cloudUploadStatus.get(projectId) || {};
+    if (status === 'uploading') {
+      cloudUploadStatus.set(projectId, { ...existing, autoSyncing: true, lastError: null });
+      const proj = projectsState.get().projects?.find(p => p.id === projectId);
+      showToast({ type: 'info', title: t('cloud.autoSyncUploading'), message: proj?.name || projectId, duration: 3000 });
+    } else if (status === 'synced') {
+      cloudUploadStatus.set(projectId, { ...existing, synced: true, autoSyncing: false, lastSync: Date.now(), lastError: null });
+      showToast({ type: 'success', title: t('cloud.autoSyncComplete'), message: t('cloud.autoSyncFiles', { count: fileCount }) });
+    } else if (status === 'error') {
+      cloudUploadStatus.set(projectId, { ...existing, autoSyncing: false, lastError: { message: error, timestamp: Date.now() } });
+      showToast({ type: 'error', title: t('cloud.autoSyncError'), message: error });
+    }
+    ProjectList.render();
+  });
+}
+
 // ========== SETUP COMPONENTS ==========
 // Setup ProjectList
 ProjectList.setExternalState({
   fivemServers: localState.fivemServers,
   gitOperations: localState.gitOperations,
-  gitRepoStatus: localState.gitRepoStatus
+  gitRepoStatus: localState.gitRepoStatus,
+  cloudUploadStatus,
+  cloudConnected
 });
 
 ProjectList.setCallbacks({
@@ -1406,6 +1919,9 @@ ProjectList.setCallbacks({
   onGitPull: gitPull,
   onGitPush: gitPush,
   onNewWorktree: openNewWorktreeModal,
+  onCloudUpload: cloudUploadProject,
+  onCloudSync: cloudSyncProject,
+  onCloudDelete: cloudDeleteProject,
   onDeleteProject: deleteProjectUI,
   onRenameProject: renameProjectUI,
   onRenderProjects: () => ProjectList.render(),
@@ -3267,7 +3783,7 @@ api.tray.onShowSessions(() => {
     document.body.style.userSelect = 'none';
 
     const onMouseMove = (e) => {
-      const newWidth = Math.min(600, Math.max(200, startWidth + (e.clientX - startX)));
+      const newWidth = Math.min(600, Math.max(150, startWidth + (e.clientX - startX)));
       panel.style.width = newWidth + 'px';
     };
 
@@ -3278,7 +3794,7 @@ api.tray.onShowSessions(() => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       settingsState.setProp('projectsPanelWidth', panel.offsetWidth);
-      saveSettings();
+      saveSettingsImmediate();
     };
 
     document.addEventListener('mousemove', onMouseMove);

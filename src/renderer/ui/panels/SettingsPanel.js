@@ -746,16 +746,16 @@ async function renderSettingsTab(initialTab = 'general') {
                   <div>${t('settings.idleTimeout')}</div>
                   <div class="settings-desc">${t('settings.idleTimeoutDesc')}</div>
                 </div>
-                <div class="settings-dropdown" id="idle-timeout-dropdown" data-value="${settings.idleTimeout || 2}">
+                <div class="settings-dropdown" id="idle-timeout-dropdown" data-value="${settings.idleTimeout || 120}">
                   <div class="settings-dropdown-trigger">
-                    <span>${t('settings.idleTimeoutMinutes', { count: settings.idleTimeout || 2 })}</span>
+                    <span>${(settings.idleTimeout || 120) < 60 ? t('settings.idleTimeoutSeconds', { count: settings.idleTimeout || 120 }) : t('settings.idleTimeoutMinutes', { count: (settings.idleTimeout || 120) / 60 })}</span>
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
                   </div>
                   <div class="settings-dropdown-menu">
-                    ${[1, 2, 3, 5, 10, 15, 30].map(m =>
-                      `<div class="settings-dropdown-option ${(settings.idleTimeout || 2) === m ? 'selected' : ''}" data-value="${m}">
+                    ${[15, 30, 60, 120, 180, 300, 600].map(s =>
+                      `<div class="settings-dropdown-option ${(settings.idleTimeout || 120) === s ? 'selected' : ''}" data-value="${s}">
                         <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
-                        ${t('settings.idleTimeoutMinutes', { count: m })}
+                        ${s < 60 ? t('settings.idleTimeoutSeconds', { count: s }) : t('settings.idleTimeoutMinutes', { count: s / 60 })}
                       </div>`
                     ).join('')}
                   </div>
@@ -1247,7 +1247,7 @@ async function renderSettingsTab(initialTab = 'general') {
     const newAutoScrollOnSwitch = autoScrollOnSwitchToggle ? autoScrollOnSwitchToggle.checked : true;
 
     const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
-    const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 2);
+    const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 120);
     const telemetryEnabledToggle = document.getElementById('telemetry-enabled-toggle');
     const newTelemetryEnabled = telemetryEnabledToggle ? telemetryEnabledToggle.checked : false;
     const telemetryCatApp = document.getElementById('telemetry-cat-app');

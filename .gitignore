@@ -36,6 +36,7 @@ nul
 
 # Claude local settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Cache
 .cache/

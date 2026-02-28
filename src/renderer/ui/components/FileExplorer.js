@@ -1389,8 +1389,11 @@ function initResizer() {
   let startX, startWidth;
 
   resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     startX = e.clientX;
     startWidth = panel.offsetWidth;
+    resizer.classList.add('active');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
@@ -1402,11 +1405,12 @@ function initResizer() {
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      resizer.classList.remove('active');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      const { settingsState, saveSettings } = require('../../state/settings.state');
+      const { settingsState, saveSettingsImmediate } = require('../../state/settings.state');
       settingsState.setProp('fileExplorerWidth', panel.offsetWidth);
-      saveSettings();
+      saveSettingsImmediate();
     };
 
     document.addEventListener('mousemove', onMouseMove);

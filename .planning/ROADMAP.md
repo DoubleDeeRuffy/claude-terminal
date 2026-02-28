@@ -22,11 +22,41 @@ Plans:
 
 ### Phase 26: MD-Files-Reopening
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Persist and restore all tabs (terminal + file) across app restarts, preserving exact ordering and active state.
+**Requirements**: Add file tab serialization to save loop, interleaved restore for both tab types, activeTabIndex-first active tab tracking.
 **Depends on:** —
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 26 to break down)
+- [x] Plan 26A: Persist & restore file tabs with full tab ordering
+
+### Phase 27: Rename-Tabs-Manually
+
+**Goal:** Add a right-click context menu to terminal/file tabs with rename, close, and bulk-close actions.
+**Requirements**: Add tab context menu with Rename, Close, Close Others, Close Tabs to Right; wire to all 6 tab creation sites; add i18n keys.
+**Depends on:** —
+**Plans:** 1 plan
+
+Plans:
+- [x] Plan 27A: Implement tab context menu with rename and bulk-close actions
+
+### Phase 28: Paste-Doubles-Linebreaks
+
+**Goal:** Fix doubled linebreaks when pasting multi-line text and normalize Enter key to send `\r` for terminal-input channel.
+**Requirements**: Normalize `\r\n`→`\r` and `\n`→`\r` in `sendPaste()`, fix Shift+Enter to send `\r` for terminal-input only.
+**Depends on:** —
+**Plans:** 1 plan
+
+Plans:
+- [x] Plan 28A: Fix doubled linebreaks on paste and Enter key normalization
+
+### Phase 29: Adjust-Idle-Recognization
+
+**Goal:** Split single heartbeat system into two: user heartbeat (time tracking per active project, persisted) and Claude heartbeat (per-terminal activity status, runtime only).
+**Requirements**: Refactor timeTracking.state.js for user-only heartbeats with project-switch stop/start; create claudeActivity state for per-terminal Claude idle detection; update tick to 10s; remove session merging; update settings dropdown to 15s/30s/1min/2min/3min/5min/10min; split all heartbeat call sites in TerminalManager, ChatView, events/index.
+**Depends on:** —
+**Plans:** 1 plan
+
+Plans:
+- [ ] Plan 29A: Split heartbeat into user time-tracking and Claude activity systems
 

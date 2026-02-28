@@ -8,7 +8,12 @@
  */
 
 const { ipcMain } = require('electron');
-const chokidar = require('chokidar');
+/** @type {import('chokidar')} */
+let chokidar = null;
+async function getChokidar() {
+  if (!chokidar) chokidar = await import('chokidar');
+  return chokidar;
+}
 const path = require('path');
 
 // ==================== MODULE STATE ====================
@@ -109,13 +114,14 @@ function pushChange(type, filePath, isDirectory, myWatchId, watchedDir) {
  * If a watcher for this directory is already active, returns immediately.
  * @param {string} dirPath - Absolute path to the directory to watch
  */
-function watchDir(dirPath) {
+async function watchDir(dirPath) {
   if (dirWatchers.has(dirPath)) return; // already watching
 
+  const chok = await getChokidar();
   watchId++;
   const myWatchId = watchId;
 
-  const watcher = chokidar.watch(dirPath, {
+  const watcher = chok.watch(dirPath, {
     ignored: makeIgnoredFn(),
     persistent: true,             // activates chokidar's native error listener which swallows EPERM on Windows directory deletion
     ignoreInitial: true,          // only report changes, not the initial directory scan

@@ -146,6 +146,94 @@ These files are modified by almost every feature phase and will frequently confl
 | `src/main/preload.js` | IPC bridge for new handlers |
 | `package.json` / `package-lock.json` | Dependency changes |
 
+## Recovery Procedure (If Merge Already Destroyed Work)
+
+If the merge already happened and you discover your features are gone:
+
+### 1. Find Your Pre-Merge Commit
+
+```bash
+git reflog --oneline -20
+# Look for the last commit BEFORE "commit (merge): Merge remote-tracking branch..."
+# That commit hash is your safe restore point (e.g., 48411527)
+```
+
+### 2. Identify Which Files Lost Your Code
+
+```bash
+# Compare your pre-merge state to current HEAD — stat shows what changed
+git diff <pre-merge-hash> HEAD -- src/ renderer.js index.html styles/ --stat
+
+# Large negative numbers (e.g., -308 lines) = YOUR code was removed
+# Large positive numbers = upstream additions (may be fine)
+```
+
+### 3. Restore Your Files Selectively
+
+**DO NOT hard-reset** — that would lose new upstream features. Instead, checkout your files:
+
+```bash
+# Restore your versions of files where YOUR code was overwritten
+git checkout <pre-merge-hash> -- \
+  src/renderer/ui/components/TerminalManager.js \
+  src/renderer/ui/components/ChatView.js \
+  src/renderer/state/settings.state.js \
+  src/renderer/ui/panels/SettingsPanel.js \
+  src/renderer/services/TerminalSessionService.js \
+  src/main/ipc/explorer.ipc.js \
+  styles/settings.css \
+  styles/terminal.css \
+  <...any other files that lost your work>
+```
+
+### 4. Layer Back Upstream Additions
+
+After restoring, the NEW upstream features are gone from those files. Re-add them:
+
+- **New imports** (e.g., `CloudPanel`) — add to import lines
+- **New IPC bridge methods** (e.g., `cloud.*`) — add to existing namespace in `preload.js`
+- **New i18n keys** — merge into JSON without removing your keys:
+  ```js
+  // Script to merge upstream i18n keys
+  const upstream = JSON.parse(execSync('git show <merge-hash>:path/to/en.json'));
+  const local = JSON.parse(readFileSync('path/to/en.json'));
+  local.cloud = upstream.cloud; // Add new namespace
+  writeFileSync('path/to/en.json', JSON.stringify(local, null, 2));
+  ```
+- **New function blocks** — copy from `git show <merge-hash>:renderer.js` and insert into restored file
+- **New HTML elements** — add Cloud tab, CSS links, CSP updates to `index.html`
+
+### 5. Verify
+
+```bash
+npm run build:renderer   # Must succeed
+npm test                 # All tests must pass
+# grep for YOUR features to confirm they're back:
+grep -c "performPaste\|tabActivationHistory\|slashRenameTimestamps" src/renderer/ui/components/TerminalManager.js
+grep -c "scheduleScrollAfterRestore\|setSkipExplorerCapture" renderer.js
+```
+
+## What the Merge Silently Destroys (2026-02-28 Incident #2)
+
+The upstream merge brought **Cloud features, updated Telemetry, Workflow graph** — all new code. But the 3-way merge resolution silently **removed** all of the following local features because upstream had diverged versions of the same files:
+
+| Feature | File | Lines Lost | Symptom |
+|---------|------|-----------|---------|
+| Right-click copy/paste | TerminalManager.js | ~50 | Ctrl+Shift+C/V and context menu stop working |
+| Tab activation history | TerminalManager.js | ~30 | Closing tab goes to wrong tab |
+| Slash-command rename protection | TerminalManager.js | ~20 | OSC title overwrites /slash names |
+| Per-project active tab | TerminalManager.js | ~40 | Switching projects loses active tab |
+| Session restore (name/mode/scroll) | renderer.js | ~40 | Restored tabs lose names and don't scroll |
+| Projects panel width | renderer.js + settings.state.js | ~10 | Panel width resets on restart |
+| Settings toggles (4 settings) | SettingsPanel.js | ~80 | aiTabNaming, autoScroll, naturalSort, idleTimeout toggles gone |
+| Settings CSS | settings.css | ~193 | Settings panel styling broken |
+| Explorer file watcher | explorer.ipc.js + preload.js | ~50 | File explorer stops auto-refreshing |
+| i18n keys (26 per locale) | en.json, fr.json | ~52 | Missing translation strings |
+
+**Total: ~560 lines of working features silently dropped.**
+
+The dangerous part: the merge commit succeeds, tests pass, the app launches — but features are just *gone*. You only discover it when you try to use them.
+
 ## Lessons Learned
 
 1. **Stash + merge + stash pop is unsafe** — if the merge touches files in your stash, you get conflicts or silent data loss
@@ -153,3 +241,7 @@ These files are modified by almost every feature phase and will frequently confl
 3. **Always inventory WIP before merging** — the 2 minutes spent listing files saves hours of recovery
 4. **Commit WIP, don't stash it** — commits participate in merge resolution, stashes don't
 5. **Verify after merge, not just during** — grep for expected artifact counts in every WIP file
+6. **Even "clean" merges destroy code** — if upstream rewrote a file you also modified (e.g., `renderer.js`, `TerminalManager.js`), git's 3-way merge may silently pick upstream's version and drop your additions — **no conflict markers, no warnings**
+7. **Always `git diff <pre-merge> HEAD -- <file>` after merge** — check EVERY file you've modified locally. If the diff shows negative lines for your features, the merge ate them
+8. **The reflog is your lifeline** — `git reflog` always has your pre-merge commit. You can restore any file from it with `git checkout <hash> -- <file>` even weeks later
+9. **Selective restore + layer-back is the safest recovery** — restore your files from the pre-merge hash, then manually add new upstream features on top. Never hard-reset (loses upstream), never re-merge (repeats the problem)

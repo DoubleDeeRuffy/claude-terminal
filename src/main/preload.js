@@ -359,6 +359,26 @@ contextBridge.exposeInMainWorld('electron_api', {
     send: (data) => ipcRenderer.send('cloud:send', data),
     onMessage: createListener('cloud:message'),
     onStatusChanged: createListener('cloud:status-changed'),
+    uploadProject: (params) => ipcRenderer.invoke('cloud:upload-project', params),
+    onUploadProgress: createListener('cloud:upload-progress'),
+    getProjects: () => ipcRenderer.invoke('cloud:get-projects'),
+    checkPendingChanges: () => ipcRenderer.invoke('cloud:check-pending-changes'),
+    downloadChanges: (params) => ipcRenderer.invoke('cloud:download-changes', params),
+    takeoverSession: (params) => ipcRenderer.invoke('cloud:takeover-session', params),
+    onHeadlessActive: createListener('cloud:headless-active'),
+    onPendingChanges: createListener('cloud:pending-changes'),
+    getUser: () => ipcRenderer.invoke('cloud:get-user'),
+    updateUser: (params) => ipcRenderer.invoke('cloud:update-user', params),
+    getSessions: () => ipcRenderer.invoke('cloud:get-sessions'),
+    stopSession: (params) => ipcRenderer.invoke('cloud:stop-session', params),
+    getSyncStatus: (params) => ipcRenderer.invoke('cloud:get-sync-status', params || {}),
+    registerAutoSync: (params) => ipcRenderer.invoke('cloud:register-auto-sync', params),
+    unregisterAutoSync: (params) => ipcRenderer.invoke('cloud:unregister-auto-sync', params),
+    compareFiles: (params) => ipcRenderer.invoke('cloud:compare-files', params),
+    checkConflicts: (params) => ipcRenderer.invoke('cloud:check-conflicts', params),
+    downloadWithResolutions: (params) => ipcRenderer.invoke('cloud:download-with-resolutions', params),
+    onAutoSyncStatus: createListener('cloud:auto-sync-status'),
+    deleteProject: (params) => ipcRenderer.invoke('cloud:delete-project', params),
   },
 
   // ==================== USAGE ====================
@@ -445,5 +465,6 @@ contextBridge.exposeInMainWorld('electron_api', {
     onStepUpdate:     createListener('workflow-step-update'),
     onAgentMessage:   createListener('workflow-agent-message'),
     onNotifyDesktop:  createListener('workflow-notify-desktop'),
+    clearAllRuns:     ()             => ipcRenderer.invoke('workflow-clear-runs'),
   }
 });

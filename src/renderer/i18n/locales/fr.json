@@ -675,7 +675,8 @@
     "tabRenameOnSlashCommand": "Renommer l'onglet sur commande slash",
     "tabRenameOnSlashCommandDesc": "Renomme automatiquement l'onglet terminal avec la dernière commande slash exécutée (ex. /gsd:verify-work 12)",
     "idleTimeout": "Délai d'inactivité",
-    "idleTimeoutDesc": "Minutes d'inactivité avant la pause du suivi du temps",
+    "idleTimeoutDesc": "Temps d'inactivité avant la pause du suivi du temps",
+    "idleTimeoutSeconds": "{count}s",
     "idleTimeoutMinutes": "{count} min",
     "hooks": {
       "title": "Hooks intelligents",

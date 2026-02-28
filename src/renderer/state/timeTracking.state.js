@@ -24,13 +24,12 @@ const ArchiveService = require('../services/ArchiveService');
 const { getSetting } = require('./settings.state');
 
 function getIdleTimeout() {
-  const minutes = getSetting('idleTimeout') || 2;
-  return minutes * 60 * 1000;
+  const seconds = getSetting('idleTimeout') || 120;
+  return seconds * 1000;
 }
-const TICK_INTERVAL = 60 * 1000;         // 60s tick (idle check, midnight, sleep/wake, checkpoint)
+const TICK_INTERVAL = 10 * 1000;         // 10s tick (idle check, midnight, sleep/wake, checkpoint)
 const SAVE_DEBOUNCE = 1000;              // 1 second debounce for disk writes
-const MERGE_GAP = 5 * 60 * 1000;        // 5 minutes: merge sessions closer than this
-const SLEEP_GAP = 2 * 60 * 1000;        // 2 minutes between ticks = system was asleep
+const SLEEP_GAP = 30 * 1000;            // 30s between ticks = system was asleep (3× tick)
 const HEARTBEAT_THROTTLE = 1000;         // 1 second: ignore heartbeats faster than this per project
 
 // ============================================================
@@ -553,46 +552,14 @@ function addSession(target, projectId, startTime, endTime, duration, source) {
 
   if (target === 'global') {
     if (!state.global) state.global = { sessions: [] };
-    state.global.sessions = mergeOrAppend(state.global.sessions, session);
+    state.global.sessions.push(session);
   } else {
     if (!state.projects[projectId]) state.projects[projectId] = { sessions: [] };
-    state.projects[projectId].sessions = mergeOrAppend(state.projects[projectId].sessions, session);
+    state.projects[projectId].sessions.push(session);
   }
 
   dataState.set({ ...state });
   dirty = true;
-}
-
-/**
- * Merge a new session with the last one if gap < MERGE_GAP, otherwise append.
- */
-function mergeOrAppend(sessions, newSession) {
-  if (!sessions.length) return [newSession];
-
-  const last = sessions[sessions.length - 1];
-  const lastEnd = new Date(last.endTime).getTime();
-  const newStart = new Date(newSession.startTime).getTime();
-  const gap = newStart - lastEnd;
-
-  if (gap >= 0 && gap < MERGE_GAP) {
-    // Merge: extend the last session
-    last.endTime = newSession.endTime;
-    last.duration += newSession.duration;
-    return sessions;
-  }
-
-  if (gap < 0) {
-    // Overlap: extend to max endTime, use wall-clock duration
-    const lastStart = new Date(last.startTime).getTime();
-    const newEnd = new Date(newSession.endTime).getTime();
-    last.endTime = new Date(Math.max(lastEnd, newEnd)).toISOString();
-    last.duration = Math.max(lastEnd, newEnd) - lastStart;
-    return sessions;
-  }
-
-  // Gap >= MERGE_GAP: new session
-  sessions.push(newSession);
-  return sessions;
 }
 
 // ============================================================

@@ -608,7 +608,8 @@
     "tabRenameOnSlashCommand": "Rename tab on slash command",
     "tabRenameOnSlashCommandDesc": "Automatically rename the terminal tab to the last slash command executed (e.g. /gsd:verify-work 12)",
     "idleTimeout": "Idle timeout",
-    "idleTimeoutDesc": "Minutes of inactivity before time tracking pauses",
+    "idleTimeoutDesc": "Inactivity time before time tracking pauses",
+    "idleTimeoutSeconds": "{count}s",
     "idleTimeoutMinutes": "{count} min",
     "hooks": {
       "title": "Smart Hooks",

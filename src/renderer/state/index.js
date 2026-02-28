@@ -12,6 +12,7 @@ const gitState = require('./git.state');
 const settingsState = require('./settings.state');
 const timeTrackingState = require('./timeTracking.state');
 const databaseState = require('./database.state');
+const claudeActivityState = require('./claudeActivity.state');
 
 // Quick picker state (simple, doesn't need a module)
 const quickPickerState = new State({
@@ -109,6 +110,9 @@ module.exports = {
 
   // Database
   ...databaseState,
+
+  // Claude Activity
+  ...claudeActivityState,
 
   // Simple states
   quickPickerState,
