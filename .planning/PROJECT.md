@@ -1,9 +1,21 @@
-# Claude Terminal — UX Fixes
+# Claude Terminal — Consolidations
 
-## Current State
+## Current Milestone: v1.1 Consolidations
 
-**Shipped:** v1.0 (2026-02-27)
-**Core Value:** The terminal and file explorer must behave as users expect from native desktop tools — standard keyboard shortcuts work, all files are visible, and creating a new terminal is one click away.
+**Goal:** Optimize existing features and spread proven patterns throughout the app.
+
+**Approach:** Incremental — phases added one at a time as the milestone grows.
+
+**Target areas:**
+- Feature optimizations and polish
+- Spreading existing patterns app-wide
+- Deferred items from v1.0 (as needed)
+
+### Deferred from v1.0
+
+- Projects panel width persistence (Phase 15)
+- Notification state persistence (Phase 15.1)
+- macOS Cmd+C/Cmd+V mapping (TERM-V2-02)
 
 ### What v1.0 Delivered
 
@@ -13,16 +25,6 @@
 - Integrated markdown viewer with TOC, live reload, and search
 - Tab management: AI naming toggle, name persistence, resume dialog with saved names, browser-like close history
 - Taskbar pin preservation, window state persistence, .NET dashboard, app title tracking
-
-### Deferred from v1.0
-
-- Projects panel width persistence (Phase 15)
-- Notification state persistence (Phase 15.1)
-- macOS Cmd+C/Cmd+V mapping (TERM-V2-02)
-
-## Next Milestone Goals
-
-To be defined via `/gsd:new-milestone`.
 
 ## Context
 
@@ -68,4 +70,4 @@ Claude Terminal is a cross-platform Electron desktop application (v0.9.6) for ma
 </details>
 
 ---
-*Last updated: 2026-02-27 — v1.0 milestone archived*
+*Last updated: 2026-02-28 — v1.1 Consolidations milestone started*
