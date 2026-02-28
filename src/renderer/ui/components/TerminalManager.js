@@ -716,7 +716,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
         } else if (inputChannel === 'webapp-input') {
           api.webapp.input({ projectIndex: terminalId, data: '\n' });
         } else {
-          api.terminal.input({ id: terminalId, data: '\r' });
+          api.terminal.input({ id: terminalId, data: '\n' });
         }
       }
       return false;
@@ -1234,7 +1234,7 @@ function showTabContextMenu(e, id) {
         onClick: () => {
           allTabs.forEach(tab => {
             const tabId = tab.dataset.id;
-            if (tabId !== id) closeTerminal(tabId);
+            if (tabId != id) closeTerminal(tabId);
           });
         }
       },
