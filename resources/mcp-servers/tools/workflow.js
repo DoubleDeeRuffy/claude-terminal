@@ -174,6 +174,15 @@ function getNodeSlots(type) {
     case 'workflow/log':
     case 'workflow/variable':
       return { inputs: stdIn, outputs: stdOut(['Done']) };
+    case 'workflow/transform':
+      // Transform/JSON: Done + Error
+      return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };
+    case 'workflow/subworkflow':
+      // Sub-workflow: Done + Error
+      return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };
+    case 'workflow/switch':
+      // Switch/Case: default output only (cases are dynamic, agent should use update_node to set Cases)
+      return { inputs: stdIn, outputs: stdOut(['Default']) };
     default:
       // shell, claude, git, http, db, file → Done + Error
       return { inputs: stdIn, outputs: stdOut(['Done', 'Error']) };

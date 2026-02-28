@@ -742,6 +742,173 @@ async function runNotifyStep(config, vars, sendFn) {
   return { sent: true, message };
 }
 
+// ─── Transform step ───────────────────────────────────────────────────────────
+
+/**
+ * Apply a data transformation to an array or value.
+ * Supported operations: map, filter, reduce, find, pluck, count, sort, unique, flatten, json_parse, json_stringify
+ */
+function runTransformStep(config, vars) {
+  const operation = config.operation || 'map';
+  const inputRaw  = config.input ? resolveVars(config.input, vars) : null;
+  const expr      = config.expression ? resolveVars(config.expression, vars) : '';
+
+  // json_parse / json_stringify don't need an array input
+  if (operation === 'json_parse') {
+    try {
+      const parsed = JSON.parse(typeof inputRaw === 'string' ? inputRaw : JSON.stringify(inputRaw));
+      return { result: parsed, count: Array.isArray(parsed) ? parsed.length : 1, success: true };
+    } catch (e) {
+      throw new Error(`json_parse failed: ${e.message}`);
+    }
+  }
+  if (operation === 'json_stringify') {
+    return { result: JSON.stringify(inputRaw, null, 2), success: true };
+  }
+
+  const input = Array.isArray(inputRaw) ? inputRaw : (inputRaw != null ? [inputRaw] : []);
+
+  // Safe expression evaluator — builds a function with item as argument
+  // Only allows simple property access and comparisons, no arbitrary eval
+  const makeFn = (body) => {
+    try {
+      // eslint-disable-next-line no-new-func
+      return new Function('item', 'index', `"use strict"; return (${body});`);
+    } catch {
+      throw new Error(`Invalid expression: ${body}`);
+    }
+  };
+
+  let result;
+  switch (operation) {
+    case 'map':
+      result = input.map((item, index) => expr ? makeFn(expr)(item, index) : item);
+      break;
+    case 'filter':
+      result = input.filter((item, index) => expr ? makeFn(expr)(item, index) : true);
+      break;
+    case 'find':
+      result = expr ? input.find((item, index) => makeFn(expr)(item, index)) : input[0];
+      break;
+    case 'reduce': {
+      // expr format: "acc + item.value" — acc starts at 0
+      const reduceFn = expr ? new Function('acc', 'item', 'index', `"use strict"; return (${expr});`) : (acc, item) => acc + item; // eslint-disable-line no-new-func
+      result = input.reduce(reduceFn, 0);
+      break;
+    }
+    case 'pluck':
+      // expr = property name to extract, e.g. "name" or "user.id"
+      result = input.map(item => {
+        if (!expr) return item;
+        return expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), item);
+      });
+      break;
+    case 'count':
+      result = expr ? input.filter((item, index) => makeFn(expr)(item, index)).length : input.length;
+      break;
+    case 'sort':
+      result = [...input].sort((a, b) => {
+        if (!expr) return 0;
+        const va = expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), a);
+        const vb = expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), b);
+        return va < vb ? -1 : va > vb ? 1 : 0;
+      });
+      break;
+    case 'unique':
+      if (expr) {
+        const seen = new Set();
+        result = input.filter(item => {
+          const key = expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), item);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      } else {
+        result = [...new Set(input)];
+      }
+      break;
+    case 'flatten':
+      result = input.flat(expr ? parseInt(expr, 10) || 1 : 1);
+      break;
+    default:
+      throw new Error(`Unknown transform operation: ${operation}`);
+  }
+
+  return {
+    result,
+    count: Array.isArray(result) ? result.length : 1,
+    success: true,
+  };
+}
+
+// ─── Sub-workflow step ─────────────────────────────────────────────────────────
+
+/**
+ * Run another workflow by name or ID and optionally wait for completion.
+ * Injects inputVars into the triggered workflow's context.
+ */
+async function runSubworkflowStep(config, vars, workflowService) {
+  const workflowRef = resolveVars(config.workflow || '', vars);
+  if (!workflowRef) throw new Error('Sub-workflow: missing workflow name or ID');
+
+  // Parse optional input variables as JSON object or key=value pairs
+  let extraVars = {};
+  if (config.inputVars) {
+    const raw = resolveVars(config.inputVars, vars);
+    try {
+      extraVars = typeof raw === 'object' ? raw : JSON.parse(raw);
+    } catch {
+      // key=value,key2=value2 fallback
+      for (const pair of raw.split(',')) {
+        const [k, v] = pair.split('=').map(s => s.trim());
+        if (k) extraVars[k] = v ?? '';
+      }
+    }
+  }
+
+  const waitForCompletion = config.waitForCompletion !== false && config.waitForCompletion !== 'no';
+
+  const runId = await workflowService.trigger(workflowRef, 'subworkflow', { parent: true, extraVars });
+
+  if (!waitForCompletion) {
+    return { triggered: true, runId, waited: false };
+  }
+
+  // Poll for completion (max 10 min)
+  const start = Date.now();
+  const TIMEOUT = 10 * 60 * 1000;
+  const POLL = 1000;
+
+  while (Date.now() - start < TIMEOUT) {
+    await new Promise(r => setTimeout(r, POLL));
+    const run = workflowService.getRunById(runId);
+    if (!run) break;
+    if (run.status === 'success') {
+      return { success: true, runId, outputs: run.outputs || {}, waited: true };
+    }
+    if (run.status === 'failed' || run.status === 'cancelled') {
+      throw new Error(`Sub-workflow "${workflowRef}" ${run.status}`);
+    }
+  }
+
+  throw new Error(`Sub-workflow "${workflowRef}" timed out after 10 minutes`);
+}
+
+// ─── Switch step ──────────────────────────────────────────────────────────────
+
+/**
+ * Evaluate a variable and return which output slot index to follow.
+ * Returns { matchedSlot, value } — used by _executeGraph to route the BFS.
+ */
+function runSwitchStep(config, vars) {
+  const value  = resolveVars(config.variable || '', vars);
+  const cases  = (config.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+  const idx    = cases.findIndex(c => String(value) === String(c));
+  // idx = matched case slot, cases.length = default slot
+  const matchedSlot = idx >= 0 ? idx : cases.length;
+  return { value, matchedCase: idx >= 0 ? cases[idx] : 'default', matchedSlot, success: true };
+}
+
 // ─── Time parser ──────────────────────────────────────────────────────────────
 
 function parseMs(value) {
@@ -765,7 +932,7 @@ class WorkflowRunner {
    * @param {Map<string, Function>} opts.waitCallbacks - shared wait registry
    * @param {Object}            opts.projectTypeRegistry - { fivem, api, ... } services for native steps
    */
-  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {}, databaseService = null }) {
+  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {}, databaseService = null, workflowService = null }) {
     this._send              = sendFn;
     this._chatService       = chatService;
     this._waitCallbacks     = waitCallbacks;
@@ -1011,6 +1178,17 @@ class WorkflowRunner {
           this._emitStep(runId, step, 'failed', { error: err.message });
           throw err;
         }
+      } else if (stepType === 'switch') {
+        // Switch node: evaluate variable and follow the matched case slot
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+        } catch (err) {
+          if (signal.aborted) throw err;
+          stepOutputs[step.id] = { matchedSlot: -1, success: false };
+        }
+        const switchOut = stepOutputs[step.id];
+        const matchedSlot = switchOut?.matchedSlot ?? 0;
+        queue.push(...this._getNextNodes(nodeId, matchedSlot, outgoing));
       } else {
         // Normal step: try to execute
         try {
@@ -1384,6 +1562,18 @@ class WorkflowRunner {
 
     if (type === 'parallel') {
       return this._runParallelStep(step, vars, runId, signal, workflow);
+    }
+
+    if (type === 'transform') {
+      return runTransformStep(step, vars);
+    }
+
+    if (type === 'subworkflow') {
+      return runSubworkflowStep(step, vars, this._workflowService);
+    }
+
+    if (type === 'switch') {
+      return runSwitchStep(step, vars);
     }
 
     // ── Project-type native steps (fivem.ensure, api.request, …) ─────────────

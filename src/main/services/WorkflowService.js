@@ -481,6 +481,7 @@ class WorkflowService {
       waitCallbacks:       this._waitCallbacks,
       projectTypeRegistry: this._projectTypeRegistry,
       databaseService:     this._databaseService,
+      workflowService:     this,
     });
 
     // 3. Execute
