@@ -5,6 +5,7 @@
 
 const { ipcMain } = require('electron');
 const chatService = require('../services/ChatService');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 function registerChatHandlers() {
   // Start a new chat session (streaming input mode)
@@ -21,6 +22,7 @@ function registerChatHandlers() {
   // Send a follow-up message to existing session
   ipcMain.handle('chat-send', async (_event, { sessionId, text, images, mentions }) => {
     try {
+      sendFeaturePing('chat:message');
       chatService.sendMessage(sessionId, text, images, mentions);
       return { success: true };
     } catch (err) {

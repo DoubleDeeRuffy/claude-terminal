@@ -154,6 +154,39 @@ function getStats() {
     LIMIT 30
   `).all();
 
+  // Feature trends: daily event counts per feature (last 14 days)
+  const featureTrends = d.prepare(`
+    SELECT date(created_at) as day, event_type, COUNT(*) as count
+    FROM events
+    WHERE created_at >= datetime('now', '-14 days')
+      AND event_type LIKE 'features:%'
+    GROUP BY date(created_at), event_type
+    ORDER BY day ASC, count DESC
+  `).all();
+
+  // Session duration: average from app:quit metadata (last 7 days)
+  const sessionDurations = d.prepare(`
+    SELECT json_extract(metadata, '$.session_duration_min') as duration_min
+    FROM events
+    WHERE event_type = 'app:quit'
+      AND created_at >= datetime('now', '-7 days')
+      AND json_extract(metadata, '$.session_duration_min') IS NOT NULL
+  `).all();
+
+  const durations = sessionDurations.map(r => r.duration_min).filter(d => typeof d === 'number');
+  const avgSessionMin = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+  const medianSessionMin = durations.length > 0 ? durations.sort((a, b) => a - b)[Math.floor(durations.length / 2)] : 0;
+
+  // Cohort: first_seen_version distribution (from app:start metadata)
+  const cohorts = d.prepare(`
+    SELECT json_extract(metadata, '$.first_seen_version') as cohort_version, COUNT(DISTINCT uuid) as count
+    FROM events
+    WHERE event_type = 'app:start'
+      AND json_extract(metadata, '$.first_seen_version') IS NOT NULL
+    GROUP BY cohort_version
+    ORDER BY count DESC
+  `).all();
+
   return {
     users: {
       total: totalUsers.count,
@@ -167,7 +200,14 @@ function getStats() {
     cities,
     top_events: topEvents,
     new_users_per_day: newUsersPerDay,
-    active_users_per_day: activeUsersPerDay
+    active_users_per_day: activeUsersPerDay,
+    feature_trends: featureTrends,
+    session_duration: {
+      avg_min: avgSessionMin,
+      median_min: medianSessionMin,
+      sample_size: durations.length
+    },
+    cohorts
   };
 }
 

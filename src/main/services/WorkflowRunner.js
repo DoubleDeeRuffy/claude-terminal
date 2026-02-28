@@ -11,6 +11,7 @@
  *   notify     — desktop notification + remote push
  *   wait       — pause for human confirmation or timeout
  *   file       — read / write / copy / delete
+ *   db         — database query / schema / tables via DatabaseService
  *   condition  — evaluate expression, expose boolean variable
  *   loop       — iterate over an array variable, execute sub-steps
  *   parallel   — concurrent sub-steps, wait for all
@@ -18,7 +19,7 @@
 
 'use strict';
 
-const { execFile }  = require('child_process');
+const { exec, execFile } = require('child_process');
 const fs            = require('fs');
 const path          = require('path');
 const crypto        = require('crypto');
@@ -38,15 +39,26 @@ const {
  */
 function resolveVars(value, vars) {
   if (typeof value !== 'string') return value;
-  return value.replace(/\$([a-zA-Z_][\w.]*)(\.[a-zA-Z_][\w.]*)?/g, (match, prefix, suffix) => {
-    const key = prefix + (suffix || '');
-    // Walk the key path into vars (dot-separated)
+
+  // Fast path: entire string is a single $variable — return raw value (object, array, etc.)
+  const singleVarMatch = value.match(/^\$([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)$/);
+  if (singleVarMatch) {
+    const parts = singleVarMatch[1].split('.');
+    let cur = vars.get(parts[0]);
+    for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
+    if (cur != null) return cur;
+  }
+
+  // Mixed text with variables: interpolate as strings
+  return value.replace(/\$([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)/g, (match, key) => {
     const parts = key.split('.');
     let cur = vars.get(parts[0]);
     for (let i = 1; i < parts.length && cur != null; i++) {
       cur = cur[parts[i]];
     }
-    return cur != null ? String(cur) : match;
+    if (cur == null) return match;
+    if (typeof cur === 'object') return JSON.stringify(cur);
+    return String(cur);
   });
 }
 
@@ -86,8 +98,16 @@ function evalCondition(condition, vars) {
   if (resolved === 'true')  return true;
   if (resolved === 'false') return false;
 
-  // Comparison operators (left OP right)
-  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
+  // Unary operators: "value is_empty" / "value is_not_empty"
+  const unaryMatch = resolved.match(/^(.+?)\s+(is_empty|is_not_empty)$/);
+  if (unaryMatch) {
+    const val = unaryMatch[1].trim();
+    const isEmpty = val === '' || val === 'null' || val === 'undefined' || val === '[]' || val === '{}';
+    return unaryMatch[2] === 'is_empty' ? isEmpty : !isEmpty;
+  }
+
+  // Binary operators (left OP right)
+  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|matches)\s+(.+)$/);
   if (!match) {
     // Truthy check (non-empty string / non-zero number)
     const val = resolved.trim();
@@ -111,6 +131,11 @@ function evalCondition(condition, vars) {
     case '<':  return numeric && ln < rn;
     case '>=': return numeric && ln >= rn;
     case '<=': return numeric && ln <= rn;
+    case 'contains':    return left.includes(right);
+    case 'starts_with': return left.startsWith(right);
+    case 'matches': {
+      try { return new RegExp(right).test(left); } catch { return false; }
+    }
     default:   return false;
   }
 }
@@ -125,16 +150,14 @@ function runShellStep(config, vars, signal) {
     const cwd     = resolveVars(config.cwd || process.cwd(), vars);
     const timeout = config.timeout ? parseMs(config.timeout) : 60_000;
 
-    // Split into argv-style array (simple: split on space, honour quoted strings)
-    const args = parseCommand(command);
-    if (!args.length) return resolve({ exitCode: 0, stdout: '', stderr: '' });
+    if (!command.trim()) return resolve({ exitCode: 0, stdout: '', stderr: '' });
 
-    const [cmd, ...rest] = args;
     let child;
     const onAbort = () => { try { child?.kill('SIGKILL'); } catch {} };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    child = execFile(cmd, rest, { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
+    // Use exec with shell: true to support pipes, &&, redirections, env vars
+    child = exec(command, { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
       signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) return reject(new Error('Cancelled'));
       resolve({ exitCode: err?.code ?? 0, stdout: stdout || '', stderr: stderr || '' });
@@ -163,7 +186,44 @@ function parseCommand(cmd) {
 // ─── Git step ─────────────────────────────────────────────────────────────────
 
 async function runGitStep(config, vars) {
-  const cwd     = resolveVars(config.cwd || '', vars);
+  // Resolve cwd: prefer explicit cwd, then resolve projectId to a path via ctx
+  let cwd = resolveVars(config.cwd || '', vars);
+  if (!cwd && config.projectId) {
+    // projectId is stored but we need the project path — use ctx.project as fallback
+    const ctx = vars.get('ctx') || {};
+    cwd = ctx.project || '';
+  }
+  if (!cwd) {
+    const ctx = vars.get('ctx') || {};
+    cwd = ctx.project || process.cwd();
+  }
+
+  // Support graph-based node format: config.action = 'pull'|'push'|'commit'|etc.
+  if (config.action && !config.actions) {
+    const action = config.action;
+    const branch = resolveVars(config.branch || '', vars);
+    const message = resolveVars(config.message || '', vars);
+    let res;
+
+    switch (action) {
+      case 'pull':       res = await gitPull(cwd); break;
+      case 'push':       res = await gitPush(cwd); break;
+      case 'commit':     {
+        await gitStageFiles(cwd, config.files || ['.']);
+        res = await gitCommit(cwd, message || 'workflow commit');
+        break;
+      }
+      case 'checkout':   res = await checkoutBranch(cwd, branch); break;
+      case 'merge':      res = await spawnGit(cwd, ['merge', branch]); break;
+      case 'stash':      res = await spawnGit(cwd, ['stash']); break;
+      case 'stash-pop':  res = await spawnGit(cwd, ['stash', 'pop']); break;
+      case 'reset':      res = await spawnGit(cwd, ['reset', '--hard', 'HEAD']); break;
+      default:           res = { success: false, error: `Unknown git action: ${action}` };
+    }
+    return { success: res.success !== false, output: res.output || res.stdout || '', action };
+  }
+
+  // Legacy format: config.actions array or single config with pull/push/commit keys
   const actions = Array.isArray(config.actions) ? config.actions : [config];
 
   const results = [];
@@ -196,8 +256,21 @@ async function runGitStep(config, vars) {
 async function runHttpStep(config, vars, signal) {
   const url     = resolveVars(config.url || '', vars);
   const method  = (config.method || 'GET').toUpperCase();
-  const headers = resolveDeep(config.headers || {}, vars);
-  const body    = config.body ? JSON.stringify(resolveDeep(config.body, vars)) : undefined;
+
+  // Headers may come as a JSON string from the panel or as an object from legacy format
+  let rawHeaders = config.headers || {};
+  if (typeof rawHeaders === 'string') {
+    try { rawHeaders = JSON.parse(resolveVars(rawHeaders, vars)); } catch { rawHeaders = {}; }
+  }
+  const headers = resolveDeep(rawHeaders, vars);
+
+  // Body may come as a JSON string from the panel or as an object
+  let rawBody = config.body;
+  if (typeof rawBody === 'string') {
+    rawBody = resolveVars(rawBody, vars);
+    try { rawBody = JSON.parse(rawBody); } catch { /* keep as string */ }
+  }
+  const body = rawBody ? JSON.stringify(resolveDeep(rawBody, vars)) : undefined;
   const timeout = config.timeout ? parseMs(config.timeout) : 30_000;
 
   const aborter = new AbortController();
@@ -233,7 +306,11 @@ function assertPathWithinProject(filePath, vars) {
   if (!projectDir) return; // no project context — skip check (manual runs)
   const resolved = path.resolve(filePath);
   const base = path.resolve(projectDir);
-  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+  // Case-insensitive comparison on Windows to prevent bypass via mixed case
+  const cmp = process.platform === 'win32'
+    ? (a, b) => a.toLowerCase() === b.toLowerCase() || a.toLowerCase().startsWith(b.toLowerCase() + path.sep)
+    : (a, b) => a === b || a.startsWith(b + path.sep);
+  if (!cmp(resolved, base)) {
     throw new Error(`Path "${filePath}" is outside the project directory`);
   }
 }
@@ -241,7 +318,7 @@ function assertPathWithinProject(filePath, vars) {
 async function runFileStep(config, vars) {
   const action  = config.action || 'read';
   const p       = resolveVars(config.path || '', vars);
-  const dest    = resolveVars(config.dest || '', vars);
+  const dest    = resolveVars(config.destination || config.dest || '', vars);
   const content = resolveVars(config.content || '', vars);
 
   // Validate paths stay within the project directory
@@ -272,10 +349,171 @@ async function runFileStep(config, vars) {
   }
 }
 
+// ─── Database step ───────────────────────────────────────────────────────────
+
+/**
+ * Run a database query/schema/tables operation.
+ * Requires a DatabaseService instance passed to the runner.
+ *
+ * @param {Object}  config          - step config
+ * @param {Map}     vars            - resolved variables
+ * @param {Object}  databaseService - DatabaseService singleton
+ * @returns {Promise<Object>}       - { rows, columns, rowCount, duration, firstRow } | { tables, tableCount }
+ */
+async function runDbStep(config, vars, databaseService) {
+  if (!databaseService) throw new Error('DatabaseService not available');
+
+  const connId = resolveVars(config.connection || '', vars);
+  if (!connId) throw new Error('No database connection specified');
+
+  const action = config.action || 'query';
+
+  // Ensure connection is active (auto-connect if needed)
+  const connections = await databaseService.loadConnections();
+  const connConfig = connections.find(c => c.id === connId);
+  if (!connConfig) throw new Error(`Database connection "${connId}" not found`);
+
+  // Retrieve password from OS keychain (passwords are stripped from disk config)
+  const cred = await databaseService.getCredential(connId);
+  if (cred?.success && cred.password) {
+    connConfig.password = cred.password;
+  }
+
+  // Connect (or reconnect) to the database
+  const connResult = await databaseService.connect(connId, connConfig);
+  if (!connResult?.success) {
+    throw new Error(`Database connection failed: ${connResult?.error || 'Unknown error'}`);
+  }
+
+  if (action === 'schema') {
+    const schema = await databaseService.getSchema(connId, { force: true });
+    if (!schema?.success) throw new Error(schema?.error || 'Failed to get schema');
+    const tables = schema.tables || [];
+    return { tables, tableCount: tables.length };
+  }
+
+  if (action === 'tables') {
+    const schema = await databaseService.getSchema(connId, { force: true });
+    if (!schema?.success) throw new Error(schema?.error || 'Failed to get schema');
+    const tables = (schema.tables || []).map(t => t.name || t.table_name || t);
+    return { tables, tableCount: tables.length };
+  }
+
+  // action === 'query'
+  const sql   = resolveVars(config.query || '', vars);
+  const limit = parseInt(config.limit, 10) || 100;
+
+  if (!sql.trim()) throw new Error('Empty SQL query');
+
+  const start  = Date.now();
+  const result = await databaseService.executeQuery(connId, sql, limit);
+  const duration = Date.now() - start;
+
+  if (result.error) throw new Error(result.error);
+
+  const rows     = result.rows || [];
+  const columns  = result.columns || [];
+  const rowCount = result.rowCount ?? rows.length;
+  const firstRow = rows.length > 0 ? rows[0] : null;
+
+  return { rows, columns, rowCount, duration, firstRow };
+}
+
+// ─── Project step ─────────────────────────────────────────────────────────────
+
+/**
+ * Run a project-related operation (set_context, open, build, install, test).
+ * @param {Object} config
+ * @param {Map}    vars
+ * @param {Function} sendFn
+ */
+async function runProjectStep(config, vars, sendFn) {
+  const action = config.action || 'set_context';
+  const projectId = config.projectId || '';
+  const ctx = vars.get('ctx') || {};
+
+  if (action === 'set_context') {
+    // Update the workflow context to use this project for subsequent steps
+    if (projectId) ctx.activeProjectId = projectId;
+    vars.set('ctx', ctx);
+    return { success: true, action, projectId };
+  }
+
+  // For open/build/install/test — delegate to renderer via sendFn
+  sendFn('workflow-project-action', { action, projectId: projectId || ctx.activeProjectId || '' });
+  return { success: true, action, projectId };
+}
+
+// ─── Variable step ────────────────────────────────────────────────────────────
+
+/**
+ * Manipulate workflow-level variables (set, get, increment, append).
+ * @param {Object} config
+ * @param {Map}    vars
+ */
+function runVariableStep(config, vars) {
+  const action = config.action || 'set';
+  const name   = config.name || '';
+  if (!name) throw new Error('Variable node: no name specified');
+
+  const currentValue = vars.get(name);
+
+  switch (action) {
+    case 'set': {
+      const value = resolveVars(config.value || '', vars);
+      vars.set(name, value);
+      return { name, value, action: 'set' };
+    }
+    case 'get': {
+      return { name, value: currentValue ?? null, action: 'get' };
+    }
+    case 'increment': {
+      const increment = parseFloat(config.value) || 1;
+      const newValue = (parseFloat(currentValue) || 0) + increment;
+      vars.set(name, newValue);
+      return { name, value: newValue, action: 'increment' };
+    }
+    case 'append': {
+      const value = resolveVars(config.value || '', vars);
+      const arr = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+      arr.push(value);
+      vars.set(name, arr);
+      return { name, value: arr, action: 'append' };
+    }
+    default:
+      throw new Error(`Variable node: unknown action "${action}"`);
+  }
+}
+
+// ─── Log step ─────────────────────────────────────────────────────────────────
+
+/**
+ * Write a message to the workflow run log.
+ * @param {Object} config
+ * @param {Map}    vars
+ * @param {Function} sendFn
+ */
+function runLogStep(config, vars, sendFn) {
+  const level   = config.level || 'info';
+  const message = resolveVars(config.message || '', vars);
+
+  sendFn('workflow-log', { level, message, timestamp: Date.now() });
+  return { level, message, logged: true };
+}
+
 // ─── Condition step ───────────────────────────────────────────────────────────
 
 function runConditionStep(config, vars) {
-  const result = evalCondition(resolveVars(config.expression || 'true', vars), vars);
+  // Build expression from structured fields (variable + operator + value) if no explicit expression
+  let expression = config.expression;
+  if (!expression && config.variable) {
+    const variable = config.variable || '';
+    const operator = config.operator || '==';
+    const isUnary  = operator === 'is_empty' || operator === 'is_not_empty';
+    const value    = config.value ?? '';
+    expression = isUnary ? `${variable} ${operator}` : `${variable} ${operator} ${value}`;
+  }
+  const result = evalCondition(resolveVars(expression || 'true', vars), vars);
   return { result, value: result };
 }
 
@@ -293,6 +531,14 @@ function runConditionStep(config, vars) {
  * @param {string} stepId
  */
 function runWaitStep(config, signal, waitCallbacks, runId, stepId) {
+  // Simple delay mode: if duration is set, just sleep for that time
+  const duration = config.duration;
+  if (duration) {
+    const ms = parseMs(duration);
+    return sleep(ms, signal).then(() => ({ waited: ms, timedOut: false }));
+  }
+
+  // Approval mode: wait for human callback or timeout
   return new Promise((resolve, reject) => {
     const key     = `${runId}::${stepId}`;
     const timeout = config.timeout ? parseMs(config.timeout) : null;
@@ -331,7 +577,30 @@ function runWaitStep(config, signal, waitCallbacks, runId, stepId) {
  * @param {Object}   chatService  - main ChatService singleton
  * @param {Function} onMessage    - called with each SDK message (for logging)
  */
+/**
+ * Build a JSON Schema object from user-defined output fields.
+ * @param {Array<{name:string, type:string}>} fields
+ * @returns {Object} JSON Schema
+ */
+function buildJsonSchema(fields) {
+  const properties = {};
+  const required = [];
+  for (const field of fields) {
+    if (!field.name) continue;
+    required.push(field.name);
+    switch (field.type) {
+      case 'number':  properties[field.name] = { type: 'number' }; break;
+      case 'boolean': properties[field.name] = { type: 'boolean' }; break;
+      case 'array':   properties[field.name] = { type: 'array', items: { type: 'string' } }; break;
+      case 'object':  properties[field.name] = { type: 'object' }; break;
+      default:        properties[field.name] = { type: 'string' }; break;
+    }
+  }
+  return { type: 'object', properties, required, additionalProperties: false };
+}
+
 async function runAgentStep(config, vars, signal, chatService, onMessage) {
+  const mode     = config.mode || 'prompt';
   const prompt   = resolveVars(config.prompt || '', vars);
   const cwd      = resolveVars(config.cwd || process.cwd(), vars);
   const model    = config.model || null;
@@ -340,9 +609,33 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
 
   if (signal?.aborted) throw new Error('Cancelled');
 
+  // Build session options based on mode
+  const sessionOpts = {
+    cwd,
+    prompt,
+    permissionMode: 'bypassPermissions',
+    model,
+    effort,
+    maxTurns,
+  };
+
+  // Skill mode: pass skill to SDK
+  if (mode === 'skill' && config.skillId) {
+    sessionOpts.skills = [config.skillId];
+  }
+
+  // Structured output: build JSON schema from field definitions
+  if (config.outputSchema && config.outputSchema.length > 0) {
+    const validFields = config.outputSchema.filter(f => f.name);
+    if (validFields.length > 0) {
+      sessionOpts.outputFormat = { type: 'json_schema', schema: buildJsonSchema(validFields) };
+    }
+  }
+
   return new Promise((resolve, reject) => {
     let sessionId;
     let stdout = '';
+    let structuredOutput = null;
     let cleanup;
 
     const onAbort = () => {
@@ -355,15 +648,9 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    // Use ChatService's internal _send to intercept messages
-    // We monkey-patch mainWindow temporarily — cleaner approach: use an event callback
-    const origSend = chatService._send.bind(chatService);
+    let unregisterInterceptor;
 
     const interceptor = (channel, data) => {
-      if (data?.sessionId !== sessionId) {
-        origSend(channel, data);
-        return;
-      }
       if (channel === 'chat-message' && onMessage) onMessage(data.message);
       if (channel === 'chat-message' && data.message?.type === 'assistant') {
         const content = data.message?.message?.content;
@@ -373,37 +660,36 @@ async function runAgentStep(config, vars, signal, chatService, onMessage) {
           }
         }
       }
+      // Capture structured output from result message
+      if (channel === 'chat-message' && data.message?.type === 'result' && data.message?.structured_output) {
+        structuredOutput = data.message.structured_output;
+      }
       if (channel === 'chat-done') {
         signal?.removeEventListener('abort', onAbort);
-        chatService._send = origSend;
+        unregisterInterceptor?.();
         cleanup?.();
-        resolve({ output: stdout.trim(), success: true });
+        const result = { output: stdout.trim(), success: true };
+        // Merge structured output fields into step result (accessible as $stepId.fieldName)
+        if (structuredOutput && typeof structuredOutput === 'object') {
+          Object.assign(result, structuredOutput);
+        }
+        resolve(result);
       }
       if (channel === 'chat-error') {
         signal?.removeEventListener('abort', onAbort);
-        chatService._send = origSend;
+        unregisterInterceptor?.();
         cleanup?.();
         reject(new Error(data.error || 'Agent step failed'));
       }
     };
 
-    chatService._send = interceptor;
-
-    chatService.startSession({
-      cwd,
-      prompt,
-      permissionMode: 'bypassPermissions',
-      model,
-      effort,
-      maxTurns,
-    }).then(id => {
+    chatService.startSession(sessionOpts).then(id => {
       sessionId = id;
-      cleanup = () => {
-        // nothing extra — session closed by chat-done/error
-      };
+      unregisterInterceptor = chatService.addSessionInterceptor(id, interceptor);
+      cleanup = () => {};
     }).catch(err => {
       signal?.removeEventListener('abort', onAbort);
-      chatService._send = origSend;
+      unregisterInterceptor?.();
       reject(err);
     });
   });
@@ -479,15 +765,17 @@ class WorkflowRunner {
    * @param {Map<string, Function>} opts.waitCallbacks - shared wait registry
    * @param {Object}            opts.projectTypeRegistry - { fivem, api, ... } services for native steps
    */
-  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {} }) {
+  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {}, databaseService = null }) {
     this._send              = sendFn;
     this._chatService       = chatService;
     this._waitCallbacks     = waitCallbacks;
     this._projectTypeRegistry = projectTypeRegistry;
+    this._databaseService   = databaseService;
   }
 
   /**
    * Execute a full workflow run.
+   * Supports both legacy steps[] format and new graph format.
    * @param {Object} workflow
    * @param {Object} run              - run record (has .id, .triggerData, etc.)
    * @param {AbortController} abort
@@ -510,24 +798,443 @@ class WorkflowRunner {
     ]);
 
     const stepOutputs = {};
+    this._stepStatuses = new Map(); // Track final step statuses for persistence
 
-    const steps = workflow.steps || [];
     const globalTimeoutMs = workflow.timeout ? parseMs(workflow.timeout) : null;
     const globalTimer = globalTimeoutMs
       ? setTimeout(() => abort.abort(), globalTimeoutMs)
       : null;
 
     try {
-      await this._runSteps(steps, vars, run.id, abort.signal, stepOutputs, workflow);
-      return { success: true, outputs: stepOutputs };
+      if (workflow.graph && workflow.graph.nodes) {
+        // New graph-based execution
+        await this._executeGraph(workflow.graph, vars, run.id, abort.signal, stepOutputs, workflow);
+      } else {
+        // Legacy linear steps execution
+        const steps = workflow.steps || [];
+        await this._runSteps(steps, vars, run.id, abort.signal, stepOutputs, workflow);
+      }
+      return { success: true, outputs: stepOutputs, stepStatuses: this._stepStatuses };
     } catch (err) {
       if (abort.signal.aborted) {
-        return { success: false, cancelled: true, outputs: stepOutputs, error: 'Cancelled' };
+        return { success: false, cancelled: true, outputs: stepOutputs, stepStatuses: this._stepStatuses, error: 'Cancelled' };
       }
-      return { success: false, outputs: stepOutputs, error: err.message };
+      return { success: false, outputs: stepOutputs, stepStatuses: this._stepStatuses, error: err.message };
     } finally {
       if (globalTimer) clearTimeout(globalTimer);
     }
+  }
+
+  // ─── Graph-based execution ───────────────────────────────────────────────────
+
+  /**
+   * Execute a workflow graph using BFS traversal from the trigger node.
+   * Follows LiteGraph links and handles Condition node branching.
+   *
+   * @param {Object} graphData          - LiteGraph serialized graph { nodes[], links[] }
+   * @param {Map<string, any>} vars     - Resolved variables
+   * @param {string} runId              - Current run ID
+   * @param {AbortSignal} signal        - Cancellation signal
+   * @param {Object} stepOutputs        - Accumulator for step outputs
+   * @param {Object} workflow           - Full workflow object
+   */
+  async _executeGraph(graphData, vars, runId, signal, stepOutputs, workflow) {
+    const { nodes, links } = graphData;
+    if (!nodes || !nodes.length) return;
+
+    // Build lookup maps
+    const nodeById = new Map();
+    for (const node of nodes) {
+      nodeById.set(node.id, node);
+    }
+
+    // Build adjacency: linkId → link data
+    // LiteGraph link format: [link_id, origin_id, origin_slot, target_id, target_slot, type]
+    const linkById = new Map();
+    if (links) {
+      for (const link of links) {
+        linkById.set(link[0], {
+          id:         link[0],
+          originId:   link[1],
+          originSlot: link[2],
+          targetId:   link[3],
+          targetSlot: link[4],
+          type:       link[5],
+        });
+      }
+    }
+
+    // Build outgoing connections map: nodeId → Map<slotIndex, targetNodeId[]>
+    const outgoing = new Map();
+    for (const [, link] of linkById) {
+      if (!outgoing.has(link.originId)) outgoing.set(link.originId, new Map());
+      const slots = outgoing.get(link.originId);
+      if (!slots.has(link.originSlot)) slots.set(link.originSlot, []);
+      slots.get(link.originSlot).push(link.targetId);
+    }
+
+    // Build incoming connections map: nodeId → Map<targetSlot, {originId, originSlot}[]>
+    const incoming = new Map();
+    for (const [, link] of linkById) {
+      if (!incoming.has(link.targetId)) incoming.set(link.targetId, new Map());
+      const slots = incoming.get(link.targetId);
+      if (!slots.has(link.targetSlot)) slots.set(link.targetSlot, []);
+      slots.get(link.targetSlot).push({ originId: link.originId, originSlot: link.originSlot });
+    }
+
+    // Find the trigger node
+    const triggerNode = nodes.find(n => n.type === 'workflow/trigger');
+    if (!triggerNode) {
+      throw new Error('No trigger node found in graph');
+    }
+
+    // BFS traversal from trigger node
+    // The trigger has output slot 0 = "Start"
+    const visited = new Set();
+    const queue = this._getNextNodes(triggerNode.id, 0, outgoing); // slot 0 = Start
+
+    // Emit trigger as running then success
+    this._emitStep(runId, { id: `node_${triggerNode.id}`, type: 'trigger' }, 'running', null);
+    this._emitStep(runId, { id: `node_${triggerNode.id}`, type: 'trigger' }, 'success', null);
+    visited.add(triggerNode.id);
+
+    let lastError = null;
+
+    while (queue.length > 0) {
+      if (signal.aborted) throw new Error('Cancelled');
+
+      const nodeId = queue.shift();
+      if (visited.has(nodeId)) continue;
+      visited.add(nodeId);
+
+      const nodeData = nodeById.get(nodeId);
+      if (!nodeData) continue;
+
+      // Convert node to step format for the dispatcher
+      const stepType = nodeData.type.replace('workflow/', '');
+      const step = {
+        id:   `node_${nodeData.id}`,
+        type: stepType,
+        ...(nodeData.properties || {}),
+      };
+
+      if (stepType === 'condition') {
+        // Condition nodes don't fail — they evaluate and branch
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+        } catch (err) {
+          if (signal.aborted) throw err;
+          // Condition eval failed — treat as false
+          stepOutputs[step.id] = { result: false, value: false };
+        }
+        const outputResult = stepOutputs[step.id];
+        const condResult = outputResult?.result ?? outputResult?.value ?? true;
+        const nextSlot = condResult ? 0 : 1;
+        queue.push(...this._getNextNodes(nodeId, nextSlot, outgoing));
+      } else if (stepType === 'loop') {
+        // ── Loop node: resolve items, then execute body per-iteration ──
+        try {
+          this._emitStep(runId, step, 'running', null);
+
+          // 1. Resolve the items array and apply maxIterations cap
+          let items = this._resolveLoopItems(step, nodeId, vars, incoming);
+          const maxIter = parseInt(step.maxIterations, 10);
+          if (maxIter > 0 && items.length > maxIter) {
+            items = items.slice(0, maxIter);
+          }
+
+          // 2. Identify "Each" body nodes (slot 0) and "Done" continuation (slot 1)
+          const eachTargets = this._getNextNodes(nodeId, 0, outgoing);
+          const doneTargets = this._getNextNodes(nodeId, 1, outgoing);
+
+          // 3. Execute sub-BFS for each item
+          const allBodyVisited = new Set();
+          const iterationResults = [];
+          const isParallel = step.mode === 'parallel';
+
+          if (isParallel && eachTargets.length) {
+            // Parallel execution: run all iterations concurrently
+            const promises = items.map(async (item, idx) => {
+              if (signal.aborted) throw new Error('Cancelled');
+              const iterVars = new Map(vars);
+              iterVars.set('loop', { item, index: idx, total: items.length });
+              iterVars.set('item', item);
+              iterVars.set('index', idx);
+              const { outputs, visitedNodes } = await this._executeSubGraph(
+                eachTargets, nodeById, outgoing, incoming, iterVars, runId, signal, stepOutputs, workflow
+              );
+              for (const nid of visitedNodes) allBodyVisited.add(nid);
+              return outputs;
+            });
+            iterationResults.push(...await Promise.all(promises));
+          } else {
+            // Sequential execution (default)
+            for (let idx = 0; idx < items.length; idx++) {
+              if (signal.aborted) throw new Error('Cancelled');
+
+              // Set loop context variables
+              vars.set('loop', { item: items[idx], index: idx, total: items.length });
+              vars.set('item', items[idx]);
+              vars.set('index', idx);
+
+              // Execute the "Each" body sub-graph
+              const { outputs, visitedNodes } = await this._executeSubGraph(
+                eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
+              );
+              iterationResults.push(outputs);
+              for (const nid of visitedNodes) allBodyVisited.add(nid);
+            }
+          }
+
+          // 4. Store loop result and emit success
+          const loopOutput = { items: iterationResults, count: items.length };
+          vars.set(step.id, loopOutput);
+          stepOutputs[step.id] = loopOutput;
+          this._emitStep(runId, step, 'success', loopOutput);
+
+          // 5. Clean up loop context
+          vars.delete('loop');
+          vars.delete('item');
+          vars.delete('index');
+
+          // 6. Mark body nodes as visited so main BFS skips them
+          for (const nid of allBodyVisited) visited.add(nid);
+
+          // 7. Follow "Done" path (slot 1) for continuation after loop
+          for (const tid of doneTargets) {
+            if (!visited.has(tid)) queue.push(tid);
+          }
+
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastError = err;
+          this._emitStep(runId, step, 'failed', { error: err.message });
+          throw err;
+        }
+      } else {
+        // Normal step: try to execute
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+          // Success → follow slot 0 (Done)
+          queue.push(...this._getNextNodes(nodeId, 0, outgoing));
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastError = err;
+
+          // Check if error slot (slot 1) is connected
+          const errorTargets = this._getNextNodes(nodeId, 1, outgoing);
+          if (errorTargets.length > 0) {
+            // Error is handled — follow the error path
+            // Store error info for downstream nodes
+            vars.set(step.id, { error: err.message, success: false });
+            stepOutputs[step.id] = { error: err.message, success: false };
+            queue.push(...errorTargets);
+          } else {
+            // No error handler — propagate failure
+            throw err;
+          }
+        }
+      }
+    }
+
+    // If we got here with a lastError but it was handled via error slots, that's OK
+    // The run is considered successful if no unhandled errors occurred
+  }
+
+  /**
+   * Get the list of node IDs connected to a specific output slot.
+   * @param {number} nodeId
+   * @param {number} slotIndex
+   * @param {Map} outgoing - adjacency map
+   * @returns {number[]}
+   */
+  _getNextNodes(nodeId, slotIndex, outgoing) {
+    const slots = outgoing.get(nodeId);
+    if (!slots) return [];
+    return slots.get(slotIndex) || [];
+  }
+
+  /**
+   * Extract an array from a node's output.
+   * Handles: plain arrays, { rows: [...] } (DB), { items: [...] }, { content: [...] }.
+   * @private
+   */
+  _extractArrayFromOutput(output) {
+    if (!output) return null;
+    if (Array.isArray(output)) return output;
+    if (Array.isArray(output.rows)) return output.rows;
+    if (Array.isArray(output.tables)) return output.tables;
+    if (Array.isArray(output.items)) return output.items;
+    if (Array.isArray(output.content)) return output.content;
+    // Last resort: look for any array property
+    for (const key of Object.keys(output)) {
+      if (Array.isArray(output[key]) && output[key].length > 0) return output[key];
+    }
+    return null;
+  }
+
+  /**
+   * Resolve loop items from source config (projects, files, custom).
+   * Does NOT handle previous_output/auto — that's done in _resolveLoopItems.
+   * @private
+   */
+  _resolveLoopSource(step, vars) {
+    const source = step.source || 'projects';
+
+    if (source === 'projects') {
+      const ctx = vars.get('ctx') || {};
+      return vars.get('_projectsList') || [ctx.project].filter(Boolean);
+    }
+
+    if (source === 'files') {
+      const filter = resolveVars(step.filter || '*', vars);
+      const ctx = vars.get('ctx') || {};
+      const baseDir = ctx.project || process.cwd();
+      try {
+        const glob = require('glob');
+        return glob.sync(filter, { cwd: baseDir, nodir: true });
+      } catch {
+        return fs.readdirSync(baseDir).filter(f => f.includes('.'));
+      }
+    }
+
+    if (source === 'custom') {
+      const raw = resolveVars(step.filter || '', vars);
+      return raw.split('\n').map(s => s.trim()).filter(Boolean);
+    }
+
+    return [];
+  }
+
+  /**
+   * Resolve items for a Loop node in graph mode.
+   * Priority:
+   *   1. Items input slot (slot 1) connected → use the origin node's output
+   *   2. source === 'previous_output' or 'auto' → predecessor on In slot (slot 0)
+   *   3. Other source values → projects, files, custom
+   * @private
+   */
+  _resolveLoopItems(step, nodeId, vars, incoming) {
+    // Strategy 1: Check if Items input slot (slot 1) is connected
+    const itemsInputs = incoming.get(nodeId)?.get(1) || [];
+    if (itemsInputs.length > 0) {
+      const { originId } = itemsInputs[0];
+      const originStepId = `node_${originId}`;
+      const originOutput = vars.get(originStepId);
+      const items = this._extractArrayFromOutput(originOutput);
+      if (items && items.length > 0) return items;
+    }
+
+    // Strategy 2: auto / previous_output → look at predecessor on In slot (slot 0)
+    const source = step.source || 'auto';
+    if (source === 'auto' || source === 'previous_output') {
+      const inInputs = incoming.get(nodeId)?.get(0) || [];
+      if (inInputs.length > 0) {
+        const { originId } = inInputs[0];
+        const originStepId = `node_${originId}`;
+        const originOutput = vars.get(originStepId);
+        const items = this._extractArrayFromOutput(originOutput);
+        if (items) return items;
+      }
+      // If nothing found, return empty array (don't fall through to source-based)
+      return [];
+    }
+
+    // Strategy 3: source-based resolution (projects, files, custom)
+    return this._resolveLoopSource(step, vars);
+  }
+
+  /**
+   * Execute a sub-graph for loop body iteration.
+   * Performs a mini-BFS from the given start nodes.
+   * @private
+   */
+  async _executeSubGraph(startNodeIds, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow) {
+    const subVisited = new Set();
+    const subQueue = [...startNodeIds];
+    const outputs = {};
+
+    while (subQueue.length > 0) {
+      if (signal.aborted) throw new Error('Cancelled');
+
+      const nodeId = subQueue.shift();
+      if (subVisited.has(nodeId)) continue;
+      subVisited.add(nodeId);
+
+      const nodeData = nodeById.get(nodeId);
+      if (!nodeData) continue;
+
+      const stepType = nodeData.type.replace('workflow/', '');
+      const step = {
+        id:   `node_${nodeData.id}`,
+        type: stepType,
+        ...(nodeData.properties || {}),
+      };
+
+      if (stepType === 'condition') {
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+        } catch (err) {
+          if (signal.aborted) throw err;
+          stepOutputs[step.id] = { result: false, value: false };
+        }
+        const condResult = stepOutputs[step.id]?.result ?? stepOutputs[step.id]?.value ?? true;
+        subQueue.push(...this._getNextNodes(nodeId, condResult ? 0 : 1, outgoing));
+      } else if (stepType === 'loop') {
+        // Nested loop — resolve items and recurse
+        this._emitStep(runId, step, 'running', null);
+        const nestedItems = this._resolveLoopItems(step, nodeId, vars, incoming);
+        const eachTargets = this._getNextNodes(nodeId, 0, outgoing);
+        const doneTargets = this._getNextNodes(nodeId, 1, outgoing);
+        const nestedResults = [];
+
+        for (let idx = 0; idx < nestedItems.length; idx++) {
+          if (signal.aborted) throw new Error('Cancelled');
+          vars.set('loop', { item: nestedItems[idx], index: idx, total: nestedItems.length });
+          vars.set('item', nestedItems[idx]);
+          vars.set('index', idx);
+          const { outputs: iterOut, visitedNodes } = await this._executeSubGraph(
+            eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
+          );
+          nestedResults.push(iterOut);
+          for (const nid of visitedNodes) subVisited.add(nid);
+        }
+
+        const loopOutput = { items: nestedResults, count: nestedItems.length };
+        vars.set(step.id, loopOutput);
+        stepOutputs[step.id] = loopOutput;
+        this._emitStep(runId, step, 'success', loopOutput);
+        outputs[step.id] = loopOutput;
+
+        vars.delete('loop');
+        vars.delete('item');
+        vars.delete('index');
+
+        for (const tid of doneTargets) {
+          if (!subVisited.has(tid)) subQueue.push(tid);
+        }
+      } else {
+        // Normal step
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+          subQueue.push(...this._getNextNodes(nodeId, 0, outgoing));
+        } catch (err) {
+          if (signal.aborted) throw err;
+          const errorTargets = this._getNextNodes(nodeId, 1, outgoing);
+          if (errorTargets.length > 0) {
+            vars.set(step.id, { error: err.message, success: false });
+            stepOutputs[step.id] = { error: err.message, success: false };
+            subQueue.push(...errorTargets);
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      outputs[step.id] = stepOutputs[step.id];
+    }
+
+    return { outputs, visitedNodes: subVisited };
   }
 
   /**
@@ -616,7 +1323,7 @@ class WorkflowRunner {
 
     // ── Built-in universal steps ──────────────────────────────────────────────
 
-    if (type === 'agent') {
+    if (type === 'agent' || type === 'claude') {
       return runAgentStep(step, vars, signal, this._chatService, (msg) => {
         this._send('workflow-agent-message', { runId, stepId: step.id, message: msg });
       });
@@ -638,8 +1345,29 @@ class WorkflowRunner {
       return runFileStep(step, vars);
     }
 
+    if (type === 'db') {
+      const result = await runDbStep(step, vars, this._databaseService);
+      // Also store under outputVar alias if configured (e.g. $dbResult.rows)
+      if (step.outputVar && step.id) {
+        vars.set(step.outputVar, result);
+      }
+      return result;
+    }
+
     if (type === 'condition') {
       return runConditionStep(step, vars);
+    }
+
+    if (type === 'project') {
+      return runProjectStep(step, vars, this._send);
+    }
+
+    if (type === 'variable') {
+      return runVariableStep(step, vars);
+    }
+
+    if (type === 'log') {
+      return runLogStep(step, vars, this._send);
     }
 
     if (type === 'notify') {
@@ -674,18 +1402,37 @@ class WorkflowRunner {
   }
 
   /**
-   * loop step: iterate over vars[step.over], run sub-steps for each item.
+   * loop step (legacy): iterate over an array, run sub-steps for each item.
+   * Used for linear/legacy workflows with step.over + step.steps.
+   * Graph mode loops are handled directly in _executeGraph.
    * @private
    */
   async _runLoopStep(step, vars, runId, signal, workflow) {
-    const overKey = resolveVars(step.over || '', vars);
-    // Resolve the iterable — it may be a direct var key or a path into a var
-    const parts = overKey.replace(/^\$/, '').split('.');
-    let items = vars.get(parts[0]);
-    for (let i = 1; i < parts.length && items != null; i++) items = items[parts[i]];
+    let items;
+
+    if (step.source && !step.over) {
+      const source = step.source;
+      if (source === 'previous_output' || source === 'auto') {
+        // Scan vars for most recent array output from a node
+        for (const [key, val] of vars) {
+          if (!key.startsWith('node_') && !key.startsWith('step_')) continue;
+          const arr = this._extractArrayFromOutput(val);
+          if (arr) { items = arr; /* keep scanning — last one wins */ }
+        }
+        if (!items) items = [];
+      } else {
+        items = this._resolveLoopSource(step, vars);
+      }
+    } else {
+      // Legacy format: step.over = '$varName.path'
+      const overKey = resolveVars(step.over || '', vars);
+      const parts = overKey.replace(/^\$/, '').split('.');
+      items = vars.get(parts[0]);
+      for (let i = 1; i < parts.length && items != null; i++) items = items[parts[i]];
+    }
 
     if (!Array.isArray(items)) {
-      throw new Error(`loop: "${step.over}" did not resolve to an array`);
+      throw new Error(`loop: could not resolve items to an array (source: ${step.source || step.over})`);
     }
 
     const results = [];
@@ -695,13 +1442,18 @@ class WorkflowRunner {
       const itemVars = new Map(vars);
       itemVars.set('item', items[idx]);
       itemVars.set('index', idx);
+      itemVars.set('loop', { item: items[idx], index: idx, total: items.length });
 
-      const iterOutputs = {};
-      await this._runSteps(step.steps || [], itemVars, runId, signal, iterOutputs, workflow);
-      results.push(iterOutputs);
+      if (step.steps && step.steps.length > 0) {
+        const iterOutputs = {};
+        await this._runSteps(step.steps, itemVars, runId, signal, iterOutputs, workflow);
+        results.push(iterOutputs);
+      } else {
+        results.push(items[idx]);
+      }
     }
 
-    return { items: results };
+    return { items: results, count: items.length };
   }
 
   /**
@@ -737,6 +1489,10 @@ class WorkflowRunner {
   // ─── Event emission ─────────────────────────────────────────────────────────
 
   _emitStep(runId, step, status, output, attempt) {
+    // Track final step status for persistence (overwrite — last status wins)
+    if (this._stepStatuses && status !== 'running' && status !== 'retrying') {
+      this._stepStatuses.set(step.id, { status, output: this._safeOutput(output) });
+    }
     this._send('workflow-step-update', {
       runId,
       stepId:  step.id,

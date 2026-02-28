@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 import { authenticateApiKey } from '../auth/auth';
+import { store } from '../store/store';
 import { projectManager } from './ProjectManager';
 import { sessionManager } from './SessionManager';
 import { config } from '../config';
@@ -48,6 +50,65 @@ export function createCloudRouter(): Router {
   const router = Router();
   router.use(authMiddleware as any);
 
+  // ── User Profile ──
+
+  router.get('/me', async (req: AuthRequest, res: Response) => {
+    try {
+      const user = await store.getUser(req.userName!);
+      if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+      const credPath = path.join(store.userHomePath(req.userName!), '.claude', '.credentials.json');
+      let claudeAuthed = false;
+      try { fs.accessSync(credPath); claudeAuthed = true; } catch { /* not authed */ }
+      res.json({
+        name: user.name,
+        gitName: user.gitName || null,
+        gitEmail: user.gitEmail || null,
+        claudeAuthed,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.patch('/me', async (req: AuthRequest, res: Response) => {
+    try {
+      const { gitName, gitEmail } = req.body;
+      const user = await store.getUser(req.userName!);
+      if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+      // Validate gitName/gitEmail to prevent gitconfig injection
+      if (gitName !== undefined) {
+        if (typeof gitName !== 'string' || gitName.length > 128 || /[\n\r\t\[\]\\]/.test(gitName)) {
+          res.status(400).json({ error: 'Invalid git name (no newlines, brackets, or backslashes allowed)' });
+          return;
+        }
+        user.gitName = gitName;
+      }
+      if (gitEmail !== undefined) {
+        if (typeof gitEmail !== 'string' || gitEmail.length > 256 || /[\n\r\t\[\]\\]/.test(gitEmail)) {
+          res.status(400).json({ error: 'Invalid git email (no newlines, brackets, or backslashes allowed)' });
+          return;
+        }
+        user.gitEmail = gitEmail;
+      }
+      await store.saveUser(req.userName!, user);
+
+      // Write .gitconfig file in user's home
+      if (user.gitName && user.gitEmail) {
+        await store.ensureUserHome(req.userName!);
+        const gitconfigPath = path.join(store.userHomePath(req.userName!), '.gitconfig');
+        const safeName = user.gitName.replace(/[^\x20-\x7E]/g, '');
+        const safeEmail = user.gitEmail.replace(/[^\x20-\x7E]/g, '');
+        const content = `[user]\n\tname = ${safeName}\n\temail = ${safeEmail}\n`;
+        await fs.promises.writeFile(gitconfigPath, content, 'utf-8');
+      }
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Projects ──
 
   router.get('/projects', async (req: AuthRequest, res: Response) => {
@@ -92,6 +153,66 @@ export function createCloudRouter(): Router {
     }
   });
 
+  // Incremental sync (only changed files + .DELETED markers)
+  router.patch('/projects/:name/sync', upload.single('zip'), async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: 'Missing zip file' });
+        return;
+      }
+      const name = req.params.name as string;
+      const result = await projectManager.patchProject(req.userName!, name, req.file.path);
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // List all files in a cloud project (for diff comparison)
+  router.get('/projects/:name/files', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const files = await projectManager.listProjectFiles(req.userName!, name);
+      res.json({ files });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // ── Project Changes (for sync) ──
+
+  router.get('/projects/:name/changes', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const changes = await projectManager.getUnsyncedChanges(req.userName!, name);
+      res.json({ changes });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.get('/projects/:name/changes/download', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const zipStream = await projectManager.downloadChangesZip(req.userName!, name);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${name}-changes.zip"`);
+      (zipStream as any).pipe(res);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/projects/:name/changes/ack', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      await projectManager.acknowledgeChanges(req.userName!, name);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   router.delete('/projects/:name', async (req: AuthRequest, res: Response) => {
     try {
       const name = req.params.name as string;
@@ -128,7 +249,9 @@ export function createCloudRouter(): Router {
         return;
       }
 
+      console.log(`[API] POST /sessions user=${req.userName} project=${projectName} model=${model || 'default'}`);
       const sessionId = await sessionManager.createSession(req.userName!, projectName, prompt, model, effort);
+      console.log(`[API] Session created: ${sessionId}`);
       res.status(201).json({ sessionId });
     } catch (err: any) {
       res.status(400).json({ error: err.message });

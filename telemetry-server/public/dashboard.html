@@ -21,7 +21,7 @@
 
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 16px;
       margin-bottom: 32px;
     }
@@ -42,6 +42,7 @@
     }
 
     .stat-value { font-size: 32px; font-weight: 600; color: #d97706; }
+    .stat-sub { font-size: 11px; color: #666; margin-top: 4px; }
 
     .section {
       background: #151515;
@@ -64,6 +65,12 @@
       gap: 16px;
     }
 
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+
     table { width: 100%; border-collapse: collapse; }
 
     th, td {
@@ -82,6 +89,104 @@
     .bar-fill { height: 100%; background: #d97706; border-radius: 4px; transition: width 0.3s; }
     .bar-value { font-size: 13px; min-width: 40px; text-align: right; color: #d97706; font-weight: 500; }
 
+    /* Mini chart (CSS bars) */
+    .chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 100px;
+      padding-top: 8px;
+    }
+
+    .chart-bar {
+      flex: 1;
+      background: #d97706;
+      border-radius: 2px 2px 0 0;
+      min-width: 4px;
+      position: relative;
+      transition: height 0.3s;
+    }
+
+    .chart-bar:hover {
+      background: #f59e0b;
+    }
+
+    .chart-bar .tooltip {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #252525;
+      border: 1px solid #3d3d3d;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      white-space: nowrap;
+      color: #e0e0e0;
+      z-index: 10;
+    }
+
+    .chart-bar:hover .tooltip { display: block; }
+
+    .chart-labels {
+      display: flex;
+      gap: 2px;
+      margin-top: 4px;
+    }
+
+    .chart-labels span {
+      flex: 1;
+      font-size: 9px;
+      color: #555;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    /* Feature trend colors */
+    .trend-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .trend-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #aaa;
+    }
+
+    .trend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .stacked-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 120px;
+    }
+
+    .stacked-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column-reverse;
+      min-width: 6px;
+    }
+
+    .stacked-seg {
+      border-radius: 1px;
+      transition: height 0.3s;
+      position: relative;
+    }
+
+    .stacked-seg:hover { opacity: 0.8; }
+
     .error-box {
       background: rgba(239, 68, 68, 0.1);
       border: 1px solid rgba(239, 68, 68, 0.3);
@@ -95,8 +200,8 @@
 
     #content { display: none; }
 
-    @media (max-width: 768px) {
-      .grid-2 { grid-template-columns: 1fr; }
+    @media (max-width: 900px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
@@ -110,6 +215,7 @@
     <div id="loading" class="loading">Loading statistics...</div>
 
     <div id="content">
+      <!-- Top stats -->
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-label">Total Users</div>
@@ -127,9 +233,37 @@
           <div class="stat-label">Active 30d</div>
           <div class="stat-value" id="s-30d">-</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Session</div>
+          <div class="stat-value" id="s-avg-session">-</div>
+          <div class="stat-sub" id="s-session-detail"></div>
+        </div>
       </div>
 
+      <!-- Charts row -->
       <div class="grid-2">
+        <div class="section">
+          <div class="section-title">New Users (30 days)</div>
+          <div id="chart-new-users" class="chart"></div>
+          <div id="labels-new-users" class="chart-labels"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">Active Users (30 days)</div>
+          <div id="chart-active-users" class="chart"></div>
+          <div id="labels-active-users" class="chart-labels"></div>
+        </div>
+      </div>
+
+      <!-- Feature trends -->
+      <div class="section">
+        <div class="section-title">Feature Trends (14 days)</div>
+        <div id="trend-legend" class="trend-legend"></div>
+        <div id="chart-features" class="stacked-chart"></div>
+        <div id="labels-features" class="chart-labels"></div>
+      </div>
+
+      <!-- Details -->
+      <div class="grid-3">
         <div class="section">
           <div class="section-title">Platforms</div>
           <div id="platforms"></div>
@@ -137,6 +271,10 @@
         <div class="section">
           <div class="section-title">Versions</div>
           <div id="versions"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">Cohorts</div>
+          <div id="cohorts"></div>
         </div>
       </div>
 
@@ -161,23 +299,6 @@
           <tbody id="events"></tbody>
         </table>
       </div>
-
-      <div class="grid-2">
-        <div class="section">
-          <div class="section-title">New Users (Last 30 Days)</div>
-          <table>
-            <thead><tr><th>Date</th><th>New Users</th></tr></thead>
-            <tbody id="new-users"></tbody>
-          </table>
-        </div>
-        <div class="section">
-          <div class="section-title">Active Users (Last 30 Days)</div>
-          <table>
-            <thead><tr><th>Date</th><th>Active Users</th></tr></thead>
-            <tbody id="active-users"></tbody>
-          </table>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -201,6 +322,64 @@
       ).join('');
     }
 
+    function renderChart(chartEl, labelsEl, data, labelKey, valueKey) {
+      const sorted = [...data].sort((a, b) => a[labelKey].localeCompare(b[labelKey]));
+      const max = Math.max(...sorted.map(d => d[valueKey]), 1);
+      chartEl.innerHTML = sorted.map(d => {
+        const pct = (d[valueKey] / max * 100).toFixed(1);
+        const shortDate = d[labelKey].slice(5); // MM-DD
+        return `<div class="chart-bar" style="height:${pct}%"><span class="tooltip">${shortDate}: ${fmt(d[valueKey])}</span></div>`;
+      }).join('');
+      labelsEl.innerHTML = sorted.map((d, i) => {
+        const show = i === 0 || i === sorted.length - 1 || i % 7 === 0;
+        return `<span>${show ? d[labelKey].slice(5) : ''}</span>`;
+      }).join('');
+    }
+
+    const FEATURE_COLORS = [
+      '#d97706', '#3b82f6', '#22c55e', '#ef4444', '#8b5cf6',
+      '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#a3e635',
+      '#e879f9', '#fbbf24', '#6366f1', '#10b981', '#f43f5e'
+    ];
+
+    function renderFeatureTrends(chartEl, labelsEl, legendEl, data) {
+      // Group by day, then by feature
+      const byDay = {};
+      const featureSet = new Set();
+      for (const row of data) {
+        if (!byDay[row.day]) byDay[row.day] = {};
+        const shortName = row.event_type.replace('features:', '');
+        byDay[row.day][shortName] = row.count;
+        featureSet.add(shortName);
+      }
+
+      const days = Object.keys(byDay).sort();
+      const features = [...featureSet];
+
+      // Legend
+      legendEl.innerHTML = features.map((f, i) =>
+        `<div class="trend-legend-item"><div class="trend-dot" style="background:${FEATURE_COLORS[i % FEATURE_COLORS.length]}"></div>${f}</div>`
+      ).join('');
+
+      // Find max daily total for scaling
+      const maxTotal = Math.max(...days.map(d => features.reduce((s, f) => s + (byDay[d][f] || 0), 0)), 1);
+
+      chartEl.innerHTML = days.map(day => {
+        const segs = features.map((f, i) => {
+          const val = byDay[day][f] || 0;
+          if (val === 0) return '';
+          const pct = (val / maxTotal * 100).toFixed(1);
+          return `<div class="stacked-seg" style="height:${pct}%;background:${FEATURE_COLORS[i % FEATURE_COLORS.length]}" title="${f}: ${val}"></div>`;
+        }).join('');
+        return `<div class="stacked-col">${segs}</div>`;
+      }).join('');
+
+      labelsEl.innerHTML = days.map((d, i) => {
+        const show = i === 0 || i === days.length - 1 || i % 3 === 0;
+        return `<span>${show ? d.slice(5) : ''}</span>`;
+      }).join('');
+    }
+
     async function load() {
       const token = prompt('Admin token:');
       if (!token) { document.getElementById('loading').textContent = 'Cancelled.'; return; }
@@ -210,23 +389,59 @@
         if (!res.ok) throw new Error(res.status === 401 ? 'Invalid token' : `HTTP ${res.status}`);
         const d = await res.json();
 
+        // Stats cards
         document.getElementById('s-total').textContent = fmt(d.users.total);
         document.getElementById('s-24h').textContent = fmt(d.users.active_24h);
         document.getElementById('s-7d').textContent = fmt(d.users.active_7d);
         document.getElementById('s-30d').textContent = fmt(d.users.active_30d);
 
+        if (d.session_duration) {
+          document.getElementById('s-avg-session').textContent = d.session_duration.avg_min + 'min';
+          document.getElementById('s-session-detail').textContent =
+            `Median: ${d.session_duration.median_min}min | ${d.session_duration.sample_size} sessions`;
+        }
+
+        // Charts
+        if (d.new_users_per_day?.length) {
+          renderChart(document.getElementById('chart-new-users'), document.getElementById('labels-new-users'),
+            d.new_users_per_day, 'day', 'count');
+        }
+        if (d.active_users_per_day?.length) {
+          renderChart(document.getElementById('chart-active-users'), document.getElementById('labels-active-users'),
+            d.active_users_per_day, 'day', 'count');
+        }
+
+        // Feature trends
+        if (d.feature_trends?.length) {
+          renderFeatureTrends(
+            document.getElementById('chart-features'),
+            document.getElementById('labels-features'),
+            document.getElementById('trend-legend'),
+            d.feature_trends
+          );
+        }
+
+        // Bar charts
         renderBars(document.getElementById('platforms'), d.platforms, 'platform', 'count');
         renderBars(document.getElementById('versions'), d.versions, 'app_version', 'count');
+
+        if (d.cohorts?.length) {
+          renderBars(document.getElementById('cohorts'), d.cohorts, 'cohort_version', 'count');
+        } else {
+          document.getElementById('cohorts').innerHTML = '<div style="color:#555;font-size:13px">No data yet</div>';
+        }
+
         if (d.countries?.length) renderBars(document.getElementById('countries'), d.countries, 'country', 'count');
         else document.getElementById('countries').innerHTML = '<div style="color:#555;font-size:13px">No data yet</div>';
+
         if (d.cities?.length) {
           document.getElementById('cities').innerHTML = d.cities.map(c =>
             `<tr><td>${c.city}</td><td>${c.country}</td><td>${fmt(c.count)}</td></tr>`
           ).join('');
         }
+
+        // Tables
         renderTable(document.getElementById('events'), d.top_events, 'event_type', 'count');
-        renderTable(document.getElementById('new-users'), d.new_users_per_day, 'day', 'count');
-        renderTable(document.getElementById('active-users'), d.active_users_per_day, 'day', 'count');
 
         document.getElementById('loading').style.display = 'none';
         document.getElementById('content').style.display = 'block';

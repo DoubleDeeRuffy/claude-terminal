@@ -9,6 +9,8 @@
  *  - result        → turn completion (cost, tokens, final text)
  */
 
+const _debugLog = console.log.bind(console);
+
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 
 const _isFr = navigator.language.toLowerCase().startsWith('fr');
@@ -17,8 +19,8 @@ const STRINGS = {
   pinMessage: _isFr ? 'Entrez le code affiché dans\nParamètres → Télécommande' : 'Enter the 4-digit PIN shown in\nSettings → Remote Control',
   pinError: _isFr ? 'Code invalide ou expiré. Réessayez.' : 'Invalid or expired PIN. Try again.',
   pinConnFail: _isFr ? 'Connexion impossible. Le serveur est-il démarré ?' : 'Connection failed. Is the server running?',
-  noSession: _isFr ? 'Aucune session active' : 'No active chat session',
-  noSessionHint: _isFr ? 'Sélectionnez un projet puis envoyez un message' : 'Select a project and send a message',
+  noSession: _isFr ? 'Nouveau chat' : 'New chat',
+  noSessionHint: _isFr ? 'Écrivez un message pour commencer' : 'Type a message to get started',
   noProjects: _isFr ? 'Aucun projet.' : 'No projects yet.',
   navProjects: _isFr ? 'Projets' : 'Projects',
   navChat: 'Chat',
@@ -30,6 +32,14 @@ const STRINGS = {
   disconnected: _isFr ? 'Déconnecté' : 'Disconnected',
   thinking: _isFr ? 'Réflexion…' : 'Thinking…',
   noOutput: _isFr ? '(aucune sortie)' : '(no output)',
+  headlessBanner: _isFr ? 'PC hors ligne — Session cloud disponible' : 'Desktop offline — Cloud mode available',
+  headlessBannerActive: _isFr ? 'Session cloud active' : 'Cloud session active',
+  headlessCreating: _isFr ? 'Lancement session cloud…' : 'Starting cloud session…',
+  headlessError: _isFr ? 'Erreur session cloud' : 'Cloud session error',
+  headlessSelectProject: _isFr ? 'Sélectionnez un projet pour démarrer' : 'Select a project to start',
+  cloudPopupTitle: _isFr ? 'Travaillez dans le cloud' : 'Work in the cloud',
+  cloudPopupDesc: _isFr ? 'Votre PC est hors ligne. Continuez à travailler avec des sessions cloud directement sur le serveur.' : 'Your PC is offline. Continue working with cloud sessions directly on the server.',
+  cloudPopupCta: _isFr ? 'Passer en mode cloud' : 'Switch to cloud',
 };
 
 function applyStrings() {
@@ -42,6 +52,8 @@ function applyStrings() {
     if (span && view === 'chat') span.textContent = STRINGS.navChat;
     if (span && view === 'dashboard') span.textContent = STRINGS.navDashboard;
   });
+  const newSessionLabel = $('new-session-label');
+  if (newSessionLabel) newSessionLabel.textContent = _isFr ? 'Nouveau chat' : 'New Chat';
 }
 
 // ─── Tool Icons (SVG) ─────────────────────────────────────────────────────────
@@ -102,6 +114,10 @@ const state = {
   inProjectHub: false,
   slashCommands: [], // Dynamic slash commands from SDK
   fileList: [], // File list for @file picker [{path, fullPath}]
+  // Headless cloud mode
+  cloudSessionMode: false,    // true when running headless via cloud API
+  desktopOffline: false,      // true when desktop is offline (relay mode)
+  _headlessSessionId: null,   // active headless session ID on cloud
 };
 
 // Session shape:
@@ -207,6 +223,7 @@ const $ = (id) => document.getElementById(id);
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 function init() {
+  _debugLog('[Init] mode=' + conn.mode, 'cloudUrl=' + (conn.cloudUrl || 'none'), 'hasKey=' + !!conn.cloudApiKey);
   applyStrings();
   _restoreSessions();
   setupPinEntry();
@@ -247,10 +264,27 @@ function init() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      // Check for updates every 60s
+      setInterval(() => reg.update(), 60_000);
+      // Auto-apply new SW when available
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'activated') {
+            console.log('[SW] New version activated, reloading...');
+            window.location.reload();
+          }
+        });
+      });
+    }).catch(err => {
+      console.warn('SW registration failed:', err);
+    });
   }
 
   _setupPwaInstallBanner();
+  _setupCloudPopup();
 }
 
 // ─── Screen Management ────────────────────────────────────────────────────────
@@ -441,6 +475,7 @@ function _openWS() {
 
   ws.onopen = () => {
     conn.retryCount = 0;
+    _debugLog('[WS] Connected to relay');
     connSetState('connected');
   };
 
@@ -452,6 +487,7 @@ function _openWS() {
   };
 
   ws.onclose = (e) => {
+    _debugLog('[WS] Closed:', e.code, e.reason);
     conn.ws = null;
     // Auth failure
     if (e.code === 4401 || e.code === 4003) {
@@ -492,10 +528,44 @@ function _scheduleReconnect() {
 }
 
 function _onDesktopOffline() {
+  _debugLog('[State] Desktop offline, relay mode=' + conn.mode);
+  state.desktopOffline = true;
   const labelEl = $('status-label');
   if (labelEl) labelEl.textContent = _isFr ? 'PC hors ligne' : 'Desktop offline';
   const dot = $('connection-dot');
   if (dot) { dot.classList.add('disconnected'); dot.classList.remove('reconnecting'); }
+  // Show cloud popup if in relay mode (cloud server available)
+  if (conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
+    _showCloudPopup(true);
+  }
+}
+
+async function _fetchCloudProjects() {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  try {
+    const resp = await fetch(`${base}/api/projects`, {
+      headers: { 'Authorization': `Bearer ${conn.cloudApiKey}` },
+    });
+    if (!resp.ok) return;
+    const { projects } = await resp.json();
+    if (projects && projects.length) {
+      // Map cloud projects to the format the PWA expects
+      state.projects = projects.map(p => ({
+        id: `cloud-${p.name}`,
+        name: p.name,
+        path: p.name,
+        color: '',
+        icon: '',
+        _cloud: true,
+      }));
+      state.folders = [];
+      state.rootOrder = [];
+      renderProjectsList();
+    }
+  } catch (e) {
+    console.error('[Cloud] Failed to fetch projects:', e);
+  }
 }
 
 function _onRelayKicked() {
@@ -512,19 +582,34 @@ function wsSend(type, data) {
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 
-function handleMessage({ type, data }) {
+function handleMessage(msg) {
+  const { type, data } = msg;
   switch (type) {
     case 'hello':
       connSetState('connected');
-      // Clear stale local sessions — server will re-send active ones via session:started
-      state.sessions = {};
-      state.selectedSessionId = null;
-      localStorage.removeItem('remote_sessions');
-      localStorage.removeItem('remote_selected_session');
+      // Mark existing sessions as stale — server will re-confirm active ones via session:started
+      // We keep them until init is complete to avoid data loss on flaky reconnections
+      for (const s of Object.values(state.sessions)) s._stale = true;
       if (data.chatModel) { state.selectedModel = data.chatModel; }
       if (data.effortLevel) { state.selectedEffort = data.effortLevel; }
       if (data.accentColor) _applyAccentColor(data.accentColor);
       _updatePlusMenuSelection();
+      // After a short delay, purge sessions the server didn't re-confirm
+      clearTimeout(state._staleCleanupTimer);
+      state._staleCleanupTimer = setTimeout(() => {
+        let changed = false;
+        for (const [id, s] of Object.entries(state.sessions)) {
+          if (s._stale) { delete state.sessions[id]; changed = true; }
+        }
+        if (changed) {
+          if (state.selectedSessionId && !state.sessions[state.selectedSessionId]) {
+            const ids = Object.keys(state.sessions);
+            state.selectedSessionId = ids.length ? ids[ids.length - 1] : null;
+          }
+          _saveSessions();
+          renderSessionBar(); renderChatMessages();
+        }
+      }, 3000);
       break;
     case 'projects:updated':     onProjectsUpdated(data); break;
     case 'session:started':      onSessionStarted(data); break;
@@ -545,12 +630,24 @@ function handleMessage({ type, data }) {
     case 'pong': break;
     // Relay-specific events
     case 'relay:desktop-online':
+      _debugLog('[Relay] Desktop came online');
+      state.desktopOffline = false;
       connSetState('connected');
+      _showCloudPopup(false);
+      _showHeadlessBanner(false);
+      _cleanupHeadlessSession();
       // Ask the desktop to send init data (projects, sessions, time)
       wsSend('request:init', {});
       break;
     case 'relay:desktop-offline': _onDesktopOffline(); break;
     case 'relay:kicked':          _onRelayKicked(); break;
+    // Cloud session stream events routed through relay WS
+    case 'stream':
+      if (msg.data) {
+        _debugLog('[Stream] Relay event:', msg.data.type, msg.data.event?.type || '');
+        _handleHeadlessEvent(msg.data);
+      }
+      break;
   }
 }
 
@@ -591,6 +688,8 @@ function onSessionStarted({ sessionId, projectId, tabName }) {
   if (!state.sessions[sessionId]) {
     state.sessions[sessionId] = _makeSession(sessionId, projectId, tabName, messages);
   }
+  // Server confirmed this session is active — remove stale flag
+  delete state.sessions[sessionId]._stale;
   if (!state.selectedSessionId || projectId === state.selectedProjectId) {
     state.selectedSessionId = sessionId;
     state.selectedProjectId = projectId;
@@ -1190,12 +1289,12 @@ function renderSessionsView() {
     list.innerHTML = `
       <div class="sessions-empty">
         <div class="sessions-empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
         </div>
-        <p>${_isFr ? 'Aucun chat ouvert' : 'No open chats'}</p>
-        <span class="sessions-empty-hint">${_isFr ? 'Créez un nouveau chat pour commencer' : 'Create a new chat to get started'}</span>
+        <div class="sessions-empty-title">${_isFr ? 'Aucun chat' : 'No chats yet'}</div>
+        <div class="sessions-empty-hint">${_isFr ? 'Cliquez le bouton ci-dessous pour commencer' : 'Tap the button below to get started'}</div>
       </div>`;
     return;
   }
@@ -1229,9 +1328,14 @@ function renderSessionsView() {
       </div>`;
   }).join('');
 
-  list.querySelectorAll('.session-card').forEach(card => {
-    card.addEventListener('click', () => openSession(card.dataset.sessionId));
-  });
+  // Event delegation — attach once, not per render
+  if (!list._sessionDelegated) {
+    list._sessionDelegated = true;
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('.session-card');
+      if (card && card.dataset.sessionId) openSession(card.dataset.sessionId);
+    });
+  }
 }
 
 function openSession(sessionId) {
@@ -1298,9 +1402,12 @@ function renderControlView() {
       </div>`;
   }).join('');
 
-  // Attach click handlers — go straight to chat for this session
-  list.querySelectorAll('.control-card').forEach(card => {
-    card.addEventListener('click', () => {
+  // Event delegation — attach once, not per render
+  if (!list._controlDelegated) {
+    list._controlDelegated = true;
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('.control-card');
+      if (!card) return;
       const sessionId = card.dataset.sessionId;
       const projectId = card.dataset.projectId;
       state.selectedSessionId = sessionId;
@@ -1309,7 +1416,7 @@ function renderControlView() {
       }
       switchView('chat');
     });
-  });
+  }
 }
 
 function _getSessionLastMessage(session) {
@@ -1408,17 +1515,16 @@ function renderProjectsList() {
     list.innerHTML = state.projects.map(p => _renderItem(p.id, 0)).join('');
   }
 
-  // Bind project clicks
-  list.querySelectorAll('.project-card').forEach(card => {
-    card.addEventListener('click', () => selectProject(card.dataset.projectId));
-  });
-  // Bind folder clicks
-  list.querySelectorAll('.folder-row').forEach(row => {
-    row.addEventListener('click', () => {
-      navigator.vibrate?.(10);
-      _toggleFolder(row.dataset.folderId);
+  // Event delegation — attach once, not per render
+  if (!list._projectDelegated) {
+    list._projectDelegated = true;
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('.project-card');
+      if (card && card.dataset.projectId) { selectProject(card.dataset.projectId); return; }
+      const row = e.target.closest('.folder-row');
+      if (row && row.dataset.folderId) { navigator.vibrate?.(10); _toggleFolder(row.dataset.folderId); }
     });
-  });
+  }
 }
 
 function selectProject(projectId) {
@@ -1476,8 +1582,14 @@ function renderChatMessages() {
     const project = state.projects.find(p => p.id === state.selectedProjectId);
     container.innerHTML = `
       <div class="no-session">
-        <div>${STRINGS.noSession}</div>
-        <div class="no-session-hint">${STRINGS.noSessionHint}${project ? ' (' + escHtml(project.name) + ')' : ''}</div>
+        <div class="no-session-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
+            <line x1="9" y1="21" x2="15" y2="21"/>
+          </svg>
+        </div>
+        <div class="no-session-title">${STRINGS.noSession}</div>
+        <div class="no-session-hint">${STRINGS.noSessionHint}${project ? ' — ' + escHtml(project.name) : ''}</div>
       </div>`;
     return;
   }
@@ -2079,6 +2191,32 @@ function sendMessage() {
 
   navigator.vibrate?.(10);
   _hideAutocomplete();
+  _debugLog('[Send] cloudMode=' + state.cloudSessionMode, 'headlessId=' + state._headlessSessionId, 'offline=' + state.desktopOffline, 'relay=' + conn.mode);
+
+  // Headless cloud mode: follow-up messages go to cloud API
+  if (state.cloudSessionMode && state._headlessSessionId) {
+    input.value = '';
+    input.style.height = 'auto';
+    _clearImageAfterSend();
+    _clearMentionsAfterSend();
+    _sendHeadlessMessage(text);
+    updateSendBtn();
+    return;
+  }
+
+  // Desktop offline in relay mode: start a headless session
+  if (state.desktopOffline && conn.mode === 'relay' && conn.cloudUrl && conn.cloudApiKey) {
+    const project = state.projects.find(p => p.id === state.selectedProjectId);
+    if (!project) return;
+    const projectName = project.name || project.path?.split(/[\\/]/).pop() || '';
+    input.value = '';
+    input.style.height = 'auto';
+    _clearImageAfterSend();
+    _clearMentionsAfterSend();
+    _startHeadlessSession(projectName, text);
+    updateSendBtn();
+    return;
+  }
 
   // Build images array for WS
   const images = image ? [{ base64: image.base64, mediaType: image.mediaType }] : [];
@@ -2690,6 +2828,235 @@ function _dismissInstallBanner() {
   const banner = $('pwa-install-banner');
   if (banner) banner.classList.add('hidden');
   localStorage.setItem('pwa_install_dismissed', '1');
+}
+
+// ─── Cloud Popup ─────────────────────────────────────────────────────────────
+
+function _showCloudPopup(show) {
+  const overlay = $('cloud-popup-overlay');
+  if (!overlay) return;
+  if (show) {
+    // Apply i18n
+    const title = $('cloud-popup-title');
+    const desc = $('cloud-popup-desc');
+    const ctaLabel = $('cloud-popup-cta-label');
+    if (title) title.textContent = STRINGS.cloudPopupTitle;
+    if (desc) desc.textContent = STRINGS.cloudPopupDesc;
+    if (ctaLabel) ctaLabel.textContent = STRINGS.cloudPopupCta;
+    overlay.classList.remove('hidden');
+  } else {
+    overlay.classList.add('hidden');
+  }
+}
+
+function _onCloudPopupCta() {
+  _debugLog('[Cloud] CTA clicked, fetching projects...');
+  _showCloudPopup(false);
+  _showHeadlessBanner(true);
+  _fetchCloudProjects();
+  switchView('projects');
+}
+
+function _setupCloudPopup() {
+  const cta = $('cloud-popup-cta');
+  const dismiss = $('cloud-popup-dismiss');
+  if (cta) cta.addEventListener('click', _onCloudPopupCta);
+  if (dismiss) dismiss.addEventListener('click', () => _showCloudPopup(false));
+}
+
+// ─── Headless Cloud Sessions ──────────────────────────────────────────────────
+
+function _showHeadlessBanner(show) {
+  const banner = $('headless-banner');
+  const text = $('headless-banner-text');
+  const badge = $('headless-badge');
+  if (!banner) return;
+  if (show) {
+    banner.classList.remove('hidden');
+    if (text) text.textContent = STRINGS.headlessBanner;
+    if (badge) badge.style.display = state.cloudSessionMode ? '' : 'none';
+  } else {
+    banner.classList.add('hidden');
+    if (badge) badge.style.display = 'none';
+  }
+}
+
+async function _startHeadlessSession(projectName, prompt) {
+  if (!conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  const headers = {
+    'Authorization': `Bearer ${conn.cloudApiKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  // Update banner
+  const text = $('headless-banner-text');
+  if (text) text.textContent = STRINGS.headlessCreating;
+
+  try {
+    // Create session via cloud API
+    const resp = await fetch(`${base}/api/sessions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        projectName,
+        prompt,
+        model: state.selectedModel,
+        effort: state.selectedEffort,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(err);
+    }
+
+    const { sessionId } = await resp.json();
+    _debugLog('[Headless] Session created:', sessionId);
+    state._headlessSessionId = sessionId;
+    state.cloudSessionMode = true;
+
+    // Update banner
+    if (text) text.textContent = STRINGS.headlessBannerActive;
+    const badge = $('headless-badge');
+    if (badge) badge.style.display = '';
+
+    // Create a local session to render messages
+    const project = state.projects.find(p => p.name === projectName || p.path?.endsWith(projectName));
+    const localSession = _makeSession(`headless-${sessionId}`, project?.id || '', projectName);
+    localSession.messages.push({ role: 'user', content: prompt });
+    state.sessions[localSession.sessionId] = localSession;
+    state.selectedSessionId = localSession.sessionId;
+    renderSessionBar();
+    renderChatMessages();
+    _saveSessions();
+
+    // Open WS stream to receive SDK events
+    _openHeadlessStream(sessionId);
+
+    // Switch to chat view
+    switchView('chat');
+    setInputState('sending');
+
+  } catch (err) {
+    _debugLog('[Headless] Failed to create session:', err?.message || err);
+    if (text) text.textContent = STRINGS.headlessError;
+    setTimeout(() => {
+      if (state.desktopOffline) {
+        if (text) text.textContent = STRINGS.headlessBanner;
+      }
+    }, 3000);
+  }
+}
+
+function _openHeadlessStream(sessionId) {
+  // Stream events are now received via the relay WS (type: 'stream')
+  // No need to open a separate WS connection (which fails on iOS Safari)
+  _debugLog('[Headless] Listening for stream events via relay WS for session:', sessionId);
+}
+
+function _handleHeadlessEvent(msg) {
+  const localSessionId = `headless-${state._headlessSessionId}`;
+  const session = state.sessions[localSessionId];
+  if (!session) return;
+
+  if (msg.type === 'event') {
+    const event = msg.event;
+    if (!event) return;
+
+    // Translate SDK events into the format onChatMessage() expects
+    if (event.type === 'assistant' && event.message?.content) {
+      for (const block of event.message.content) {
+        if (block.type === 'text') {
+          // Completed text block
+          session.messages.push({ role: 'assistant', content: block.text });
+          renderChatMessages();
+          _saveSessions();
+        } else if (block.type === 'tool_use') {
+          // Tool use
+          session.messages.push({
+            role: 'tool',
+            toolName: block.name,
+            toolId: block.id,
+            toolInput: block.input,
+            content: '',
+            status: 'running',
+          });
+          renderChatMessages();
+          _saveSessions();
+        } else if (block.type === 'tool_result') {
+          // Find matching tool card and update
+          const toolMsg = [...session.messages].reverse().find(m => m.toolId === block.tool_use_id);
+          if (toolMsg) {
+            toolMsg.status = 'done';
+            toolMsg.toolOutput = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+            renderChatMessages();
+            _saveSessions();
+          }
+        }
+      }
+    }
+
+    // Result event from SDK (tool_result as top-level)
+    if (event.type === 'result' && event.result) {
+      const text = typeof event.result === 'string' ? event.result : event.result.text;
+      if (text && !session.messages.some(m => m.role === 'assistant' && m.content === text)) {
+        session.messages.push({ role: 'assistant', content: text });
+        renderChatMessages();
+        _saveSessions();
+      }
+    }
+  }
+
+  if (msg.type === 'idle') {
+    setInputState('idle');
+  }
+
+  if (msg.type === 'done') {
+    setInputState('idle');
+  }
+
+  if (msg.type === 'error') {
+    session.messages.push({ role: 'assistant', content: `Error: ${msg.error || 'Unknown error'}` });
+    renderChatMessages();
+    _saveSessions();
+    setInputState('idle');
+  }
+}
+
+async function _sendHeadlessMessage(text) {
+  if (!state._headlessSessionId || !conn.cloudUrl || !conn.cloudApiKey) return;
+  const base = conn.cloudUrl.replace(/\/$/, '');
+  const headers = {
+    'Authorization': `Bearer ${conn.cloudApiKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  const localSessionId = `headless-${state._headlessSessionId}`;
+  const session = state.sessions[localSessionId];
+  if (session) {
+    session.messages.push({ role: 'user', content: text });
+    renderChatMessages();
+    _saveSessions();
+  }
+
+  setInputState('sending');
+
+  try {
+    await fetch(`${base}/api/sessions/${encodeURIComponent(state._headlessSessionId)}/send`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ message: text }),
+    });
+  } catch (err) {
+    console.error('[Headless] Failed to send message:', err);
+    setInputState('idle');
+  }
+}
+
+function _cleanupHeadlessSession() {
+  state.cloudSessionMode = false;
+  state._headlessSessionId = null;
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────

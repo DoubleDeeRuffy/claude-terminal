@@ -9,6 +9,7 @@ const { t, setLanguage, getCurrentLanguage, getAvailableLanguages } = require('.
 const RemotePanel = require('./RemotePanel');
 
 let ctx = null;
+let _settingsDropdownCleanup = null;
 
 function init(context) {
   ctx = context;
@@ -453,16 +454,6 @@ async function renderSettingsTab(initialTab = 'general') {
                 <span class="settings-toggle-slider"></span>
               </label>
             </div>
-            <div class="settings-toggle-row">
-              <div class="settings-toggle-label">
-                <div>${t('settings.updateTitleOnProjectSwitch')}</div>
-                <div class="settings-toggle-desc">${t('settings.updateTitleOnProjectSwitchDesc')}</div>
-              </div>
-              <label class="settings-toggle">
-                <input type="checkbox" id="update-title-toggle" ${settings.updateTitleOnProjectSwitch !== false ? 'checked' : ''}>
-                <span class="settings-toggle-slider"></span>
-              </label>
-            </div>
             <div class="settings-row">
               <div class="settings-label">
                 <div>${t('settings.editor')}</div>
@@ -524,16 +515,6 @@ async function renderSettingsTab(initialTab = 'general') {
                 </div>
                 <label class="settings-toggle">
                   <input type="checkbox" id="show-dotfiles-toggle" ${settings.showDotfiles !== false ? 'checked' : ''}>
-                  <span class="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-toggle-row">
-                <div class="settings-toggle-label">
-                  <div>${t('settings.explorerNaturalSort')}</div>
-                  <div class="settings-toggle-desc">${t('settings.explorerNaturalSortDesc')}</div>
-                </div>
-                <label class="settings-toggle">
-                  <input type="checkbox" id="explorer-natural-sort-toggle" ${settings.explorerNaturalSort !== false ? 'checked' : ''}>
                   <span class="settings-toggle-slider"></span>
                 </label>
               </div>
@@ -682,7 +663,7 @@ async function renderSettingsTab(initialTab = 'general') {
               </div>
             </div>
             </div>
-            <div class="settings-toggle-row">
+            <div class="settings-toggle-row" style="margin-top: 12px;">
               <div class="settings-toggle-label">
                 <div>${t('settings.restoreTerminalSessions')}</div>
                 <div class="settings-toggle-desc">${t('settings.restoreTerminalSessionsDesc')}</div>
@@ -694,7 +675,7 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
           </div>
           <div class="settings-group">
-            <div class="settings-group-title">${t('settings.tabsGroup')}</div>
+            <div class="settings-group-title">${t('settings.terminalGroup')}</div>
             <div class="settings-card">
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
@@ -708,17 +689,7 @@ async function renderSettingsTab(initialTab = 'general') {
               </div>
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
-                  <div>${t('settings.aiTabNaming')}</div>
-                  <div class="settings-toggle-desc">${t('settings.aiTabNamingDesc')}</div>
-                </div>
-                <label class="settings-toggle">
-                  <input type="checkbox" id="ai-tab-naming-toggle" ${settings.aiTabNaming !== false ? 'checked' : ''}>
-                  <span class="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-toggle-row">
-                <div class="settings-toggle-label">
-                  <div>${t('settings.tabRenameOnSlashCommandTerminal')}</div>
+                  <div>${t('settings.tabRenameOnSlashCommand')}</div>
                   <div class="settings-toggle-desc">${t('settings.tabRenameOnSlashCommandDesc')}</div>
                 </div>
                 <label class="settings-toggle">
@@ -726,40 +697,15 @@ async function renderSettingsTab(initialTab = 'general') {
                   <span class="settings-toggle-slider"></span>
                 </label>
               </div>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="settings-group-title">${t('settings.terminalGroup')}</div>
-            <div class="settings-card">
               <div class="settings-toggle-row">
                 <div class="settings-toggle-label">
-                  <div>${t('settings.autoScrollOnSwitch')}</div>
-                  <div class="settings-toggle-desc">${t('settings.autoScrollOnSwitchDesc')}</div>
+                  <div>${t('settings.aiTabNaming')}</div>
+                  <div class="settings-toggle-desc">${t('settings.aiTabNamingDesc')}</div>
                 </div>
                 <label class="settings-toggle">
-                  <input type="checkbox" id="auto-scroll-on-switch-toggle" ${settings.autoScrollOnSwitch !== false ? 'checked' : ''}>
+                  <input type="checkbox" id="ai-tab-naming-toggle" ${settings.aiTabNaming !== false ? 'checked' : ''}>
                   <span class="settings-toggle-slider"></span>
                 </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-label">
-                  <div>${t('settings.idleTimeout')}</div>
-                  <div class="settings-desc">${t('settings.idleTimeoutDesc')}</div>
-                </div>
-                <div class="settings-dropdown" id="idle-timeout-dropdown" data-value="${settings.idleTimeout || 2}">
-                  <div class="settings-dropdown-trigger">
-                    <span>${t('settings.idleTimeoutMinutes', { count: settings.idleTimeout || 2 })}</span>
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
-                  </div>
-                  <div class="settings-dropdown-menu">
-                    ${[1, 2, 3, 5, 10, 15, 30].map(m =>
-                      `<div class="settings-dropdown-option ${(settings.idleTimeout || 2) === m ? 'selected' : ''}" data-value="${m}">
-                        <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
-                        ${t('settings.idleTimeoutMinutes', { count: m })}
-                      </div>`
-                    ).join('')}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -1197,9 +1143,16 @@ async function renderSettingsTab(initialTab = 'general') {
       };
     });
   });
+  // Remove previous document-level listener before adding a new one (prevents stacking on re-render)
+  if (_settingsDropdownCleanup) _settingsDropdownCleanup();
   const closeDropdowns = () => container.querySelectorAll('.settings-dropdown.open').forEach(d => d.classList.remove('open'));
   document.addEventListener('click', closeDropdowns);
-  container.closest('.tab-content, .content-area, #settings-tab')?.addEventListener('scroll', closeDropdowns, { passive: true });
+  const scrollParent = container.closest('.tab-content, .content-area, #settings-tab');
+  scrollParent?.addEventListener('scroll', closeDropdowns, { passive: true });
+  _settingsDropdownCleanup = () => {
+    document.removeEventListener('click', closeDropdowns);
+    scrollParent?.removeEventListener('scroll', closeDropdowns);
+  };
 
   const saveSettingsHandler = async () => {
     const selectedMode = container.querySelector('.execution-mode-card:not(.terminal-mode-card).selected');
@@ -1229,25 +1182,16 @@ async function renderSettingsTab(initialTab = 'general') {
     const newAiCommitMessages = aiCommitToggle ? aiCommitToggle.checked : true;
     const tabRenameSlashToggle = document.getElementById('tab-rename-slash-toggle');
     const newTabRenameOnSlashCommand = tabRenameSlashToggle ? tabRenameSlashToggle.checked : false;
+    const aiTabNamingToggle = document.getElementById('ai-tab-naming-toggle');
+    const newAiTabNaming = aiTabNamingToggle ? aiTabNamingToggle.checked : true;
     const hooksToggle = document.getElementById('hooks-enabled-toggle');
     const newHooksEnabled = hooksToggle ? hooksToggle.checked : settings.hooksEnabled;
     const context1MToggle = document.getElementById('enable-1m-context-toggle');
     const newEnable1MContext = context1MToggle ? context1MToggle.checked : settings.enable1MContext || false;
     const showDotfilesToggle = document.getElementById('show-dotfiles-toggle');
     const newShowDotfiles = showDotfilesToggle ? showDotfilesToggle.checked : true;
-    const explorerNaturalSortToggle = document.getElementById('explorer-natural-sort-toggle');
-    const newExplorerNaturalSort = explorerNaturalSortToggle ? explorerNaturalSortToggle.checked : true;
-    const updateTitleToggle = document.getElementById('update-title-toggle');
-    const newUpdateTitleOnProjectSwitch = updateTitleToggle ? updateTitleToggle.checked : true;
     const showTabModeToggleEl = document.getElementById('show-tab-mode-toggle');
     const newShowTabModeToggle = showTabModeToggleEl ? showTabModeToggleEl.checked : true;
-    const aiTabNamingToggle = document.getElementById('ai-tab-naming-toggle');
-    const newAiTabNaming = aiTabNamingToggle ? aiTabNamingToggle.checked : true;
-    const autoScrollOnSwitchToggle = document.getElementById('auto-scroll-on-switch-toggle');
-    const newAutoScrollOnSwitch = autoScrollOnSwitchToggle ? autoScrollOnSwitchToggle.checked : true;
-
-    const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
-    const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 2);
     const telemetryEnabledToggle = document.getElementById('telemetry-enabled-toggle');
     const newTelemetryEnabled = telemetryEnabledToggle ? telemetryEnabledToggle.checked : false;
     const telemetryCatApp = document.getElementById('telemetry-cat-app');
@@ -1275,13 +1219,9 @@ async function renderSettingsTab(initialTab = 'general') {
       hooksEnabled: newHooksEnabled,
       enable1MContext: newEnable1MContext,
       showDotfiles: newShowDotfiles,
-      explorerNaturalSort: newExplorerNaturalSort,
-      updateTitleOnProjectSwitch: newUpdateTitleOnProjectSwitch,
       showTabModeToggle: newShowTabModeToggle,
-      aiTabNaming: newAiTabNaming,
-      autoScrollOnSwitch: newAutoScrollOnSwitch,
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
-      idleTimeout: newIdleTimeout,
+      aiTabNaming: newAiTabNaming,
       telemetryEnabled: newTelemetryEnabled,
       telemetryCategories: newTelemetryCategories
     };
@@ -1304,10 +1244,6 @@ async function renderSettingsTab(initialTab = 'general') {
     document.body.classList.toggle('compact-projects', newCompactProjects);
     document.body.classList.toggle('reduce-motion', newReduceMotion);
     document.body.classList.toggle('hide-tab-mode-toggle', !newShowTabModeToggle);
-    if (!newUpdateTitleOnProjectSwitch) {
-      document.title = 'Claude Terminal';
-      window.electron_api.window.setTitle('Claude Terminal');
-    }
     ctx.applyAccentColor(newSettings.accentColor);
 
     if (newTerminalTheme !== settings.terminalTheme) {

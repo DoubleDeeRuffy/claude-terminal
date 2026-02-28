@@ -780,6 +780,7 @@ function wireWebviewEvents(previewView, webview) {
     previewView._inspectHandlers?.switchPage?.(newPath);
     // Re-inject scripts after navigation if active
     setTimeout(() => {
+      if (!webview.isConnected) return;
       try { webview.executeJavaScript(KEY_LISTEN_SCRIPT); } catch (e) {}
       if (previewView._inspectHandlers?.isActive()) {
         // Determine which mode is active and re-inject appropriately
@@ -1916,7 +1917,7 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
   // ── Scan button wiring ──
   scanBtn.onclick = async () => {
     if (scanActive) return;
-    const wv = previewView.querySelector('.webapp-preview-webview');
+    let wv = previewView.querySelector('.webapp-preview-webview');
     if (!wv) return;
     clearAutoAnnotations();
     scanActive = true;
@@ -1924,6 +1925,9 @@ async function renderPreviewView(wrapper, projectIndex, project, deps) {
     try {
       // Load and inject axe-core if available
       const axeSrc = await _loadAxeSource();
+      // Re-check webview after async load — it may have been detached
+      wv = previewView.querySelector('.webapp-preview-webview');
+      if (!wv) { scanActive = false; scanBtn.classList.remove('scanning'); return; }
       if (axeSrc) {
         try { await wv.executeJavaScript(axeSrc); } catch (e) {
           console.warn('[Scan] Failed to inject axe-core:', e.message);

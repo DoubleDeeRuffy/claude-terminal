@@ -1,5 +1,13 @@
 const { escapeHtml } = require('../../utils');
 const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
+const { getAgents } = require('../../services/AgentService');
+const { getSkills } = require('../../services/SkillService');
+const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphService');
+const { LiteGraph } = require('litegraph.js');
+const { projectsState } = require('../../state/projects.state');
+const { schemaCache } = require('../../services/WorkflowSchemaCache');
+const { showContextMenu } = require('../components/ContextMenu');
+const { showConfirm } = require('../components/Modal');
 
 let ctx = null;
 
@@ -24,15 +32,610 @@ const HOOK_TYPES = [
   { value: 'WorktreeRemove',   label: 'WorktreeRemove',   desc: 'Suppression de worktree' },
 ];
 
+// Output properties produced by each node type — used for autocomplete suggestions
+const NODE_OUTPUTS = {
+  claude:    ['output', 'success'],
+  shell:     ['stdout', 'stderr', 'exitCode'],
+  git:       ['output', 'success', 'action'],
+  http:      ['status', 'ok', 'body'],
+  file:      ['content', 'success', 'exists'],
+  db:        ['rows', 'columns', 'rowCount', 'duration', 'firstRow'],
+  condition: ['result', 'value'],
+  wait:      ['waited', 'timedOut'],
+  notify:    ['sent', 'message'],
+  project:   ['success', 'action'],
+  variable:  ['name', 'value', 'action'],
+  log:       ['level', 'message', 'logged'],
+  loop:      ['items', 'count'],
+};
+
+/**
+ * Get autocomplete suggestions for variable references.
+ * @param {Object} graph - LiteGraph graph instance
+ * @param {number} currentNodeId - The node currently being edited
+ * @param {string} filterText - Text typed after '$' to filter results
+ * @returns {Array<{category: string, label: string, value: string, detail: string}>}
+ */
+function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
+  const suggestions = [];
+  const filter = (filterText || '').toLowerCase();
+
+  // Category 1: Context variables
+  const ctxVars = [
+    { value: '$ctx.project',  detail: 'Chemin du projet' },
+    { value: '$ctx.branch',   detail: 'Branche Git active' },
+    { value: '$ctx.date',     detail: 'Date du jour' },
+    { value: '$ctx.trigger',  detail: 'Type de déclencheur' },
+  ];
+  for (const v of ctxVars) {
+    if (v.value.toLowerCase().includes(filter)) {
+      suggestions.push({ category: 'Contexte', label: v.value, value: v.value, detail: v.detail });
+    }
+  }
+
+  // Category 2: Loop variables
+  const loopVars = [
+    { value: '$loop.item',  detail: 'Élément courant' },
+    { value: '$loop.index', detail: 'Index (0-based)' },
+    { value: '$loop.total', detail: 'Nombre total d\'items' },
+  ];
+  for (const v of loopVars) {
+    if (v.value.toLowerCase().includes(filter)) {
+      suggestions.push({ category: 'Loop', label: v.value, value: v.value, detail: v.detail });
+    }
+  }
+
+  // Category 3: Node outputs
+  if (graph && graph._nodes) {
+    for (const node of graph._nodes) {
+      if (node.id === currentNodeId) continue;
+      const nodeType = (node.type || '').replace('workflow/', '');
+      if (nodeType === 'trigger') continue;
+      const outputs = NODE_OUTPUTS[nodeType];
+      if (!outputs) continue;
+
+      const nodeLabel = node.title || nodeType;
+      const prefix = `$node_${node.id}`;
+
+      for (const prop of outputs) {
+        const full = `${prefix}.${prop}`;
+        if (full.toLowerCase().includes(filter) || nodeLabel.toLowerCase().includes(filter)) {
+          suggestions.push({
+            category: 'Nodes',
+            label: full,
+            value: full,
+            detail: `${nodeLabel} → ${prop}`,
+          });
+        }
+      }
+    }
+  }
+
+  // Category 4: Custom variables (from Variable nodes with action=set)
+  if (graph && graph._nodes) {
+    for (const node of graph._nodes) {
+      const nodeType = (node.type || '').replace('workflow/', '');
+      if (nodeType !== 'variable') continue;
+      if (node.properties?.action !== 'set') continue;
+      const varName = node.properties?.name;
+      if (!varName) continue;
+      const full = `$${varName}`;
+      if (full.toLowerCase().includes(filter)) {
+        suggestions.push({
+          category: 'Variables',
+          label: full,
+          value: full,
+          detail: `Variable custom`,
+        });
+      }
+    }
+  }
+
+  return suggestions;
+}
+
+/**
+ * Extract table name from a SQL query (FROM clause).
+ */
+function extractTableFromSQL(sql) {
+  if (!sql) return null;
+  const match = sql.match(/\bFROM\s+[`"']?(\w+(?:\.\w+)?)[`"']?/i);
+  if (!match) return null;
+  const name = match[1];
+  return name.includes('.') ? name.split('.').pop() : name;
+}
+
+/**
+ * BFS backward through graph links to find the nearest upstream DB node.
+ */
+function findUpstreamDbNode(graph, startNode) {
+  if (!graph || !startNode) return null;
+  const visited = new Set();
+  const queue = [startNode];
+  visited.add(startNode.id);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current.inputs) continue;
+
+    for (const input of current.inputs) {
+      if (!input.link) continue;
+      const linkInfo = graph.links?.[input.link] || graph._links?.get?.(input.link);
+      if (!linkInfo) continue;
+      const originNode = graph.getNodeById(linkInfo.origin_id);
+      if (!originNode || visited.has(originNode.id)) continue;
+      visited.add(originNode.id);
+
+      const originType = (originNode.type || '').replace('workflow/', '');
+      if (originType === 'db') return originNode;
+      queue.push(originNode);
+    }
+  }
+  return null;
+}
+
+/**
+ * Get deep autocomplete suggestions (async) — resolves DB column names from schema.
+ * Called when user types second-level property like `$node_X.firstRow.` or `$loop.item.`
+ */
+async function getDeepAutocompleteSuggestions(graph, currentNodeId, filterText) {
+  const suggestions = [];
+  if (!graph || !filterText) return suggestions;
+
+  // Match patterns like $node_X.firstRow. or $node_X.rows.
+  const nodeMatch = filterText.match(/^\$node_(\d+)\.(firstRow|rows)\.(.*)?$/i);
+  // Match patterns like $loop.item. or $item.
+  const loopMatch = filterText.match(/^\$(loop\.item|item)\.(.*)?$/i);
+
+  let dbNode = null;
+  let columnFilter = '';
+
+  if (nodeMatch) {
+    const sourceNodeId = parseInt(nodeMatch[1], 10);
+    columnFilter = (nodeMatch[3] || '').toLowerCase();
+    const sourceNode = graph.getNodeById(sourceNodeId);
+    if (sourceNode) {
+      const sourceType = (sourceNode.type || '').replace('workflow/', '');
+      if (sourceType === 'db') dbNode = sourceNode;
+    }
+  } else if (loopMatch) {
+    columnFilter = (loopMatch[2] || '').toLowerCase();
+    // Find the node being edited, then trace upstream to find a DB node
+    const currentNode = graph.getNodeById(currentNodeId);
+    if (currentNode) {
+      dbNode = findUpstreamDbNode(graph, currentNode);
+    }
+  }
+
+  if (!dbNode) return suggestions;
+
+  // Extract connection and table from the DB node properties
+  const connectionId = dbNode.properties?.connection;
+  const sql = dbNode.properties?.query;
+  const tableName = extractTableFromSQL(sql);
+
+  if (!connectionId || !tableName) return suggestions;
+
+  // Fetch schema (async, cached)
+  await schemaCache.getSchema(connectionId);
+  const columns = schemaCache.getColumnsForTable(connectionId, tableName);
+  if (!columns || !columns.length) return suggestions;
+
+  for (const col of columns) {
+    const colName = col.name || col;
+    const colType = col.type || '';
+    if (columnFilter && !colName.toLowerCase().includes(columnFilter)) continue;
+
+    const pkBadge = col.primaryKey ? ' 🔑' : '';
+    suggestions.push({
+      category: 'Colonnes DB',
+      label: colName,
+      value: filterText.substring(0, filterText.lastIndexOf('.') + 1) + colName,
+      detail: `${colType}${pkBadge}`,
+    });
+  }
+
+  return suggestions;
+}
+
+// ── Smart SQL textarea with autocomplete ─────────────────────────────────────
+
+/**
+ * Initialize the smart SQL textarea on a DB panel.
+ * Adds: SQL autocomplete (tables/columns), template buttons, schema prefetch.
+ */
+async function initSmartSQL(container, node, graphService) {
+  const connectionId = node.properties?.connection;
+  const textarea = container.querySelector('.wf-sql-textarea');
+  const templateBar = container.querySelector('.wf-sql-templates');
+  if (!textarea) return;
+
+  // Pass connection configs to schema cache for auto-connect
+  if (_dbConnectionsCache) schemaCache.setConnectionConfigs(_dbConnectionsCache);
+
+  // Autocomplete popup (shared with variable autocomplete but separate)
+  let sqlPopup = container.querySelector('.wf-sql-ac-popup');
+  if (!sqlPopup) {
+    sqlPopup = document.createElement('div');
+    sqlPopup.className = 'wf-sql-ac-popup';
+    sqlPopup.style.display = 'none';
+    container.appendChild(sqlPopup);
+  }
+
+  let acItems = [];
+  let acIndex = 0;
+  let acStart = -1; // cursor position where the current word starts
+
+  function hideSqlAc() {
+    sqlPopup.style.display = 'none';
+    acItems = [];
+    acIndex = 0;
+  }
+
+  function insertSqlAc(text) {
+    if (acStart < 0) return;
+    const before = textarea.value.substring(0, acStart);
+    const after = textarea.value.substring(textarea.selectionStart);
+    textarea.value = before + text + after;
+    const newPos = acStart + text.length;
+    textarea.setSelectionRange(newPos, newPos);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    hideSqlAc();
+    textarea.focus();
+  }
+
+  function renderSqlAc(items, wordStart) {
+    if (!items.length) { hideSqlAc(); return; }
+    acItems = items;
+    acIndex = 0;
+    acStart = wordStart;
+
+    sqlPopup.innerHTML = items.map((it, i) =>
+      `<div class="wf-sql-ac-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+        <span class="wf-sql-ac-name">${escapeHtml(it.name)}</span>
+        <span class="wf-sql-ac-type">${escapeHtml(it.type || '')}</span>
+      </div>`
+    ).join('');
+
+    // Position below textarea at cursor
+    const rect = textarea.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    sqlPopup.style.top = (rect.bottom - containerRect.top + 2) + 'px';
+    sqlPopup.style.left = (rect.left - containerRect.left) + 'px';
+    sqlPopup.style.width = rect.width + 'px';
+    sqlPopup.style.display = 'block';
+
+    sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        insertSqlAc(acItems[parseInt(el.dataset.idx, 10)].name);
+      });
+    });
+  }
+
+  // ── Prefetch schema ──
+  let tables = []; // [{name, columns: [{name, type, primaryKey}]}]
+  if (connectionId) {
+    try {
+      const fetched = await schemaCache.getSchema(connectionId);
+      tables = fetched || [];
+    } catch { /* silently fail */ }
+  }
+
+  // ── SQL Autocomplete logic ──
+  textarea.addEventListener('input', () => {
+    const val = textarea.value;
+    const cursor = textarea.selectionStart;
+    if (!tables.length) { hideSqlAc(); return; }
+
+    // Find current word (before cursor)
+    let wordStart = cursor;
+    while (wordStart > 0 && /[\w.]/.test(val[wordStart - 1])) wordStart--;
+    const word = val.substring(wordStart, cursor).toLowerCase();
+
+    if (!word) { hideSqlAc(); return; }
+
+    // Determine context: after FROM/INTO/UPDATE/JOIN → suggest tables
+    // after table. or known table ref → suggest columns
+    const beforeWord = val.substring(0, wordStart).replace(/\s+$/, '').toUpperCase();
+    const lastKeyword = beforeWord.match(/(FROM|INTO|UPDATE|JOIN|TABLE)\s*$/i);
+    const dotParts = word.split('.');
+
+    let suggestions = [];
+
+    if (dotParts.length === 2) {
+      // tableName.col → suggest columns of that table
+      const tableName = dotParts[0];
+      const colFilter = dotParts[1];
+      const table = tables.find(t => t.name.toLowerCase() === tableName);
+      if (table?.columns) {
+        suggestions = table.columns
+          .filter(c => (c.name || '').toLowerCase().startsWith(colFilter))
+          .map(c => ({ name: c.name, type: c.type + (c.primaryKey ? ' PK' : '') }));
+      }
+    } else if (lastKeyword) {
+      // After FROM/INTO/UPDATE/JOIN → suggest table names
+      suggestions = tables
+        .filter(t => t.name.toLowerCase().startsWith(word))
+        .map(t => ({ name: t.name, type: `${t.columns?.length || 0} cols` }));
+    } else {
+      // General context: suggest tables and SQL keywords if short
+      suggestions = tables
+        .filter(t => t.name.toLowerCase().startsWith(word))
+        .map(t => ({ name: t.name, type: 'table' }));
+      // Also suggest columns from all tables (deduplicated) if there's a match
+      if (word.length >= 2) {
+        const seen = new Set(suggestions.map(s => s.name));
+        for (const table of tables) {
+          for (const col of (table.columns || [])) {
+            const colName = col.name || '';
+            if (!seen.has(colName) && colName.toLowerCase().startsWith(word)) {
+              seen.add(colName);
+              suggestions.push({ name: colName, type: `${table.name}.${col.type || ''}` });
+            }
+          }
+        }
+      }
+    }
+
+    if (suggestions.length > 12) suggestions = suggestions.slice(0, 12);
+    renderSqlAc(suggestions, wordStart);
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    if (sqlPopup.style.display === 'none') return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      acIndex = Math.min(acIndex + 1, acItems.length - 1);
+      sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach((el, i) => el.classList.toggle('active', i === acIndex));
+      sqlPopup.querySelector('.wf-sql-ac-item.active')?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      acIndex = Math.max(acIndex - 1, 0);
+      sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach((el, i) => el.classList.toggle('active', i === acIndex));
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      if (acItems.length) { e.preventDefault(); insertSqlAc(acItems[acIndex].name); }
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); hideSqlAc();
+    }
+  });
+
+  textarea.addEventListener('blur', () => {
+    setTimeout(() => hideSqlAc(), 150);
+  });
+
+  // ── Template buttons ──
+  if (templateBar && tables.length) {
+    templateBar.querySelectorAll('.wf-sql-tpl').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tpl = btn.dataset.tpl;
+        const firstTable = tables[0]?.name || 'table_name';
+        let sql = '';
+        switch (tpl) {
+          case 'select': sql = `SELECT * FROM ${firstTable}\nWHERE \nORDER BY \nLIMIT 100`; break;
+          case 'insert': sql = `INSERT INTO ${firstTable} (col1, col2)\nVALUES ('val1', 'val2')`; break;
+          case 'update': sql = `UPDATE ${firstTable}\nSET col1 = 'val1'\nWHERE id = `; break;
+          case 'delete': sql = `DELETE FROM ${firstTable}\nWHERE id = `; break;
+        }
+        textarea.value = sql;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.focus();
+        // Position cursor after the first table name for easy editing
+        const tablePos = sql.indexOf(firstTable) + firstTable.length;
+        textarea.setSelectionRange(tablePos, tablePos);
+      });
+    });
+  }
+}
+
+/**
+ * Build loop preview info by tracing the upstream connection.
+ * Returns { html, itemDesc } for display in the Loop panel.
+ */
+function getLoopPreview(loopNode, graphService) {
+  const noPreview = { html: '', itemDesc: 'Valeur de l\'itération courante' };
+  if (!graphService?.graph || !loopNode) return noPreview;
+
+  const graph = graphService.graph;
+
+  // Find what's connected to Loop's In slot (slot 0)
+  const inSlot = loopNode.inputs?.[0];
+  if (!inSlot?.link) return { html: '<div class="wf-loop-preview wf-loop-preview--empty"><span class="wf-loop-preview-icon">⚠</span> Aucun node connecté au port <strong>In</strong></div>', itemDesc: 'Valeur de l\'itération courante' };
+
+  const linkInfo = graph.links?.[inSlot.link] || graph._links?.get?.(inSlot.link);
+  if (!linkInfo) return noPreview;
+
+  const sourceNode = graph.getNodeById(linkInfo.origin_id);
+  if (!sourceNode) return noPreview;
+
+  const sourceType = (sourceNode.type || '').replace('workflow/', '');
+  const sourceName = sourceNode.title || sourceType;
+  const sourceProps = sourceNode.properties || {};
+
+  // Determine what the source produces
+  let dataType = '';
+  let dataDesc = '';
+  let itemDesc = 'Valeur de l\'itération courante';
+  let previewItems = [];
+
+  if (sourceType === 'db') {
+    const action = sourceProps.action || 'query';
+    if (action === 'query') {
+      const table = extractTableFromSQL(sourceProps.query);
+      dataType = 'rows[]';
+      dataDesc = table ? `Lignes de <code>${escapeHtml(table)}</code>` : 'Résultats de la requête SQL';
+      itemDesc = table ? `Ligne de ${table} (objet avec colonnes)` : 'Ligne de résultat (objet)';
+    } else if (action === 'tables') {
+      dataType = 'string[]';
+      dataDesc = 'Noms des tables de la base';
+      itemDesc = 'Nom de table (string)';
+    } else if (action === 'schema') {
+      dataType = 'object[]';
+      dataDesc = 'Tables avec leurs colonnes';
+      itemDesc = 'Table (objet avec name, columns)';
+    }
+  } else if (sourceType === 'shell') {
+    dataType = 'lines';
+    dataDesc = 'Sortie du shell (stdout)';
+    itemDesc = 'Ligne de sortie';
+  } else if (sourceType === 'http') {
+    dataType = 'array';
+    dataDesc = 'Réponse HTTP (body)';
+    itemDesc = 'Élément du tableau de réponse';
+  } else if (sourceType === 'file') {
+    dataType = 'lines';
+    dataDesc = 'Contenu du fichier';
+    itemDesc = 'Ligne du fichier';
+  } else {
+    dataType = 'auto';
+    dataDesc = `Sortie de ${escapeHtml(sourceName)}`;
+    itemDesc = 'Élément de la sortie';
+  }
+
+  // Check for last run output for actual preview
+  const lastOutput = graphService.getNodeOutput(sourceNode.id);
+  if (lastOutput) {
+    // Extract array from output
+    if (Array.isArray(lastOutput)) previewItems = lastOutput;
+    else if (Array.isArray(lastOutput.rows)) previewItems = lastOutput.rows;
+    else if (Array.isArray(lastOutput.tables)) previewItems = lastOutput.tables;
+    else if (Array.isArray(lastOutput.items)) previewItems = lastOutput.items;
+  }
+
+  const countText = previewItems.length > 0 ? `<span class="wf-loop-preview-count">${previewItems.length} items</span>` : '';
+
+  // Build preview items list (max 5)
+  let previewHtml = '';
+  if (previewItems.length > 0) {
+    const shown = previewItems.slice(0, 5);
+    previewHtml = `<div class="wf-loop-preview-list">${shown.map((item, i) => {
+      const text = typeof item === 'string' ? item : (item?.name || JSON.stringify(item));
+      return `<div class="wf-loop-preview-item"><span class="wf-loop-preview-idx">${i}</span><code>${escapeHtml(String(text).substring(0, 60))}</code></div>`;
+    }).join('')}${previewItems.length > 5 ? `<div class="wf-loop-preview-more">… +${previewItems.length - 5} autres</div>` : ''}</div>`;
+  }
+
+  const html = `
+    <div class="wf-loop-preview">
+      <div class="wf-loop-preview-header">
+        <span class="wf-loop-preview-source">${escapeHtml(sourceName)}</span>
+        <span class="wf-loop-preview-type">${dataType}</span>
+        ${countText}
+      </div>
+      <div class="wf-loop-preview-desc">${dataDesc}</div>
+      ${previewHtml}
+    </div>
+  `;
+
+  return { html, itemDesc };
+}
+
 const STEP_TYPES = [
-  { type: 'agent',     label: 'Agent',     color: 'accent',   icon: svgAgent(),  desc: 'Prompt Claude' },
-  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),  desc: 'Commande bash' },
-  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),    desc: 'Opération git' },
-  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),   desc: 'Requête API' },
-  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify(), desc: 'Notification' },
-  { type: 'wait',      label: 'Wait',      color: 'muted',    icon: svgWait(),   desc: 'Temporisation' },
-  { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),   desc: 'Branchement' },
+  { type: 'trigger',   label: 'Trigger',   color: 'success',  icon: svgPlay(11),     desc: 'Déclencheur du workflow' },
+  // ── Actions ──
+  { type: 'claude',    label: 'Claude',    color: 'accent',   icon: svgClaude(),     desc: 'Prompt, Agent ou Skill',  category: 'action' },
+  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),      desc: 'Commande bash',           category: 'action' },
+  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),        desc: 'Opération git',           category: 'action' },
+  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),       desc: 'Requête API',             category: 'action' },
+  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify(),     desc: 'Notification',            category: 'action' },
+  // ── Data ──
+  { type: 'project',   label: 'Project',   color: 'pink',     icon: svgProject(),    desc: 'Cibler un projet',        category: 'data' },
+  { type: 'file',      label: 'File',      color: 'lime',     icon: svgFile(),       desc: 'Opération fichier',       category: 'data' },
+  { type: 'db',        label: 'Database',  color: 'orange',   icon: svgDb(),         desc: 'Requête base de données', category: 'data' },
+  { type: 'variable',  label: 'Variable',  color: 'violet',   icon: svgVariable(),   desc: 'Lire/écrire une variable',category: 'data' },
+  // ── Flow ──
+  { type: 'condition', label: 'Condition', color: 'success',  icon: svgCond(),       desc: 'Branchement conditionnel',category: 'flow' },
+  { type: 'loop',      label: 'Loop',      color: 'sky',      icon: svgLoop(),       desc: 'Itérer sur une liste',    category: 'flow' },
+  { type: 'wait',      label: 'Wait',      color: 'muted',    icon: svgWait(),       desc: 'Temporisation',           category: 'flow' },
+  { type: 'log',       label: 'Log',       color: 'slate',    icon: svgLog(),        desc: 'Écrire dans le log',      category: 'flow' },
 ];
+
+const GIT_ACTIONS = [
+  { value: 'pull',     label: 'Pull',     desc: 'Récupérer les changements distants' },
+  { value: 'push',     label: 'Push',     desc: 'Pousser les commits locaux' },
+  { value: 'commit',   label: 'Commit',   desc: 'Créer un commit', extra: [{ key: 'message', label: 'Message de commit', placeholder: 'feat: add new feature', mono: true }] },
+  { value: 'checkout', label: 'Checkout', desc: 'Changer de branche', extra: [{ key: 'branch', label: 'Branche', placeholder: 'main / develop / feature/...', mono: true }] },
+  { value: 'merge',    label: 'Merge',    desc: 'Fusionner une branche', extra: [{ key: 'branch', label: 'Branche source', placeholder: 'feature/my-branch', mono: true }] },
+  { value: 'stash',    label: 'Stash',    desc: 'Mettre de côté les changements' },
+  { value: 'stash-pop',label: 'Stash Pop',desc: 'Restaurer les changements mis de côté' },
+  { value: 'reset',    label: 'Reset',    desc: 'Annuler les changements non commités' },
+];
+
+const WAIT_UNITS = [
+  { value: 's', label: 'Secondes' },
+  { value: 'm', label: 'Minutes' },
+  { value: 'h', label: 'Heures' },
+];
+
+const CONDITION_VARS = [
+  { value: '$ctx.branch',      label: 'Branche actuelle' },
+  { value: '$ctx.exitCode',    label: 'Code de sortie' },
+  { value: '$ctx.project',     label: 'Nom du projet' },
+  { value: '$ctx.prevStatus',  label: 'Statut step précédent' },
+  { value: '$env.',            label: 'Variable d\'env', extra: [{ key: 'envVar', label: 'Nom', placeholder: 'NODE_ENV', mono: true }] },
+];
+
+const CONDITION_OPS = [
+  { value: '==', label: '==', group: 'compare' },
+  { value: '!=', label: '!=', group: 'compare' },
+  { value: '>',  label: '>',  group: 'compare' },
+  { value: '<',  label: '<',  group: 'compare' },
+  { value: '>=', label: '>=', group: 'compare' },
+  { value: '<=', label: '<=', group: 'compare' },
+  { value: 'contains',    label: 'contient',     group: 'text' },
+  { value: 'starts_with', label: 'commence par', group: 'text' },
+  { value: 'matches',     label: 'regex',        group: 'text' },
+  { value: 'is_empty',     label: 'est vide',      group: 'unary' },
+  { value: 'is_not_empty', label: 'n\'est pas vide', group: 'unary' },
+];
+
+function buildConditionPreview(variable, op, value, isUnary) {
+  if (!variable) return '(aucune condition)';
+  if (isUnary) return `${variable} ${op}`;
+  return `${variable} ${op} ${value || '?'}`;
+}
+
+const STEP_FIELDS = {
+  shell: [
+    { key: 'command', label: 'Commande', placeholder: 'npm run build', mono: true },
+  ],
+  claude: [
+    { key: 'mode', label: 'Mode', type: 'claude-mode-tabs' },
+    { key: 'prompt', label: 'Prompt', type: 'variable-textarea', showIf: (s) => !s.mode || s.mode === 'prompt' },
+    { key: 'agentId', label: 'Agent', type: 'agent-picker', showIf: (s) => s.mode === 'agent' },
+    { key: 'skillId', label: 'Skill', type: 'skill-picker', showIf: (s) => s.mode === 'skill' },
+    { key: 'prompt', label: 'Instructions additionnelles', placeholder: 'Contexte supplémentaire (optionnel)', textarea: true, showIf: (s) => s.mode === 'agent' || s.mode === 'skill' },
+    { key: 'model', label: 'Modèle', type: 'model-select' },
+    { key: 'effort', label: 'Effort', type: 'effort-select' },
+    { key: 'outputSchema', label: 'Sortie structurée', type: 'structured-output' },
+  ],
+  agent: 'claude',
+  git: [
+    { key: 'action', label: 'Action', type: 'action-select', actions: GIT_ACTIONS },
+  ],
+  http: [
+    { key: 'method', label: 'Méthode', type: 'select', options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default: 'GET' },
+    { key: 'url', label: 'URL', placeholder: 'https://api.example.com/endpoint', mono: true },
+    { key: 'headers', label: 'Headers', placeholder: 'Content-Type: application/json', textarea: true, mono: true, showIf: (s) => ['POST', 'PUT', 'PATCH'].includes(s.method) },
+    { key: 'body', label: 'Body', placeholder: '{ "key": "value" }', textarea: true, mono: true, showIf: (s) => ['POST', 'PUT', 'PATCH'].includes(s.method) },
+  ],
+  notify: [
+    { key: 'title', label: 'Titre', placeholder: 'Build terminé' },
+    { key: 'message', label: 'Message', placeholder: 'Le build $project est OK', textarea: true },
+  ],
+  wait: [
+    { key: 'duration', label: 'Durée', type: 'duration-picker' },
+  ],
+  condition: [
+    { key: 'condition', label: 'Condition', type: 'condition-builder' },
+  ],
+};
+
+// Resolve step type with backward compat (agent → claude)
+const STEP_TYPE_ALIASES = { agent: 'claude' };
+const findStepType = (type) => {
+  const resolved = STEP_TYPE_ALIASES[type] || type;
+  return STEP_TYPES.find(x => x.type === resolved) || STEP_TYPES[0];
+};
 
 const TRIGGER_CONFIG = {
   cron: {
@@ -179,8 +782,11 @@ function bindWfDropdown(container, key, onChange) {
     });
   });
 
-  // Close on outside click
-  const close = (e) => { if (!drop.contains(e.target)) { drop.classList.remove('open'); document.removeEventListener('click', close); } };
+  // Close on outside click — auto-cleanup if element is detached from DOM
+  const close = (e) => {
+    if (!document.body.contains(drop)) { document.removeEventListener('click', close); return; }
+    if (!drop.contains(e.target)) { drop.classList.remove('open'); document.removeEventListener('click', close); }
+  };
   document.addEventListener('click', close);
 }
 
@@ -200,8 +806,14 @@ function drawCronPicker(container, draft) {
   let cronMode = parsed.mode;
   let cronValues = { ...parsed.values };
   const opts = cronOpts();
+  let _prevCloseAll = null; // Track previous document listener for cleanup
 
   const render = () => {
+    // Clean up previous document-level listener before re-render
+    if (_prevCloseAll) {
+      document.removeEventListener('click', _prevCloseAll);
+      _prevCloseAll = null;
+    }
     let phrase = '';
     switch (cronMode) {
       case 'interval':
@@ -282,9 +894,9 @@ function drawCronPicker(container, draft) {
     const closeAll = (e) => {
       if (!container.contains(e.target)) {
         container.querySelectorAll('.wf-cdrop.open').forEach(d => d.classList.remove('open'));
-        document.removeEventListener('click', closeAll);
       }
     };
+    _prevCloseAll = closeAll;
     document.addEventListener('click', closeAll);
 
     // Bind custom input
@@ -344,6 +956,8 @@ function registerLiveListeners() {
 
   api.onRunStart(({ run }) => {
     state.runs.unshift(run);
+    // Clear previous run outputs for fresh tooltip data
+    try { getGraphService().clearRunOutputs(); } catch (_) {}
     renderContent();
   });
 
@@ -360,7 +974,25 @@ function registerLiveListeners() {
     const run = state.runs.find(r => r.id === runId);
     if (run) {
       const step = run.steps?.find(s => s.id === stepId);
-      if (step) step.status = status;
+      if (step) {
+        step.status = status;
+        if (output) step.output = output;
+      }
+    }
+    // Store step output for link tooltip preview
+    if (output && status === 'success') {
+      try {
+        const graphService = getGraphService();
+        if (graphService?.graph) {
+          // Find the litegraph node matching this stepId
+          for (const node of graphService.graph._nodes) {
+            if (node.properties?.stepId === stepId || `node_${node.id}` === stepId) {
+              graphService.setNodeOutput(node.id, output);
+              break;
+            }
+          }
+        }
+      } catch (_) { /* ignore */ }
     }
     renderContent();
   });
@@ -396,7 +1028,7 @@ function renderPanel() {
     </div>
   `;
 
-  el.querySelector('#wf-btn-new').addEventListener('click', () => openBuilder());
+  el.querySelector('#wf-btn-new').addEventListener('click', () => openEditor());
   el.querySelectorAll('.wf-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       el.querySelectorAll('.wf-tab').forEach(t => t.classList.remove('active'));
@@ -437,7 +1069,7 @@ function renderWorkflowList(el) {
         </button>
       </div>
     `;
-    el.querySelector('#wf-empty-new').addEventListener('click', () => openBuilder());
+    el.querySelector('#wf-empty-new').addEventListener('click', () => openEditor());
     return;
   }
 
@@ -447,15 +1079,35 @@ function renderWorkflowList(el) {
     const id = card.dataset.id;
     card.querySelector('.wf-card-body').addEventListener('click', (e) => {
       // Don't trigger detail when clicking interactive elements
-      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
+      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
       openDetail(id);
     });
     card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
+    card.querySelector('.wf-card-edit')?.addEventListener('click', e => { e.stopPropagation(); openEditor(id); });
     const toggle = card.querySelector('.wf-card-toggle');
     if (toggle) {
       toggle.addEventListener('change', e => { e.stopPropagation(); toggleWorkflow(id, e.target.checked); });
       toggle.closest('.wf-switch')?.addEventListener('click', e => e.stopPropagation());
     }
+
+    // Right-click context menu
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const wf = state.workflows.find(w => w.id === id);
+      if (!wf) return;
+      showContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { label: 'Modifier', icon: svgEdit(), onClick: () => openEditor(id) },
+          { label: 'Lancer maintenant', icon: svgPlay(12), onClick: () => triggerWorkflow(id) },
+          { label: 'Dupliquer', icon: svgCopy(), onClick: () => duplicateWorkflow(id) },
+          { separator: true },
+          { label: 'Supprimer', icon: svgTrash(), danger: true, onClick: () => confirmDeleteWorkflow(id, wf.name) },
+        ],
+      });
+    });
   });
 }
 
@@ -481,7 +1133,7 @@ function cardHtml(wf) {
         </div>
         <div class="wf-card-pipeline">
           ${(wf.steps || []).map((s, i) => {
-            const info = STEP_TYPES.find(x => x.type === (s.type || '').split('.')[0]) || STEP_TYPES[0];
+            const info = findStepType((s.type || '').split('.')[0]);
             const stepStatus = lastRun ? (lastRun.steps?.[i]?.status || '') : '';
             return `<div class="wf-pipe-step ${stepStatus ? 'wf-pipe-step--' + stepStatus : ''}" title="${escapeHtml(s.type || '')}">
               <span class="wf-chip wf-chip--${info.color}">${info.icon}</span>
@@ -501,6 +1153,7 @@ function cardHtml(wf) {
             ${runCount > 0 ? `<span class="wf-card-stat wf-card-stat--rate">${Math.round(successCount / runCount * 100)}%</span>` : ''}
             ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
+          <button class="wf-card-edit" title="Modifier"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           <button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>
         </div>
       </div>
@@ -516,362 +1169,1288 @@ function renderRunHistory(el) {
     return;
   }
 
-  el.innerHTML = `
-    <div class="wf-runs">
-      ${state.runs.map(run => {
-        const wf = state.workflows.find(w => w.id === run.workflowId);
-        const steps = run.steps || [];
-        const totalSteps = steps.length;
-        const doneSteps = steps.filter(s => s.status === 'success').length;
-        const failedSteps = steps.filter(s => s.status === 'failed').length;
+  const INITIAL_LIMIT = 15;
+  const showAll = el._showAllRuns || false;
+  const runs = showAll ? state.runs : state.runs.slice(0, INITIAL_LIMIT);
+  const hasMore = state.runs.length > INITIAL_LIMIT && !showAll;
 
-        return `
-          <div class="wf-run wf-run--${run.status}">
-            <div class="wf-run-indicator">
-              <div class="wf-run-indicator-icon wf-run-indicator-icon--${run.status}">
-                ${run.status === 'success' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' :
-                  run.status === 'failed' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>' :
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'}
-              </div>
-              <div class="wf-run-indicator-line"></div>
-            </div>
-            <div class="wf-run-body">
-              <div class="wf-run-header">
-                <div class="wf-run-header-left">
-                  <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
-                  <div class="wf-run-meta">
-                    <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
-                    <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
-                  </div>
-                </div>
-                <div class="wf-run-header-right">
-                  <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
-                  <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
-                </div>
-              </div>
-              <div class="wf-run-pipeline">
-                ${(run.steps || []).map((s, i) => {
-                  const sType = (s.type || s.name || '').split('.')[0];
-                  const info = STEP_TYPES.find(x => x.type === sType) || STEP_TYPES[0];
-                  return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
-                    <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                    <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
-                    <span class="wf-run-pipe-dur">${fmtDuration(s.duration)}</span>
-                    <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
-                  </div>${i < run.steps.length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
-                }).join('')}
+  function buildRunRow(run) {
+    const wf = state.workflows.find(w => w.id === run.workflowId);
+    return `
+      <div class="wf-run wf-run--${run.status}" data-run-id="${run.id}">
+        <div class="wf-run-bar wf-run-bar--${run.status}"></div>
+        <div class="wf-run-body">
+          <div class="wf-run-header">
+            <div class="wf-run-header-left">
+              <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
+              <div class="wf-run-meta">
+                <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
+                <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
               </div>
             </div>
+            <div class="wf-run-header-right">
+              <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
+              <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+            </div>
           </div>
-        `;
-      }).join('')}
-    </div>
-  `;
-}
-
-/* ─── Builder wizard ───────────────────────────────────────────────────────── */
-
-function openBuilder(workflowId = null) {
-  const wf = workflowId ? state.workflows.find(w => w.id === workflowId) : null;
-  const draft = {
-    name: wf?.name || '',
-    trigger: wf?.trigger?.type || 'manual',
-    triggerValue: wf?.trigger?.value || '',
-    hookType: wf?.hookType || 'PostToolUse',
-    scope: wf?.scope || 'current',
-    concurrency: wf?.concurrency || 'skip',
-    steps: wf?.steps ? [...wf.steps] : [],
-  };
-
-  let step = 1;
-  const STEPS = ['Déclencheur', 'Étapes', 'Options'];
-
-  const overlay = document.createElement('div');
-  overlay.className = 'wf-overlay';
-
-  const rebind = () => {
-    /* close */
-    overlay.querySelector('.wf-modal-x').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-
-    /* nav */
-    overlay.querySelector('#wf-prev')?.addEventListener('click', () => {
-      sync(); step--; draw();
-    });
-    overlay.querySelector('#wf-next')?.addEventListener('click', () => {
-      sync();
-      if (step === 1 && !draft.name.trim()) {
-        overlay.querySelector('#wf-name')?.focus();
-        overlay.querySelector('#wf-name')?.classList.add('wf-input--err');
-        return;
-      }
-      step++; draw();
-    });
-    overlay.querySelector('#wf-save')?.addEventListener('click', () => {
-      sync(); saveWorkflow(draft, workflowId); overlay.remove();
-    });
-
-    /* trigger cards */
-    overlay.querySelectorAll('[data-trigger]').forEach(card => {
-      card.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-trigger]').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-        draft.trigger = card.dataset.trigger;
-        drawTriggerSub();
-      });
-    });
-
-    /* hook picker */
-    overlay.querySelectorAll('[data-hook]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-hook]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        draft.hookType = btn.dataset.hook;
-      });
-    });
-
-    /* step builder */
-    overlay.querySelector('#wf-add-step')?.addEventListener('click', () => {
-      const picker = overlay.querySelector('.wf-picker');
-      if (picker) picker.classList.toggle('wf-picker--open');
-    });
-    overlay.querySelector('#wf-picker-close')?.addEventListener('click', () => {
-      overlay.querySelector('.wf-picker')?.classList.remove('wf-picker--open');
-    });
-    overlay.querySelectorAll('[data-pick]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        draft.steps.push({ id: `step_${draft.steps.length + 1}`, type: btn.dataset.pick });
-        overlay.querySelector('.wf-picker')?.classList.remove('wf-picker--open');
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-    rebindSteps();
-
-    /* concurrency */
-    overlay.querySelectorAll('[data-conc]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-conc]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        draft.concurrency = btn.dataset.conc;
-      });
-    });
-
-    /* scope dropdown (step 3) */
-    bindWfDropdown(overlay, 'scope', (val) => { draft.scope = val; });
-  };
-
-  const rebindSteps = () => {
-    overlay.querySelectorAll('.wf-step-node-del').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.dataset.idx);
-        draft.steps.splice(idx, 1);
-        drawStepsList();
-        rebindSteps();
-      });
-    });
-  };
-
-  const sync = () => {
-    const n = overlay.querySelector('#wf-name'); if (n) draft.name = n.value;
-    const tv = overlay.querySelector('#wf-trigger-value'); if (tv) draft.triggerValue = tv.value;
-  };
-
-  const drawTriggerSub = () => {
-    const sub = overlay.querySelector('#wf-trigger-sub');
-    if (!sub) return;
-    const cfg = TRIGGER_CONFIG[draft.trigger];
-
-    if (draft.trigger === 'cron') {
-      sub.innerHTML = '';
-      drawCronPicker(sub, draft);
-      return; // drawCronPicker handles its own event binding
-    } else if (draft.trigger === 'hook') {
-      sub.innerHTML = `
-        <div class="wf-sub-label">Type d'événement</div>
-        <div class="wf-hook-grid">
-          ${HOOK_TYPES.map(h => `
-            <button class="wf-hook-opt ${draft.hookType === h.value ? 'active' : ''}" data-hook="${h.value}">
-              <span class="wf-hook-name">${h.label}</span>
-              <span class="wf-hook-desc">${h.desc}</span>
-            </button>
-          `).join('')}
-        </div>
-      `;
-    } else if (cfg.fields && cfg.fields.length) {
-      sub.innerHTML = cfg.fields.map(f => `
-        <div class="wf-sub-label">${f.label}</div>
-        <input id="wf-trigger-value" class="wf-input ${f.mono ? 'wf-input--mono' : ''}" placeholder="${f.placeholder}" value="${escapeHtml(draft.triggerValue)}">
-      `).join('');
-    } else {
-      sub.innerHTML = '';
-    }
-
-    /* rebind hooks */
-    sub.querySelectorAll('[data-hook]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        sub.querySelectorAll('[data-hook]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        draft.hookType = btn.dataset.hook;
-      });
-    });
-  };
-
-  const drawStepsList = () => {
-    const list = overlay.querySelector('#wf-steps-list');
-    if (!list) return;
-    const countEl = overlay.querySelector('#wf-step-count');
-    if (countEl) countEl.textContent = `${draft.steps.length} étape${draft.steps.length !== 1 ? 's' : ''}`;
-    if (!draft.steps.length) {
-      list.innerHTML = `<div class="wf-steps-empty">${svgEmpty()} <span>Aucun step — ajoutez-en ci-dessous</span></div>`;
-      return;
-    }
-    list.innerHTML = draft.steps.map((s, i) => {
-      const info = STEP_TYPES.find(x => x.type === s.type.split('.')[0]) || STEP_TYPES[0];
-      return `
-        ${i > 0 ? '<div class="wf-pipe-connector"><svg width="2" height="20" viewBox="0 0 2 20"><line x1="1" y1="0" x2="1" y2="20" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="3 3"/></svg></div>' : ''}
-        <div class="wf-step-node" style="--step-delay: ${i * 40}ms" data-color="${info.color}">
-          <div class="wf-step-node-idx"><span>${i + 1}</span></div>
-          <span class="wf-step-node-chip wf-chip wf-chip--${info.color}">${info.icon}</span>
-          <div class="wf-step-node-body">
-            <span class="wf-step-node-type">${escapeHtml(info.label)}</span>
-            <span class="wf-step-node-id">${escapeHtml(s.id)}</span>
-          </div>
-          <button class="wf-step-node-del" data-idx="${i}">${svgX(11)}</button>
-        </div>
-      `;
-    }).join('');
-  };
-
-  const draw = () => {
-    overlay.innerHTML = `
-      <div class="wf-modal">
-        <div class="wf-modal-hd">
-          <div class="wf-modal-hd-left">
-            <span class="wf-modal-title">${wf ? escapeHtml(wf.name) : 'Nouveau workflow'}</span>
-          </div>
-          <div class="wf-wizard-nav">
-            ${STEPS.map((label, i) => {
-              const n = i + 1;
-              const cls = n === step ? 'cur' : n < step ? 'done' : '';
-              return `<span class="wf-wz-node ${cls}"><span class="wf-wz-n">${n < step ? '✓' : n}</span><span class="wf-wz-label">${label}</span></span>${i < STEPS.length - 1 ? '<span class="wf-wz-track"><span class="wf-wz-fill" style="width:${step > n ? 100 : 0}%"></span></span>' : ''}`;
+          <div class="wf-run-pipeline">
+            ${(run.steps || []).map((s, i) => {
+              const sType = (s.type || s.name || '').split('.')[0];
+              const info = findStepType(sType);
+              return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
+                <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+                <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
+                <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
+              </div>${i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
             }).join('')}
           </div>
-          <button class="wf-modal-x">${svgX(12)}</button>
         </div>
+      </div>`;
+  }
 
-        <div class="wf-modal-bd">
-          ${step === 1 ? `
-            <div class="wf-wstep">
-              <div class="wf-field">
-                <label class="wf-field-lbl">Nom du workflow</label>
-                <input id="wf-name" class="wf-input wf-input--lg" placeholder="ex: Daily Code Review" value="${escapeHtml(draft.name)}" autofocus>
-              </div>
+  el.innerHTML = `
+    <div class="wf-runs-header">
+      <span class="wf-runs-count">${state.runs.length} run${state.runs.length > 1 ? 's' : ''}</span>
+      <button class="wf-runs-clear" id="wf-clear-runs" title="Effacer l'historique">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        Effacer
+      </button>
+    </div>
+    <div class="wf-runs">
+      ${runs.map(buildRunRow).join('')}
+      ${hasMore ? `<div class="wf-runs-show-more" id="wf-show-more-runs">Afficher ${state.runs.length - INITIAL_LIMIT} runs de plus</div>` : ''}
+    </div>
+  `;
 
-              <div class="wf-field">
-                <label class="wf-field-lbl">Déclencheur</label>
-                <div class="wf-trigger-grid">
-                  ${Object.entries(TRIGGER_CONFIG).map(([val, cfg]) => `
-                    <button class="wf-trig-card wf-trig-card--${cfg.color} ${draft.trigger === val ? 'active' : ''}" data-trigger="${val}">
-                      <span class="wf-trig-icon">${cfg.icon}</span>
-                      <span class="wf-trig-label">${cfg.label}</span>
-                      <span class="wf-trig-desc">${cfg.desc}</span>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
+  // Clear all runs
+  const clearBtn = el.querySelector('#wf-clear-runs');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const confirmed = await showConfirm({
+        title: 'Effacer l\'historique',
+        message: `Supprimer les ${state.runs.length} runs de l'historique ? Cette action est irréversible.`,
+        confirmLabel: 'Effacer',
+        danger: true,
+      });
+      if (!confirmed) return;
+      await api?.clearAllRuns();
+      state.runs = [];
+      renderContent();
+    });
+  }
 
-              <div id="wf-trigger-sub" class="wf-trigger-sub"></div>
-            </div>
-          ` : ''}
+  // Bind click to open run detail
+  el.querySelectorAll('.wf-run[data-run-id]').forEach(runEl => {
+    runEl.addEventListener('click', () => {
+      const run = state.runs.find(r => r.id === runEl.dataset.runId);
+      if (run) renderRunDetail(el, run);
+    });
+  });
 
-          ${step === 2 ? `
-            <div class="wf-wstep wf-wstep--pipeline">
-              <div class="wf-pipeline-zone">
-                <div class="wf-pipeline-hd">
-                  <label class="wf-field-lbl">Pipeline</label>
-                  <span class="wf-pipeline-count" id="wf-step-count">0 étapes</span>
-                </div>
-                <div id="wf-steps-list" class="wf-steps-list"></div>
-                <button id="wf-add-step" class="wf-add-step-btn">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                  Ajouter une étape
-                </button>
-              </div>
-              <div class="wf-picker">
-                <div class="wf-picker-hd">
-                  <span class="wf-picker-title">Choisir un type</span>
-                  <button class="wf-picker-close" id="wf-picker-close">${svgX(14)}</button>
-                </div>
-                <div class="wf-picker-grid">
-                  ${STEP_TYPES.map(s => `
-                    <button class="wf-pick-card" data-pick="${s.type}" data-color="${s.color}">
-                      <span class="wf-pick-card-icon wf-chip wf-chip--${s.color}">${s.icon}</span>
-                      <div class="wf-pick-card-txt">
-                        <span class="wf-pick-card-label">${s.label}</span>
-                        <span class="wf-pick-card-desc">${s.desc}</span>
-                      </div>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
-            </div>
-          ` : ''}
+  // Show more button
+  const showMoreBtn = el.querySelector('#wf-show-more-runs');
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener('click', () => {
+      el._showAllRuns = true;
+      renderRunHistory(el);
+    });
+  }
+}
 
-          ${step === 3 ? `
-            <div class="wf-wstep">
-              <div class="wf-field">
-                <label class="wf-field-lbl">Scope</label>
-                ${wfDropdown('scope', [
-                  { value: 'current', label: 'Projet courant' },
-                  { value: 'specific', label: 'Projet spécifique' },
-                  { value: 'all', label: 'Tous les projets' },
-                ], draft.scope)}
-              </div>
+/* ─── Run Detail View ──────────────────────────────────────────────────── */
 
-              <div class="wf-field">
-                <label class="wf-field-lbl">Si relancé pendant l'exécution</label>
-                <div class="wf-conc-row">
-                  ${[['skip','Ignorer','Ne relance pas'],['queue','Attendre','File d\'attente'],['parallel','Parallèle','Lance en même temps']].map(([v,l,d]) => `
-                    <button class="wf-conc-btn ${draft.concurrency === v ? 'active' : ''}" data-conc="${v}">
-                      <span class="wf-conc-l">${l}</span>
-                      <span class="wf-conc-d">${d}</span>
-                    </button>
-                  `).join('')}
-                </div>
-              </div>
+function renderRunDetail(el, run) {
+  const wf = state.workflows.find(w => w.id === run.workflowId);
+  const steps = run.steps || [];
 
-              <div class="wf-recap">
-                <div class="wf-recap-title">Récapitulatif</div>
-                <div class="wf-recap-row"><span>Nom</span><strong>${escapeHtml(draft.name || '—')}</strong></div>
-                <div class="wf-recap-row"><span>Trigger</span><strong>${TRIGGER_CONFIG[draft.trigger]?.label || '—'}</strong></div>
-                <div class="wf-recap-row"><span>Steps</span><strong>${draft.steps.length} étape${draft.steps.length !== 1 ? 's' : ''}</strong></div>
-              </div>
-            </div>
-          ` : ''}
+  el.innerHTML = `
+    <div class="wf-run-detail">
+      <div class="wf-run-detail-header">
+        <button class="wf-run-detail-back" id="wf-run-back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="wf-run-detail-info">
+          <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprimé')}</span>
+          <div class="wf-run-detail-meta">
+            ${svgClock(9)} ${fmtTime(run.startedAt)}
+            <span style="margin:0 6px;opacity:.3">·</span>
+            ${svgTimer()} ${fmtDuration(run.duration)}
+            <span style="margin:0 6px;opacity:.3">·</span>
+            <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
+          </div>
         </div>
+        <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+      </div>
+      <div class="wf-run-detail-steps">
+        ${steps.map((step, i) => {
+          const sType = (step.type || step.name || '').split('.')[0];
+          const info = findStepType(sType);
+          const hasOutput = step.output != null;
+          return `
+            <div class="wf-run-step wf-run-step--${step.status}" data-step-idx="${i}">
+              <div class="wf-run-step-header">
+                <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+                <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
+                <span class="wf-run-step-type">${escapeHtml(sType)}</span>
+                <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
+                <span class="wf-run-step-status-icon">${step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…'}</span>
+                ${hasOutput ? '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' : ''}
+              </div>
+              ${hasOutput ? `<div class="wf-run-step-output" style="display:none"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
 
-        <div class="wf-modal-ft">
-          ${step > 1
-            ? `<button class="wf-btn-ghost" id="wf-prev">← Retour</button>`
-            : `<button class="wf-btn-ghost" id="wf-prev">Annuler</button>`}
-          <span class="wf-step-counter">${step} / ${STEPS.length}</span>
-          ${step < STEPS.length
-            ? `<button class="wf-btn-primary" id="wf-next">Suivant <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>`
-            : `<button class="wf-btn-primary wf-btn-save" id="wf-save"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg> Enregistrer</button>`}
+  // Back button
+  el.querySelector('#wf-run-back').addEventListener('click', () => renderContent());
+
+  // Toggle step outputs
+  el.querySelectorAll('.wf-run-step').forEach(stepEl => {
+    const header = stepEl.querySelector('.wf-run-step-header');
+    const output = stepEl.querySelector('.wf-run-step-output');
+    if (!output) return;
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => {
+      const visible = output.style.display !== 'none';
+      output.style.display = visible ? 'none' : 'block';
+      stepEl.classList.toggle('expanded', !visible);
+    });
+  });
+}
+
+function formatStepOutput(output) {
+  if (output == null) return '';
+  if (typeof output === 'string') return output;
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+}
+
+/* ─── Node Graph Editor ─────────────────────────────────────────────────── */
+
+// Cache for DB connections (loaded from disk via IPC, independent of Database panel state)
+let _dbConnectionsCache = null;
+async function loadDbConnections() {
+  try {
+    _dbConnectionsCache = await window.electron_api.database.loadConnections() || [];
+  } catch { _dbConnectionsCache = []; }
+}
+
+function openEditor(workflowId = null) {
+  const wf = workflowId ? state.workflows.find(w => w.id === workflowId) : null;
+  const editorDraft = {
+    name: wf?.name || '',
+    scope: wf?.scope || 'current',
+    concurrency: wf?.concurrency || 'skip',
+    dirty: false,
+  };
+
+  // ── Render editor into the panel ──
+  const panel = document.getElementById('workflow-panel');
+  if (!panel) return;
+
+  // Pre-load DB connections from disk (async, used by DB node properties)
+  loadDbConnections();
+
+  const graphService = getGraphService();
+
+  // Store previous panel content for restore
+  const prevContent = panel.innerHTML;
+  const nodeTypes = STEP_TYPES.filter(st => st.type !== 'trigger');
+
+  // ── Build editor HTML ──
+  panel.innerHTML = `
+    <div class="wf-editor">
+      <div class="wf-editor-toolbar">
+        <button class="wf-editor-back" id="wf-ed-back"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg> Retour</button>
+        <div class="wf-editor-toolbar-sep"></div>
+        <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Nom du workflow…" />
+        <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
+        <div class="wf-editor-toolbar-sep"></div>
+        <div class="wf-editor-zoom">
+          <button id="wf-ed-zoom-out" title="Zoom out">−</button>
+          <span id="wf-ed-zoom-label">100%</span>
+          <button id="wf-ed-zoom-in" title="Zoom in">+</button>
+          <button id="wf-ed-zoom-reset" title="Reset to 100%">1:1</button>
+          <button id="wf-ed-zoom-fit" title="Fit all nodes">Fit</button>
         </div>
+        <div class="wf-editor-toolbar-sep"></div>
+        <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run">${svgPlay(10)} Run</button>
+        <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save</button>
+      </div>
+      <div class="wf-editor-body">
+        <div class="wf-editor-palette" id="wf-ed-palette">
+          ${[
+            { key: 'action', title: 'Actions' },
+            { key: 'data',   title: 'Données' },
+            { key: 'flow',   title: 'Contrôle' },
+          ].map(cat => {
+            const items = nodeTypes.filter(st => st.category === cat.key);
+            if (!items.length) return '';
+            return `<div class="wf-palette-title">${cat.title}</div>` +
+              items.map(st => `
+                <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" data-tooltip="${st.label}" title="${st.label} — ${st.desc}">
+                  <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
+                </div>
+              `).join('');
+          }).join('')}
+        </div>
+        <div class="wf-editor-canvas-wrap" id="wf-ed-canvas-wrap">
+          <canvas id="wf-litegraph-canvas"></canvas>
+        </div>
+        <div class="wf-editor-properties" id="wf-ed-properties">
+          <div class="wf-props-empty">
+            <div class="wf-props-empty-icon-wrap">
+              <svg class="wf-props-empty-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+            </div>
+            <div class="wf-props-empty-title">Propriétés</div>
+            <p class="wf-props-empty-text">Sélectionnez un node pour<br>configurer ses paramètres</p>
+          </div>
+        </div>
+      </div>
+      <div class="wf-editor-statusbar">
+        <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 nodes</span>
+        <span class="wf-sb-sep"></span>
+        <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || 'Sans titre'}</span>
+        <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">Modifié</span>
+        <span class="wf-sb-spacer"></span>
+        <span class="wf-sb-section" id="wf-ed-zoom-pct">100%</span>
+      </div>
+    </div>
+  `;
+
+  // ── Init LiteGraph canvas ──
+  const canvasWrap = panel.querySelector('#wf-ed-canvas-wrap');
+  const canvasEl = panel.querySelector('#wf-litegraph-canvas');
+  canvasEl.width = canvasWrap.offsetWidth;
+  canvasEl.height = canvasWrap.offsetHeight;
+
+  graphService.init(canvasEl);
+
+  // Load or create empty
+  if (wf) {
+    graphService.loadFromWorkflow(wf);
+  } else {
+    graphService.createEmpty();
+  }
+
+  // ── Status bar updates ──
+  const updateStatusBar = () => {
+    const count = graphService.getNodeCount();
+    const countEl = panel.querySelector('#wf-ed-nodecount');
+    const zoomEl = panel.querySelector('#wf-ed-zoom-pct');
+    const zoomLabel = panel.querySelector('#wf-ed-zoom-label');
+    const sbName = panel.querySelector('#wf-ed-sb-name');
+    const sbDirty = panel.querySelector('#wf-ed-sb-dirty');
+    const toolbarDirty = panel.querySelector('#wf-ed-dirty');
+    if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} node${count !== 1 ? 's' : ''}`;
+    const pct = Math.round(graphService.getZoom() * 100);
+    if (zoomEl) zoomEl.textContent = `${pct}%`;
+    if (zoomLabel) zoomLabel.textContent = `${pct}%`;
+    if (sbName) sbName.textContent = editorDraft.name || 'Sans titre';
+    if (sbDirty) sbDirty.style.display = editorDraft.dirty ? '' : 'none';
+    if (toolbarDirty) toolbarDirty.style.display = editorDraft.dirty ? '' : 'none';
+  };
+  updateStatusBar();
+
+  // ── Resize observer ──
+  const resizeObs = new ResizeObserver(() => {
+    if (canvasWrap && canvasEl) {
+      graphService.resize(canvasWrap.offsetWidth, canvasWrap.offsetHeight);
+      updateStatusBar();
+    }
+  });
+  resizeObs.observe(canvasWrap);
+
+  // ── Properties panel rendering ──
+  const renderProperties = (node) => {
+    const propsEl = panel.querySelector('#wf-ed-properties');
+    if (!propsEl) return;
+
+    if (!node) {
+      // Show workflow options when no node selected
+      propsEl.innerHTML = `
+        <div class="wf-props-section">
+          <div class="wf-props-header wf-props-header--workflow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <div class="wf-props-header-text">
+              <div class="wf-props-title">Configuration</div>
+              <div class="wf-props-subtitle">Options globales du workflow</div>
+            </div>
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${svgScope()} Scope d'exécution</label>
+            <span class="wf-field-hint">Sur quels projets ce workflow peut s'exécuter</span>
+            <select class="wf-step-edit-input wf-props-input" data-prop="scope">
+              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>Projet courant uniquement</option>
+              <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>Projet spécifique</option>
+              <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>Tous les projets</option>
+            </select>
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${svgConc()} Concurrence</label>
+            <span class="wf-field-hint">Comportement si le workflow est déjà en cours</span>
+            <select class="wf-step-edit-input wf-props-input" data-prop="concurrency">
+              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>Skip (ignorer si en cours)</option>
+              <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>Queue (file d'attente)</option>
+              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>Parallel (instances multiples)</option>
+            </select>
+          </div>
+        </div>
+      `;
+      // Upgrade native selects to custom dropdowns
+      upgradeSelectsToDropdowns(propsEl);
+      // Bind workflow option inputs
+      propsEl.querySelectorAll('.wf-props-input').forEach(input => {
+        input.addEventListener('change', () => {
+          editorDraft[input.dataset.prop] = input.value;
+          editorDraft.dirty = true;
+        });
+      });
+      return;
+    }
+
+    // Show node properties
+    const nodeType = node.type.replace('workflow/', '');
+    const typeInfo = findStepType(nodeType) || { label: nodeType, color: 'muted', icon: '' };
+    const props = node.properties || {};
+
+    let fieldsHtml = '';
+
+    // Trigger node properties
+    if (nodeType === 'trigger') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgTriggerType()} Déclencheur</label>
+          <span class="wf-field-hint">Comment ce workflow démarre</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="triggerType">
+            <option value="manual" ${props.triggerType === 'manual' ? 'selected' : ''}>Manuel (bouton play)</option>
+            <option value="cron" ${props.triggerType === 'cron' ? 'selected' : ''}>Planifié (cron)</option>
+            <option value="hook" ${props.triggerType === 'hook' ? 'selected' : ''}>Hook Claude</option>
+            <option value="on_workflow" ${props.triggerType === 'on_workflow' ? 'selected' : ''}>Après un workflow</option>
+          </select>
+        </div>
+        ${props.triggerType === 'cron' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgClock()} Expression cron</label>
+          <span class="wf-field-hint">min heure jour mois jour-semaine</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="*/5 * * * *" />
+        </div>` : ''}
+        ${props.triggerType === 'hook' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgHook()} Type de hook</label>
+          <span class="wf-field-hint">Événement Claude qui déclenche le workflow</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="hookType">
+            ${HOOK_TYPES.map(h => `<option value="${h.value}" ${props.hookType === h.value ? 'selected' : ''}>${h.label} — ${h.desc}</option>`).join('')}
+          </select>
+        </div>` : ''}
+        ${props.triggerType === 'on_workflow' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgLink()} Workflow source</label>
+          <span class="wf-field-hint">Nom du workflow à surveiller</span>
+          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="deploy-production" />
+        </div>` : ''}
+      `;
+    }
+    // Claude node properties
+    else if (nodeType === 'claude') {
+      const mode = props.mode || 'prompt';
+      const agents = getAgents() || [];
+      const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgMode()} Mode d'exécution</label>
+          <div class="wf-claude-mode-tabs">
+            <button class="wf-claude-mode-tab ${mode === 'prompt' ? 'active' : ''}" data-mode="prompt">
+              ${svgPrompt(16)}
+              <span class="wf-claude-mode-tab-label">Prompt</span>
+            </button>
+            <button class="wf-claude-mode-tab ${mode === 'agent' ? 'active' : ''}" data-mode="agent">
+              ${svgAgent()}
+              <span class="wf-claude-mode-tab-label">Agent</span>
+            </button>
+            <button class="wf-claude-mode-tab ${mode === 'skill' ? 'active' : ''}" data-mode="skill">
+              ${svgSkill(16)}
+              <span class="wf-claude-mode-tab-label">Skill</span>
+            </button>
+          </div>
+        </div>
+        ${mode === 'prompt' || !mode ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgPrompt(10)} Prompt</label>
+          <span class="wf-field-hint">Instructions envoyées à Claude</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="5" placeholder="Analyse ce fichier et résume les changements...">${escapeHtml(props.prompt || '')}</textarea>
+        </div>` : ''}
+        ${mode === 'agent' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgAgent(10)} Agent</label>
+          <span class="wf-field-hint">Worker autonome avec contexte isolé</span>
+          <div class="wf-agent-grid">
+            ${agents.length ? agents.map(a => `
+              <div class="wf-agent-card ${props.agentId === a.id ? 'active' : ''}" data-agent-id="${a.id}">
+                <span class="wf-agent-card-icon">${svgAgent(14)}</span>
+                <div class="wf-agent-card-text">
+                  <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
+                  ${a.description ? `<span class="wf-agent-card-desc">${escapeHtml(a.description)}</span>` : ''}
+                </div>
+                <svg class="wf-agent-card-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+            `).join('') : '<div class="wf-agent-empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Aucun agent dans ~/.claude/agents/</div>'}
+          </div>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgPrompt(10)} Instructions</label>
+          <span class="wf-field-hint">Contexte additionnel pour l'agent</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Focus on performance issues...">${escapeHtml(props.prompt || '')}</textarea>
+        </div>` : ''}
+        ${mode === 'skill' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgSkill(10)} Skill</label>
+          <span class="wf-field-hint">Commande spécialisée à invoquer</span>
+          <div class="wf-agent-grid">
+            ${skills.length ? skills.map(s => `
+              <div class="wf-agent-card ${props.skillId === s.id ? 'active' : ''}" data-skill-id="${s.id}">
+                <span class="wf-agent-card-icon">${svgSkill(14)}</span>
+                <div class="wf-agent-card-text">
+                  <span class="wf-agent-card-name">${escapeHtml(s.name)}</span>
+                  ${s.description ? `<span class="wf-agent-card-desc">${escapeHtml(s.description)}</span>` : ''}
+                </div>
+                <svg class="wf-agent-card-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+            `).join('') : '<div class="wf-agent-empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Aucun skill dans ~/.claude/skills/</div>'}
+          </div>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgPrompt(10)} Arguments</label>
+          <span class="wf-field-hint">Texte passé au skill comme argument</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Arguments optionnels...">${escapeHtml(props.prompt || '')}</textarea>
+        </div>` : ''}
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">Modèle</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="model">
+              <option value="" ${!props.model ? 'selected' : ''}>Auto</option>
+              <option value="sonnet" ${props.model === 'sonnet' ? 'selected' : ''}>Sonnet</option>
+              <option value="opus" ${props.model === 'opus' ? 'selected' : ''}>Opus</option>
+              <option value="haiku" ${props.model === 'haiku' ? 'selected' : ''}>Haiku</option>
+            </select>
+          </div>
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">Effort</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="effort">
+              <option value="" ${!props.effort ? 'selected' : ''}>Auto</option>
+              <option value="low" ${props.effort === 'low' ? 'selected' : ''}>Low</option>
+              <option value="medium" ${props.effort === 'medium' ? 'selected' : ''}>Medium</option>
+              <option value="high" ${props.effort === 'high' ? 'selected' : ''}>High</option>
+            </select>
+          </div>
+        </div>
+      `;
+    }
+    // Shell node
+    else if (nodeType === 'shell') {
+      const allProjects = projectsState.get().projects || [];
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} Exécuter dans</label>
+          <span class="wf-field-hint">Répertoire de travail de la commande</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgShell()} Commande</label>
+          <span class="wf-field-hint">Commande bash exécutée dans un terminal</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="command" rows="3" placeholder="npm run build && npm test">${escapeHtml(props.command || '')}</textarea>
+        </div>
+      `;
+    }
+    // Git node
+    else if (nodeType === 'git') {
+      const allProjects = projectsState.get().projects || [];
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} Projet cible</label>
+          <span class="wf-field-hint">Dépôt git sur lequel opérer</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgGit()} Action</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            ${GIT_ACTIONS.map(a => `<option value="${a.value}" ${props.action === a.value ? 'selected' : ''}>${a.label} — ${a.desc}</option>`).join('')}
+          </select>
+        </div>
+        ${props.action === 'commit' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Message de commit</label>
+          <span class="wf-field-hint">Convention: type(scope): description</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="message" value="${escapeHtml(props.message || '')}" placeholder="feat(auth): add password reset" />
+        </div>` : ''}
+        ${props.action === 'checkout' || props.action === 'merge' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgBranch()} Branche</label>
+          <span class="wf-field-hint">Nom de la branche git</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="branch" value="${escapeHtml(props.branch || '')}" placeholder="feature/my-branch" />
+        </div>` : ''}
+      `;
+    }
+    // HTTP node
+    else if (nodeType === 'http') {
+      fieldsHtml = `
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field" style="width:100px;flex-shrink:0">
+            <label class="wf-step-edit-label">Méthode</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="method">
+              ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${props.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div class="wf-step-edit-field" style="flex:1">
+            <label class="wf-step-edit-label">URL</label>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="url" value="${escapeHtml(props.url || '')}" placeholder="https://api.example.com/v1/users" />
+          </div>
+        </div>
+        ${['POST','PUT','PATCH'].includes(props.method) ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Headers</label>
+          <span class="wf-field-hint">Objet JSON des en-têtes HTTP</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="headers" rows="2" placeholder='{"Authorization": "Bearer $token"}'>${escapeHtml(props.headers || '')}</textarea>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Body</label>
+          <span class="wf-field-hint">Corps de la requête (JSON)</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="body" rows="3" placeholder='{"name": "John", "email": "john@example.com"}'>${escapeHtml(props.body || '')}</textarea>
+        </div>` : ''}
+      `;
+    }
+    // Notify node
+    else if (nodeType === 'notify') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgNotify()} Titre</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="title" value="${escapeHtml(props.title || '')}" placeholder="Build terminé" />
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Message</label>
+          <span class="wf-field-hint">Variables : $ctx.project, $ctx.branch, $node_X.output</span>
+          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Le build de $ctx.project est terminé avec succès.">${escapeHtml(props.message || '')}</textarea>
+        </div>
+      `;
+    }
+    // Wait node
+    else if (nodeType === 'wait') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgWait()} Durée</label>
+          <span class="wf-field-hint">Formats: 5s, 2m, 1h, 500ms</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="duration" value="${escapeHtml(props.duration || '5s')}" placeholder="5s" />
+        </div>
+      `;
+    }
+    // Condition node
+    else if (nodeType === 'condition') {
+      const condMode = props._condMode || 'builder';
+      const currentOp = props.operator || '==';
+      const isUnary = currentOp === 'is_empty' || currentOp === 'is_not_empty';
+      const compareOps = CONDITION_OPS.filter(o => o.group === 'compare');
+      const textOps = CONDITION_OPS.filter(o => o.group === 'text');
+      const unaryOps = CONDITION_OPS.filter(o => o.group === 'unary');
+      fieldsHtml = `
+        <div class="wf-cond-mode-toggle">
+          <button class="wf-cond-mode-btn ${condMode === 'builder' ? 'active' : ''}" data-cond-mode="builder">Builder</button>
+          <button class="wf-cond-mode-btn ${condMode === 'expression' ? 'active' : ''}" data-cond-mode="expression">Expression</button>
+        </div>
+        <div class="wf-cond-builder" ${condMode === 'expression' ? 'style="display:none"' : ''}>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${svgVariable()} Variable</label>
+            <span class="wf-field-hint">$variable ou valeur libre — Autocomplete avec $</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="variable" value="${escapeHtml(props.variable || '')}" placeholder="$ctx.branch" />
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Opérateur</label>
+            <div class="wf-cond-ops">
+              <div class="wf-cond-ops-group">
+                ${compareOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.value}</button>`).join('')}
+              </div>
+              <div class="wf-cond-ops-group">
+                ${textOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.label}</button>`).join('')}
+              </div>
+              <div class="wf-cond-ops-group">
+                ${unaryOps.map(o => `<button class="wf-cond-op-btn wf-cond-op-unary ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.label}</button>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="wf-step-edit-field wf-cond-value-field" ${isUnary ? 'style="display:none"' : ''}>
+            <label class="wf-step-edit-label">Valeur</label>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="main" />
+          </div>
+          <div class="wf-cond-preview">
+            <code class="wf-cond-preview-code">${escapeHtml(buildConditionPreview(props.variable, currentOp, props.value, isUnary))}</code>
+          </div>
+        </div>
+        <div class="wf-cond-expression" ${condMode === 'builder' ? 'style="display:none"' : ''}>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${svgVariable()} Expression</label>
+            <span class="wf-field-hint">Expression libre — ex: $node_1.rows.length > 0</span>
+            <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-cond-expr-input" data-key="expression" rows="2" placeholder="$node_1.exitCode == 0">${escapeHtml(props.expression || '')}</textarea>
+          </div>
+        </div>
+      `;
+    }
+    // Project node
+    else if (nodeType === 'project') {
+      const allProjects = projectsState.get().projects || [];
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} Projet</label>
+          <span class="wf-field-hint">Projet cible de cette opération</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="">-- Choisir un projet --</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <span class="wf-field-hint">Opération à effectuer sur le projet</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="set_context" ${props.action === 'set_context' ? 'selected' : ''}>Définir comme contexte actif</option>
+            <option value="open" ${props.action === 'open' ? 'selected' : ''}>Ouvrir dans l'éditeur</option>
+            <option value="build" ${props.action === 'build' ? 'selected' : ''}>Lancer le build</option>
+            <option value="install" ${props.action === 'install' ? 'selected' : ''}>Installer les dépendances</option>
+            <option value="test" ${props.action === 'test' ? 'selected' : ''}>Exécuter les tests</option>
+          </select>
+        </div>
+      `;
+    }
+    // File node
+    else if (nodeType === 'file') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="read" ${props.action === 'read' ? 'selected' : ''}>Lire le fichier</option>
+            <option value="write" ${props.action === 'write' ? 'selected' : ''}>Écrire (remplacer)</option>
+            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la fin</option>
+            <option value="copy" ${props.action === 'copy' ? 'selected' : ''}>Copier</option>
+            <option value="delete" ${props.action === 'delete' ? 'selected' : ''}>Supprimer</option>
+            <option value="exists" ${props.action === 'exists' ? 'selected' : ''}>Vérifier existence</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Chemin</label>
+          <span class="wf-field-hint">Chemin relatif ou absolu du fichier</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="path" value="${escapeHtml(props.path || '')}" placeholder="./src/index.js" />
+        </div>
+        ${props.action === 'copy' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Destination</label>
+          <span class="wf-field-hint">Chemin cible pour la copie</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="destination" value="${escapeHtml(props.destination || '')}" placeholder="./backup/index.js.bak" />
+        </div>` : ''}
+        ${props.action === 'write' || props.action === 'append' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Contenu</label>
+          <span class="wf-field-hint">Texte ou données à écrire dans le fichier</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="content" rows="4" placeholder="console.log('Hello world');">${escapeHtml(props.content || '')}</textarea>
+        </div>` : ''}
+      `;
+    }
+    // DB node
+    else if (nodeType === 'db') {
+      const dbConns = _dbConnectionsCache || [];
+      const dbAction = props.action || 'query';
+      const selectedConn = dbConns.find(c => c.id === props.connection);
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgDb()} Connexion</label>
+          <span class="wf-field-hint">Base de données configurée dans l'app</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="connection">
+            <option value="">-- Choisir une connexion --</option>
+            ${dbConns.map(c => `<option value="${c.id}" ${props.connection === c.id ? 'selected' : ''}>${escapeHtml(c.name)} (${c.type || 'sql'})</option>`).join('')}
+          </select>
+          ${!dbConns.length ? '<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">Aucune connexion — onglet Database</span>' : ''}
+          ${selectedConn ? `<span class="wf-field-hint" style="color:rgba(251,191,36,.5)">${selectedConn.type || 'sql'}${selectedConn.host ? ' — ' + escapeHtml(selectedConn.host) : ''}${selectedConn.database ? '/' + escapeHtml(selectedConn.database) : ''}</span>` : ''}
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <span class="wf-field-hint">Type d'opération sur la base</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="query" ${dbAction === 'query' ? 'selected' : ''}>Query — Exécuter une requête SQL</option>
+            <option value="schema" ${dbAction === 'schema' ? 'selected' : ''}>Schema — Lister les tables et colonnes</option>
+            <option value="tables" ${dbAction === 'tables' ? 'selected' : ''}>Tables — Lister les noms de tables</option>
+          </select>
+        </div>
+        ${dbAction === 'query' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Requête SQL</label>
+          <div class="wf-sql-templates">
+            <button class="wf-sql-tpl" data-tpl="select">SELECT</button>
+            <button class="wf-sql-tpl" data-tpl="insert">INSERT</button>
+            <button class="wf-sql-tpl" data-tpl="update">UPDATE</button>
+            <button class="wf-sql-tpl" data-tpl="delete">DELETE</button>
+          </div>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-sql-textarea" data-key="query" rows="5" placeholder="SELECT * FROM users WHERE active = 1" spellcheck="false">${escapeHtml(props.query || '')}</textarea>
+          <span class="wf-field-hint">Autocomplete : tables et colonnes en tapant. Variables : $ctx, $node_X, $loop</span>
+        </div>
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">${svgCond()} Limite</label>
+            <span class="wf-field-hint">Max de lignes retournées</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="limit" type="number" min="1" max="10000" value="${escapeHtml(String(props.limit || 100))}" placeholder="100" />
+          </div>
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">${svgVariable()} Variable de sortie</label>
+            <span class="wf-field-hint">Nom pour accéder au résultat</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar" value="${escapeHtml(props.outputVar || '')}" placeholder="dbResult" />
+          </div>
+        </div>` : ''}
+        <div class="wf-db-output-hint">
+          <div class="wf-db-output-title">${svgTriggerType()} Sortie disponible ${props.outputVar ? `<code style="margin-left:4px;font-size:10px">$${escapeHtml(props.outputVar)}</code>` : ''}</div>
+          ${dbAction === 'query' ? `
+          <div class="wf-db-output-items">
+            <code>$node_${node.id}.rows</code> <span>tableau des résultats</span>
+            <code>$node_${node.id}.columns</code> <span>noms des colonnes</span>
+            <code>$node_${node.id}.rowCount</code> <span>nombre de lignes</span>
+            <code>$node_${node.id}.duration</code> <span>temps d'exécution (ms)</span>
+            <code>$node_${node.id}.firstRow</code> <span>première ligne (objet)</span>
+          </div>` : dbAction === 'schema' ? `
+          <div class="wf-db-output-items">
+            <code>$node_${node.id}.tables</code> <span>liste des tables avec colonnes</span>
+            <code>$node_${node.id}.tableCount</code> <span>nombre de tables</span>
+          </div>` : `
+          <div class="wf-db-output-items">
+            <code>$node_${node.id}.tables</code> <span>liste des noms de tables</span>
+            <code>$node_${node.id}.tableCount</code> <span>nombre de tables</span>
+          </div>`}
+        </div>
+      `;
+    }
+    // Loop node
+    else if (nodeType === 'loop') {
+      // Detect upstream source for preview
+      const loopPreview = getLoopPreview(node, graphService);
+      const loopMode = props.mode || 'sequential';
+
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgLoop()} Source d'itération</label>
+          <span class="wf-field-hint">D'où viennent les items à parcourir</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="source">
+            <option value="auto" ${(!props.source || props.source === 'auto' || props.source === 'previous_output') ? 'selected' : ''}>Automatique (depuis node connecté)</option>
+            <option value="projects" ${props.source === 'projects' ? 'selected' : ''}>Tous les projets enregistrés</option>
+            <option value="files" ${props.source === 'files' ? 'selected' : ''}>Fichiers (pattern glob)</option>
+            <option value="custom" ${props.source === 'custom' ? 'selected' : ''}>Liste personnalisée</option>
+          </select>
+        </div>
+        ${props.source === 'files' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Pattern glob</label>
+          <span class="wf-field-hint">Expression pour trouver les fichiers</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" value="${escapeHtml(props.filter || '')}" placeholder="src/**/*.test.js" />
+        </div>` : ''}
+        ${props.source === 'custom' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Items</label>
+          <span class="wf-field-hint">Un item par ligne, ou variable $node_X.rows</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" rows="4" placeholder="api-service\nweb-app\nworker">${escapeHtml(props.filter || '')}</textarea>
+        </div>` : ''}
+        ${loopPreview.html}
+        <div class="wf-loop-options">
+          <div class="wf-loop-opt">
+            <span class="wf-loop-opt-label">Mode</span>
+            <div class="wf-loop-mode-tabs">
+              <button class="wf-loop-mode-tab ${loopMode === 'sequential' ? 'active' : ''}" data-mode="sequential" title="Un par un dans l'ordre">Séq.</button>
+              <button class="wf-loop-mode-tab ${loopMode === 'parallel' ? 'active' : ''}" data-mode="parallel" title="Tous en parallèle">Par.</button>
+            </div>
+          </div>
+          <div class="wf-loop-opt">
+            <span class="wf-loop-opt-label">Limite</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono wf-loop-max-input" data-key="maxIterations" type="number" min="1" max="10000" value="${escapeHtml(String(props.maxIterations || ''))}" placeholder="∞" />
+          </div>
+        </div>
+        <div class="wf-loop-usage-hint">
+          <div class="wf-loop-usage-title">${svgTriggerType()} Variables dans Each</div>
+          <div class="wf-loop-usage-items">
+            <code>$item</code> <span>${escapeHtml(loopPreview.itemDesc)}</span>
+            <code>$loop.index</code> <span>Index courant (0, 1, 2…)</span>
+            <code>$loop.total</code> <span>Nombre total d'items</span>
+          </div>
+          <div class="wf-loop-usage-tip">Connectez un node au port <strong>Each</strong> pour traiter chaque item</div>
+        </div>
+      `;
+    }
+    // Variable node
+    else if (nodeType === 'variable') {
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Action</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="set" ${props.action === 'set' ? 'selected' : ''}>Définir une valeur</option>
+            <option value="get" ${props.action === 'get' ? 'selected' : ''}>Lire la valeur</option>
+            <option value="increment" ${props.action === 'increment' ? 'selected' : ''}>Incrémenter (+n)</option>
+            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la liste</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgVariable()} Nom</label>
+          <span class="wf-field-hint">Identifiant unique de la variable</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="name" value="${escapeHtml(props.name || '')}" placeholder="buildCount" />
+        </div>
+        ${props.action !== 'get' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Valeur</label>
+          <span class="wf-field-hint">${props.action === 'increment' ? 'Incrément (nombre)' : 'Valeur à assigner'}</span>
+          <input class="wf-step-edit-input wf-node-prop ${props.action === 'increment' ? 'wf-field-mono' : ''}" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="${props.action === 'increment' ? '1' : 'production'}" ${props.action === 'increment' ? 'type="number"' : ''} />
+        </div>` : ''}
+      `;
+    }
+    // Log node
+    else if (nodeType === 'log') {
+      const logLevel = props.level || 'info';
+      const LOG_LEVELS = [
+        { value: 'debug', label: 'Debug',   icon: '🔍', color: 'var(--text-muted)' },
+        { value: 'info',  label: 'Info',    icon: 'ℹ',  color: '#60a5fa' },
+        { value: 'warn',  label: 'Warn',    icon: '⚠',  color: '#fbbf24' },
+        { value: 'error', label: 'Error',   icon: '✕',  color: '#f87171' },
+      ];
+      const LOG_TEMPLATES = [
+        { label: 'Status',   value: '[$ctx.project] Step $loop.index completed' },
+        { label: 'Result',   value: 'Output: $node_1.stdout' },
+        { label: 'Timing',   value: 'Done at $ctx.date' },
+      ];
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgLog()} Niveau</label>
+          <div class="wf-log-level-tabs">
+            ${LOG_LEVELS.map(l => `
+              <button class="wf-log-level-tab ${logLevel === l.value ? 'active' : ''}" data-level="${l.value}" style="${logLevel === l.value ? `--tab-color:${l.color}` : ''}">
+                <span class="wf-log-level-icon">${l.icon}</span>
+                ${l.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Message</label>
+          <div class="wf-log-tpl-bar">
+            ${LOG_TEMPLATES.map(t => `<button class="wf-log-tpl" data-tpl="${escapeHtml(t.value)}" title="${escapeHtml(t.value)}">${t.label}</button>`).join('')}
+          </div>
+          <textarea class="wf-step-edit-input wf-node-prop wf-log-textarea" data-key="message" rows="3" placeholder="Build finished for $ctx.project">${escapeHtml(props.message || '')}</textarea>
+          <div class="wf-log-preview" data-level="${logLevel}">
+            <span class="wf-log-preview-badge">${LOG_LEVELS.find(l => l.value === logLevel)?.icon || 'ℹ'}</span>
+            <span class="wf-log-preview-text">${escapeHtml(props.message || 'Aperçu du message...')}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    const customTitle = node.properties._customTitle || '';
+    const nodeStepId = `node_${node.id}`;
+    propsEl.innerHTML = `
+      <div class="wf-props-section" data-node-color="${typeInfo.color}">
+        <div class="wf-props-header">
+          <span class="wf-chip wf-chip--${typeInfo.color}">${typeInfo.icon}</span>
+          <div class="wf-props-header-text">
+            <div class="wf-props-title">${typeInfo.label}</div>
+            <div class="wf-props-subtitle">${typeInfo.desc}</div>
+          </div>
+          <span class="wf-props-badge wf-props-badge--${typeInfo.color}">${nodeType.toUpperCase()}</span>
+        </div>
+        ${nodeType !== 'trigger' ? `<div class="wf-node-id-badge"><code>$${nodeStepId}</code> <span>ID de ce node pour les variables</span></div>` : ''}
+        ${nodeType !== 'trigger' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Nom personnalisé</label>
+          <input class="wf-step-edit-input wf-node-prop" data-key="_customTitle" value="${escapeHtml(customTitle)}" placeholder="${typeInfo.label}" />
+        </div>` : ''}
+        ${fieldsHtml}
+        ${nodeType !== 'trigger' ? `
+        <div class="wf-props-divider"></div>
+        <button class="wf-props-delete" id="wf-props-delete-node">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          Supprimer ce node
+        </button>` : ''}
       </div>
     `;
 
-    if (step === 1) drawTriggerSub();
-    if (step === 2) drawStepsList();
-    rebind();
+    // Upgrade native selects to custom dropdowns
+    upgradeSelectsToDropdowns(propsEl);
+
+    // ── Bind property inputs ──
+    propsEl.querySelectorAll('.wf-node-prop').forEach(input => {
+      const handler = () => {
+        const key = input.dataset.key;
+        const val = input.value;
+        node.properties[key] = val;
+        editorDraft.dirty = true;
+        // Update widget display in node
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.name === key || w.name.toLowerCase() === key.toLowerCase());
+          if (w) w.value = val;
+        }
+        graphService.canvas.setDirty(true, true);
+        // Invalidate schema cache when DB connection changes
+        if (key === 'connection') {
+          schemaCache.invalidate(val);
+        }
+        // Re-render properties if field affects visibility (trigger type, method, action, mode, connection)
+        if (['triggerType', 'method', 'action', 'mode', 'connection'].includes(key)) {
+          renderProperties(node);
+        }
+      };
+      input.addEventListener('input', handler);
+      input.addEventListener('change', handler);
+    });
+
+    // ── Autocomplete for $variable references ──
+    setupAutocomplete(propsEl, node, graphService);
+
+    // ── Initialize Smart SQL for DB nodes ──
+    if (nodeType === 'db') {
+      initSmartSQL(propsEl, node, graphService).catch(e => console.warn('[SmartSQL] init error:', e));
+    }
+
+    // Claude mode tabs
+    propsEl.querySelectorAll('.wf-claude-mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        node.properties.mode = tab.dataset.mode;
+        // Update widget
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.name === 'Mode');
+          if (w) w.value = tab.dataset.mode;
+        }
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // Agent card selection
+    propsEl.querySelectorAll('.wf-agent-card[data-agent-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        node.properties.agentId = card.dataset.agentId;
+        editorDraft.dirty = true;
+        propsEl.querySelectorAll('.wf-agent-card[data-agent-id]').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    // Skill card selection
+    propsEl.querySelectorAll('.wf-agent-card[data-skill-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        node.properties.skillId = card.dataset.skillId;
+        editorDraft.dirty = true;
+        propsEl.querySelectorAll('.wf-agent-card[data-skill-id]').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    // Loop mode tabs (sequential/parallel)
+    propsEl.querySelectorAll('.wf-loop-mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        node.properties.mode = tab.dataset.mode;
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // Log level tabs
+    propsEl.querySelectorAll('.wf-log-level-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        node.properties.level = tab.dataset.level;
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // Log template buttons
+    propsEl.querySelectorAll('.wf-log-tpl').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const textarea = propsEl.querySelector('.wf-log-textarea');
+        if (textarea) {
+          const start = textarea.selectionStart || textarea.value.length;
+          const before = textarea.value.substring(0, start);
+          const after = textarea.value.substring(textarea.selectionEnd || start);
+          textarea.value = before + btn.dataset.tpl + after;
+          node.properties.message = textarea.value;
+          editorDraft.dirty = true;
+          textarea.focus();
+          // Update preview
+          const preview = propsEl.querySelector('.wf-log-preview-text');
+          if (preview) preview.textContent = textarea.value || 'Aperçu du message...';
+        }
+      });
+    });
+
+    // Log message live preview
+    const logTextarea = propsEl.querySelector('.wf-log-textarea');
+    if (logTextarea) {
+      logTextarea.addEventListener('input', () => {
+        const preview = propsEl.querySelector('.wf-log-preview-text');
+        if (preview) preview.textContent = logTextarea.value || 'Aperçu du message...';
+      });
+    }
+
+    // Condition mode toggle (Builder / Expression)
+    propsEl.querySelectorAll('.wf-cond-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.condMode;
+        node.properties._condMode = mode;
+        editorDraft.dirty = true;
+        const builderEl = propsEl.querySelector('.wf-cond-builder');
+        const exprEl = propsEl.querySelector('.wf-cond-expression');
+        if (builderEl && exprEl) {
+          builderEl.style.display = mode === 'builder' ? '' : 'none';
+          exprEl.style.display = mode === 'expression' ? '' : 'none';
+        }
+        propsEl.querySelectorAll('.wf-cond-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+        // When switching to expression, sync builder → expression
+        if (mode === 'expression' && !node.properties.expression) {
+          const isUnary = (node.properties.operator || '==') === 'is_empty' || (node.properties.operator || '==') === 'is_not_empty';
+          node.properties.expression = buildConditionPreview(node.properties.variable || '', node.properties.operator || '==', node.properties.value || '', isUnary);
+          const exprInput = propsEl.querySelector('.wf-cond-expr-input');
+          if (exprInput) exprInput.value = node.properties.expression;
+        }
+      });
+    });
+
+    // Condition operator buttons
+    propsEl.querySelectorAll('.wf-cond-op-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const op = btn.dataset.op;
+        node.properties.operator = op;
+        editorDraft.dirty = true;
+        // Toggle active state
+        propsEl.querySelectorAll('.wf-cond-op-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Show/hide value field based on unary
+        const isUnary = op === 'is_empty' || op === 'is_not_empty';
+        const valField = propsEl.querySelector('.wf-cond-value-field');
+        if (valField) valField.style.display = isUnary ? 'none' : '';
+        // Update preview
+        const preview = propsEl.querySelector('.wf-cond-preview-code');
+        if (preview) preview.textContent = buildConditionPreview(node.properties.variable || '', op, node.properties.value || '', isUnary);
+        // Update widget
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.name === 'operator' || w.name === 'Operator');
+          if (w) w.value = op;
+        }
+        graphService.canvas.setDirty(true, true);
+      });
+    });
+
+    // Condition live preview update on variable/value change
+    const condVarInput = propsEl.querySelector('.wf-cond-builder [data-key="variable"]');
+    const condValInput = propsEl.querySelector('.wf-cond-builder [data-key="value"]');
+    const condPreview = propsEl.querySelector('.wf-cond-preview-code');
+    if (condPreview) {
+      const updateCondPreview = () => {
+        const v = condVarInput?.value || '';
+        const op = node.properties.operator || '==';
+        const val = condValInput?.value || '';
+        const isUnary = op === 'is_empty' || op === 'is_not_empty';
+        condPreview.textContent = buildConditionPreview(v, op, val, isUnary);
+      };
+      if (condVarInput) condVarInput.addEventListener('input', updateCondPreview);
+      if (condValInput) condValInput.addEventListener('input', updateCondPreview);
+    }
+
+    // Delete node button
+    const deleteBtn = propsEl.querySelector('#wf-props-delete-node');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        graphService.graph.remove(node);
+        editorDraft.dirty = true;
+        renderProperties(null);
+        updateStatusBar();
+        graphService.canvas.setDirty(true, true);
+      });
+    }
+
+    // Custom title update (sync to node title)
+    const titleInput = propsEl.querySelector('[data-key="_customTitle"]');
+    if (titleInput) {
+      titleInput.addEventListener('input', () => {
+        node.properties._customTitle = titleInput.value;
+        node.title = titleInput.value || typeInfo.label;
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+      });
+    }
   };
 
-  document.body.appendChild(overlay);
-  draw();
-}
+  // ── Graph events ──
+  graphService.onNodeSelected = (node) => {
+    renderProperties(node);
+    updateStatusBar();
+  };
 
+  graphService.onNodeDeselected = () => {
+    renderProperties(null);
+  };
+
+  graphService.onGraphChanged = () => {
+    editorDraft.dirty = true;
+    updateStatusBar();
+  };
+
+  // ── Auto-loop suggestion ──
+  graphService.onArrayToSingleConnection = (link, sourceNode, targetNode) => {
+    // Remove any existing suggestion popup
+    const old = panel.querySelector('.wf-loop-suggest');
+    if (old) old.remove();
+
+    // Position popup at the midpoint of the link (converted from graph coords to screen)
+    const canvas = graphService.canvas;
+    const originPos = sourceNode.getConnectionPos(false, link.origin_slot);
+    const targetPos = targetNode.getConnectionPos(true, link.target_slot);
+    const mx = (originPos[0] + targetPos[0]) / 2;
+    const my = (originPos[1] + targetPos[1]) / 2;
+    const screenPos = canvas.ds.convertOffsetToCanvas([mx, my]);
+    const canvasRect = graphService.canvasElement.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+
+    const popup = document.createElement('div');
+    popup.className = 'wf-loop-suggest';
+    popup.style.left = (canvasRect.left - panelRect.left + screenPos[0]) + 'px';
+    popup.style.top = (canvasRect.top - panelRect.top + screenPos[1] + 10) + 'px';
+    popup.innerHTML = `
+      <div class="wf-loop-suggest-text">Ce lien transporte un tableau. Insérer un Loop ?</div>
+      <div class="wf-loop-suggest-actions">
+        <button class="wf-loop-suggest-btn wf-loop-suggest-btn--yes">Insérer Loop</button>
+        <button class="wf-loop-suggest-btn wf-loop-suggest-btn--no">Ignorer</button>
+      </div>
+    `;
+    panel.appendChild(popup);
+
+    // Auto-dismiss after 6s
+    const autoDismiss = setTimeout(() => popup.remove(), 6000);
+
+    popup.querySelector('.wf-loop-suggest-btn--no').addEventListener('click', () => {
+      clearTimeout(autoDismiss);
+      popup.remove();
+    });
+
+    popup.querySelector('.wf-loop-suggest-btn--yes').addEventListener('click', () => {
+      clearTimeout(autoDismiss);
+      popup.remove();
+      insertLoopBetween(graphService, link, sourceNode, targetNode);
+      editorDraft.dirty = true;
+      updateStatusBar();
+    });
+  };
+
+  // ── Toolbar events ──
+  // Back
+  panel.querySelector('#wf-ed-back').addEventListener('click', () => {
+    resizeObs.disconnect();
+    resetGraphService();
+    renderPanel();
+    renderContent();
+  });
+
+  // Name input
+  panel.querySelector('#wf-ed-name').addEventListener('input', (e) => {
+    editorDraft.name = e.target.value;
+    editorDraft.dirty = true;
+  });
+
+  // Zoom
+  panel.querySelector('#wf-ed-zoom-in').addEventListener('click', () => {
+    graphService.setZoom(graphService.getZoom() * 1.2);
+    updateStatusBar();
+  });
+  panel.querySelector('#wf-ed-zoom-out').addEventListener('click', () => {
+    graphService.setZoom(graphService.getZoom() / 1.2);
+    updateStatusBar();
+  });
+  panel.querySelector('#wf-ed-zoom-reset')?.addEventListener('click', () => {
+    graphService.setZoom(1);
+    updateStatusBar();
+  });
+  panel.querySelector('#wf-ed-zoom-fit').addEventListener('click', () => {
+    graphService.zoomToFit();
+    updateStatusBar();
+  });
+
+  // Save
+  panel.querySelector('#wf-ed-save').addEventListener('click', async () => {
+    const data = graphService.serializeToWorkflow();
+    if (!data) return;
+    const workflow = {
+      ...(workflowId ? { id: workflowId } : {}),
+      name: editorDraft.name,
+      enabled: wf?.enabled ?? true,
+      trigger: data.trigger,
+      ...(data.trigger.type === 'hook' ? { hookType: data.hookType } : {}),
+      scope: editorDraft.scope,
+      concurrency: editorDraft.concurrency,
+      graph: data.graph,
+      steps: data.steps,
+    };
+    const res = await api.save(workflow);
+    if (res?.success) {
+      editorDraft.dirty = false;
+      updateStatusBar();
+      await refreshData();
+      // Update workflowId if new
+      if (!workflowId && res.id) {
+        workflowId = res.id;
+      }
+    }
+  });
+
+  // Run
+  panel.querySelector('#wf-ed-run').addEventListener('click', () => {
+    if (workflowId) triggerWorkflow(workflowId);
+  });
+
+  // ── Palette clicks ──
+  panel.querySelectorAll('.wf-palette-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const typeName = item.dataset.nodeType;
+      // Add node at center of current viewport
+      const canvas = graphService.canvas;
+      const cx = (-canvas.ds.offset[0] + canvasWrap.offsetWidth / 2) / canvas.ds.scale;
+      const cy = (-canvas.ds.offset[1] + canvasWrap.offsetHeight / 2) / canvas.ds.scale;
+      graphService.addNode(typeName, [cx - 90, cy - 30]);
+    });
+  });
+
+  // ── Keyboard shortcuts in editor ──
+  const editorKeyHandler = (e) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Only delete if not focused on an input
+      if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+        graphService.deleteSelected();
+      }
+    }
+  };
+  document.addEventListener('keydown', editorKeyHandler);
+
+  // Cleanup keyboard handler when leaving editor
+  const origBack = panel.querySelector('#wf-ed-back');
+  if (origBack) {
+    const origHandler = origBack.onclick;
+    origBack.addEventListener('click', () => {
+      document.removeEventListener('keydown', editorKeyHandler);
+    }, { once: true });
+  }
+
+} // end openEditor
+
+// Legacy: removed old wizard code. The old openBuilder function has been replaced
+// by the node graph editor above.
 /* ─── Detail ───────────────────────────────────────────────────────────────── */
 
 function openDetail(id) {
@@ -924,7 +2503,7 @@ function openDetail(id) {
           <div class="wf-detail-sec-title">Séquence</div>
           <div class="wf-detail-steps">
             ${(wf.steps || []).map((s, i) => {
-              const info = STEP_TYPES.find(x => x.type === (s.type || '').split('.')[0]) || STEP_TYPES[0];
+              const info = findStepType((s.type || '').split('.')[0]);
               return `
                 <div class="wf-det-step">
                   <span class="wf-det-step-n">${i + 1}</span>
@@ -961,7 +2540,7 @@ function openDetail(id) {
 
   document.body.appendChild(overlay);
   overlay.querySelector('#wf-det-close').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#wf-edit').addEventListener('click', () => { overlay.remove(); openBuilder(id); });
+  overlay.querySelector('#wf-edit').addEventListener('click', () => { overlay.remove(); openEditor(id); });
   overlay.querySelector('#wf-run-now').addEventListener('click', () => { triggerWorkflow(id); overlay.remove(); });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
@@ -1002,6 +2581,55 @@ async function toggleWorkflow(id, enabled) {
   if (res?.success) {
     const wf = state.workflows.find(w => w.id === id);
     if (wf) wf.enabled = enabled;
+  }
+}
+
+async function confirmDeleteWorkflow(id, name) {
+  if (!api) return;
+  // Simple confirmation via a small modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'wf-confirm-overlay';
+  overlay.innerHTML = `
+    <div class="wf-confirm-box">
+      <div class="wf-confirm-title">${svgTrash(16)} Supprimer le workflow</div>
+      <div class="wf-confirm-text">Supprimer <strong>${escapeHtml(name || 'ce workflow')}</strong> ? Cette action est irréversible.</div>
+      <div class="wf-confirm-actions">
+        <button class="wf-confirm-btn wf-confirm-btn--cancel">Annuler</button>
+        <button class="wf-confirm-btn wf-confirm-btn--delete">Supprimer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.wf-confirm-btn--cancel').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('.wf-confirm-btn--delete').addEventListener('click', async () => {
+    overlay.remove();
+    const res = await api.delete(id);
+    if (res?.success) {
+      state.workflows = state.workflows.filter(w => w.id !== id);
+      renderContent();
+    }
+  });
+}
+
+async function duplicateWorkflow(id) {
+  if (!api) return;
+  const wf = state.workflows.find(w => w.id === id);
+  if (!wf) return;
+  const copy = {
+    name: wf.name + ' (copie)',
+    enabled: false,
+    trigger: { ...wf.trigger },
+    scope: wf.scope,
+    concurrency: wf.concurrency,
+    steps: JSON.parse(JSON.stringify(wf.steps || [])),
+  };
+  const res = await api.save(copy);
+  if (res?.success) {
+    await refreshData();
+    renderContent();
   }
 }
 
@@ -1047,7 +2675,7 @@ function statusLabel(s) {
 /* ─── SVG icons ─────────────────────────────────────────────────────────────── */
 
 function svgWorkflow(s = 14) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
-function svgAgent() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>`; }
+function svgAgent(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>`; }
 function svgShell() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`; }
 function svgGit() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`; }
 function svgHttp() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
@@ -1064,5 +2692,446 @@ function svgScope() { return `<svg width="11" height="11" viewBox="0 0 24 24" fi
 function svgConc() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>`; }
 function svgEmpty() { return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
 function svgRuns() { return `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`; }
+function svgClaude(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7v1a7 7 0 0 0 14 0V9a7 7 0 0 0-7-7z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/><path d="M8 18v2a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2"/></svg>`; }
+function svgPrompt(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`; }
+function svgSkill(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`; }
+function svgProject(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`; }
+function svgFile(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`; }
+function svgDb(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`; }
+function svgLoop(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`; }
+function svgVariable(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></svg>`; }
+function svgLog(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`; }
+function svgTriggerType(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`; }
+function svgLink(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
+function svgMode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`; }
+function svgEdit(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`; }
+function svgBranch(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`; }
+function svgCode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`; }
+function svgTrash(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`; }
+function svgCopy(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`; }
+
+/**
+ * Replace native <select> elements with custom styled dropdowns.
+ * Each select is hidden and wrapped by a .wf-dropdown that syncs value back.
+ */
+function upgradeSelectsToDropdowns(container) {
+  container.querySelectorAll('select.wf-step-edit-input, select.wf-node-prop').forEach(sel => {
+    if (sel.dataset.upgraded) return;
+    sel.dataset.upgraded = '1';
+    sel.style.display = 'none';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'wf-dropdown';
+    sel.parentNode.insertBefore(wrapper, sel.nextSibling);
+
+    // Build trigger button
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'wf-dropdown-trigger';
+    wrapper.appendChild(trigger);
+
+    // Build menu
+    const menu = document.createElement('div');
+    menu.className = 'wf-dropdown-menu';
+    wrapper.appendChild(menu);
+
+    const chevron = `<svg class="wf-dropdown-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+    function buildOptions() {
+      const selected = sel.value;
+      const selectedOpt = sel.options[sel.selectedIndex];
+      trigger.innerHTML = `<span class="wf-dropdown-text">${selectedOpt ? escapeHtml(selectedOpt.textContent) : ''}</span>${chevron}`;
+      if (!selected && selectedOpt && selectedOpt.value === '') {
+        trigger.classList.add('wf-dropdown-placeholder');
+      } else {
+        trigger.classList.remove('wf-dropdown-placeholder');
+      }
+
+      menu.innerHTML = '';
+      Array.from(sel.options).forEach(opt => {
+        const item = document.createElement('div');
+        item.className = 'wf-dropdown-item' + (opt.value === selected ? ' active' : '');
+        item.dataset.value = opt.value;
+        item.innerHTML = `<span>${escapeHtml(opt.textContent)}</span>${opt.value === selected ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}`;
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          sel.value = opt.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          closeMenu();
+          buildOptions();
+        });
+        menu.appendChild(item);
+      });
+    }
+
+    function openMenu() {
+      if (wrapper.classList.contains('open')) { closeMenu(); return; }
+      // Close any other open dropdowns
+      document.querySelectorAll('.wf-dropdown.open').forEach(d => d.classList.remove('open'));
+      wrapper.classList.add('open');
+      // Scroll active item into view
+      const activeItem = menu.querySelector('.wf-dropdown-item.active');
+      if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+    }
+
+    function closeMenu() {
+      wrapper.classList.remove('open');
+    }
+
+    trigger.addEventListener('click', (e) => { e.stopPropagation(); openMenu(); });
+
+    // Close on outside click
+    const outsideHandler = (e) => {
+      if (!wrapper.contains(e.target)) closeMenu();
+    };
+    document.addEventListener('click', outsideHandler, true);
+
+    // Close on escape
+    const escHandler = (e) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+    document.addEventListener('keydown', escHandler, true);
+
+    // Cleanup document listeners when dropdown is removed from DOM
+    const cleanupObs = new MutationObserver(() => {
+      if (!wrapper.isConnected) {
+        document.removeEventListener('click', outsideHandler, true);
+        document.removeEventListener('keydown', escHandler, true);
+        cleanupObs.disconnect();
+      }
+    });
+    cleanupObs.observe(wrapper.parentNode || document.body, { childList: true, subtree: true });
+
+    buildOptions();
+  });
+}
+
+// ── Auto-loop insertion ───────────────────────────────────────────────────────
+function insertLoopBetween(graphService, link, sourceNode, targetNode) {
+  const graph = graphService.graph;
+  if (!graph) return;
+
+  // Calculate position: midpoint between source and target
+  const originPos = sourceNode.getConnectionPos(false, link.origin_slot);
+  const targetPos = targetNode.getConnectionPos(true, link.target_slot);
+  const mx = (originPos[0] + targetPos[0]) / 2;
+  const my = (originPos[1] + targetPos[1]) / 2;
+
+  // Remove the existing link
+  graph.removeLink(link.id);
+
+  // Create a Loop node at the midpoint
+  const loopNode = LiteGraph.createNode('workflow/loop');
+  if (!loopNode) return;
+  loopNode.pos = [mx - 70, my - 30];
+  loopNode.properties = loopNode.properties || {};
+  loopNode.properties.source = 'auto';
+  graph.add(loopNode);
+
+  // Connect: source.slot → loop.In (slot 0), then loop.Each (output 0) → target.slot
+  sourceNode.connect(link.origin_slot, loopNode, 0);  // source → loop In
+  loopNode.connect(0, targetNode, link.target_slot);   // loop Each → target
+
+  graphService.canvas.setDirty(true, true);
+}
+
+// ── Autocomplete for $variable references ────────────────────────────────────
+function setupAutocomplete(container, node, graphService) {
+  // Only wire up text inputs and textareas that accept variables
+  const fields = container.querySelectorAll('input.wf-node-prop[type="text"], input.wf-node-prop:not([type]), textarea.wf-node-prop, input.wf-field-mono, textarea.wf-field-mono');
+  if (!fields.length) return;
+
+  // Shared popup element (reuse across fields)
+  let popup = container.querySelector('.wf-autocomplete-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.className = 'wf-autocomplete-popup';
+    popup.style.display = 'none';
+    container.appendChild(popup);
+  }
+
+  let activeField = null;
+  let activeIndex = 0;
+  let currentSuggestions = [];
+  let dollarPos = -1;
+
+  function hidePopup() {
+    popup.style.display = 'none';
+    activeField = null;
+    currentSuggestions = [];
+    activeIndex = 0;
+  }
+
+  function insertSuggestion(value) {
+    if (!activeField || dollarPos < 0) return;
+    const field = activeField;
+    const before = field.value.substring(0, dollarPos);
+    const after = field.value.substring(field.selectionStart);
+    field.value = before + value + after;
+    const newPos = dollarPos + value.length;
+    field.setSelectionRange(newPos, newPos);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    hidePopup();
+    field.focus();
+  }
+
+  function renderPopup(suggestions, anchorField) {
+    if (!suggestions.length) { hidePopup(); return; }
+    currentSuggestions = suggestions;
+    activeIndex = 0;
+
+    // Group by category
+    const groups = {};
+    for (const s of suggestions) {
+      if (!groups[s.category]) groups[s.category] = [];
+      groups[s.category].push(s);
+    }
+
+    let html = '';
+    for (const [cat, items] of Object.entries(groups)) {
+      html += `<div class="wf-ac-category">${escapeHtml(cat)}</div>`;
+      for (const item of items) {
+        const idx = suggestions.indexOf(item);
+        html += `<div class="wf-ac-item${idx === 0 ? ' active' : ''}" data-idx="${idx}">
+          <span class="wf-ac-label">${escapeHtml(item.label)}</span>
+          <span class="wf-ac-detail">${escapeHtml(item.detail)}</span>
+        </div>`;
+      }
+    }
+    popup.innerHTML = html;
+
+    // Position below the field
+    const rect = anchorField.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    popup.style.top = (rect.bottom - containerRect.top + 2) + 'px';
+    popup.style.left = (rect.left - containerRect.left) + 'px';
+    popup.style.width = rect.width + 'px';
+    popup.style.display = 'block';
+
+    // Click handlers on items
+    popup.querySelectorAll('.wf-ac-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const idx = parseInt(el.dataset.idx, 10);
+        insertSuggestion(currentSuggestions[idx].value);
+      });
+    });
+  }
+
+  function updateActiveItem() {
+    popup.querySelectorAll('.wf-ac-item').forEach((el, i) => {
+      el.classList.toggle('active', i === activeIndex);
+    });
+    // Scroll into view
+    const activeEl = popup.querySelector('.wf-ac-item.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  let deepFetchId = 0; // debounce async deep suggestions
+
+  // ── Variable Picker button {x} ──
+  fields.forEach(field => {
+    // Skip selects, checkboxes, number-only inputs
+    if (field.tagName === 'SELECT' || field.type === 'number' || field.type === 'checkbox') return;
+    const wrapper = field.parentElement;
+    if (!wrapper || wrapper.querySelector('.wf-var-picker-btn')) return;
+    wrapper.style.position = 'relative';
+    const btn = document.createElement('button');
+    btn.className = 'wf-var-picker-btn';
+    btn.type = 'button';
+    btn.textContent = '{x}';
+    btn.title = 'Insérer une variable';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showVariablePicker(field, node, graphService, container);
+    });
+    wrapper.appendChild(btn);
+  });
+
+  fields.forEach(field => {
+    field.addEventListener('input', async () => {
+      const val = field.value;
+      const cursor = field.selectionStart;
+
+      // Find the $ before cursor
+      let dPos = -1;
+      for (let i = cursor - 1; i >= 0; i--) {
+        const ch = val[i];
+        if (ch === '$') { dPos = i; break; }
+        if (!/[\w.]/.test(ch)) break;
+      }
+
+      if (dPos < 0) { hidePopup(); return; }
+
+      dollarPos = dPos;
+      activeField = field;
+      const filterText = val.substring(dPos, cursor);
+
+      const graph = graphService?.graph;
+
+      // Check if this is a deep property access (has 2+ dots: $node_X.firstRow.col)
+      const dotCount = (filterText.match(/\./g) || []).length;
+      if (dotCount >= 2) {
+        // Async deep suggestions (DB columns)
+        const fetchId = ++deepFetchId;
+        const deepSuggestions = await getDeepAutocompleteSuggestions(graph, node?.id, filterText);
+        if (fetchId !== deepFetchId) return; // stale request
+        if (deepSuggestions.length > 0) {
+          renderPopup(deepSuggestions, field);
+          return;
+        }
+      }
+
+      // Standard suggestions
+      const suggestions = getAutocompleteSuggestions(graph, node?.id, filterText);
+      renderPopup(suggestions, field);
+    });
+
+    field.addEventListener('keydown', (e) => {
+      if (popup.style.display === 'none') return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, currentSuggestions.length - 1);
+        updateActiveItem();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        updateActiveItem();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (currentSuggestions.length > 0) {
+          e.preventDefault();
+          insertSuggestion(currentSuggestions[activeIndex].value);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        hidePopup();
+      }
+    });
+
+    field.addEventListener('blur', () => {
+      // Small delay to allow mousedown on popup items
+      setTimeout(() => {
+        if (popup.style.display !== 'none') hidePopup();
+      }, 150);
+    });
+  });
+}
+
+// ── Variable Picker popup ─────────────────────────────────────────────────────
+let activeVarPicker = null;
+
+function showVariablePicker(anchorField, node, graphService, panelContainer) {
+  // Close existing picker
+  hideVariablePicker();
+
+  const graph = graphService?.graph;
+  const suggestions = getAutocompleteSuggestions(graph, node?.id, '$');
+
+  if (!suggestions.length) return;
+
+  // Group by category
+  const groups = {};
+  for (const s of suggestions) {
+    if (!groups[s.category]) groups[s.category] = [];
+    groups[s.category].push(s);
+  }
+
+  // Build picker DOM
+  const picker = document.createElement('div');
+  picker.className = 'wf-var-picker';
+
+  // Search input
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'wf-var-picker-search';
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Rechercher une variable...';
+  searchWrap.appendChild(searchInput);
+  picker.appendChild(searchWrap);
+
+  // Categories container
+  const catsEl = document.createElement('div');
+  catsEl.className = 'wf-var-picker-categories';
+
+  function renderItems(filter) {
+    catsEl.innerHTML = '';
+    const f = (filter || '').toLowerCase();
+    let anyVisible = false;
+    for (const [cat, items] of Object.entries(groups)) {
+      const filtered = f ? items.filter(i => i.label.toLowerCase().includes(f) || i.detail.toLowerCase().includes(f)) : items;
+      if (!filtered.length) continue;
+      anyVisible = true;
+      const catTitle = document.createElement('div');
+      catTitle.className = 'wf-var-picker-cat-title';
+      catTitle.textContent = cat;
+      catsEl.appendChild(catTitle);
+      for (const item of filtered) {
+        const row = document.createElement('div');
+        row.className = 'wf-var-picker-item';
+        row.innerHTML = `<code>${escapeHtml(item.label)}</code><span>${escapeHtml(item.detail)}</span>`;
+        row.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          insertVariableAtCursor(anchorField, item.value);
+          hideVariablePicker();
+        });
+        catsEl.appendChild(row);
+      }
+    }
+    if (!anyVisible) {
+      catsEl.innerHTML = '<div class="wf-var-picker-empty">Aucune variable trouvée</div>';
+    }
+  }
+
+  renderItems('');
+  picker.appendChild(catsEl);
+
+  // Position
+  const rect = anchorField.getBoundingClientRect();
+  const containerRect = panelContainer.getBoundingClientRect();
+  picker.style.top = (rect.bottom - containerRect.top + 4) + 'px';
+  picker.style.left = (rect.left - containerRect.left) + 'px';
+
+  panelContainer.appendChild(picker);
+  activeVarPicker = picker;
+  searchInput.focus();
+
+  // Search filter
+  searchInput.addEventListener('input', () => renderItems(searchInput.value));
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { hideVariablePicker(); anchorField.focus(); }
+  });
+
+  // Close on click outside
+  const closeHandler = (e) => {
+    if (!picker.contains(e.target) && e.target !== anchorField && !e.target.classList.contains('wf-var-picker-btn')) {
+      hideVariablePicker();
+      document.removeEventListener('mousedown', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('mousedown', closeHandler), 10);
+  picker._closeHandler = closeHandler;
+}
+
+function hideVariablePicker() {
+  if (activeVarPicker) {
+    if (activeVarPicker._closeHandler) document.removeEventListener('mousedown', activeVarPicker._closeHandler);
+    activeVarPicker.remove();
+    activeVarPicker = null;
+  }
+}
+
+function insertVariableAtCursor(field, variable) {
+  const start = field.selectionStart || 0;
+  const end = field.selectionEnd || 0;
+  const before = field.value.substring(0, start);
+  const after = field.value.substring(end);
+  field.value = before + variable + after;
+  const newPos = start + variable.length;
+  field.setSelectionRange(newPos, newPos);
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  field.focus();
+}
 
 module.exports = { init, load };

@@ -4,7 +4,10 @@ const { insertEvent, upsertUser } = require('../db/database');
 function pingRoute(req, res) {
   try {
     // req.ip respects Express 'trust proxy' setting
-    const geo = geoip.lookup(req.ip);
+    const ip = req.ip;
+    const xff = req.headers['x-forwarded-for'];
+    console.log(`[Ping] ip=${ip} xff=${xff} trust_proxy=${req.app.get('trust proxy')}`);
+    const geo = geoip.lookup(ip);
     const data = {
       ...req.body,
       country: geo?.country || null,

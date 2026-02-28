@@ -5,6 +5,7 @@
 
 const { ipcMain } = require('electron');
 const PluginService = require('../services/PluginService');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 function registerPluginHandlers() {
   ipcMain.handle('plugin-installed', async () => {
@@ -49,6 +50,7 @@ function registerPluginHandlers() {
 
   ipcMain.handle('plugin-install', async (event, { marketplace, pluginName }) => {
     try {
+      sendFeaturePing('plugin:install');
       return await PluginService.installPlugin(marketplace, pluginName);
     } catch (e) {
       console.error('[Plugin IPC] Install error:', e);

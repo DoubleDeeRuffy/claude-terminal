@@ -4,6 +4,9 @@ import { store } from './store/store';
 import { generateApiKey, hashApiKey } from './auth/auth';
 import { config } from './config';
 import readline from 'readline';
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -16,6 +19,7 @@ function printUsage(): void {
 
   Usage:
     ct-cloud user add <name>          Create user and generate API key
+    ct-cloud user setup <name>        Configure Claude auth + git identity for user
     ct-cloud user list                List all users with stats
     ct-cloud user remove <name>       Delete user and all their data
     ct-cloud user reset-key <name>    Regenerate API key for user
@@ -54,7 +58,9 @@ async function userAdd(name: string): Promise<void> {
 
   console.log(`\n  User "${name}" created`);
   console.log(`  API Key: ${apiKey}`);
-  console.log(`  Paste this key in Claude Terminal > Settings > Cloud\n`);
+  console.log(`  Paste this key in Claude Terminal > Settings > Cloud`);
+  console.log(`\n  Next: configure Claude auth + git for this user:`);
+  console.log(`    ct-cloud user setup ${name}\n`);
 }
 
 async function userList(): Promise<void> {
@@ -65,8 +71,8 @@ async function userList(): Promise<void> {
   }
 
   console.log('');
-  console.log('  NAME'.padEnd(18) + 'PROJECTS'.padEnd(12) + 'SESSIONS'.padEnd(14) + 'API KEY');
-  console.log('  ' + '-'.repeat(56));
+  console.log('  NAME'.padEnd(18) + 'PROJECTS'.padEnd(12) + 'SESSIONS'.padEnd(14) + 'CLAUDE'.padEnd(10) + 'API KEY');
+  console.log('  ' + '-'.repeat(66));
 
   for (const name of users) {
     const user = await store.getUser(name);
@@ -75,9 +81,12 @@ async function userList(): Promise<void> {
     const activeSessions = user.sessions.filter(s => s.status === 'running').length;
     const sessionStr = activeSessions > 0 ? `${activeSessions} active` : '0';
     const keyPreview = hashApiKey(user.apiKey);
+    const credPath = path.join(store.userHomePath(name), '.claude', '.credentials.json');
+    let claudeStr = '✗';
+    try { fs.accessSync(credPath); claudeStr = '✓'; } catch { /* not authed */ }
 
     console.log(
-      `  ${user.name.padEnd(16)}${String(projectDirs.length).padEnd(12)}${sessionStr.padEnd(14)}${keyPreview}...`
+      `  ${user.name.padEnd(16)}${String(projectDirs.length).padEnd(12)}${sessionStr.padEnd(14)}${claudeStr.padEnd(10)}${keyPreview}...`
     );
   }
   console.log('');
@@ -102,6 +111,130 @@ async function userRemove(name: string): Promise<void> {
 
   await store.deleteUser(name);
   console.log(`\n  User "${name}" removed\n`);
+}
+
+function prompt(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question(question, answer => { rl.close(); resolve(answer.trim()); });
+  });
+}
+
+async function userSetup(name: string): Promise<void> {
+  if (!name) {
+    console.error('Error: provide a user name');
+    process.exit(1);
+  }
+
+  const user = await store.getUser(name);
+  if (!user) {
+    console.error(`Error: user "${name}" does not exist`);
+    process.exit(1);
+  }
+
+  await store.ensureUserHome(name);
+  const userHome = store.userHomePath(name);
+
+  console.log(`\n  Setting up user "${name}"...`);
+  console.log(`  Home: ${userHome}\n`);
+
+  // ── Git identity ──
+  const currentGitName = user.gitName || '';
+  const currentGitEmail = user.gitEmail || '';
+
+  let gitName = await prompt(currentGitName ? `  Git name [${currentGitName}]: ` : '  Git name (e.g. John Doe): ');
+  gitName = gitName || currentGitName;
+
+  let gitEmail = await prompt(currentGitEmail ? `  Git email [${currentGitEmail}]: ` : '  Git email: ');
+  gitEmail = gitEmail || currentGitEmail;
+
+  if (gitName && gitEmail) {
+    user.gitName = gitName;
+    user.gitEmail = gitEmail;
+    await store.saveUser(name, user);
+
+    const gitconfigPath = path.join(userHome, '.gitconfig');
+    fs.writeFileSync(gitconfigPath, `[user]\n\tname = ${gitName}\n\temail = ${gitEmail}\n`, 'utf-8');
+    console.log(`  ✓ Git identity: ${gitName} <${gitEmail}>`);
+  }
+
+  // ── GitHub token ──
+  console.log('');
+  const gitCredsPath = path.join(userHome, '.git-credentials');
+  const hasToken = fs.existsSync(gitCredsPath) && fs.readFileSync(gitCredsPath, 'utf-8').trim().length > 0;
+
+  if (hasToken) {
+    const update = await prompt('  Update GitHub token? (y/N): ');
+    if (update.toLowerCase() !== 'y') {
+      console.log('  ✓ GitHub token (unchanged)');
+    } else {
+      const token = await prompt('  GitHub token: ');
+      if (token) {
+        fs.writeFileSync(gitCredsPath, `https://oauth2:${token}@github.com\n`, { mode: 0o600 });
+        // Set credential helper in gitconfig
+        const gitconfigPath = path.join(userHome, '.gitconfig');
+        let cfg = fs.existsSync(gitconfigPath) ? fs.readFileSync(gitconfigPath, 'utf-8') : '';
+        if (!cfg.includes('[credential]')) {
+          cfg += `[credential]\n\thelper = store --file ${gitCredsPath}\n`;
+          fs.writeFileSync(gitconfigPath, cfg, 'utf-8');
+        }
+        console.log('  ✓ GitHub token saved');
+      }
+    }
+  } else {
+    console.log('  A GitHub token lets Claude push/pull on your repos.');
+    console.log('  Create one at: https://github.com/settings/tokens');
+    console.log('  Scopes needed: repo (Full control of private repositories)');
+    console.log('');
+    const token = await prompt('  GitHub token (press Enter to skip): ');
+    if (token) {
+      fs.writeFileSync(gitCredsPath, `https://oauth2:${token}@github.com\n`, { mode: 0o600 });
+      const gitconfigPath = path.join(userHome, '.gitconfig');
+      let cfg = fs.existsSync(gitconfigPath) ? fs.readFileSync(gitconfigPath, 'utf-8') : '';
+      if (!cfg.includes('[credential]')) {
+        cfg += `[credential]\n\thelper = store --file ${gitCredsPath}\n`;
+        fs.writeFileSync(gitconfigPath, cfg, 'utf-8');
+      }
+      console.log('  ✓ GitHub token saved');
+    } else {
+      console.log('  Skipped');
+    }
+  }
+
+  // ── Claude authentication ──
+  console.log('');
+  const credPath = path.join(userHome, '.claude', '.credentials.json');
+  const hasCredentials = fs.existsSync(credPath);
+
+  if (hasCredentials) {
+    const reauth = await prompt('  Claude is already authenticated. Re-authenticate? (y/N): ');
+    if (reauth.toLowerCase() !== 'y') {
+      console.log('  ✓ Claude credentials (unchanged)');
+      console.log(`\n  Setup complete for "${name}".\n`);
+      return;
+    }
+  }
+
+  console.log('  Starting Claude login...');
+  console.log('  Follow the instructions below — a URL will appear to open in your browser.\n');
+
+  try {
+    execSync('claude login', {
+      stdio: 'inherit',
+      env: { ...process.env, HOME: userHome },
+    });
+  } catch {
+    // Login may exit with non-zero on cancel
+  }
+
+  if (fs.existsSync(credPath)) {
+    console.log('\n  ✓ Claude authenticated successfully');
+  } else {
+    console.log('\n  ✗ Authentication may have failed. Retry with:');
+    console.log(`    docker exec -it ct-cloud node dist/cli.js user setup ${name}`);
+  }
+
+  console.log(`\n  Setup complete for "${name}".\n`);
 }
 
 async function userResetKey(name: string): Promise<void> {
@@ -148,6 +281,7 @@ async function main(): Promise<void> {
     if (command === 'user') {
       switch (subcommand) {
         case 'add': return await userAdd(param);
+        case 'setup': return await userSetup(param);
         case 'list': return await userList();
         case 'remove': return await userRemove(param);
         case 'reset-key': return await userResetKey(param);

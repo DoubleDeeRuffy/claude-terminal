@@ -11,14 +11,25 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 let relayServer: RelayServer;
 
-// ── In-memory log buffer for admin TUI ──
+// ── In-memory circular log buffer for admin TUI ──
 const MAX_LOG_ENTRIES = 500;
-const logBuffer: Array<{ timestamp: number; level: string; message: string }> = [];
+const _logRing: Array<{ timestamp: number; level: string; message: string } | null> = new Array(MAX_LOG_ENTRIES).fill(null);
+let _logHead = 0;
+let _logCount = 0;
 
 function captureLog(level: string, ...args: any[]): void {
   const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  logBuffer.push({ timestamp: Date.now(), level, message });
-  if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.shift();
+  _logRing[_logHead] = { timestamp: Date.now(), level, message };
+  _logHead = (_logHead + 1) % MAX_LOG_ENTRIES;
+  if (_logCount < MAX_LOG_ENTRIES) _logCount++;
+}
+
+/** Return logs in chronological order */
+function getLogBuffer(): Array<{ timestamp: number; level: string; message: string }> {
+  if (_logCount < MAX_LOG_ENTRIES) {
+    return _logRing.slice(0, _logCount) as any;
+  }
+  return [..._logRing.slice(_logHead), ..._logRing.slice(0, _logHead)] as any;
 }
 
 // Intercept console.log/warn/error to capture logs
@@ -39,7 +50,7 @@ export async function startServer(): Promise<void> {
 
   // Health check
   app.get('/health', (_req, res) => {
-    const stats = relayServer.getStats();
+    const stats = relayServer ? relayServer.getStats() : null;
     res.json({
       status: 'ok',
       version: require('../package.json').version,
@@ -55,7 +66,7 @@ export async function startServer(): Promise<void> {
   });
 
   app.get('/admin/logs', (_req, res) => {
-    res.json(logBuffer);
+    res.json(getLogBuffer());
   });
 
   // Cloud API routes
@@ -74,6 +85,9 @@ export async function startServer(): Promise<void> {
   // Relay WS server (handles /relay upgrade)
   relayServer = new RelayServer(server);
 
+  // Wire relay into session manager so stream events go through relay WS
+  sessionManager.setRelayServer(relayServer);
+
   // Session stream WS (handles /api/sessions/:id/stream upgrade)
   const sessionWss = new WebSocketServer({ noServer: true });
 
@@ -88,29 +102,35 @@ export async function startServer(): Promise<void> {
     if (streamMatch) {
       const sessionId = streamMatch[1];
       const token = url.searchParams.get('token');
+      console.log(`[WS Upgrade] Session stream request for ${sessionId}, hasToken=${!!token}`);
 
       if (!token) {
+        console.log(`[WS Upgrade] No token, destroying socket`);
         socket.destroy();
         return;
       }
 
       authenticateApiKey(token).then(userName => {
         if (!userName || !sessionManager.isUserSession(sessionId, userName)) {
+          console.log(`[WS Upgrade] Auth failed or session not owned: user=${userName}`);
           socket.destroy();
           return;
         }
 
+        console.log(`[WS Upgrade] Auth OK for user=${userName}, upgrading...`);
         sessionWss.handleUpgrade(req, socket, head, ws => {
           const ok = sessionManager.addStreamClient(sessionId, ws);
           if (!ok) {
+            console.log(`[WS Upgrade] Session ${sessionId} not found after upgrade`);
             ws.close(4004, 'Session not found');
           }
         });
-      }).catch(() => socket.destroy());
+      }).catch((err) => { console.error(`[WS Upgrade] Auth error:`, err); socket.destroy(); });
       return;
     }
 
     // Unknown upgrade path
+    console.log(`[WS Upgrade] Unknown path: ${url.pathname}, destroying`);
     socket.destroy();
   });
 

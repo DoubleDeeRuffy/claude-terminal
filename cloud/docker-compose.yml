@@ -8,6 +8,5 @@ services:
       - "${PORT:-3800}:3800"
     volumes:
       - ./data:/app/data
-      - ./data/claude:/home/node/.claude
     env_file: .env
     restart: unless-stopped

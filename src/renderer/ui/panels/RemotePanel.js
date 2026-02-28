@@ -1,7 +1,7 @@
 /**
  * RemotePanel
- * Redesigned connection hub — two clear zones: Local (Wi-Fi) and Cloud (Internet).
- * Guided flow with visual hierarchy, step numbering, and contextual help.
+ * Local Wi-Fi remote control panel — PIN auth, QR code, server start/stop.
+ * Cloud functionality moved to dedicated CloudPanel.
  */
 
 const { t } = require('../../i18n');
@@ -77,24 +77,6 @@ function buildHtml(settings) {
           </div>
         </div>
 
-        <div class="rp-help-section">
-          <div class="rp-help-section-icon rp-help-icon-cloud">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-            </svg>
-          </div>
-          <div class="rp-help-section-content">
-            <h4>${t('remote.helpCloudTitle')}</h4>
-            <ol class="rp-help-steps">
-              <li>${t('remote.helpCloudStep1')}</li>
-              <li>${t('remote.helpCloudStep2')}</li>
-              <li>${t('remote.helpCloudStep3')}</li>
-              <li>${t('remote.helpCloudStep4')}</li>
-            </ol>
-            <div class="rp-help-note">${t('remote.helpCloudNote')}</div>
-          </div>
-        </div>
-
         <div class="rp-help-section rp-help-section-security">
           <div class="rp-help-section-icon rp-help-icon-security">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -113,26 +95,8 @@ function buildHtml(settings) {
       </div>
     </div>
 
-    <!-- ═══ Connection Modes ═══ -->
+    <!-- ═══ Connection Zone ═══ -->
     <div id="rp-connection-zones" style="${showLocal}">
-
-      <!-- ─── MODE TABS ─── -->
-      <div class="rp-mode-tabs">
-        <button class="rp-mode-tab active" data-mode="local">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
-            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-            <line x1="12" y1="20" x2="12.01" y2="20"/>
-          </svg>
-          ${t('remote.modeLocal')}
-        </button>
-        <button class="rp-mode-tab" data-mode="cloud">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-          </svg>
-          ${t('remote.modeCloud')}
-        </button>
-      </div>
 
       <!-- ═══ LOCAL ZONE ═══ -->
       <div class="rp-zone" id="rp-zone-local">
@@ -217,71 +181,6 @@ function buildHtml(settings) {
 
       </div>
 
-      <!-- ═══ CLOUD ZONE ═══ -->
-      <div class="rp-zone" id="rp-zone-cloud" style="display:none">
-
-        <!-- Info banner -->
-        <div class="rp-info-banner rp-info-cloud">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
-          <span>${t('cloud.infoBanner')}</span>
-        </div>
-
-        <!-- Install command -->
-        <div class="rp-cloud-install">
-          <div class="rp-cloud-install-header">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><line x1="6" y1="9" x2="6" y2="9.01"/><line x1="10" y1="9" x2="18" y2="9"/></svg>
-            <span>${t('cloud.installTitle')}</span>
-          </div>
-          <div class="rp-cloud-install-cmd">
-            <code id="cloud-install-cmd">curl -fsSL https://raw.githubusercontent.com/Sterll/claude-terminal/main/cloud/install.sh | sudo bash</code>
-            <button class="rp-cloud-install-copy" id="cloud-install-copy" title="${t('cloud.copyCmd')}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-          </div>
-          <div class="rp-cloud-install-hint">${t('cloud.installHint')}</div>
-        </div>
-
-        <!-- Connection form -->
-        <div class="rp-cloud-card">
-          <div class="rp-cloud-field">
-            <label for="cloud-server-url">${t('cloud.serverUrl')}</label>
-            <input type="text" id="cloud-server-url" class="rp-cloud-input" value="${settings.cloudServerUrl || ''}" placeholder="${t('cloud.serverUrlPlaceholder')}">
-          </div>
-          <div class="rp-cloud-field">
-            <label for="cloud-api-key">${t('cloud.apiKey')}</label>
-            <div class="rp-cloud-key-row">
-              <input type="password" id="cloud-api-key" class="rp-cloud-input rp-cloud-key-input" value="${settings.cloudApiKey || ''}" placeholder="${t('cloud.apiKeyPlaceholder')}">
-              <button class="rp-key-toggle" id="cloud-key-toggle" type="button" title="Toggle visibility">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                </svg>
-              </button>
-            </div>
-            <div class="rp-cloud-field-hint">${t('cloud.apiKeyDesc')}</div>
-          </div>
-        </div>
-
-        <!-- Status + Actions -->
-        <div class="rp-cloud-footer">
-          <div class="rp-cloud-auto">
-            <label class="settings-toggle rp-mini-toggle">
-              <input type="checkbox" id="cloud-auto-connect" ${settings.cloudAutoConnect !== false ? 'checked' : ''}>
-              <span class="settings-toggle-slider"></span>
-            </label>
-            <span class="rp-cloud-auto-label">${t('cloud.autoConnect')}</span>
-          </div>
-          <div class="rp-cloud-actions">
-            <span class="rp-status-indicator" id="cloud-status-indicator"></span>
-            <span class="rp-cloud-status-text" id="cloud-status-text">${t('cloud.disconnected')}</span>
-            <button class="rp-server-btn" id="cloud-connect-btn">${t('cloud.connect')}</button>
-          </div>
-        </div>
-
-      </div>
-
     </div>
   `;
 }
@@ -318,20 +217,6 @@ function setupHandlers(context) {
       if (e.target === helpOverlay) helpOverlay.style.display = 'none';
     });
   }
-
-  // ── Mode tabs ──
-  const modeTabs = document.querySelectorAll('.rp-mode-tab');
-  const zoneLocal = document.getElementById('rp-zone-local');
-  const zoneCloud = document.getElementById('rp-zone-cloud');
-  modeTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      modeTabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const mode = tab.dataset.mode;
-      if (zoneLocal) zoneLocal.style.display = mode === 'local' ? '' : 'none';
-      if (zoneCloud) zoneCloud.style.display = mode === 'cloud' ? '' : 'none';
-    });
-  });
 
   async function populateIfaceSelect() {
     if (!ifaceSelect) return;
@@ -426,105 +311,6 @@ function setupHandlers(context) {
     }
     if (_ctx.settingsState.get().remoteEnabled) refreshServerStatus();
   }, 10000);
-
-  // ── Cloud Install copy ──
-  const installCopyBtn = document.getElementById('cloud-install-copy');
-  const installCmd = document.getElementById('cloud-install-cmd');
-  if (installCopyBtn && installCmd) {
-    installCopyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(installCmd.textContent).then(() => {
-        installCopyBtn.classList.add('copied');
-        setTimeout(() => installCopyBtn.classList.remove('copied'), 1500);
-      });
-    });
-  }
-
-  // ── Cloud Relay ──
-  const cloudUrlInput = document.getElementById('cloud-server-url');
-  const cloudKeyInput = document.getElementById('cloud-api-key');
-  const cloudAutoToggle = document.getElementById('cloud-auto-connect');
-  const cloudConnectBtn = document.getElementById('cloud-connect-btn');
-  const cloudStatusIndicator = document.getElementById('cloud-status-indicator');
-  const cloudStatusText = document.getElementById('cloud-status-text');
-  const cloudKeyToggle = document.getElementById('cloud-key-toggle');
-
-  // Key visibility toggle
-  if (cloudKeyToggle && cloudKeyInput) {
-    cloudKeyToggle.addEventListener('click', () => {
-      const isPassword = cloudKeyInput.type === 'password';
-      cloudKeyInput.type = isPassword ? 'text' : 'password';
-      cloudKeyToggle.classList.toggle('revealed', isPassword);
-    });
-  }
-
-  function updateCloudStatusUI(connected) {
-    if (!cloudStatusIndicator || !cloudStatusText || !cloudConnectBtn) return;
-    if (connected) {
-      cloudStatusIndicator.classList.add('online');
-      cloudStatusText.textContent = t('cloud.connected');
-      cloudConnectBtn.textContent = t('cloud.disconnect');
-      cloudConnectBtn.classList.add('rp-btn-danger');
-    } else {
-      cloudStatusIndicator.classList.remove('online');
-      cloudStatusText.textContent = t('cloud.disconnected');
-      cloudConnectBtn.textContent = t('cloud.connect');
-      cloudConnectBtn.classList.remove('rp-btn-danger');
-    }
-  }
-
-  if (cloudUrlInput) {
-    cloudUrlInput.addEventListener('change', () => {
-      _ctx.settingsState.setProp('cloudServerUrl', cloudUrlInput.value.trim());
-      _ctx.saveSettings();
-    });
-  }
-
-  if (cloudKeyInput) {
-    cloudKeyInput.addEventListener('change', () => {
-      _ctx.settingsState.setProp('cloudApiKey', cloudKeyInput.value.trim());
-      _ctx.saveSettings();
-    });
-  }
-
-  if (cloudAutoToggle) {
-    cloudAutoToggle.addEventListener('change', () => {
-      _ctx.settingsState.setProp('cloudAutoConnect', cloudAutoToggle.checked);
-      _ctx.saveSettings();
-    });
-  }
-
-  if (cloudConnectBtn) {
-    cloudConnectBtn.addEventListener('click', async () => {
-      cloudConnectBtn.disabled = true;
-      try {
-        const status = await window.electron_api.cloud.status();
-        if (status.connected) {
-          await window.electron_api.cloud.disconnect();
-          updateCloudStatusUI(false);
-        } else {
-          const url = cloudUrlInput?.value.trim();
-          const key = cloudKeyInput?.value.trim();
-          if (!url || !key) return;
-          await window.electron_api.cloud.connect({ serverUrl: url, apiKey: key });
-          cloudStatusText.textContent = t('cloud.connecting');
-        }
-      } finally {
-        cloudConnectBtn.disabled = false;
-      }
-    });
-  }
-
-  // Listen for status changes from main process
-  if (window.electron_api.cloud?.onStatusChanged) {
-    window.electron_api.cloud.onStatusChanged((status) => {
-      updateCloudStatusUI(status.connected);
-    });
-  }
-
-  // Check initial cloud status
-  window.electron_api.cloud.status().then(status => {
-    updateCloudStatusUI(status.connected);
-  }).catch(() => {});
 }
 
 async function _startPinPolling() {

@@ -9,6 +9,24 @@ const { highlight } = require('../../utils/syntaxHighlight');
 const { t } = require('../../i18n');
 const { showConfirm } = require('../components/Modal');
 
+/**
+ * Escape a SQL identifier (table/column name) by wrapping in backticks
+ * and doubling any backtick inside the name.
+ */
+function escapeIdentifier(name) {
+  return '`' + String(name).replace(/`/g, '``') + '`';
+}
+
+/**
+ * Escape a value for safe inclusion in a SQL string literal.
+ * Returns the SQL representation: 'escaped_value' or NULL.
+ */
+function escapeSqlValue(val) {
+  if (val === null || val === undefined) return 'NULL';
+  if (typeof val === 'number' && Number.isFinite(val)) return String(val);
+  return `'${String(val).replace(/'/g, "''")}'`;
+}
+
 let ctx = null;
 
 let panelState = {
@@ -29,6 +47,7 @@ let panelState = {
   browserPendingEdits: new Map(), // rowIdx -> { col: newVal }
   browserSearchTerm: '',
   browserSearchDebounce: null,
+  _blurCommitTimer: null, // Timer ID for pending blur commit
 };
 
 function init(context) {
@@ -511,6 +530,11 @@ function bindBrowserEvents(container) {
   // Cell click to edit
   container.querySelectorAll('.db-grid-cell:not(.editing)').forEach(cell => {
     cell.ondblclick = () => {
+      // Cancel any pending blur commit from a previous cell
+      if (panelState._blurCommitTimer) {
+        clearTimeout(panelState._blurCommitTimer);
+        panelState._blurCommitTimer = null;
+      }
       const row = parseInt(cell.dataset.row);
       const col = cell.dataset.col;
       if (col === undefined) return;
@@ -527,20 +551,28 @@ function bindBrowserEvents(container) {
   container.querySelectorAll('.db-grid-edit-input').forEach(input => {
     input.onkeydown = (e) => {
       if (e.key === 'Enter') {
+        // Cancel pending blur since we're committing now
+        if (panelState._blurCommitTimer) { clearTimeout(panelState._blurCommitTimer); panelState._blurCommitTimer = null; }
         commitCellEdit(input);
       } else if (e.key === 'Escape') {
+        if (panelState._blurCommitTimer) { clearTimeout(panelState._blurCommitTimer); panelState._blurCommitTimer = null; }
         panelState.browserEditingCell = null;
         renderContent();
       } else if (e.key === 'Tab') {
         e.preventDefault();
+        if (panelState._blurCommitTimer) { clearTimeout(panelState._blurCommitTimer); panelState._blurCommitTimer = null; }
         commitCellEdit(input);
       }
     };
     input.onblur = () => {
-      // Small delay to avoid conflicts with clicks
-      setTimeout(() => {
-        if (panelState.browserEditingCell) {
-          commitCellEdit(input);
+      // Capture values immediately before DOM may change
+      const row = parseInt(input.dataset.row);
+      const col = input.dataset.col;
+      const value = input.value;
+      panelState._blurCommitTimer = setTimeout(() => {
+        panelState._blurCommitTimer = null;
+        if (panelState.browserEditingCell && panelState.browserEditingCell.row === row && panelState.browserEditingCell.col === col) {
+          commitCellEdit({ dataset: { row, col }, value });
         }
       }, 100);
     };
@@ -600,19 +632,19 @@ async function commitCellEdit(input) {
   let whereClause = '';
   if (pkCol) {
     const pkVal = data.rows[row][pkCol.name];
-    whereClause = `WHERE \`${pkCol.name}\` = ${typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal}`;
+    whereClause = `WHERE ${escapeIdentifier(pkCol.name)} = ${escapeSqlValue(pkVal)}`;
   } else {
     // No PK — use all columns for WHERE
     const conditions = data.columns.map(c => {
       const v = data.rows[row][c];
-      if (v === null || v === undefined) return `\`${c}\` IS NULL`;
-      return `\`${c}\` = ${typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : v}`;
+      if (v === null || v === undefined) return `${escapeIdentifier(c)} IS NULL`;
+      return `${escapeIdentifier(c)} = ${escapeSqlValue(v)}`;
     });
     whereClause = `WHERE ${conditions.join(' AND ')} LIMIT 1`;
   }
 
-  const setVal = newVal === '' ? 'NULL' : `'${newVal.replace(/'/g, "''")}'`;
-  const sql = `UPDATE \`${panelState.browserSelectedTable}\` SET \`${col}\` = ${setVal} ${whereClause}`;
+  const setVal = newVal === '' ? 'NULL' : escapeSqlValue(newVal);
+  const sql = `UPDATE ${escapeIdentifier(panelState.browserSelectedTable)} SET ${escapeIdentifier(col)} = ${setVal} ${whereClause}`;
 
   try {
     const result = await ctx.api.database.executeQuery({ id: activeId, sql });
@@ -679,8 +711,8 @@ function insertNewRow() {
       // Skip empty nullable fields (they'll use default/NULL)
       if (val === '' && nullable) return;
       if (val === '') return;
-      colNames.push(`\`${input.dataset.col}\``);
-      values.push(`'${val.replace(/'/g, "''")}'`);
+      colNames.push(escapeIdentifier(input.dataset.col));
+      values.push(escapeSqlValue(val));
     });
 
     if (colNames.length === 0) {
@@ -688,7 +720,7 @@ function insertNewRow() {
       return;
     }
 
-    const sql = `INSERT INTO \`${panelState.browserSelectedTable}\` (${colNames.join(', ')}) VALUES (${values.join(', ')})`;
+    const sql = `INSERT INTO ${escapeIdentifier(panelState.browserSelectedTable)} (${colNames.join(', ')}) VALUES (${values.join(', ')})`;
     try {
       const result = await ctx.api.database.executeQuery({ id: activeId, sql });
       if (result.error) {
@@ -739,17 +771,17 @@ async function deleteRow(rowIdx) {
   let whereClause = '';
   if (pkCol) {
     const pkVal = row[pkCol.name];
-    whereClause = `WHERE \`${pkCol.name}\` = ${typeof pkVal === 'string' ? `'${pkVal.replace(/'/g, "''")}'` : pkVal}`;
+    whereClause = `WHERE ${escapeIdentifier(pkCol.name)} = ${escapeSqlValue(pkVal)}`;
   } else {
     const conditions = data.columns.map(c => {
       const v = row[c];
-      if (v === null || v === undefined) return `\`${c}\` IS NULL`;
-      return `\`${c}\` = ${typeof v === 'string' ? `'${v.replace(/'/g, "''")}'` : v}`;
+      if (v === null || v === undefined) return `${escapeIdentifier(c)} IS NULL`;
+      return `${escapeIdentifier(c)} = ${escapeSqlValue(v)}`;
     });
     whereClause = `WHERE ${conditions.join(' AND ')} LIMIT 1`;
   }
 
-  const sql = `DELETE FROM \`${panelState.browserSelectedTable}\` ${whereClause}`;
+  const sql = `DELETE FROM ${escapeIdentifier(panelState.browserSelectedTable)} ${whereClause}`;
   try {
     const result = await ctx.api.database.executeQuery({ id: activeId, sql });
     if (result.error) {
@@ -791,29 +823,36 @@ async function loadTableData(tableName) {
     if (tableMeta && tableMeta.columns.length > 0) {
       const escaped = searchTerm.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
       const conditions = tableMeta.columns.map(col => {
-        return `CAST(\`${col.name}\` AS CHAR) LIKE '%${escaped}%'`;
+        return `CAST(${escapeIdentifier(col.name)} AS CHAR) LIKE '%${escaped}%'`;
       });
       searchWhere = ` WHERE (${conditions.join(' OR ')})`;
     }
   }
 
+  const escapedTable = escapeIdentifier(tableName);
   let sql, countSql;
   if (isMongo) {
-    // Basic text search for MongoDB
+    // Use $regex per-field search — safe against NoSQL injection (no $where/JS eval)
     if (searchTerm) {
-      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      sql = `db.${tableName}.find({ $or: [${(() => {
-        // Use a generic text search across string fields
-        return `{ $where: "JSON.stringify(this).indexOf('${escaped.replace(/'/g, "\\'")}') !== -1" }`;
-      })()}] }).limit(${pageSize}).skip(${offset})`;
+      const escapedRegex = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const state2 = require('../../state');
+      const schema = state2.getDatabaseSchema(activeId);
+      const tableMeta = schema?.tables?.find(t => t.name === tableName);
+      const fields = tableMeta ? tableMeta.columns.map(c => c.name).filter(n => n !== '_id') : [];
+      if (fields.length > 0) {
+        const orConditions = fields.map(f => `${JSON.stringify(f)}: { "$regex": ${JSON.stringify(escapedRegex)}, "$options": "i" }`);
+        sql = `db.${tableName}.find({ "$or": [${orConditions.map(c => `{ ${c} }`).join(', ')}] }).limit(${pageSize}).skip(${offset})`;
+      } else {
+        sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
+      }
     } else {
       sql = `db.${tableName}.find({}).limit(${pageSize}).skip(${offset})`;
     }
     countSql = null;
   } else {
-    const orderBy = sortCol ? ` ORDER BY \`${sortCol}\` ${sortDir}` : '';
-    sql = `SELECT * FROM \`${tableName}\`${searchWhere}${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
-    countSql = `SELECT COUNT(*) as cnt FROM \`${tableName}\`${searchWhere}`;
+    const orderBy = sortCol ? ` ORDER BY ${escapeIdentifier(sortCol)} ${sortDir === 'DESC' ? 'DESC' : 'ASC'}` : '';
+    sql = `SELECT * FROM ${escapedTable}${searchWhere}${orderBy} LIMIT ${pageSize} OFFSET ${offset}`;
+    countSql = `SELECT COUNT(*) as cnt FROM ${escapedTable}${searchWhere}`;
   }
 
   try {
@@ -994,17 +1033,17 @@ function renderQuery(container) {
     }
   };
   if (input) {
-    input.addEventListener('keydown', (e) => {
+    input.onkeydown = (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault();
         runQuery();
       }
-    });
-    input.addEventListener('input', () => {
+    };
+    input.oninput = () => {
       state.setCurrentQuery(input.value);
       syncHighlight();
-    });
-    input.addEventListener('scroll', syncScroll);
+    };
+    input.onscroll = syncScroll;
   }
 
   // Template click handlers

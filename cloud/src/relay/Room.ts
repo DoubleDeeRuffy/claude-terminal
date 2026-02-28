@@ -81,7 +81,7 @@ export class Room {
     }
   }
 
-  private broadcastToMobiles(data: string | object): void {
+  broadcastToMobiles(data: string | object): void {
     const msg = typeof data === 'string' ? data : JSON.stringify(data);
     for (const [, client] of this.mobiles) {
       if (client.ws.readyState === WebSocket.OPEN) {

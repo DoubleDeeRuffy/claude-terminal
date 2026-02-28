@@ -18,6 +18,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 INSTALL_DIR="/opt/ct-cloud"
+IS_UPDATE=false
 
 echo ""
 echo -e "  ${BOLD}Claude Terminal Cloud — Installer${NC}"
@@ -73,140 +74,324 @@ fi
 echo ""
 
 # ══════════════════════════════════════════════
-# 2. Clone / Update
+# 2. Clone / Update — detect existing install
 # ══════════════════════════════════════════════
 
-if [ -d "$INSTALL_DIR" ]; then
-  echo -e "  ${YELLOW}Existing installation found at $INSTALL_DIR${NC}"
+if [ -d "$INSTALL_DIR/.git" ]; then
+  # Pull latest source first
   echo -e "  ${DIM}Pulling latest changes...${NC}"
   cd "$INSTALL_DIR" && git pull --quiet 2>/dev/null || true
   cd cloud
+  echo -e "  ${GREEN}✓ Source updated${NC}"
+  echo ""
+
+  # Detect if this is a fully configured install (has .env = setup was completed)
+  if [ -f .env ]; then
+    IS_UPDATE=true
+
+    echo -e "  ${CYAN}${BOLD}Existing installation detected${NC}"
+    echo ""
+
+    # ── Audit current state ──
+    DOMAIN=$(grep '^PUBLIC_URL=' .env 2>/dev/null | sed 's|^PUBLIC_URL=https\?://||' || true)
+    CONTAINER_UP=$(docker ps --filter name=ct-cloud --format '{{.Status}}' 2>/dev/null || true)
+
+    USER_COUNT=0
+    USERS=""
+    CLAUDE_VERSION=""
+    CONFIGURED_USERS=""
+
+    if [ -n "$CONTAINER_UP" ]; then
+      CLAUDE_VERSION=$(docker exec ct-cloud claude --version 2>/dev/null || true)
+      USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
+    fi
+
+    # Count users from data/users/
+    if [ -d data/users ]; then
+      USER_COUNT=$(ls -d data/users/*/user.json 2>/dev/null | wc -l || echo 0)
+      # Check per-user credentials
+      for USER_DIR in data/users/*/; do
+        [ ! -d "$USER_DIR" ] && continue
+        UNAME=$(basename "$USER_DIR")
+        U_HAS_CLAUDE="no"
+        U_HAS_GIT="no"
+        [ -f "${USER_DIR}home/.claude/.credentials.json" ] && U_HAS_CLAUDE="yes"
+        [ -f "${USER_DIR}home/.gitconfig" ] && U_HAS_GIT="yes"
+        CONFIGURED_USERS="${CONFIGURED_USERS}${UNAME}(claude:${U_HAS_CLAUDE},git:${U_HAS_GIT}) "
+      done
+    fi
+
+    HAS_NGINX="no"
+    HAS_APACHE="no"
+    [ -f /etc/nginx/sites-available/ct-cloud ] && HAS_NGINX="yes"
+    ([ -f /etc/apache2/sites-available/ct-cloud.conf ] || [ -f /etc/httpd/conf.d/ct-cloud.conf ]) && HAS_APACHE="yes"
+
+    HAS_SSL="no"
+    if [ -n "$DOMAIN" ]; then
+      (certbot certificates -d "$DOMAIN" 2>/dev/null | grep -q "Certificate Name" 2>/dev/null) && HAS_SSL="yes"
+    fi
+
+    HAS_CRON="no"
+    (crontab -l 2>/dev/null | grep -q 'ct-cloud/cloud/update.sh') && HAS_CRON="yes"
+
+    # ── Display status ──
+    echo -e "  ${BOLD}Current configuration:${NC}"
+    echo ""
+    [ -n "$DOMAIN" ] && echo -e "  ${GREEN}✓${NC} Domain         ${BOLD}$DOMAIN${NC}" || echo -e "  ${RED}✗${NC} Domain         ${DIM}not set${NC}"
+    [ -n "$CONTAINER_UP" ] && echo -e "  ${GREEN}✓${NC} Container      ${DIM}running${NC}" || echo -e "  ${RED}✗${NC} Container      ${DIM}not running${NC}"
+    [ -n "$CLAUDE_VERSION" ] && echo -e "  ${GREEN}✓${NC} Claude CLI     ${DIM}$CLAUDE_VERSION${NC}" || echo -e "  ${RED}✗${NC} Claude CLI     ${DIM}not found${NC}"
+    [ "$USER_COUNT" -gt 0 ] && echo -e "  ${GREEN}✓${NC} Users          ${DIM}${USER_COUNT} user(s)${NC}" || echo -e "  ${YELLOW}✗${NC} Users          ${DIM}none${NC}"
+    if [ -n "$CONFIGURED_USERS" ]; then
+      echo -e "  ${DIM}                 ${CONFIGURED_USERS}${NC}"
+    fi
+    if [ "$HAS_NGINX" = "yes" ]; then echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Nginx${NC}"
+    elif [ "$HAS_APACHE" = "yes" ]; then echo -e "  ${GREEN}✓${NC} Reverse proxy  ${DIM}Apache${NC}"
+    else echo -e "  ${YELLOW}✗${NC} Reverse proxy  ${DIM}not detected${NC}"; fi
+    [ "$HAS_SSL" = "yes" ] && echo -e "  ${GREEN}✓${NC} SSL            ${DIM}active${NC}" || echo -e "  ${YELLOW}✗${NC} SSL            ${DIM}not configured${NC}"
+    [ "$HAS_CRON" = "yes" ] && echo -e "  ${GREEN}✓${NC} Auto-update    ${DIM}enabled${NC}" || echo -e "  ${YELLOW}✗${NC} Auto-update    ${DIM}disabled${NC}"
+
+    echo ""
+    echo -e "  ${BOLD}What would you like to do?${NC}"
+    echo ""
+    echo -e "  ${DIM}1${NC}) Update & rebuild   ${DIM}(pull latest + rebuild container)${NC}"
+    echo -e "  ${DIM}2${NC}) Configure missing  ${DIM}(setup only unconfigured items)${NC}"
+    echo -e "  ${DIM}3${NC}) Full reconfigure   ${DIM}(redo all setup steps)${NC}"
+    echo -e "  ${DIM}4${NC}) Add user           ${DIM}(create a new API user)${NC}"
+    echo -e "  ${DIM}5${NC}) Exit"
+    echo ""
+    read -p "  Choice [1-5]: " UPDATE_ACTION
+    UPDATE_ACTION=${UPDATE_ACTION:-1}
+
+    case "$UPDATE_ACTION" in
+      1)
+        echo ""
+        mkdir -p data/users
+        echo -e "  ${CYAN}Rebuilding containers...${NC}"
+        docker compose up -d --build
+        sleep 3
+        echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
+        echo ""
+
+        if [ "$USER_COUNT" -eq 0 ]; then
+          echo -e "  ${YELLOW}Reminder:${NC} No users configured — run installer again → \"Add user\""
+        fi
+
+        echo ""
+        echo -e "  ${GREEN}${BOLD}Update complete!${NC}"
+        echo ""
+        exit 0
+        ;;
+      4)
+        echo ""
+        U_NAME=""
+        while [ -z "$U_NAME" ]; do
+          read -p "  Username (a-z, 0-9, _, -): " U_NAME
+          if [ -z "$U_NAME" ]; then
+            echo -e "  ${RED}Username is required${NC}"
+          elif ! echo "$U_NAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+            echo -e "  ${RED}Invalid characters${NC}"
+            U_NAME=""
+          fi
+        done
+        echo ""
+        docker exec ct-cloud node dist/cli.js user add "$U_NAME"
+        echo ""
+        read -p "  Configure Claude auth + git for \"$U_NAME\" now? (Y/n): " SETUP_NOW
+        SETUP_NOW=${SETUP_NOW:-Y}
+        if [ "$SETUP_NOW" = "Y" ] || [ "$SETUP_NOW" = "y" ]; then
+          docker exec -it ct-cloud node dist/cli.js user setup "$U_NAME"
+        else
+          echo -e "  ${DIM}Configure later: docker exec -it ct-cloud node dist/cli.js user setup $U_NAME${NC}"
+        fi
+        echo ""
+        exit 0
+        ;;
+      5)
+        echo -e "  ${DIM}Bye!${NC}"
+        exit 0
+        ;;
+      2) SKIP_CONFIGURED=true ;;
+      3) SKIP_CONFIGURED=false ;;
+      *) echo -e "  ${RED}Invalid choice${NC}"; exit 1 ;;
+    esac
+
+    echo ""
+
+    # Rebuild (source may have changed)
+    mkdir -p data/users
+    echo -e "  ${CYAN}Rebuilding containers...${NC}"
+    docker compose up -d --build
+    sleep 3
+    echo -e "  ${GREEN}✓ Server rebuilt and running${NC}"
+    echo ""
+
+  else
+    # .git exists but .env missing — source cloned but never configured
+    IS_UPDATE=false
+    SKIP_CONFIGURED=false
+    echo -e "  ${YELLOW}Source found but not yet configured — running full setup${NC}"
+    echo ""
+  fi
+
 else
+  # ── Fresh install — no existing directory ──
+  IS_UPDATE=false
+  SKIP_CONFIGURED=false
+
   echo -e "  ${CYAN}Cloning cloud server...${NC}"
   git clone --depth 1 --filter=blob:none --sparse \
     https://github.com/Sterll/claude-terminal.git "$INSTALL_DIR" 2>/dev/null
   cd "$INSTALL_DIR" && git sparse-checkout set cloud remote-ui 2>/dev/null
   cd cloud
-fi
 
-echo -e "  ${GREEN}✓ Source ready${NC}"
-echo ""
+  echo -e "  ${GREEN}✓ Source ready${NC}"
+  echo ""
+fi
 
 # ══════════════════════════════════════════════
 # 3. Domain name
 # ══════════════════════════════════════════════
 
-DOMAIN=""
-while [ -z "$DOMAIN" ]; do
-  read -p "  Domain name (e.g. cloud.example.com): " DOMAIN
-  if [ -z "$DOMAIN" ]; then
-    echo -e "  ${RED}Domain is required${NC}"
-  fi
-done
-
-# Setup .env
-if [ ! -f .env ]; then
-  cp .env.example .env
-fi
-sed -i "s|^PUBLIC_URL=.*|PUBLIC_URL=https://$DOMAIN|" .env
-
-echo -e "  ${GREEN}✓ Domain set to ${BOLD}$DOMAIN${NC}"
-echo ""
-
-# ══════════════════════════════════════════════
-# 4. Create data dirs & build
-# ══════════════════════════════════════════════
-
-mkdir -p data/users data/claude
-
-echo -e "  ${CYAN}Building and starting containers...${NC}"
-docker compose up -d --build
-echo -e "  ${DIM}Waiting for server to start...${NC}"
-sleep 3
-echo -e "  ${GREEN}✓ Server running on port 3800${NC}"
-echo ""
-
-# ══════════════════════════════════════════════
-# 5. Claude Code authentication
-# ══════════════════════════════════════════════
-
-echo -e "  ${BOLD}Claude Code Authentication${NC}"
-echo ""
-
-# Check if credentials already exist in the container
-HAS_CREDS=$(docker exec ct-cloud test -f /home/node/.claude/.credentials.json && echo "yes" || echo "no")
-
-if [ "$HAS_CREDS" = "yes" ]; then
-  echo -e "  ${GREEN}✓ Claude credentials found${NC}"
+if [ "$IS_UPDATE" = true ] && [ "$SKIP_CONFIGURED" = true ] && [ -n "$DOMAIN" ]; then
+  echo -e "  ${GREEN}✓ Domain: ${BOLD}$DOMAIN${NC} ${DIM}(unchanged)${NC}"
 else
-  echo -e "  ${YELLOW}Claude Code needs to be authenticated for headless sessions.${NC}"
-  echo -e "  ${DIM}This will open the Claude login flow inside the container.${NC}"
-  echo ""
-  read -p "  Authenticate Claude Code now? (Y/n): " AUTH_CHOICE
-  AUTH_CHOICE=${AUTH_CHOICE:-Y}
-
-  if [ "$AUTH_CHOICE" = "Y" ] || [ "$AUTH_CHOICE" = "y" ]; then
-    echo ""
-    echo -e "  ${CYAN}Starting Claude login...${NC}"
-    echo -e "  ${DIM}Follow the instructions below — a URL will appear to open in your browser.${NC}"
-    echo ""
-    docker exec -it ct-cloud claude login 2>&1 || true
-    echo ""
-
-    # Verify credentials were created
-    HAS_CREDS=$(docker exec ct-cloud test -f /home/node/.claude/.credentials.json && echo "yes" || echo "no")
-    if [ "$HAS_CREDS" = "yes" ]; then
-      echo -e "  ${GREEN}✓ Claude authenticated successfully${NC}"
-    else
-      echo -e "  ${RED}Authentication may have failed — you can retry later:${NC}"
-      echo -e "  ${DIM}  docker exec -it ct-cloud claude login${NC}"
-    fi
+  # Show current value as default if updating
+  if [ -n "$DOMAIN" ]; then
+    read -p "  Domain name [$DOMAIN]: " NEW_DOMAIN
+    DOMAIN=${NEW_DOMAIN:-$DOMAIN}
   else
-    echo -e "  ${DIM}Skipped — headless sessions won't work until authenticated.${NC}"
-    echo -e "  ${DIM}Authenticate later: docker exec -it ct-cloud claude login${NC}"
+    DOMAIN=""
+    while [ -z "$DOMAIN" ]; do
+      read -p "  Domain name (e.g. cloud.example.com): " DOMAIN
+      if [ -z "$DOMAIN" ]; then
+        echo -e "  ${RED}Domain is required${NC}"
+      fi
+    done
+  fi
+
+  # Setup .env
+  if [ ! -f .env ]; then
+    cp .env.example .env
+  fi
+  sed -i "s|^PUBLIC_URL=.*|PUBLIC_URL=https://$DOMAIN|" .env
+
+  echo -e "  ${GREEN}✓ Domain set to ${BOLD}$DOMAIN${NC}"
+fi
+
+echo ""
+
+# ══════════════════════════════════════════════
+# 4. Create data dirs & build (fresh install only)
+# ══════════════════════════════════════════════
+
+if [ "$IS_UPDATE" = false ]; then
+  mkdir -p data/users
+
+  echo -e "  ${CYAN}Building and starting containers...${NC}"
+  docker compose up -d --build
+  echo -e "  ${DIM}Waiting for server to start...${NC}"
+  sleep 3
+  echo -e "  ${GREEN}✓ Server running on port 3800${NC}"
+  echo ""
+fi
+
+# ══════════════════════════════════════════════
+# 5. Create user + per-user setup (Claude auth + git + GitHub)
+# ══════════════════════════════════════════════
+
+if [ "$IS_UPDATE" = true ] && [ "$SKIP_CONFIGURED" = true ]; then
+  # Check if any users exist
+  EXISTING_USERS=$(docker exec ct-cloud node dist/cli.js user list 2>/dev/null || true)
+  if [ -n "$EXISTING_USERS" ]; then
+    echo -e "  ${GREEN}✓ Users${NC} ${DIM}($EXISTING_USERS)${NC}"
+    read -p "  Add another user? (y/N): " ADD_USER
+    if [ "$ADD_USER" != "Y" ] && [ "$ADD_USER" != "y" ]; then
+      echo ""
+      # Skip to next section — jump past user creation
+      SKIP_USER=true
+    fi
+  fi
+fi
+
+if [ "$SKIP_USER" != true ]; then
+  USERNAME=""
+  while [ -z "$USERNAME" ]; do
+    read -p "  Username (a-z, 0-9, _, -): " USERNAME
+    if [ -z "$USERNAME" ]; then
+      echo -e "  ${RED}Username is required${NC}"
+    elif ! echo "$USERNAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+      echo -e "  ${RED}Invalid characters — use only a-z, 0-9, _, -${NC}"
+      USERNAME=""
+    fi
+  done
+
+  echo ""
+  API_OUTPUT=$(docker exec ct-cloud node dist/cli.js user add "$USERNAME" 2>&1)
+  echo "$API_OUTPUT"
+
+  # Extract API key from output
+  API_KEY=$(echo "$API_OUTPUT" | grep -oP 'API Key: \K.*' || true)
+
+  # Per-user setup: Claude auth + git identity + GitHub token
+  echo ""
+  echo -e "  ${BOLD}User setup — Claude auth, git identity & GitHub token${NC}"
+  echo -e "  ${DIM}Each user has their own credentials for headless sessions.${NC}"
+  echo ""
+  read -p "  Configure user \"$USERNAME\" now? (Y/n): " SETUP_CHOICE
+  SETUP_CHOICE=${SETUP_CHOICE:-Y}
+
+  if [ "$SETUP_CHOICE" = "Y" ] || [ "$SETUP_CHOICE" = "y" ]; then
+    docker exec -it ct-cloud node dist/cli.js user setup "$USERNAME"
+  else
+    echo -e "  ${DIM}Skipped — configure later:${NC}"
+    echo -e "  ${DIM}  docker exec -it ct-cloud node dist/cli.js user setup $USERNAME${NC}"
   fi
 fi
 
 echo ""
 
 # ══════════════════════════════════════════════
-# 6. Create user
+# 8. Reverse proxy
 # ══════════════════════════════════════════════
 
-USERNAME=""
-while [ -z "$USERNAME" ]; do
-  read -p "  Username (a-z, 0-9, _, -): " USERNAME
-  if [ -z "$USERNAME" ]; then
-    echo -e "  ${RED}Username is required${NC}"
-  elif ! echo "$USERNAME" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-    echo -e "  ${RED}Invalid characters — use only a-z, 0-9, _, -${NC}"
-    USERNAME=""
+# Re-check proxy state
+HAS_NGINX="no"
+HAS_APACHE="no"
+[ -f /etc/nginx/sites-available/ct-cloud ] && HAS_NGINX="yes"
+([ -f /etc/apache2/sites-available/ct-cloud.conf ] || [ -f /etc/httpd/conf.d/ct-cloud.conf ]) && HAS_APACHE="yes"
+
+if [ "$SKIP_CONFIGURED" = true ] && ([ "$HAS_NGINX" = "yes" ] || [ "$HAS_APACHE" = "yes" ]); then
+  PROXY_TYPE="Nginx"
+  [ "$HAS_APACHE" = "yes" ] && PROXY_TYPE="Apache"
+  echo -e "  ${GREEN}✓ Reverse proxy${NC} ${DIM}($PROXY_TYPE — unchanged)${NC}"
+  PROXY_CHOICE="skip"
+else
+  echo -e "  ${BOLD}Reverse proxy setup${NC}"
+  echo ""
+  if [ "$HAS_NGINX" = "yes" ]; then
+    echo -e "  ${DIM}Current: Nginx configured${NC}"
+    read -p "  Reconfigure? (y/N): " REDO_PROXY
+    if [ "$REDO_PROXY" != "Y" ] && [ "$REDO_PROXY" != "y" ]; then
+      PROXY_CHOICE="skip"
+    fi
+  elif [ "$HAS_APACHE" = "yes" ]; then
+    echo -e "  ${DIM}Current: Apache configured${NC}"
+    read -p "  Reconfigure? (y/N): " REDO_PROXY
+    if [ "$REDO_PROXY" != "Y" ] && [ "$REDO_PROXY" != "y" ]; then
+      PROXY_CHOICE="skip"
+    fi
   fi
-done
 
-echo ""
-API_OUTPUT=$(docker exec ct-cloud node dist/cli.js user add "$USERNAME" 2>&1)
-echo "$API_OUTPUT"
-
-# Extract API key from output
-API_KEY=$(echo "$API_OUTPUT" | grep -oP 'API Key: \K.*' || true)
-
-echo ""
-
-# ══════════════════════════════════════════════
-# 7. Reverse proxy
-# ══════════════════════════════════════════════
-
-echo -e "  ${BOLD}Reverse proxy setup${NC}"
-echo ""
-echo -e "  ${DIM}1${NC}) Nginx   ${DIM}(recommended)${NC}"
-echo -e "  ${DIM}2${NC}) Apache2"
-echo -e "  ${DIM}3${NC}) Skip    ${DIM}(I'll configure it myself)${NC}"
-echo ""
-read -p "  Choice [1/2/3]: " PROXY_CHOICE
+  if [ "$PROXY_CHOICE" != "skip" ]; then
+    echo -e "  ${DIM}1${NC}) Nginx   ${DIM}(recommended)${NC}"
+    echo -e "  ${DIM}2${NC}) Apache2"
+    echo -e "  ${DIM}3${NC}) Skip    ${DIM}(I'll configure it myself)${NC}"
+    echo ""
+    read -p "  Choice [1/2/3]: " PROXY_CHOICE
+  fi
+fi
 
 setup_nginx() {
-  # Install nginx if missing
   if ! command -v nginx &>/dev/null; then
     echo -e "  ${YELLOW}Nginx not found — installing...${NC}"
     install_pkg nginx
@@ -237,11 +422,9 @@ server {
 }
 NGINXEOF
 
-  # Enable site
   mkdir -p /etc/nginx/sites-enabled
   ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/ct-cloud
 
-  # Remove default if it conflicts
   if [ -f /etc/nginx/sites-enabled/default ]; then
     rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
   fi
@@ -251,7 +434,6 @@ NGINXEOF
 }
 
 setup_apache() {
-  # Install apache2 if missing
   if ! command -v apache2 &>/dev/null && ! command -v httpd &>/dev/null; then
     echo -e "  ${YELLOW}Apache not found — installing...${NC}"
     if command -v apt-get &>/dev/null; then
@@ -264,7 +446,6 @@ setup_apache() {
     echo -e "  ${GREEN}✓ Apache installed${NC}"
   fi
 
-  # Enable required modules
   if command -v a2enmod &>/dev/null; then
     a2enmod proxy proxy_http proxy_wstunnel rewrite headers 2>/dev/null || true
   fi
@@ -308,6 +489,7 @@ APACHEEOF
 case "$PROXY_CHOICE" in
   1) setup_nginx ;;
   2) setup_apache ;;
+  skip) ;;
   3|"")
     echo -e "  ${DIM}Skipped — configure your reverse proxy to forward to 127.0.0.1:3800${NC}"
     echo -e "  ${DIM}Don't forget WebSocket support (Upgrade headers)${NC}"
@@ -317,69 +499,80 @@ esac
 echo ""
 
 # ══════════════════════════════════════════════
-# 8. SSL with Let's Encrypt
+# 9. SSL with Let's Encrypt
 # ══════════════════════════════════════════════
 
-if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
-  echo -e "  ${BOLD}SSL Certificate${NC}"
-  echo ""
-  read -p "  Setup free SSL with Let's Encrypt? (Y/n): " SSL_CHOICE
-  SSL_CHOICE=${SSL_CHOICE:-Y}
+# Re-check SSL
+HAS_SSL="no"
+if [ -n "$DOMAIN" ]; then
+  (certbot certificates -d "$DOMAIN" 2>/dev/null | grep -q "Certificate Name" 2>/dev/null) && HAS_SSL="yes"
+fi
 
-  if [ "$SSL_CHOICE" = "Y" ] || [ "$SSL_CHOICE" = "y" ]; then
-    # Install certbot
-    if ! command -v certbot &>/dev/null; then
-      echo -e "  ${YELLOW}Certbot not found — installing...${NC}"
-      if command -v apt-get &>/dev/null; then
-        install_pkg certbot
-        if [ "$PROXY_CHOICE" = "1" ]; then
-          install_pkg python3-certbot-nginx
-        else
-          install_pkg python3-certbot-apache
-        fi
-      elif command -v yum &>/dev/null; then
-        install_pkg certbot
-        if [ "$PROXY_CHOICE" = "1" ]; then
-          install_pkg python3-certbot-nginx
-        else
-          install_pkg python3-certbot-apache
-        fi
-      fi
-      echo -e "  ${GREEN}✓ Certbot installed${NC}"
-    fi
-
-    echo ""
-    read -p "  Email for Let's Encrypt (optional, press Enter to skip): " LE_EMAIL
-
-    CERTBOT_FLAGS="--non-interactive --agree-tos -d $DOMAIN"
-    if [ -n "$LE_EMAIL" ]; then
-      CERTBOT_FLAGS="$CERTBOT_FLAGS --email $LE_EMAIL"
-    else
-      CERTBOT_FLAGS="$CERTBOT_FLAGS --register-unsafely-without-email"
-    fi
-
-    echo ""
-    echo -e "  ${CYAN}Requesting certificate...${NC}"
-
-    if [ "$PROXY_CHOICE" = "1" ]; then
-      certbot --nginx $CERTBOT_FLAGS 2>&1 && SSL_OK=true || SSL_OK=false
-    else
-      certbot --apache $CERTBOT_FLAGS 2>&1 && SSL_OK=true || SSL_OK=false
-    fi
-
-    if [ "$SSL_OK" = "true" ]; then
-      echo -e "  ${GREEN}✓ SSL certificate installed for ${BOLD}$DOMAIN${NC}"
-      echo -e "  ${DIM}Auto-renewal is enabled via certbot timer${NC}"
-    else
-      echo -e "  ${RED}SSL setup failed — make sure $DOMAIN points to this server${NC}"
-      echo -e "  ${DIM}You can retry later: certbot --nginx -d $DOMAIN${NC}"
-    fi
+if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_SSL" = "yes" ]; then
+  echo -e "  ${GREEN}✓ SSL certificate${NC} ${DIM}(active — unchanged)${NC}"
+elif [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ] || ([ "$PROXY_CHOICE" = "skip" ] && ([ "$HAS_NGINX" = "yes" ] || [ "$HAS_APACHE" = "yes" ])); then
+  if [ "$HAS_SSL" = "yes" ]; then
+    echo -e "  ${GREEN}✓ SSL certificate already active${NC}"
   else
-    echo -e "  ${DIM}Skipped — you can add SSL later with:${NC}"
-    if [ "$PROXY_CHOICE" = "1" ]; then
-      echo -e "  ${DIM}  certbot --nginx -d $DOMAIN${NC}"
+    echo -e "  ${BOLD}SSL Certificate${NC}"
+    echo ""
+    read -p "  Setup free SSL with Let's Encrypt? (Y/n): " SSL_CHOICE
+    SSL_CHOICE=${SSL_CHOICE:-Y}
+
+    if [ "$SSL_CHOICE" = "Y" ] || [ "$SSL_CHOICE" = "y" ]; then
+      if ! command -v certbot &>/dev/null; then
+        echo -e "  ${YELLOW}Certbot not found — installing...${NC}"
+        if command -v apt-get &>/dev/null; then
+          install_pkg certbot
+          if [ "$HAS_NGINX" = "yes" ] || [ "$PROXY_CHOICE" = "1" ]; then
+            install_pkg python3-certbot-nginx
+          else
+            install_pkg python3-certbot-apache
+          fi
+        elif command -v yum &>/dev/null; then
+          install_pkg certbot
+          if [ "$HAS_NGINX" = "yes" ] || [ "$PROXY_CHOICE" = "1" ]; then
+            install_pkg python3-certbot-nginx
+          else
+            install_pkg python3-certbot-apache
+          fi
+        fi
+        echo -e "  ${GREEN}✓ Certbot installed${NC}"
+      fi
+
+      echo ""
+      read -p "  Email for Let's Encrypt (optional, press Enter to skip): " LE_EMAIL
+
+      CERTBOT_FLAGS="--non-interactive --agree-tos -d $DOMAIN"
+      if [ -n "$LE_EMAIL" ]; then
+        CERTBOT_FLAGS="$CERTBOT_FLAGS --email $LE_EMAIL"
+      else
+        CERTBOT_FLAGS="$CERTBOT_FLAGS --register-unsafely-without-email"
+      fi
+
+      echo ""
+      echo -e "  ${CYAN}Requesting certificate...${NC}"
+
+      if [ "$HAS_NGINX" = "yes" ] || [ "$PROXY_CHOICE" = "1" ]; then
+        certbot --nginx $CERTBOT_FLAGS 2>&1 && SSL_OK=true || SSL_OK=false
+      else
+        certbot --apache $CERTBOT_FLAGS 2>&1 && SSL_OK=true || SSL_OK=false
+      fi
+
+      if [ "$SSL_OK" = "true" ]; then
+        echo -e "  ${GREEN}✓ SSL certificate installed for ${BOLD}$DOMAIN${NC}"
+        echo -e "  ${DIM}Auto-renewal is enabled via certbot timer${NC}"
+      else
+        echo -e "  ${RED}SSL setup failed — make sure $DOMAIN points to this server${NC}"
+        echo -e "  ${DIM}You can retry later: certbot --nginx -d $DOMAIN${NC}"
+      fi
     else
-      echo -e "  ${DIM}  certbot --apache -d $DOMAIN${NC}"
+      echo -e "  ${DIM}Skipped — you can add SSL later with:${NC}"
+      if [ "$HAS_NGINX" = "yes" ] || [ "$PROXY_CHOICE" = "1" ]; then
+        echo -e "  ${DIM}  certbot --nginx -d $DOMAIN${NC}"
+      else
+        echo -e "  ${DIM}  certbot --apache -d $DOMAIN${NC}"
+      fi
     fi
   fi
 
@@ -387,31 +580,38 @@ if [ "$PROXY_CHOICE" = "1" ] || [ "$PROXY_CHOICE" = "2" ]; then
 fi
 
 # ══════════════════════════════════════════════
-# 9. Auto-update
+# 10. Auto-update
 # ══════════════════════════════════════════════
 
-echo -e "  ${BOLD}Auto-update${NC}"
-echo ""
-echo -e "  ${DIM}Checks for updates every 6 hours and rebuilds automatically.${NC}"
-echo ""
-read -p "  Enable auto-update? (Y/n): " UPDATE_CHOICE
-UPDATE_CHOICE=${UPDATE_CHOICE:-Y}
+HAS_CRON="no"
+(crontab -l 2>/dev/null | grep -q 'ct-cloud/cloud/update.sh') && HAS_CRON="yes"
 
-if [ "$UPDATE_CHOICE" = "Y" ] || [ "$UPDATE_CHOICE" = "y" ]; then
-  # Make update script executable
-  chmod +x "$INSTALL_DIR/cloud/update.sh"
-
-  # Create log file
-  touch /var/log/ct-cloud-update.log
-
-  # Install cron job (every 6 hours)
-  CRON_LINE="0 */6 * * * $INSTALL_DIR/cloud/update.sh"
-  (crontab -l 2>/dev/null | grep -v 'ct-cloud/cloud/update.sh'; echo "$CRON_LINE") | crontab -
-  echo -e "  ${GREEN}✓ Auto-update enabled (every 6h)${NC}"
-  echo -e "  ${DIM}Logs: /var/log/ct-cloud-update.log${NC}"
+if [ "$SKIP_CONFIGURED" = true ] && [ "$HAS_CRON" = "yes" ]; then
+  echo -e "  ${GREEN}✓ Auto-update${NC} ${DIM}(enabled — unchanged)${NC}"
 else
-  echo -e "  ${DIM}Skipped — update manually:${NC}"
-  echo -e "  ${DIM}  $INSTALL_DIR/cloud/update.sh${NC}"
+  echo -e "  ${BOLD}Auto-update${NC}"
+  echo ""
+  echo -e "  ${DIM}Checks for updates every 6 hours and rebuilds automatically.${NC}"
+  echo ""
+
+  if [ "$HAS_CRON" = "yes" ]; then
+    echo -e "  ${GREEN}✓ Auto-update already enabled${NC}"
+  else
+    read -p "  Enable auto-update? (Y/n): " UPDATE_CHOICE
+    UPDATE_CHOICE=${UPDATE_CHOICE:-Y}
+
+    if [ "$UPDATE_CHOICE" = "Y" ] || [ "$UPDATE_CHOICE" = "y" ]; then
+      chmod +x "$INSTALL_DIR/cloud/update.sh"
+      touch /var/log/ct-cloud-update.log
+      CRON_LINE="0 */6 * * * $INSTALL_DIR/cloud/update.sh"
+      (crontab -l 2>/dev/null | grep -v 'ct-cloud/cloud/update.sh'; echo "$CRON_LINE") | crontab -
+      echo -e "  ${GREEN}✓ Auto-update enabled (every 6h)${NC}"
+      echo -e "  ${DIM}Logs: /var/log/ct-cloud-update.log${NC}"
+    else
+      echo -e "  ${DIM}Skipped — update manually:${NC}"
+      echo -e "  ${DIM}  $INSTALL_DIR/cloud/update.sh${NC}"
+    fi
+  fi
 fi
 
 echo ""
@@ -420,24 +620,35 @@ echo ""
 # Done
 # ══════════════════════════════════════════════
 
-echo -e "  ${GREEN}${BOLD}════════════════════════════════════${NC}"
-echo -e "  ${GREEN}${BOLD}  Installation complete!${NC}"
-echo -e "  ${GREEN}${BOLD}════════════════════════════════════${NC}"
+if [ "$IS_UPDATE" = true ]; then
+  echo -e "  ${GREEN}${BOLD}════════════════════════════════════${NC}"
+  echo -e "  ${GREEN}${BOLD}  Configuration updated!${NC}"
+  echo -e "  ${GREEN}${BOLD}════════════════════════════════════${NC}"
+else
+  echo -e "  ${GREEN}${BOLD}════════════════════════════════════${NC}"
+  echo -e "  ${GREEN}${BOLD}  Installation complete!${NC}"
+  echo -e "  ${GREEN}${BOLD}════════════════════════════════════${NC}"
+fi
+
 echo ""
 echo -e "  ${BOLD}Server:${NC}    https://$DOMAIN"
-echo -e "  ${BOLD}User:${NC}      $USERNAME"
+if [ -n "$USERNAME" ]; then
+  echo -e "  ${BOLD}User:${NC}      $USERNAME"
+fi
 if [ -n "$API_KEY" ]; then
   echo -e "  ${BOLD}API Key:${NC}   $API_KEY"
 fi
 echo ""
-echo -e "  ${BOLD}Next step:${NC}"
-echo -e "    Paste the URL and API key in"
-echo -e "    ${CYAN}Claude Terminal > Settings > Cloud${NC}"
-echo ""
+if [ "$IS_UPDATE" = false ] || [ -n "$API_KEY" ]; then
+  echo -e "  ${BOLD}Next step:${NC}"
+  echo -e "    Paste the URL and API key in"
+  echo -e "    ${CYAN}Claude Terminal > Settings > Cloud${NC}"
+  echo ""
+fi
 echo -e "  ${DIM}────────────────────────────────────${NC}"
-echo -e "  ${DIM}Manage users:  docker exec ct-cloud node dist/cli.js user add <name>${NC}"
-echo -e "  ${DIM}Claude auth:   docker exec -it ct-cloud claude login${NC}"
+echo -e "  ${DIM}Add user:      docker exec ct-cloud node dist/cli.js user add <name>${NC}"
+echo -e "  ${DIM}Setup user:    docker exec -it ct-cloud node dist/cli.js user setup <name>${NC}"
+echo -e "  ${DIM}List users:    docker exec ct-cloud node dist/cli.js user list${NC}"
 echo -e "  ${DIM}View logs:     docker compose -f $INSTALL_DIR/cloud/docker-compose.yml logs -f${NC}"
 echo -e "  ${DIM}Manual update: $INSTALL_DIR/cloud/update.sh${NC}"
-echo -e "  ${DIM}Update logs:   /var/log/ct-cloud-update.log${NC}"
 echo ""

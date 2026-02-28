@@ -6,12 +6,14 @@
 const { ipcMain, BrowserWindow } = require('electron');
 const HooksService = require('../services/HooksService');
 const hookEventServer = require('../services/HookEventServer');
+const { sendFeaturePing } = require('../services/TelemetryService');
 
 function registerHooksHandlers() {
   ipcMain.handle('hooks-install', (event) => {
     const result = HooksService.installHooks();
     // Start event server when hooks are enabled
     if (result.success) {
+      sendFeaturePing('hooks:install');
       const win = BrowserWindow.fromWebContents(event.sender);
       hookEventServer.start(win);
     }

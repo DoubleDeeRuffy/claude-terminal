@@ -35,6 +35,8 @@ const RUN_STATUS = Object.freeze({
   SKIPPED:   'skipped',
 });
 
+const MAX_CACHE_ENTRIES = 200;
+
 // ─── WorkflowService ──────────────────────────────────────────────────────────
 
 class WorkflowService {
@@ -53,6 +55,7 @@ class WorkflowService {
 
     /**
      * Cache of recent successful run results for depends_on lazy resolution.
+     * Keyed by workflowId only. Capped at MAX_CACHE_ENTRIES to prevent unbounded growth.
      * Map<workflowId, { completedAt: number, outputs: Object }>
      */
     this._resultsCache = new Map();
@@ -86,9 +89,10 @@ class WorkflowService {
    * @param {Object} deps.chatService
    * @param {Object} [deps.projectTypeRegistry]
    */
-  setDeps({ chatService, projectTypeRegistry = {} }) {
+  setDeps({ chatService, projectTypeRegistry = {}, databaseService = null }) {
     this._chatService = chatService;
     this._projectTypeRegistry = projectTypeRegistry;
+    this._databaseService = databaseService;
   }
 
   /**
@@ -160,11 +164,27 @@ class WorkflowService {
   // ─── Workflow CRUD ───────────────────────────────────────────────────────────
 
   listWorkflows() {
-    return storage.loadWorkflows();
+    const workflows = storage.loadWorkflows();
+    // Auto-migrate legacy workflows (steps[] → graph)
+    let dirty = false;
+    for (let i = 0; i < workflows.length; i++) {
+      if (workflows[i].steps && !workflows[i].graph) {
+        workflows[i] = migrateStepsToGraph(workflows[i]);
+        dirty = true;
+      }
+    }
+    if (dirty) storage.saveWorkflows(workflows);
+    return workflows;
   }
 
   getWorkflow(id) {
-    return storage.getWorkflow(id);
+    const wf = storage.getWorkflow(id);
+    if (wf && wf.steps && !wf.graph) {
+      const migrated = migrateStepsToGraph(wf);
+      storage.upsertWorkflow(migrated);
+      return migrated;
+    }
+    return wf;
   }
 
   /**
@@ -227,6 +247,10 @@ class WorkflowService {
 
   getRecentRuns(limit) {
     return storage.getRecentRuns(limit);
+  }
+
+  clearAllRuns() {
+    storage.clearAllRuns();
   }
 
   getRun(runId) {
@@ -374,6 +398,26 @@ class WorkflowService {
     // Build context variables
     const contextVars = await this._buildContext(workflow, opts.projectPath);
 
+    // Build step list from graph or legacy steps
+    let runSteps;
+    if (workflow.graph && workflow.graph.nodes) {
+      runSteps = workflow.graph.nodes
+        .filter(n => n.type !== 'workflow/trigger')
+        .map(n => ({
+          id:     `node_${n.id}`,
+          type:   n.type.replace('workflow/', ''),
+          status: RUN_STATUS.PENDING,
+          duration: null,
+        }));
+    } else {
+      runSteps = (workflow.steps || []).map(s => ({
+        id:     s.id,
+        type:   s.type,
+        status: RUN_STATUS.PENDING,
+        duration: null,
+      }));
+    }
+
     const run = {
       id:          runId,
       workflowId:  workflow.id,
@@ -383,12 +427,7 @@ class WorkflowService {
       triggerData,
       startedAt,
       duration:    null,
-      steps:       (workflow.steps || []).map(s => ({
-        id:     s.id,
-        type:   s.type,
-        status: RUN_STATUS.PENDING,
-        duration: null,
-      })),
+      steps:       runSteps,
       ...contextVars,
     };
 
@@ -436,6 +475,7 @@ class WorkflowService {
       chatService:         this._chatService,
       waitCallbacks:       this._waitCallbacks,
       projectTypeRegistry: this._projectTypeRegistry,
+      databaseService:     this._databaseService,
     });
 
     // 3. Execute
@@ -451,7 +491,23 @@ class WorkflowService {
         ? RUN_STATUS.SUCCESS
         : RUN_STATUS.FAILED;
 
-    const patch = { status, duration: `${duration}s`, finishedAt: new Date().toISOString() };
+    // Build final steps array with statuses and outputs
+    const finalSteps = (run.steps || []).map(s => {
+      const tracked = result.stepStatuses?.get(s.id);
+      if (tracked) {
+        return { ...s, status: tracked.status, output: tracked.output };
+      }
+      // Steps that were never reached remain pending → mark as skipped
+      if (s.status === 'pending') return { ...s, status: 'skipped' };
+      return s;
+    });
+
+    const patch = {
+      status,
+      duration: `${duration}s`,
+      finishedAt: new Date().toISOString(),
+      steps: finalSteps,
+    };
     storage.updateRun(run.id, patch);
 
     // Persist large output payload separately
@@ -459,17 +515,23 @@ class WorkflowService {
       storage.saveResultPayload(run.id, { outputs: result.outputs });
     }
 
-    // Update results cache (only on success)
+    // Update results cache (only on success), keyed by workflowId for depends_on lookup
     if (status === RUN_STATUS.SUCCESS) {
-      this._resultsCache.set(run.id /* wf.id? */, {
-        completedAt: now,
-        outputs:     result.outputs || {},
-      });
-      // Also key by workflowId for depends_on lookup
       this._resultsCache.set(workflow.id, {
         completedAt: now,
         outputs:     result.outputs || {},
       });
+      // Evict oldest entries if cache exceeds limit
+      if (this._resultsCache.size > MAX_CACHE_ENTRIES) {
+        let oldest = null, oldestKey = null;
+        for (const [key, val] of this._resultsCache) {
+          if (!oldest || val.completedAt < oldest) {
+            oldest = val.completedAt;
+            oldestKey = key;
+          }
+        }
+        if (oldestKey) this._resultsCache.delete(oldestKey);
+      }
     }
 
     // Notify renderer
@@ -587,6 +649,127 @@ class WorkflowService {
     }
     return { nodes, edges };
   }
+}
+
+// ─── Legacy migration ─────────────────────────────────────────────────────────
+
+/**
+ * Migrate a workflow from the old steps[] format to the new graph format.
+ * Creates a LiteGraph-compatible serialized graph without requiring the library.
+ * Nodes are arranged in a horizontal chain: Trigger → Step1 → Step2 → ...
+ *
+ * @param {Object} workflow - Legacy workflow with steps[] but no graph
+ * @returns {Object} Migrated workflow with graph field added
+ */
+function migrateStepsToGraph(workflow) {
+  const SPACING_X = 280;
+  const START_X = 100;
+  const START_Y = 200;
+
+  const steps = workflow.steps || [];
+  const nodes = [];
+  const links = [];
+  let linkId = 1;
+  let nodeId = 1;
+
+  // Node type → LiteGraph registered type mapping
+  const typeMap = {
+    agent: 'workflow/claude',
+    claude: 'workflow/claude',
+    shell: 'workflow/shell',
+    git: 'workflow/git',
+    http: 'workflow/http',
+    notify: 'workflow/notify',
+    wait: 'workflow/wait',
+    condition: 'workflow/condition',
+  };
+
+  // Create trigger node (ID = 1)
+  const triggerNodeId = nodeId++;
+  nodes.push({
+    id: triggerNodeId,
+    type: 'workflow/trigger',
+    pos: [START_X, START_Y],
+    size: [180, 70],
+    properties: {
+      triggerType: workflow.trigger?.type || 'manual',
+      triggerValue: workflow.trigger?.value || '',
+      hookType: workflow.hookType || 'PostToolUse',
+    },
+    outputs: [{ name: 'Start', type: -1, links: [] }], // EVENT type = -1 in LiteGraph
+  });
+
+  // Create step nodes and chain them
+  let prevNodeId = triggerNodeId;
+  let prevSlot = 0;
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const type = typeMap[step.type] || `workflow/${step.type}`;
+    const nid = nodeId++;
+    const pos = [START_X + SPACING_X * (i + 1), START_Y];
+
+    // Extract properties (remove internal fields)
+    const props = { ...step };
+    delete props.id;
+    delete props.type;
+    delete props.condition;
+    delete props.retry;
+    delete props.retry_delay;
+    delete props.timeout;
+
+    // Build node structure
+    const isCondition = step.type === 'condition';
+    const node = {
+      id: nid,
+      type,
+      pos,
+      size: [180, isCondition ? 90 : 80],
+      properties: props,
+      inputs: [{ name: 'In', type: -1, link: null }],  // ACTION type = -1
+      outputs: isCondition
+        ? [
+            { name: 'True', type: -1, links: [] },
+            { name: 'False', type: -1, links: [] },
+          ]
+        : [
+            { name: 'Done', type: -1, links: [] },
+            { name: 'Error', type: -1, links: [] },
+          ],
+    };
+
+    // Create link from previous node to this node
+    const lid = linkId++;
+    links.push([lid, prevNodeId, prevSlot, nid, 0, -1]);
+
+    // Update link references on nodes
+    // Previous node output slot
+    const prevNode = nodes.find(n => n.id === prevNodeId);
+    if (prevNode && prevNode.outputs && prevNode.outputs[prevSlot]) {
+      prevNode.outputs[prevSlot].links.push(lid);
+    }
+    // Current node input slot
+    node.inputs[0].link = lid;
+
+    nodes.push(node);
+
+    // Next link comes from this node's slot 0 (Done / True)
+    prevNodeId = nid;
+    prevSlot = 0;
+  }
+
+  return {
+    ...workflow,
+    graph: {
+      last_node_id: nodeId - 1,
+      last_link_id: linkId - 1,
+      nodes,
+      links,
+      groups: [],
+      config: {},
+      version: 0.4,
+    },
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

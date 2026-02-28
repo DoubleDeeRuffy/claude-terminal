@@ -1,8 +1,12 @@
 import { v4 as uuid } from 'uuid';
+import path from 'path';
+import fs from 'fs';
 import { WebSocket } from 'ws';
 import { store, UserSession } from '../store/store';
 import { config } from '../config';
 import { projectManager } from './ProjectManager';
+import { FileWatcher } from './FileWatcher';
+import type { RelayServer } from '../relay/RelayServer';
 
 interface ActiveSession {
   id: string;
@@ -12,6 +16,8 @@ interface ActiveSession {
   messageQueue: ReturnType<typeof createMessageQueue>;
   streamClients: Set<WebSocket>;
   status: 'running' | 'idle' | 'error';
+  changedFiles: Set<string>;
+  fileWatcher: FileWatcher;
 }
 
 function createMessageQueue(onIdle?: () => void) {
@@ -67,6 +73,11 @@ function createMessageQueue(onIdle?: () => void) {
 export class SessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private sdk: any = null;
+  private relayServer: RelayServer | null = null;
+
+  setRelayServer(relay: RelayServer): void {
+    this.relayServer = relay;
+  }
 
   private async loadSDK() {
     if (!this.sdk) {
@@ -90,6 +101,13 @@ export class SessionManager {
       throw new Error(`Max concurrent sessions reached (${config.maxSessions})`);
     }
 
+    // Verify user has Claude credentials
+    const userHome = store.userHomePath(userName);
+    const credPath = path.join(userHome, '.claude', '.credentials.json');
+    if (!fs.existsSync(credPath)) {
+      throw new Error(`User "${userName}" has not authenticated Claude. Run: docker exec -it ct-cloud node dist/cli.js user setup ${userName}`);
+    }
+
     const sdk = await this.loadSDK();
     const sessionId = uuid();
     const cwd = store.getProjectPath(userName, projectName);
@@ -108,6 +126,10 @@ export class SessionManager {
 
     const abortController = new AbortController();
 
+    // Start file watcher to capture all filesystem changes
+    const fileWatcher = new FileWatcher(cwd);
+    fileWatcher.start();
+
     const activeSession: ActiveSession = {
       id: sessionId,
       userName,
@@ -116,13 +138,15 @@ export class SessionManager {
       messageQueue,
       streamClients: new Set(),
       status: 'running',
+      changedFiles: new Set(),
+      fileWatcher,
     };
     this.sessions.set(sessionId, activeSession);
 
     // Update user.json
     await this.persistSessionMeta(userName, sessionId, projectName, 'running', model);
 
-    // Start SDK query in background
+    // Start SDK query in background with per-user environment
     const options: any = {
       cwd,
       abortController,
@@ -132,15 +156,29 @@ export class SessionManager {
       pathToClaudeCodeExecutable: this.getSdkCliPath(),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       stderr: (data: string) => { console.error(`[Session ${sessionId}] ${data}`); },
+      env: {
+        ...process.env,
+        HOME: userHome,
+        GIT_CONFIG_GLOBAL: path.join(userHome, '.gitconfig'),
+      },
     };
 
     if (model) options.model = model;
     if (effort) options.effort = effort;
 
-    const queryStream = sdk.query({
-      prompt: messageQueue.iterable,
-      options,
-    });
+    console.log(`[Session ${sessionId}] Creating session for user="${userName}" project="${projectName}" model="${model || 'default'}" cwd="${cwd}"`);
+
+    let queryStream: AsyncIterable<any>;
+    try {
+      queryStream = sdk.query({
+        prompt: messageQueue.iterable,
+        options,
+      });
+      console.log(`[Session ${sessionId}] SDK query started`);
+    } catch (err: any) {
+      console.error(`[Session ${sessionId}] SDK query failed to start:`, err.message);
+      throw err;
+    }
 
     this.processStream(sessionId, queryStream);
 
@@ -153,6 +191,7 @@ export class SessionManager {
   async sendMessage(sessionId: string, message: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
+    console.log(`[Session ${sessionId}] Received message: "${message.slice(0, 100)}"`);
 
     session.messageQueue.push({
       type: 'user',
@@ -174,6 +213,15 @@ export class SessionManager {
 
     session.abortController.abort();
     session.messageQueue.close();
+    session.fileWatcher.stop();
+
+    // Merge watcher changes into session before closing
+    for (const f of session.fileWatcher.getChangedFiles()) {
+      session.changedFiles.add(f);
+    }
+    if (session.changedFiles.size > 0) {
+      await this.persistChangedFiles(session);
+    }
 
     // Close all WS stream clients
     for (const ws of session.streamClients) {
@@ -192,9 +240,16 @@ export class SessionManager {
 
   addStreamClient(sessionId: string, ws: WebSocket): boolean {
     const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    if (!session) {
+      console.log(`[Stream] Client tried to connect to unknown session ${sessionId}`);
+      return false;
+    }
     session.streamClients.add(ws);
-    ws.on('close', () => session.streamClients.delete(ws));
+    console.log(`[Stream] Client connected to session ${sessionId} (${session.streamClients.size} clients)`);
+    ws.on('close', () => {
+      session.streamClients.delete(ws);
+      console.log(`[Stream] Client disconnected from session ${sessionId} (${session.streamClients.size} clients)`);
+    });
     return true;
   }
 
@@ -218,15 +273,36 @@ export class SessionManager {
     if (!session) return;
 
     try {
+      let eventCount = 0;
       for await (const event of queryStream) {
         if (!this.sessions.has(sessionId)) break;
+        eventCount++;
+        if (eventCount <= 3 || eventCount % 50 === 0) {
+          console.log(`[Session ${sessionId}] Event #${eventCount}: type=${event?.type}`);
+        }
+        this.trackFileChanges(session, event);
         this.broadcastToStream(sessionId, { type: 'event', sessionId, event });
       }
+      console.log(`[Session ${sessionId}] Stream ended after ${eventCount} events, status=idle`);
       if (session) session.status = 'idle';
       this.broadcastToStream(sessionId, { type: 'done', sessionId });
     } catch (err: any) {
+      console.error(`[Session ${sessionId}] Stream error:`, err.message);
       if (session) session.status = 'error';
       this.broadcastToStream(sessionId, { type: 'error', sessionId, error: err.message });
+    }
+
+    // Stop watcher and merge its changes
+    if (session) {
+      session.fileWatcher.stop();
+      for (const f of session.fileWatcher.getChangedFiles()) {
+        session.changedFiles.add(f);
+      }
+    }
+
+    // Persist changed files for sync
+    if (session && session.changedFiles.size > 0) {
+      await this.persistChangedFiles(session);
     }
 
     // Update meta
@@ -235,13 +311,58 @@ export class SessionManager {
     }
   }
 
+  private trackFileChanges(session: ActiveSession, event: any): void {
+    // SDK assistant messages contain tool_use blocks with file paths
+    if (event?.type === 'assistant' && event?.message?.content) {
+      for (const block of event.message.content) {
+        if (block.type === 'tool_use' && (block.name === 'Write' || block.name === 'Edit')) {
+          const filePath = block.input?.file_path;
+          if (filePath) {
+            const cwd = store.getProjectPath(session.userName, session.projectName);
+            const resolved = path.resolve(cwd, filePath);
+            const relative = path.relative(cwd, resolved);
+            // Only track files inside the project directory
+            if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+              session.changedFiles.add(relative);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private async persistChangedFiles(session: ActiveSession): Promise<void> {
+    const projectPath = store.getProjectPath(session.userName, session.projectName);
+    const changesDir = path.join(projectPath, '.ct-cloud');
+    await fs.promises.mkdir(changesDir, { recursive: true });
+
+    const changesFile = path.join(changesDir, `changes-${session.id}.json`);
+    await fs.promises.writeFile(changesFile, JSON.stringify({
+      sessionId: session.id,
+      projectName: session.projectName,
+      changedFiles: Array.from(session.changedFiles),
+      completedAt: Date.now(),
+      synced: false,
+    }), 'utf-8');
+  }
+
   private broadcastToStream(sessionId: string, data: any): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     const msg = JSON.stringify(data);
+
+    // Send to direct WS stream clients
     for (const ws of session.streamClients) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(msg);
+      }
+    }
+
+    // Also send via relay WS to mobile clients (avoids needing a 2nd WS on iOS Safari)
+    if (this.relayServer) {
+      const room = this.relayServer.getRoomForUser(session.userName);
+      if (room) {
+        room.broadcastToMobiles({ type: 'stream', sessionId, data });
       }
     }
   }
