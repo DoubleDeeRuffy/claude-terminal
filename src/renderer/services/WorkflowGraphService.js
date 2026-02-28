@@ -539,8 +539,7 @@ function TriggerNode() {
   this.addWidget('combo', 'Type', 'manual', (v) => { this.properties.triggerType = v; }, {
     values: ['manual', 'cron', 'hook', 'on_workflow']
   });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
   this.removable = false;
 }
 TriggerNode.title = 'Trigger';
@@ -567,8 +566,7 @@ function ClaudeNode() {
     values: ['prompt', 'agent', 'skill']
   });
   this.addWidget('text', 'Prompt', '', (v) => { this.properties.prompt = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 220);
+  this.size = [220, this.computeSize()[1]];
 }
 ClaudeNode.title = 'Claude';
 ClaudeNode.desc = 'Prompt, Agent ou Skill';
@@ -588,8 +586,7 @@ function ShellNode() {
   this.addOutput('Error', LiteGraph.EVENT);
   this.properties = { command: '' };
   this.addWidget('text', 'Command', '', (v) => { this.properties.command = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 220);
+  this.size = [220, this.computeSize()[1]];
 }
 ShellNode.title = 'Shell';
 ShellNode.desc = 'Commande bash';
@@ -615,8 +612,7 @@ function GitNode() {
   this.addWidget('combo', 'Action', 'pull', (v) => { this.properties.action = v; }, {
     values: ['pull', 'push', 'commit', 'checkout', 'merge', 'stash', 'stash-pop', 'reset']
   });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
 }
 GitNode.title = 'Git';
 GitNode.desc = 'Opération git';
@@ -637,8 +633,7 @@ function HttpNode() {
     values: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   });
   this.addWidget('text', 'URL', '', (v) => { this.properties.url = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 220);
+  this.size = [220, this.computeSize()[1]];
 }
 HttpNode.title = 'HTTP';
 HttpNode.desc = 'Requête API';
@@ -656,8 +651,7 @@ function NotifyNode() {
   this.addOutput('Done', LiteGraph.EVENT);
   this.properties = { title: '', message: '' };
   this.addWidget('text', 'Title', '', (v) => { this.properties.title = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
 }
 NotifyNode.title = 'Notify';
 NotifyNode.desc = 'Notification';
@@ -670,8 +664,7 @@ function WaitNode() {
   this.addOutput('Done', LiteGraph.EVENT);
   this.properties = { duration: '5s' };
   this.addWidget('text', 'Duration', '5s', (v) => { this.properties.duration = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 180);
+  this.size = [180, this.computeSize()[1]];
 }
 WaitNode.title = 'Wait';
 WaitNode.desc = 'Temporisation';
@@ -685,8 +678,7 @@ function ConditionNode() {
   this.addOutput('False', LiteGraph.EVENT);
   this.properties = { variable: '$ctx.branch', operator: '==', value: '' };
   this.addWidget('text', 'Expression', '', (v) => { this.properties.expression = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
 }
 ConditionNode.title = 'Condition';
 ConditionNode.desc = 'Branchement conditionnel';
@@ -723,8 +715,7 @@ function ProjectNode() {
     values: ['set_context', 'open', 'build', 'install', 'test']
   });
   this.addWidget('text', 'Project', '', (v) => { this.properties.projectName = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 220);
+  this.size = [220, this.computeSize()[1]];
 }
 ProjectNode.title = 'Project';
 ProjectNode.desc = 'Cibler un projet';
@@ -753,8 +744,7 @@ function FileNode() {
     values: ['read', 'write', 'append', 'copy', 'delete', 'exists']
   });
   this.addWidget('text', 'Path', '', (v) => { this.properties.path = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 220);
+  this.size = [220, this.computeSize()[1]];
 }
 FileNode.title = 'File';
 FileNode.desc = 'Opération fichier';
@@ -775,8 +765,7 @@ function DbNode() {
     values: ['query', 'schema', 'tables']
   });
   this.addWidget('text', 'Query', '', (v) => { this.properties.query = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 220);
+  this.size = [220, this.computeSize()[1]];
 }
 DbNode.title = 'Database';
 DbNode.desc = 'Requête base de données';
@@ -797,8 +786,7 @@ function LoopNode() {
   this.addWidget('combo', 'Source', 'auto', (v) => { this.properties.source = v; }, {
     values: ['auto', 'projects', 'files', 'custom']
   });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
 }
 LoopNode.title = 'Loop';
 LoopNode.desc = 'Itérer sur une liste';
@@ -819,8 +807,7 @@ function VariableNode() {
     values: ['set', 'get', 'increment', 'append']
   });
   this.addWidget('text', 'Name', '', (v) => { this.properties.name = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
 }
 VariableNode.title = 'Variable';
 VariableNode.desc = 'Lire/écrire une variable';
@@ -846,8 +833,7 @@ function LogNode() {
     values: ['debug', 'info', 'warn', 'error']
   });
   this.addWidget('text', 'Message', '', (v) => { this.properties.message = v; });
-  this.size = this.computeSize();
-  this.size[0] = Math.max(this.size[0], 200);
+  this.size = [200, this.computeSize()[1]];
 }
 LogNode.title = 'Log';
 LogNode.desc = 'Écrire dans le log';
@@ -1129,12 +1115,11 @@ class WorkflowGraphService {
     } else if (workflow.steps) {
       this._migrateLegacySteps(workflow);
     }
-    // Recalculate node sizes to fit slots + widgets (fixes legacy hardcoded sizes)
+    // Recalculate node heights to fit slots + widgets (keep width unchanged)
     const nodes = this.graph.getNodes ? this.graph.getNodes() : this.graph._nodes || [];
     for (const node of nodes) {
-      const computed = node.computeSize();
-      node.size[0] = Math.max(node.size[0], computed[0]);
-      node.size[1] = Math.max(node.size[1], computed[1]);
+      const computedH = node.computeSize()[1];
+      if (node.size[1] < computedH) node.size[1] = computedH;
     }
     this.canvas.setDirty(true, true);
   }
