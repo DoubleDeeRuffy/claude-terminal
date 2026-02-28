@@ -60,3 +60,12 @@ Plans:
 Plans:
 - [ ] Plan 29A: Split heartbeat into user time-tracking and Claude activity systems
 
+### Phase 30: Support-NSIS-Silent
+
+**Goal:** Make the NSIS installer respect the `/S` (silent) flag for both install and uninstall, and fix the `SetSilent normal` override that currently forces wizard mode.
+**Requirements**: [SILENT-01] Remove `SetSilent normal` from `customInit` macro; [SILENT-02] Add `customInstall` macro to write `.silent-install` marker for fresh silent installs; [SILENT-03] Detect marker in app and apply defaults (hooks ON, startup OFF, setupCompleted true) without showing wizard.
+**Depends on:** —
+**Plans:** 1 plan
+
+Plans:
+- [ ] Plan 30A: Fix NSIS silent install support and add app-side detection
