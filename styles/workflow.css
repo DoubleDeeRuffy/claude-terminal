@@ -2524,252 +2524,213 @@ select.wf-step-edit-input {
 
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 /* ═══════════════════════════════════════════════════════════════════════════
-   WORKFLOW EDITOR TOOLBAR — redesign
+   WORKFLOW EDITOR TOOLBAR
    ═══════════════════════════════════════════════════════════════════════════ */
 .wf-editor-toolbar {
-  display: flex; align-items: center;
-  padding: 0 14px;
-  height: 48px;
-  border-bottom: 1px solid rgba(255,255,255,.055);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  height: 44px;
   flex-shrink: 0;
-  background: #0c0c0e;
-  gap: 0;
+  background: #111113;
+  border-bottom: 1px solid #1e1e22;
   position: relative;
+  gap: 0;
 }
 
-/* Three-zone layout */
 .wf-editor-toolbar-left {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 2px;
   flex: 1; min-width: 0;
 }
 .wf-editor-toolbar-center {
+  position: absolute; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 4px;
   flex-shrink: 0;
-  position: absolute; left: 50%; transform: translateX(-50%);
 }
 .wf-editor-toolbar-right {
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: 6px;
   flex: 1; justify-content: flex-end;
-  min-width: 0;
 }
 
-/* Back button */
+/* Back */
 .wf-editor-back {
-  display: flex; align-items: center; gap: 5px;
-  padding: 0 9px;
-  height: 28px;
-  font-size: 11.5px; font-weight: 500;
-  color: rgba(255,255,255,.35);
-  background: transparent;
-  border: none;
-  border-radius: 6px;
+  display: flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 8px;
+  font-size: 12px; font-weight: 450;
+  color: rgba(255,255,255,.28);
+  background: none; border: none; border-radius: 6px;
   cursor: pointer;
-  transition: color .13s, background .13s;
-  letter-spacing: .01em;
-  white-space: nowrap;
-  flex-shrink: 0;
+  transition: color .1s, background .1s;
+  white-space: nowrap; flex-shrink: 0;
 }
 .wf-editor-back:hover {
-  color: rgba(255,255,255,.7);
-  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.65);
+  background: rgba(255,255,255,.04);
 }
-.wf-editor-back svg { flex-shrink: 0; }
+.wf-editor-back svg { flex-shrink: 0; opacity: .7; }
 
-/* Workflow name input */
+/* Name input */
 .wf-editor-name {
-  font-size: 13px !important;
-  font-weight: 600 !important;
+  font-size: 13px !important; font-weight: 550 !important;
   background: transparent !important;
   border: 1px solid transparent !important;
-  padding: 4px 7px !important;
-  border-radius: 6px !important;
-  color: rgba(255,255,255,.85) !important;
+  padding: 3px 6px !important;
+  border-radius: 5px !important;
+  color: rgba(255,255,255,.8) !important;
   transition: all .15s;
-  letter-spacing: -.02em;
-  min-width: 60px;
-  max-width: 180px;
+  letter-spacing: -.01em;
+  min-width: 60px; max-width: 200px;
 }
-.wf-editor-name::placeholder { color: rgba(255,255,255,.2); font-weight: 400; }
-.wf-editor-name:hover {
-  background: rgba(255,255,255,.03) !important;
-  border-color: rgba(255,255,255,.07) !important;
-}
+.wf-editor-name::placeholder { color: rgba(255,255,255,.18); font-weight: 400; }
+.wf-editor-name:hover { background: rgba(255,255,255,.03) !important; }
 .wf-editor-name:focus {
-  border-color: rgba(255,255,255,.13) !important;
-  background: rgba(0,0,0,.3) !important;
-  outline: none;
-  color: #fff !important;
+  background: rgba(255,255,255,.04) !important;
+  border-color: rgba(255,255,255,.1) !important;
+  color: #fff !important; outline: none;
 }
 
 /* Dirty dot */
 .wf-editor-dirty {
-  width: 5px; height: 5px;
+  width: 4px; height: 4px;
   border-radius: 50%;
-  background: var(--accent);
+  background: #f59e0b;
   flex-shrink: 0;
-  animation: wfDirtyPulse 2s ease-in-out infinite;
+  animation: wfDirtyPulse 2.4s ease-in-out infinite;
 }
 @keyframes wfDirtyPulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: .25; }
+  50% { opacity: .2; }
 }
 
 /* Separator */
 .wf-editor-toolbar-sep {
-  width: 1px; height: 16px;
-  background: rgba(255,255,255,.07);
-  flex-shrink: 0;
-  margin: 0 4px;
+  width: 1px; height: 14px;
+  background: rgba(255,255,255,.06);
+  flex-shrink: 0; margin: 0 6px;
 }
-/* Undo/Redo button group */
+
+/* ── Undo / Redo ──────────────────────────────────────────────────────────── */
 .wf-editor-history {
-  display: flex; align-items: center; gap: 0;
-  background: rgba(255,255,255,.03);
-  border-radius: 8px;
-  padding: 2px;
-  border: 1px solid rgba(255,255,255,.07);
-  height: 30px;
+  display: flex; align-items: center;
+  gap: 1px;
 }
 .wf-ed-hist-btn {
-  width: 26px; height: 26px;
+  width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: rgba(255,255,255,.3);
+  background: none; border: none; border-radius: 6px;
+  color: rgba(255,255,255,.22);
   cursor: pointer;
-  transition: all .12s;
+  transition: color .1s, background .1s;
   font-family: inherit;
 }
 .wf-ed-hist-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,.07);
-  color: rgba(255,255,255,.75);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.6);
 }
-.wf-ed-hist-btn:disabled {
-  opacity: .25;
-  cursor: default;
+.wf-ed-hist-btn:disabled { opacity: .2; cursor: default; }
+
+/* ── Zoom group ──────────────────────────────────────────────────────────── */
+.wf-editor-zoom {
+  display: flex; align-items: center;
+  gap: 0;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 7px;
+  padding: 2px;
+  height: 30px;
+}
+.wf-editor-zoom button {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px;
+  color: rgba(255,255,255,.3);
+  font-size: 14px; font-weight: 400; line-height: 1;
+  cursor: pointer;
+  transition: color .1s, background .1s;
+  font-family: inherit;
+}
+.wf-editor-zoom button:hover {
+  background: rgba(255,255,255,.08); color: rgba(255,255,255,.75);
+}
+.wf-editor-zoom span {
+  min-width: 34px; text-align: center;
+  font-size: 10px; font-weight: 500;
+  color: rgba(255,255,255,.3);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+  user-select: none;
+}
+#wf-ed-zoom-reset {
+  font-size: 9.5px !important; font-weight: 600;
+  letter-spacing: -.02em;
+  padding: 0 5px !important; width: auto !important;
 }
 
 /* Selection status in status bar */
 .wf-sb-selection {
-  font-size: 10px;
-  color: var(--accent);
-  font-weight: 500;
-  padding: 0 6px;
-  background: rgba(217,119,6,.1);
+  font-size: 10px; font-weight: 500;
+  color: rgba(217,119,6,.9);
+  padding: 1px 6px;
+  background: rgba(217,119,6,.08);
   border-radius: 4px;
 }
 
-.wf-editor-zoom {
-  display: flex; align-items: center; gap: 0;
-  background: rgba(255,255,255,.03);
-  border-radius: 8px;
-  padding: 2px;
-  border: 1px solid rgba(255,255,255,.07);
-  height: 30px;
-}
-.wf-editor-zoom button {
-  width: 26px; height: 26px;
-  display: flex; align-items: center; justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: rgba(255,255,255,.3);
-  font-size: 13px; font-weight: 500;
-  cursor: pointer;
-  transition: all .12s;
-  font-family: inherit;
-}
-.wf-editor-zoom button:hover {
-  background: rgba(255,255,255,.08);
-  color: rgba(255,255,255,.8);
-}
-.wf-editor-zoom span {
-  font-size: 10.5px; color: rgba(255,255,255,.35);
-  min-width: 36px; text-align: center;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  letter-spacing: .01em;
-  user-select: none;
-}
-/* ── Button icon helpers ───────────────────────────────────────────────────── */
-.wf-btn-icon {
-  font-size: 10px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  opacity: .9;
-}
-.wf-btn-icon--ai {
-  font-size: 9px;
-  opacity: .85;
-}
-
-/* ── Action buttons (Run / AI / Save) ─────────────────────────────────────── */
+/* ── Action buttons (Run · AI · Save) ───────────────────────────────────── */
 .wf-editor-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  height: 30px;
-  padding: 0 13px;
-  font-size: 11.5px; font-weight: 600;
-  border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 11px;
+  font-size: 11.5px; font-weight: 500;
+  border-radius: 6px;
   border: 1px solid rgba(255,255,255,.08);
   background: rgba(255,255,255,.05);
-  color: rgba(255,255,255,.55);
+  color: rgba(255,255,255,.5);
   cursor: pointer;
-  transition: all .12s ease;
-  letter-spacing: .02em;
+  transition: color .1s, background .1s, border-color .1s;
+  letter-spacing: .01em;
   white-space: nowrap;
-  line-height: 1;
   font-family: inherit;
 }
 .wf-editor-btn:hover {
-  background: rgba(255,255,255,.09);
-  color: rgba(255,255,255,.85);
-  border-color: rgba(255,255,255,.13);
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.8);
+  border-color: rgba(255,255,255,.12);
 }
-.wf-editor-btn:active { transform: scale(.97); }
-.wf-editor-btn:disabled {
-  opacity: .3;
-  cursor: default;
-  transform: none;
-}
+.wf-editor-btn:active { opacity: .75; }
+.wf-editor-btn:disabled { opacity: .25; cursor: default; }
 
-/* ▶ Run — vert vif */
+/* Run — vert désaturé, propre */
 .wf-editor-btn--run {
-  background: rgba(34,197,94,.13);
-  border-color: rgba(34,197,94,.28);
-  color: #4ade80;
-  font-weight: 700;
+  color: #6ee7b7;
+  border-color: rgba(110,231,183,.18);
+  background: rgba(110,231,183,.06);
+  font-weight: 500;
 }
+.wf-editor-btn--run svg { color: #34d399; }
 .wf-editor-btn--run:hover {
-  background: rgba(34,197,94,.22);
-  border-color: rgba(34,197,94,.48);
-  color: #86efac;
-  box-shadow: 0 0 18px rgba(74,222,128,.16);
+  background: rgba(110,231,183,.11);
+  border-color: rgba(110,231,183,.3);
+  color: #a7f3d0;
 }
 
-/* 💾 Save — amber gradient */
+/* Save — blanc solide, neutre, action primaire claire */
 .wf-editor-btn--primary {
-  background: linear-gradient(160deg, #e07d0a 0%, #b45309 100%);
-  border-color: rgba(217,119,6,.45);
-  color: #fff;
-  font-weight: 700;
-  box-shadow: 0 1px 12px rgba(217,119,6,.22);
-  text-shadow: 0 1px 2px rgba(0,0,0,.25);
+  background: rgba(255,255,255,.09);
+  border-color: rgba(255,255,255,.15);
+  color: rgba(255,255,255,.85);
+  font-weight: 500;
 }
 .wf-editor-btn--primary:hover {
-  background: linear-gradient(160deg, #f59e0b 0%, #d97706 100%);
-  box-shadow: 0 2px 18px rgba(217,119,6,.38);
-  border-color: rgba(245,158,11,.55);
+  background: rgba(255,255,255,.14);
+  border-color: rgba(255,255,255,.22);
+  color: #fff;
 }
 
-#wf-ed-zoom-reset {
-  font-size: 10px !important;
-  font-weight: 600;
-  letter-spacing: -.02em;
-  padding: 0 6px !important;
-  width: auto !important;
+/* Btn icon */
+.wf-btn-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; opacity: .8;
 }
+.wf-btn-icon--ai { opacity: .75; }
 
 /* ── Body (3-column layout) ───────────────────────────────────────────────── */
 .wf-editor-body {
@@ -3601,22 +3562,20 @@ select.wf-step-edit-input {
 .wf-editor { position: relative; }
 
 .wf-editor-btn--ai {
-  color: #a78bfa;
-  border-color: rgba(167,139,250,.2);
-  background: rgba(167,139,250,.08);
-  font-weight: 700;
+  color: rgba(167,139,250,.8);
+  border-color: rgba(167,139,250,.14);
+  background: rgba(167,139,250,.05);
+  font-weight: 500;
 }
 .wf-editor-btn--ai:hover {
-  background: rgba(167,139,250,.16);
-  border-color: rgba(167,139,250,.35);
+  background: rgba(167,139,250,.1);
+  border-color: rgba(167,139,250,.25);
   color: #c4b5fd;
-  box-shadow: 0 0 16px rgba(167,139,250,.15);
 }
 .wf-editor-btn--ai.active {
-  background: rgba(167,139,250,.18);
-  border-color: rgba(167,139,250,.42);
+  background: rgba(167,139,250,.12);
+  border-color: rgba(167,139,250,.28);
   color: #c4b5fd;
-  box-shadow: 0 0 0 1px rgba(167,139,250,.18), 0 0 16px rgba(167,139,250,.12);
 }
 
 .wf-ai-panel {

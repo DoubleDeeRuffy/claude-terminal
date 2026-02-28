@@ -1483,13 +1483,16 @@ function openEditor(workflowId = null) {
         <!-- Right: actions -->
         <div class="wf-editor-toolbar-right">
           <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run" title="Lancer le workflow">
-            <span class="wf-btn-icon">▶</span>Run
+            <span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>
+            Run
           </button>
           <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="AI Workflow Builder">
-            <span class="wf-btn-icon wf-btn-icon--ai">✦</span>AI
+            <span class="wf-btn-icon wf-btn-icon--ai"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span>
+            AI
           </button>
-          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="Sauvegarder">
-            <span class="wf-btn-icon">💾</span>Save
+          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="Sauvegarder (Ctrl+S)">
+            <span class="wf-btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
+            Save
           </button>
         </div>
       </div>
