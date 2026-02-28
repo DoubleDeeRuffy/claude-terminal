@@ -4403,6 +4403,14 @@ select.wf-step-edit-input {
   text-overflow: ellipsis;
   max-width: 160px;
   opacity: .8;
+  cursor: default;
+  position: relative;
+}
+
+/* Native title tooltip is enough, but style the element on hover */
+.wf-diag-detail:hover {
+  opacity: 1;
+  color: var(--text-primary);
 }
 
 .wf-diag-arrow {

@@ -1408,7 +1408,7 @@ function _renderWfDiagramBlock(block, text) {
       return `<div class="wf-diag-arrow">↓</div>`;
     }
     const color = WF_NODE_COLORS[item.nodeType] || '#94a3b8';
-    const detail = item.detail ? `<span class="wf-diag-detail">${escapeHtml(item.detail)}</span>` : '';
+    const detail = item.detail ? `<span class="wf-diag-detail" title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</span>` : '';
     return `<div class="wf-diag-node" style="--node-color:${color}">
       <span class="wf-diag-dot"></span>
       <span class="wf-diag-label">${escapeHtml(item.label)}</span>
@@ -1416,6 +1416,10 @@ function _renderWfDiagramBlock(block, text) {
     </div>`;
   }).join('');
 
+  // Hide original code block chrome (header + pre) and replace with diagram
+  block.style.background = 'none';
+  block.style.border = 'none';
+  block.style.padding = '0';
   block.innerHTML = `<div class="wf-diag-card">${rows}</div>`;
 }
 
