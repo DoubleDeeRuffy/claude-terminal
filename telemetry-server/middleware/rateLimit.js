@@ -13,10 +13,10 @@ function getClientIp(req) {
 }
 
 function rateLimitMiddleware(req, res, next) {
-  if (req.path !== '/api/v1/ping') return next();
+  if (req.path !== '/api/v1/ping' && req.path !== '/api/v1/batch') return next();
 
-  const { uuid, event_type } = req.body || {};
-  if (!uuid || !event_type) return next();
+  const { uuid } = req.body || {};
+  if (!uuid) return next();
 
   const now = Date.now();
 
@@ -35,7 +35,29 @@ function rateLimitMiddleware(req, res, next) {
     ipCounts.set(ip, { count: 1, windowStart: now });
   }
 
-  // 2. Per-UUID-per-event dedup
+  // For batch requests, apply per-event dedup to each event
+  if (req.path === '/api/v1/batch') {
+    const events = req.body.events || [];
+    const allowed = [];
+    for (const event of events) {
+      const key = `${uuid}:${event.event_type}`;
+      const last = lastSeen.get(key);
+      if (!last || (now - last) >= config.RATE_LIMIT.windowMs) {
+        lastSeen.set(key, now);
+        allowed.push(event);
+      }
+    }
+    req.body.events = allowed;
+    if (allowed.length === 0) {
+      return res.status(429).json({ error: 'All events rate limited' });
+    }
+    return next();
+  }
+
+  // 2. Per-UUID-per-event dedup (single ping)
+  const { event_type } = req.body || {};
+  if (!event_type) return next();
+
   const key = `${uuid}:${event_type}`;
   const last = lastSeen.get(key);
   if (last && (now - last) < config.RATE_LIMIT.windowMs) {

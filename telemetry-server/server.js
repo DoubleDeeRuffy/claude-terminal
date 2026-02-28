@@ -3,8 +3,9 @@ const path = require('path');
 const config = require('./config');
 const { initDatabase, getDb } = require('./db/database');
 const { rateLimitMiddleware } = require('./middleware/rateLimit');
-const { validatePingPayload } = require('./middleware/validate');
+const { validatePingPayload, validateBatchPayload } = require('./middleware/validate');
 const pingRoute = require('./routes/ping');
+const batchRoute = require('./routes/batch');
 const statsRoute = require('./routes/stats');
 
 const app = express();
@@ -53,6 +54,9 @@ app.get('/health', (_req, res) => {
 
 // Telemetry ping
 app.post('/api/v1/ping', validatePingPayload, pingRoute);
+
+// Telemetry batch
+app.post('/api/v1/batch', validateBatchPayload, batchRoute);
 
 // Admin stats
 app.get('/api/v1/stats', statsRoute);

@@ -38,6 +38,9 @@ module.exports = {
     'features:remote:connect',
     'features:skill:install',
     'features:plugin:install',
+    'features:worktree:create',
+    'features:hooks:install',
+    'features:cloud:connect',
     'errors:uncaught'
   ]
 };
