@@ -9,22 +9,26 @@ How to create, update, and maintain PRs for claude-terminal.
 - **Base branch:** `origin/main`
 - **PR command:** `gh pr create --repo Sterll/claude-terminal --head DoubleDeeRuffy:BRANCH`
 
-## Creating a PR
+## Creating a PR (Worktree Method — Preferred)
 
-### 1. Prepare the Branch
+Uses a git worktree so the main working directory stays untouched. No stash/checkout needed.
+
+### 1. Prepare an Isolated Worktree
 
 ```bash
-git stash --include-untracked          # Save WIP on current branch
-git fetch upstream
-git checkout -b feat/phase-XX-slug upstream/main
+git fetch origin
+git worktree add .claude/worktrees/phase-XX-pr -b feat/phase-XX-slug origin/main
+cd .claude/worktrees/phase-XX-pr
 ```
 
-### 2. Apply Changes
+The `.claude/worktrees/` directory is gitignored, so no pollution. The main repo stays on its current branch with all WIP intact.
 
-**Simple case (clean commits):** Cherry-pick from fork's main:
+### 2. Apply Changes (in worktree)
+
+**Simple case (clean squashed commit exists):** Cherry-pick:
 
 ```bash
-git cherry-pick <commit-hash>...
+git cherry-pick <commit-hash>
 ```
 
 **Interleaved case (multiple phases share commits):** Use a subagent to surgically apply only the target phase's changes. Provide the agent with:
@@ -34,14 +38,14 @@ git cherry-pick <commit-hash>...
 - What belongs to THIS phase vs other phases
 - Prerequisites from earlier phases that the code depends on
 
-The agent reads `git show upstream/main:PATH` and `git show main:PATH` for each file, then applies only the phase-specific edits.
+The agent reads `git show origin/main:PATH` and `git show main:PATH` for each file, then applies only the phase-specific edits.
 
-### 3. Squash to Single Commit
+### 3. Squash to Single Commit (if needed)
 
-If multiple commits exist, squash:
+If cherry-pick brought multiple commits, squash:
 
 ```bash
-git reset --soft upstream/main
+git reset --soft origin/main
 git commit -m "$(cat <<'EOF'
 feat(scope): short description
 
@@ -55,11 +59,12 @@ EOF
 )"
 ```
 
-### 4. Verify Before Pushing
+### 4. Verify Before Pushing (in worktree)
 
 ```bash
-npm test                    # Tests pass
-npm run build:renderer      # Renderer builds
+npm install                     # Worktree needs its own node_modules
+npm test                        # Tests pass
+npm run build:renderer          # Renderer builds
 ```
 
 Grep for expected artifacts:
@@ -70,7 +75,22 @@ grep -c "settingKey" src/state/file.js     # expected: 1
 grep -c "i18nKey" src/renderer/i18n/locales/en.json  # expected: N
 ```
 
-### 5. Push and Create PR
+### 5. Manual UAT Session
+
+Before pushing, run the app from the worktree and manually test:
+
+```bash
+npm start
+```
+
+- Walk through every item in the **Test plan**
+- Verify the feature works as expected in the actual UI
+- Check edge cases, toggling settings, and interactions with existing features
+- If issues are found, fix them and re-squash (step 3) before continuing
+
+Only proceed to step 6 once you're satisfied the feature works correctly.
+
+### 6. Push and Create PR (from worktree)
 
 ```bash
 git push -u origin feat/phase-XX-slug
@@ -100,7 +120,36 @@ EOF
 )"
 ```
 
-### 6. Restore Working Branch
+### 7. Clean Up Worktree
+
+```bash
+cd /path/to/main/repo
+git worktree remove .claude/worktrees/phase-XX-pr
+git branch -D feat/phase-XX-slug          # delete local branch (code lives on remote now)
+```
+
+**Also clean up stale agent worktrees periodically:**
+
+```bash
+git worktree prune                        # remove metadata for deleted worktree dirs
+git branch --list "worktree-agent-*" | xargs git branch -D   # delete orphaned agent branches
+```
+
+## Creating a PR (Stash Method — Legacy)
+
+Alternative when worktrees aren't practical. Switches branches in the main repo.
+
+### 1. Prepare the Branch
+
+```bash
+git stash --include-untracked          # Save WIP on current branch
+git fetch upstream
+git checkout -b feat/phase-XX-slug upstream/main
+```
+
+Steps 2-6 are the same as the worktree method above (apply changes, squash, verify, UAT, push & create PR). Then restore:
+
+### 7. Restore Working Branch
 
 ```bash
 git checkout main
