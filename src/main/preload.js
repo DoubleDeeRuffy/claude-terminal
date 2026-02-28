@@ -205,7 +205,10 @@ contextBridge.exposeInMainWorld('electron_api', {
     selectFile: (params) => ipcRenderer.invoke('select-file', params),
     openInExplorer: (path) => ipcRenderer.send('open-in-explorer', path),
     openInEditor: (params) => ipcRenderer.send('open-in-editor', params),
-    openExternal: (url) => ipcRenderer.send('open-external', url)
+    openExternal: (url) => ipcRenderer.send('open-external', url),
+    watchFile: (filePath) => ipcRenderer.invoke('watch-file', filePath),
+    unwatchFile: (filePath) => ipcRenderer.invoke('unwatch-file', filePath),
+    onFileChanged: createListener('file-changed')
   },
 
   window: {

@@ -943,6 +943,25 @@ function attachListeners() {
     showFileContextMenu(e, nodePath, isDir);
   };
 
+  // Double-click: open .md files in external editor
+  treeEl.ondblclick = (e) => {
+    const node = e.target.closest('.fe-node');
+    if (!node) return;
+    const nodePath = node.dataset.path;
+    const isDir = node.dataset.isDir === 'true';
+    if (isDir) return; // Dirs toggle on single click; ignore double-click
+
+    const fileName = path.basename(nodePath);
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx !== -1 ? fileName.substring(dotIdx + 1).toLowerCase() : '';
+    if (ext === 'md') {
+      e.preventDefault();
+      e.stopPropagation();
+      const { getSetting: getSettingLocal } = require('../../state/settings.state');
+      api.dialog.openInEditor({ editor: getSettingLocal('editor') || 'code', path: nodePath });
+    }
+  };
+
   // Keyboard: F2 for rename, Delete key
   treeEl.onkeydown = (e) => {
     if (e.key === 'F2' && lastSelectedFile) {
