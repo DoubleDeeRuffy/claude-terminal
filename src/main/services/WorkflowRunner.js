@@ -1305,12 +1305,13 @@ class WorkflowRunner {
     for (const [slotIdx, links] of inSlots) {
       if (!links || !links.length) continue;
 
-      // Determine if this slot is an exec slot by checking link type
-      // LiteGraph serializes exec links with type -1 (EVENT) or 'exec'
+      // Determine if this slot is an exec slot by checking the slot's declared type
+      // LiteGraph serializes exec links with type -1 (EVENT) or string 'exec'
       const nodeInput = node.inputs ? node.inputs[slotIdx] : null;
+      // Prefer the slot's own type; fall back to the link type
       const slotType = nodeInput?.type ?? links[0]?.type ?? null;
-      // Skip exec slots (type -1, 'exec', or LiteGraph.EVENT constant)
-      if (slotType === -1 || slotType === 'exec' || slotIdx === 0) continue;
+      const isExec = slotType === -1 || slotType === 'exec' || slotType === null || slotType === '';
+      if (isExec) continue;
 
       const { originId, originSlot } = links[0];
       const originStepId = `node_${originId}`;
