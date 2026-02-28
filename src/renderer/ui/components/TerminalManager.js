@@ -42,6 +42,7 @@ const {
 } = require('../themes/terminal-themes');
 const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
+const { showContextMenu } = require('./ContextMenu');
 const ContextPromptService = require('../../services/ContextPromptService');
 
 // Lazy require to avoid circular dependency
@@ -496,6 +497,8 @@ function performPaste(terminalId, inputChannel = 'terminal-input') {
   lastPasteTime = now;
   const sendPaste = (text) => {
     if (!text) return;
+    // Normalize line endings: \r\n → \r, then lone \n → \r (terminal convention)
+    text = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
     if (inputChannel === 'fivem-input') {
       api.fivem.input({ projectIndex: terminalId, data: text });
     } else if (inputChannel === 'webapp-input') {
@@ -711,7 +714,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
         } else if (inputChannel === 'webapp-input') {
           api.webapp.input({ projectIndex: terminalId, data: '\n' });
         } else {
-          api.terminal.input({ id: terminalId, data: '\n' });
+          api.terminal.input({ id: terminalId, data: '\r' });
         }
       }
       return false;
@@ -1191,6 +1194,58 @@ function startRenameTab(id) {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
     if (e.key === 'Escape') { input.value = currentName; input.blur(); }
   };
+}
+
+/**
+ * Show right-click context menu on a tab (Rename, Close, Close Others, Close to Right)
+ */
+function showTabContextMenu(e, id) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const tabsContainer = document.getElementById('terminals-tabs');
+  const allTabs = Array.from(tabsContainer.querySelectorAll('.terminal-tab'));
+  const thisTab = tabsContainer.querySelector(`.terminal-tab[data-id="${id}"]`);
+  const thisIndex = allTabs.indexOf(thisTab);
+  const tabsToRight = allTabs.slice(thisIndex + 1);
+
+  showContextMenu({
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      {
+        label: t('tabs.rename'),
+        shortcut: 'Double-click',
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
+        onClick: () => startRenameTab(id)
+      },
+      { separator: true },
+      {
+        label: t('tabs.close'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+        onClick: () => closeTerminal(id)
+      },
+      {
+        label: t('tabs.closeOthers'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+        disabled: allTabs.length <= 1,
+        onClick: () => {
+          allTabs.forEach(tab => {
+            const tabId = tab.dataset.id;
+            if (tabId !== id) closeTerminal(tabId);
+          });
+        }
+      },
+      {
+        label: t('tabs.closeToRight'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+        disabled: tabsToRight.length === 0,
+        onClick: () => {
+          tabsToRight.forEach(tab => closeTerminal(tab.dataset.id));
+        }
+      }
+    ]
+  });
 }
 
 /**
@@ -1689,6 +1744,7 @@ async function createTerminal(project, options = {}) {
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
+  tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Mode toggle button
   const modeToggleBtn = tab.querySelector('.tab-mode-toggle');
@@ -1926,6 +1982,7 @@ function createTypeConsole(project, projectIndex) {
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTypeConsole(id, projectIndex, typeId); };
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTypeConsole(id, projectIndex, typeId); } };
+  tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   setupTabDragDrop(tab);
 
@@ -3134,6 +3191,7 @@ async function resumeSession(project, sessionId, options = {}) {
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
+  tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Enable drag & drop reordering
   setupTabDragDrop(tab);
@@ -3305,6 +3363,7 @@ async function createTerminalWithPrompt(project, prompt) {
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
+  tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Enable drag & drop reordering
   setupTabDragDrop(tab);
@@ -3813,6 +3872,7 @@ function openFileTab(filePath, project) {
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
+  tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Enable drag & drop reordering
   setupTabDragDrop(tab);
@@ -4023,6 +4083,7 @@ async function createChatTerminal(project, options = {}) {
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
+  tab.oncontextmenu = (e) => showTabContextMenu(e, id);
   const modeToggleBtn = tab.querySelector('.tab-mode-toggle');
   if (modeToggleBtn) {
     modeToggleBtn.onclick = (e) => { e.stopPropagation(); switchTerminalMode(id); };
