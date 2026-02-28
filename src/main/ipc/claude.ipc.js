@@ -15,8 +15,8 @@ const readline = require('readline');
  * @returns {string} - Encoded path for folder name
  */
 function encodeProjectPath(projectPath) {
-  // Claude uses path with : and \ replaced by -
-  return projectPath.replace(/:/g, '-').replace(/\\/g, '-').replace(/\//g, '-');
+  // Claude uses path with : \ / and . replaced by -
+  return projectPath.replace(/:/g, '-').replace(/\\/g, '-').replace(/\//g, '-').replace(/\./g, '-');
 }
 
 /**
