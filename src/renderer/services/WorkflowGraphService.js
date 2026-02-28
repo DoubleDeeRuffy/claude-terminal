@@ -36,28 +36,6 @@ const STATUS_COLORS = {
   skipped: '#6b7280',
 };
 
-// ── Data type system — describes what each node output/input carries ─────────
-const NODE_DATA_TYPES = {
-  trigger:     { outputs: [] },
-  claude:      { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
-  shell:       { outputs: [{ slot: 0, badge: '{stdout}' },{ slot: 1, badge: 'error' }] },
-  git:         { outputs: [{ slot: 0, badge: '{output}' },{ slot: 1, badge: 'error' }] },
-  http:        { outputs: [{ slot: 0, badge: '{body}' },  { slot: 1, badge: 'error' }] },
-  file:        { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
-  db:          { outputs: [{ slot: 0, badge: 'rows[]' },  { slot: 1, badge: 'error' }] },
-  condition:   { outputs: [{ slot: 0, badge: 'true' },    { slot: 1, badge: 'false' }] },
-  loop:        { outputs: [{ slot: 0, badge: 'item' },    { slot: 1, badge: 'done' }],
-                 inputs:  [{ slot: 1, badge: 'array' }] },
-  variable:    { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'value' }] },
-  notify:      { outputs: [{ slot: 0, badge: 'event' }] },
-  wait:        { outputs: [{ slot: 0, badge: 'event' }] },
-  log:         { outputs: [{ slot: 0, badge: 'event' }] },
-  project:     { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'error' }] },
-  transform:   { outputs: [{ slot: 0, badge: 'result' },  { slot: 1, badge: 'error' }] },
-  subworkflow: { outputs: [{ slot: 0, badge: 'outputs' }, { slot: 1, badge: 'error' }] },
-  switch:      { outputs: [] }, // dynamic: 1 output per case
-};
-
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 // ── Pin type system ──────────────────────────────────────────────────────────
@@ -358,19 +336,16 @@ function installCustomRendering(NodeClass) {
   };
 
   // ── Test button click detection ──
+  // localPos is in node-local space: [0,0] = top-left of node body, Y<0 = title bar
   const origOnMouseDown = NodeClass.prototype.onMouseDown;
   NodeClass.prototype.onMouseDown = function(e, localPos, canvas) {
     const b = this._testBtnBounds;
     if (b) {
-      // localPos[1] < 0 means we're in the title bar area
-      // Title bar spans from -titleH to 0 on Y axis relative to node body origin
       const lx = localPos[0];
-      const ly = localPos[1]; // negative values = title bar
-      // Button was drawn at (b.x, b.y) where b.y is relative to the draw origin
-      // onDrawTitle draws in title coordinate space: origin at (0, -titleH)
-      // so actual ly range for button: -titleH + b.y+titleH to -titleH + b.y+titleH + b.h
-      // Simplify: button is in title bar (ly < 0) and x is in range
-      if (ly < 0 && ly > -b.titleH && lx >= b.x && lx <= b.x + b.w) {
+      const ly = localPos[1];
+      // Title bar: Y in [-titleH, 0]. Button at (b.x, b.y) in same space.
+      // b.y is already computed as -titleH*0.5 - btnH*0.5 (negative = in title bar)
+      if (ly < 0 && ly >= -b.titleH && lx >= b.x && lx <= b.x + b.w) {
         this._runTestNode();
         return true; // consumed
       }
@@ -457,6 +432,7 @@ function installCustomRendering(NodeClass) {
       roundRect(ctx, 0, 0, 2.5, h, 1);
       ctx.fill();
     }
+
 
     // ── Test result overlay (below node body) ──
     if (this._testResult && (this._testState === 'success' || this._testState === 'error')) {
@@ -714,6 +690,16 @@ function configureLiteGraphDefaults() {
     LiteGraph.registerNodeAndSlotType({ type: typeName }, { color_on: cfg.color, color_off: hexToRgba(cfg.color, 0.35) });
   }
 
+  // Color links by their data type — LiteGraph checks LGraphCanvas.link_type_colors[link.type]
+  LGraphCanvas.link_type_colors['exec']    = PIN_TYPES.exec.color;
+  LGraphCanvas.link_type_colors['-1']      = PIN_TYPES.exec.color; // LiteGraph.EVENT
+  LGraphCanvas.link_type_colors['string']  = PIN_TYPES.string.color;
+  LGraphCanvas.link_type_colors['number']  = PIN_TYPES.number.color;
+  LGraphCanvas.link_type_colors['boolean'] = PIN_TYPES.boolean.color;
+  LGraphCanvas.link_type_colors['array']   = PIN_TYPES.array.color;
+  LGraphCanvas.link_type_colors['object']  = PIN_TYPES.object.color;
+  LGraphCanvas.link_type_colors['any']     = PIN_TYPES.any.color;
+
   // Override connection validation: exec↔exec only, data types must be compatible
   LiteGraph.isValidConnection = function(a_type, b_type) {
     // LiteGraph internal special values → treat as exec
@@ -738,7 +724,7 @@ function configureLiteGraphDefaults() {
   LiteGraph.NODE_TITLE_COLOR = '#ddd';
   LiteGraph.NODE_SELECTED_TITLE_COLOR = '#fff';
   LiteGraph.NODE_TEXT_SIZE = 11;
-  LiteGraph.NODE_TEXT_COLOR = '#777';
+  LiteGraph.NODE_TEXT_COLOR = 'transparent'; // hide native slot labels — we draw our own
   LiteGraph.NODE_SUBTEXT_SIZE = 10;
   LiteGraph.NODE_DEFAULT_COLOR = '#1c1c20';
   LiteGraph.NODE_DEFAULT_BGCOLOR = '#101012';
@@ -1119,6 +1105,12 @@ LoopNode.title = 'Loop';
 LoopNode.desc = 'Itérer sur une liste';
 LoopNode.prototype = Object.create(LGraphNode.prototype);
 LoopNode.prototype.constructor = LoopNode;
+// Restore dynamic schema outputs after graph load (deserialization)
+LoopNode.prototype.onConfigure = function() {
+  if (Array.isArray(this.properties._itemSchema) && this.properties._itemSchema.length > 0) {
+    this._applySchema(this.properties._itemSchema);
+  }
+};
 LoopNode.prototype.onDrawForeground = function(ctx) {
   const c = getNodeColors(this);
   const modeColor = this.properties.mode === 'parallel' ? '#f59e0b' : c.accent;
@@ -1200,6 +1192,9 @@ LoopNode.prototype._applySchema = function(schema) {
     this.removeOutput(this.outputs.length - 1);
   }
   this._itemSchema = schema;
+  // Persist in properties so LiteGraph serialization keeps the schema across save/load
+  if (!this.properties) this.properties = {};
+  this.properties._itemSchema = schema;
   for (const key of schema) {
     this.addOutput('item.' + key, 'any');
   }
@@ -1355,26 +1350,54 @@ SwitchNode.prototype.onDrawForeground = function(ctx) {
 };
 
 // ── Get Variable Node (pure — no exec pins) ───────────────────────────────────
-// Like Unreal "Get" nodes: can connect directly to any data pin without exec flow
+// Like Unreal "Get" nodes: pure data getter, compact, color-coded by var type
+// varType: 'any'|'string'|'number'|'boolean'|'array'|'object'
 function GetVariableNode() {
   // NO exec input/output — pure data getter
   this.addOutput('value', 'any');
-  this.properties = { name: '' };
-  this.addWidget('text', 'Name', '', (v) => { this.properties.name = v; });
-  this.size = [170, this.computeSize()[1]];
+  this.properties = { name: '', varType: 'any' };
+  this.size = [150, 36];
+  this.resizable = false;
 }
 GetVariableNode.title = 'Get Variable';
 GetVariableNode.desc = 'Lire une variable sans flux exec';
 NODE_COLORS.get_variable = { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' };
 GetVariableNode.prototype = Object.create(LGraphNode.prototype);
 GetVariableNode.prototype.constructor = GetVariableNode;
-GetVariableNode.prototype.onDrawForeground = function(ctx) {
-  if (this.properties.name) {
-    ctx.fillStyle = '#555';
-    ctx.font = `10px "Cascadia Code", "Fira Code", monospace`;
-    ctx.textAlign = 'left';
-    ctx.fillText('$' + this.properties.name, 10, this.size[1] - 6);
+
+// Dynamic title = variable name
+GetVariableNode.prototype.getTitle = function() {
+  return this.properties.name ? this.properties.name : 'Get Variable';
+};
+
+// Update output pin type when varType changes
+GetVariableNode.prototype._updatePinType = function() {
+  const t = this.properties.varType || 'any';
+  if (this.outputs && this.outputs[0]) {
+    this.outputs[0].type = t;
+    // Update accent color based on type
+    const pinInfo = PIN_TYPES[t] || PIN_TYPES.any;
+    NODE_COLORS.get_variable.accent = pinInfo.color;
+    this.color = NODE_COLORS.get_variable.border;
+    this.bgcolor = NODE_COLORS.get_variable.bg;
   }
+  if (this.graph) this.graph.setDirtyCanvas(true, true);
+};
+
+GetVariableNode.prototype.onConfigure = function() {
+  this._updatePinType();
+};
+
+GetVariableNode.prototype.onDrawForeground = function(ctx) {
+  const t = this.properties.varType || 'any';
+  const pinColor = (PIN_TYPES[t] || PIN_TYPES.any).color;
+  const h = this.size[1];
+
+  // Left accent stripe colored by var type
+  ctx.fillStyle = pinColor;
+  ctx.globalAlpha = 0.55;
+  ctx.fillRect(0, 0, 3, h);
+  ctx.globalAlpha = 1;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1414,6 +1437,68 @@ function registerAllNodeTypes() {
 
     installCustomRendering(NodeClass);
     LiteGraph.registerNodeType(typeName, NodeClass);
+  }
+
+  // ── Wrap onDrawForeground AFTER all nodes have defined their own ──
+  // Each node prototype defines onDrawForeground (badges, preview text, etc.)
+  // BEFORE registerAllNodeTypes is called. We wrap them HERE so both run:
+  // 1. The node's own foreground (badges, cmd preview...)
+  // 2. Our data pin labels (stdout, rows, rowCount...)
+  for (const [, NodeClass] of types) {
+    const nodeOwnForeground = NodeClass.prototype.onDrawForeground;
+    NodeClass.prototype.onDrawForeground = function(ctx) {
+      // 1. Node's own drawing (badges, previews)
+      if (nodeOwnForeground) nodeOwnForeground.call(this, ctx);
+
+      // 2. Data pin labels — skip if collapsed
+      if (this.flags && this.flags.collapsed) return;
+      const slotH = LiteGraph.NODE_SLOT_HEIGHT;
+      const w = this.size[0];
+
+      ctx.save();
+      ctx.font = `500 9px ${FONT}`;
+      ctx.textBaseline = 'middle';
+
+      // Output data labels — right-aligned, clear of the pin circle (18px margin)
+      if (this.outputs) {
+        for (let i = 0; i < this.outputs.length; i++) {
+          const slot = this.outputs[i];
+          if (!slot) continue;
+          const isExec = !slot.type || slot.type === 'exec' || slot.type === -1 || slot.type === LiteGraph.EVENT;
+          if (isExec) continue;
+          const label = slot.label || slot.name || '';
+          if (!label) continue;
+          const sy = (i + 0.7) * slotH;
+          const pinColor = (PIN_TYPES[slot.type] || PIN_TYPES.any).color;
+          ctx.fillStyle = pinColor;
+          ctx.globalAlpha = 0.7;
+          ctx.textAlign = 'right';
+          ctx.fillText(label, w - 18, sy);
+        }
+      }
+
+      // Input data labels — left-aligned, clear of the pin circle (18px margin)
+      if (this.inputs) {
+        for (let i = 0; i < this.inputs.length; i++) {
+          const slot = this.inputs[i];
+          if (!slot) continue;
+          const isExec = !slot.type || slot.type === 'exec' || slot.type === -1 || slot.type === LiteGraph.EVENT;
+          if (isExec) continue;
+          const label = slot.label || slot.name || '';
+          if (!label) continue;
+          const sy = (i + 0.7) * slotH;
+          const pinColor = (PIN_TYPES[slot.type] || PIN_TYPES.any).color;
+          ctx.fillStyle = pinColor;
+          ctx.globalAlpha = 0.7;
+          ctx.textAlign = 'left';
+          ctx.fillText(label, 18, sy);
+        }
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
+    };
   }
 }
 
