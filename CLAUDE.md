@@ -106,3 +106,4 @@ Detailed architecture and gotchas in `.planning/knowledge/`:
 | [css-architecture.md](.planning/knowledge/css-architecture.md) | Variables, file index, naming conventions |
 | [infrastructure.md](.planning/knowledge/infrastructure.md) | Preload bridge, data storage, dependencies, HTML pages, project types, remote control, CI/CD, bundled resources |
 | [resume-dialogs.md](.planning/knowledge/resume-dialogs.md) | Two resume dialog implementations that must stay in sync |
+| [pr-playbook.md](.planning/knowledge/pr-playbook.md) | PR creation, squash workflow, branch updates, maintainer preferences |
