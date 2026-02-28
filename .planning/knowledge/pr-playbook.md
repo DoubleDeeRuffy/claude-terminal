@@ -16,10 +16,12 @@ Uses a git worktree so the main working directory stays untouched. No stash/chec
 ### 1. Prepare an Isolated Worktree
 
 ```bash
-git fetch origin
-git worktree add .claude/worktrees/phase-XX-pr -b feat/phase-XX-slug origin/main
+git fetch upstream
+git worktree add .claude/worktrees/phase-XX-pr -b feat/phase-XX-slug upstream/main
 cd .claude/worktrees/phase-XX-pr
 ```
+
+> **Warning:** Always use `upstream/main` here, not `origin/main`. The fork's `origin/main` contains all local phase work and is far ahead of upstream — basing on it will include unrelated commits and make cherry-picks no-ops. See [Pitfalls](#pitfalls).
 
 The `.claude/worktrees/` directory is gitignored, so no pollution. The main repo stays on its current branch with all WIP intact.
 
@@ -211,6 +213,7 @@ Follow these to avoid review round-trips:
 
 ## Pitfalls
 
+- **`origin/main` ≠ `upstream/main`:** The fork's `origin/main` is far ahead of `upstream/main` (Sterll's repo) because it contains all local phase work. When creating a worktree for a PR, you **must** base it on `upstream/main`, not `origin/main`. If you base on `origin/main`, cherry-picks will be no-ops (the commit already exists in the fork) and the branch will include dozens of unrelated commits that upstream doesn't have. Always: `git worktree add ... upstream/main`, never `origin/main`.
 - **Don't forget prerequisites:** If phase code calls a function from an earlier phase, include it (note as prerequisite in commit)
 - **Don't include other phase changes:** Settings, i18n keys, UI toggles from other phases must NOT be in the diff
 - **Stash before switching:** Working branch likely has untracked files that conflict with `upstream/main`
