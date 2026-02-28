@@ -98,8 +98,16 @@ function evalCondition(condition, vars) {
   if (resolved === 'true')  return true;
   if (resolved === 'false') return false;
 
-  // Comparison operators (left OP right)
-  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
+  // Unary operators: "value is_empty" / "value is_not_empty"
+  const unaryMatch = resolved.match(/^(.+?)\s+(is_empty|is_not_empty)$/);
+  if (unaryMatch) {
+    const val = unaryMatch[1].trim();
+    const isEmpty = val === '' || val === 'null' || val === 'undefined' || val === '[]' || val === '{}';
+    return unaryMatch[2] === 'is_empty' ? isEmpty : !isEmpty;
+  }
+
+  // Binary operators (left OP right)
+  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|matches)\s+(.+)$/);
   if (!match) {
     // Truthy check (non-empty string / non-zero number)
     const val = resolved.trim();
@@ -123,6 +131,11 @@ function evalCondition(condition, vars) {
     case '<':  return numeric && ln < rn;
     case '>=': return numeric && ln >= rn;
     case '<=': return numeric && ln <= rn;
+    case 'contains':    return left.includes(right);
+    case 'starts_with': return left.startsWith(right);
+    case 'matches': {
+      try { return new RegExp(right).test(left); } catch { return false; }
+    }
     default:   return false;
   }
 }
@@ -496,8 +509,9 @@ function runConditionStep(config, vars) {
   if (!expression && config.variable) {
     const variable = config.variable || '';
     const operator = config.operator || '==';
+    const isUnary  = operator === 'is_empty' || operator === 'is_not_empty';
     const value    = config.value ?? '';
-    expression = `${variable} ${operator} ${value}`;
+    expression = isUnary ? `${variable} ${operator}` : `${variable} ${operator} ${value}`;
   }
   const result = evalCondition(resolveVars(expression || 'true', vars), vars);
   return { result, value: result };

@@ -674,8 +674,8 @@ WaitNode.prototype.constructor = WaitNode;
 // ── Condition Node ───────────────────────────────────────────────────────────
 function ConditionNode() {
   this.addInput('In', LiteGraph.ACTION);
-  this.addOutput('True', LiteGraph.EVENT);
-  this.addOutput('False', LiteGraph.EVENT);
+  this.addOutput(' ', LiteGraph.EVENT);
+  this.addOutput(' ', LiteGraph.EVENT);
   this.properties = { variable: '$ctx.branch', operator: '==', value: '' };
   this.addWidget('text', 'Expression', '', (v) => { this.properties.expression = v; });
   this.size = [200, this.computeSize()[1]];

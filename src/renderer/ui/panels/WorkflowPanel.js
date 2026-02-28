@@ -575,12 +575,24 @@ const CONDITION_VARS = [
 ];
 
 const CONDITION_OPS = [
-  { value: '==', label: '==' },
-  { value: '!=', label: '!=' },
-  { value: 'contains', label: 'contient' },
-  { value: 'starts_with', label: 'commence par' },
-  { value: 'matches', label: 'regex' },
+  { value: '==', label: '==', group: 'compare' },
+  { value: '!=', label: '!=', group: 'compare' },
+  { value: '>',  label: '>',  group: 'compare' },
+  { value: '<',  label: '<',  group: 'compare' },
+  { value: '>=', label: '>=', group: 'compare' },
+  { value: '<=', label: '<=', group: 'compare' },
+  { value: 'contains',    label: 'contient',     group: 'text' },
+  { value: 'starts_with', label: 'commence par', group: 'text' },
+  { value: 'matches',     label: 'regex',        group: 'text' },
+  { value: 'is_empty',     label: 'est vide',      group: 'unary' },
+  { value: 'is_not_empty', label: 'n\'est pas vide', group: 'unary' },
 ];
+
+function buildConditionPreview(variable, op, value, isUnary) {
+  if (!variable) return '(aucune condition)';
+  if (isUnary) return `${variable} ${op}`;
+  return `${variable} ${op} ${value || '?'}`;
+}
 
 const STEP_FIELDS = {
   shell: [
@@ -1746,24 +1758,50 @@ function openEditor(workflowId = null) {
     }
     // Condition node
     else if (nodeType === 'condition') {
+      const condMode = props._condMode || 'builder';
+      const currentOp = props.operator || '==';
+      const isUnary = currentOp === 'is_empty' || currentOp === 'is_not_empty';
+      const compareOps = CONDITION_OPS.filter(o => o.group === 'compare');
+      const textOps = CONDITION_OPS.filter(o => o.group === 'text');
+      const unaryOps = CONDITION_OPS.filter(o => o.group === 'unary');
       fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgVariable()} Variable</label>
-          <span class="wf-field-hint">Donnée à évaluer</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="variable">
-            ${CONDITION_VARS.map(v => `<option value="${v.value}" ${props.variable === v.value ? 'selected' : ''}>${v.label}</option>`).join('')}
-          </select>
+        <div class="wf-cond-mode-toggle">
+          <button class="wf-cond-mode-btn ${condMode === 'builder' ? 'active' : ''}" data-cond-mode="builder">Builder</button>
+          <button class="wf-cond-mode-btn ${condMode === 'expression' ? 'active' : ''}" data-cond-mode="expression">Expression</button>
         </div>
-        <div class="wf-field-row">
-          <div class="wf-step-edit-field wf-field-half">
-            <label class="wf-step-edit-label">Opérateur</label>
-            <select class="wf-step-edit-input wf-node-prop" data-key="operator">
-              ${CONDITION_OPS.map(o => `<option value="${o.value}" ${props.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
-            </select>
+        <div class="wf-cond-builder" ${condMode === 'expression' ? 'style="display:none"' : ''}>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${svgVariable()} Variable</label>
+            <span class="wf-field-hint">$variable ou valeur libre — Autocomplete avec $</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="variable" value="${escapeHtml(props.variable || '')}" placeholder="$ctx.branch" />
           </div>
-          <div class="wf-step-edit-field wf-field-half">
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Opérateur</label>
+            <div class="wf-cond-ops">
+              <div class="wf-cond-ops-group">
+                ${compareOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.value}</button>`).join('')}
+              </div>
+              <div class="wf-cond-ops-group">
+                ${textOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.label}</button>`).join('')}
+              </div>
+              <div class="wf-cond-ops-group">
+                ${unaryOps.map(o => `<button class="wf-cond-op-btn wf-cond-op-unary ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.label}</button>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="wf-step-edit-field wf-cond-value-field" ${isUnary ? 'style="display:none"' : ''}>
             <label class="wf-step-edit-label">Valeur</label>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="0" />
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="main" />
+          </div>
+          <div class="wf-cond-preview">
+            <code class="wf-cond-preview-code">${escapeHtml(buildConditionPreview(props.variable, currentOp, props.value, isUnary))}</code>
+          </div>
+        </div>
+        <div class="wf-cond-expression" ${condMode === 'builder' ? 'style="display:none"' : ''}>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${svgVariable()} Expression</label>
+            <span class="wf-field-hint">Expression libre — ex: $node_1.rows.length > 0</span>
+            <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-cond-expr-input" data-key="expression" rows="2" placeholder="$node_1.exitCode == 0">${escapeHtml(props.expression || '')}</textarea>
           </div>
         </div>
       `;
@@ -2161,6 +2199,70 @@ function openEditor(workflowId = null) {
         const preview = propsEl.querySelector('.wf-log-preview-text');
         if (preview) preview.textContent = logTextarea.value || 'Aperçu du message...';
       });
+    }
+
+    // Condition mode toggle (Builder / Expression)
+    propsEl.querySelectorAll('.wf-cond-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.condMode;
+        node.properties._condMode = mode;
+        editorDraft.dirty = true;
+        const builderEl = propsEl.querySelector('.wf-cond-builder');
+        const exprEl = propsEl.querySelector('.wf-cond-expression');
+        if (builderEl && exprEl) {
+          builderEl.style.display = mode === 'builder' ? '' : 'none';
+          exprEl.style.display = mode === 'expression' ? '' : 'none';
+        }
+        propsEl.querySelectorAll('.wf-cond-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+        // When switching to expression, sync builder → expression
+        if (mode === 'expression' && !node.properties.expression) {
+          const isUnary = (node.properties.operator || '==') === 'is_empty' || (node.properties.operator || '==') === 'is_not_empty';
+          node.properties.expression = buildConditionPreview(node.properties.variable || '', node.properties.operator || '==', node.properties.value || '', isUnary);
+          const exprInput = propsEl.querySelector('.wf-cond-expr-input');
+          if (exprInput) exprInput.value = node.properties.expression;
+        }
+      });
+    });
+
+    // Condition operator buttons
+    propsEl.querySelectorAll('.wf-cond-op-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const op = btn.dataset.op;
+        node.properties.operator = op;
+        editorDraft.dirty = true;
+        // Toggle active state
+        propsEl.querySelectorAll('.wf-cond-op-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Show/hide value field based on unary
+        const isUnary = op === 'is_empty' || op === 'is_not_empty';
+        const valField = propsEl.querySelector('.wf-cond-value-field');
+        if (valField) valField.style.display = isUnary ? 'none' : '';
+        // Update preview
+        const preview = propsEl.querySelector('.wf-cond-preview-code');
+        if (preview) preview.textContent = buildConditionPreview(node.properties.variable || '', op, node.properties.value || '', isUnary);
+        // Update widget
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.name === 'operator' || w.name === 'Operator');
+          if (w) w.value = op;
+        }
+        graphService.canvas.setDirty(true, true);
+      });
+    });
+
+    // Condition live preview update on variable/value change
+    const condVarInput = propsEl.querySelector('.wf-cond-builder [data-key="variable"]');
+    const condValInput = propsEl.querySelector('.wf-cond-builder [data-key="value"]');
+    const condPreview = propsEl.querySelector('.wf-cond-preview-code');
+    if (condPreview) {
+      const updateCondPreview = () => {
+        const v = condVarInput?.value || '';
+        const op = node.properties.operator || '==';
+        const val = condValInput?.value || '';
+        const isUnary = op === 'is_empty' || op === 'is_not_empty';
+        condPreview.textContent = buildConditionPreview(v, op, val, isUnary);
+      };
+      if (condVarInput) condVarInput.addEventListener('input', updateCondPreview);
+      if (condValInput) condValInput.addEventListener('input', updateCondPreview);
     }
 
     // Delete node button

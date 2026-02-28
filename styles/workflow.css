@@ -1249,12 +1249,35 @@ select.wf-step-edit-input {
 }
 
 /* ── Condition builder ── */
-.wf-condition-row {
-  display: flex; gap: 6px; align-items: center;
+.wf-cond-mode-toggle {
+  display: flex; gap: 2px; background: #0c0c0e; border-radius: 6px; padding: 2px; margin-bottom: 8px;
 }
-.wf-cond-var { flex: 2; }
-.wf-cond-op  { flex: 0 0 auto; min-width: 90px; }
-.wf-cond-val { flex: 2; }
+.wf-cond-mode-btn {
+  flex: 1; padding: 4px 8px; border: none; border-radius: 4px; background: transparent;
+  color: var(--text-secondary); cursor: pointer; font-size: 11px; font-weight: 500; transition: all .15s;
+}
+.wf-cond-mode-btn.active { background: var(--accent-dim); color: var(--accent); }
+.wf-cond-mode-btn:hover:not(.active) { color: var(--text-primary); }
+
+.wf-cond-ops { display: flex; flex-direction: column; gap: 4px; }
+.wf-cond-ops-group { display: flex; flex-wrap: wrap; gap: 3px; }
+.wf-cond-op-btn {
+  padding: 3px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;
+  color: var(--text-secondary); cursor: pointer; font-size: 11px; font-family: 'SF Mono', 'Fira Code', monospace;
+  transition: all .15s; min-width: 28px; text-align: center;
+}
+.wf-cond-op-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.wf-cond-op-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.wf-cond-op-unary { font-family: inherit; font-size: 10px; }
+
+.wf-cond-preview {
+  background: #0c0c0e; border-radius: 6px; padding: 6px 10px; margin-top: 4px;
+}
+.wf-cond-preview-code {
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--text-secondary);
+}
+
+.wf-cond-expr-input { resize: vertical; min-height: 40px; }
 
 /* ── Extra fields (animated) ── */
 .wf-extra-field {
