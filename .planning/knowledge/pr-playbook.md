@@ -77,27 +77,34 @@ grep -c "settingKey" src/state/file.js     # expected: 1
 grep -c "i18nKey" src/renderer/i18n/locales/en.json  # expected: N
 ```
 
-### 5. Manual UAT Session
+### 5. Manual UAT Session — STOP AND HAND OFF TO USER
 
-Before pushing, run the app from the worktree and manually test:
+**Do NOT push or create a PR until the user has tested the feature.**
 
-```bash
-npm start
+Tell the user the worktree is ready for testing and provide the path:
+
+```
+Worktree ready for testing at: .claude/worktrees/phase-XX-pr/
+Run: cd .claude/worktrees/phase-XX-pr && npm start
 ```
 
+The user will:
+- Run the app from the worktree (`npm start`)
 - Walk through every item in the **Test plan**
 - Verify the feature works as expected in the actual UI
 - Check edge cases, toggling settings, and interactions with existing features
-- If issues are found, fix them and re-squash (step 3) before continuing
+- Report back with results
 
-Only proceed to step 6 once you're satisfied the feature works correctly.
+If issues are found, fix them and re-squash (step 3). **Only proceed to step 6 after the user confirms the feature works.**
 
-### 6. Push and Create PR (from worktree)
+### 6. Push and Create Draft PR (from worktree)
+
+**Every PR must be created as draft first.** Only the user can mark it ready after testing.
 
 ```bash
 git push -u origin feat/phase-XX-slug
 
-gh pr create --repo Sterll/claude-terminal --base main \
+gh pr create --draft --repo Sterll/claude-terminal --base main \
   --head DoubleDeeRuffy:feat/phase-XX-slug \
   --title "feat(scope): short description" \
   --body "$(cat <<'EOF'
@@ -122,7 +129,17 @@ EOF
 )"
 ```
 
-### 7. Clean Up Worktree
+### 7. User Tests → Mark Ready
+
+After the user confirms the feature works:
+
+```bash
+gh pr ready <PR-NUMBER> --repo Sterll/claude-terminal
+```
+
+If fixes are needed, push to the same branch and re-squash if necessary.
+
+### 8. Clean Up Worktree
 
 ```bash
 cd /path/to/main/repo
