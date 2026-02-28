@@ -918,6 +918,25 @@ DbNode.prototype.onDrawForeground = function(ctx) {
   const c = getNodeColors(this);
   drawBadge(ctx, this.properties.action.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
 };
+// When query or connection changes, invalidate schema and re-probe downstream Loop nodes
+DbNode.prototype.onPropertyChanged = function(name) {
+  if (name !== 'query' && name !== 'connection') return;
+  this._outputSchema = null; // invalidate cached schema
+  if (!this.graph) return;
+  // Find all Loop nodes connected from any of this node's outputs and re-fetch
+  if (!this.outputs) return;
+  for (const output of this.outputs) {
+    if (!output.links) continue;
+    for (const linkId of output.links) {
+      const link = this.graph.links[linkId];
+      if (!link) continue;
+      const targetNode = this.graph.getNodeById(link.target_id);
+      if (targetNode?.type === 'workflow/loop' && typeof targetNode._fetchSchemaFromNode === 'function') {
+        targetNode._fetchSchemaFromNode(this);
+      }
+    }
+  }
+};
 
 // ── Loop Node ─────────────────────────────────────────────────────────────────
 function LoopNode() {
@@ -950,25 +969,74 @@ LoopNode.prototype.onDrawForeground = function(ctx) {
   const label = this.properties.mode === 'parallel' ? 'PARALLEL' : this.properties.source.toUpperCase();
   drawBadge(ctx, label, this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, modeColor);
 };
-// Called when a connection is made/broken on the "items" data pin (slot 1)
+// Called when a connection is made/broken on any input slot
 LoopNode.prototype.onConnectionsChange = function(type, slot, connected, link_info) {
-  if (type !== LiteGraph.INPUT || slot !== 1) return; // only "items" data pin
-  // Remove dynamic schema outputs (beyond base 4: Each, Done, item, index)
-  while (this.outputs && this.outputs.length > 4) {
-    this.removeOutput(this.outputs.length - 1);
+  if (type !== LiteGraph.INPUT) return;
+  // slot 0 = exec "In", slot 1 = data "items" — both can carry schema info
+  if (slot !== 0 && slot !== 1) return;
+
+  // On disconnect: clean dynamic outputs
+  if (!connected) {
+    while (this.outputs && this.outputs.length > 4) this.removeOutput(this.outputs.length - 1);
+    this._itemSchema = [];
+    if (this.graph) this.graph.setDirtyCanvas(true, true);
+    return;
   }
-  this._itemSchema = [];
-  if (!connected || !link_info || !this.graph) return;
+  if (!link_info || !this.graph) return;
 
-  // Only apply schema if already known from a previous run
   const srcNode = this.graph.getNodeById(link_info.origin_id);
-  if (!srcNode || !srcNode._outputSchema) return;
+  if (!srcNode) return;
 
-  const schema = srcNode._outputSchema;
-  if (!Array.isArray(schema) || !schema.length) return;
+  // If schema already known (from previous run or prior connection), apply immediately
+  if (srcNode._outputSchema?.length) {
+    this._applySchema(srcNode._outputSchema);
+    return;
+  }
 
-  this._applySchema(schema);
+  // Otherwise try to fetch schema from the source node at design-time
+  this._fetchSchemaFromNode(srcNode);
 };
+
+// Fetch schema from a source node by probing the real data source
+LoopNode.prototype._fetchSchemaFromNode = function(srcNode) {
+  const loopNode = this;
+  const nodeType = (srcNode.type || '').replace('workflow/', '');
+  const api = window.electron_api;
+
+  if (nodeType === 'db' && api?.database) {
+    const { connection, query, action } = srcNode.properties || {};
+    if (!connection || action !== 'query' || !query) return;
+
+    // Run query with LIMIT 1 to discover column names
+    const probeQuery = buildProbeQuery(query);
+    api.database.executeQuery({ id: connection, sql: probeQuery, limit: 1 }).then(result => {
+      if (!result?.success) return;
+      const rows = result.rows || result.data || result.results;
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      const schema = Object.keys(rows[0]);
+      if (!schema.length) return;
+      srcNode._outputSchema = schema;
+      loopNode._applySchema(schema);
+    }).catch(() => {});
+    return;
+  }
+
+  // HTTP node: try to infer from URL pattern or leave empty
+  // (no reliable design-time schema without running)
+};
+
+/**
+ * Transform a SQL query into a lightweight probe (LIMIT 1) to discover column names.
+ * Strips existing LIMIT/OFFSET and adds LIMIT 1.
+ */
+function buildProbeQuery(sql) {
+  // Remove trailing semicolon
+  let q = sql.trim().replace(/;+$/, '');
+  // Remove existing LIMIT / OFFSET clauses
+  q = q.replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?/gi, '');
+  q = q.replace(/\s+OFFSET\s+\d+/gi, '');
+  return q + ' LIMIT 1';
+}
 
 // Apply a schema array to dynamically add item.key outputs
 LoopNode.prototype._applySchema = function(schema) {
