@@ -28,8 +28,20 @@
 ; ============================================
 
 !macro customInit
-  ; Custom initialization
-  SetSilent normal
+  ; No-op: let NSIS respect whatever mode was requested (/S for silent, normal otherwise)
+  ; Previously had "SetSilent normal" which broke silent installs and auto-updates
+!macroend
+
+!macro customInstall
+  ; Write marker file for first-time silent installs (not updates)
+  ; so the app can skip the setup wizard and apply defaults
+  ${if} ${Silent}
+  ${andIfNot} ${isUpdated}
+    CreateDirectory "$PROFILE\.claude-terminal"
+    FileOpen $0 "$PROFILE\.claude-terminal\.silent-install" w
+    FileWrite $0 "1"
+    FileClose $0
+  ${endif}
 !macroend
 
 !macro customUnInstall

@@ -6,7 +6,7 @@
 const { BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { settingsFile, ensureDataDir } = require('../utils/paths');
+const { settingsFile, ensureDataDir, dataDir } = require('../utils/paths');
 
 let setupWizardWindow = null;
 
@@ -133,11 +133,53 @@ function closeSetupWizard() {
 }
 
 /**
+ * Apply default settings for silent installs (hooks ON, startup OFF, wizard skipped)
+ */
+function applySilentInstallDefaults() {
+  ensureDataDir();
+  const defaults = {
+    setupCompleted: true,
+    hooksEnabled: true,
+    launchAtStartup: false
+  };
+
+  let existing = {};
+  try {
+    if (fs.existsSync(settingsFile)) {
+      existing = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    }
+  } catch (e) { /* ignore corrupt settings */ }
+
+  // Only apply if not already set up (safety guard)
+  if (!existing.setupCompleted) {
+    fs.writeFileSync(settingsFile, JSON.stringify({ ...existing, ...defaults }, null, 2));
+  }
+
+  // Fire-and-forget hook installation (async, but we don't block on it)
+  try {
+    const HooksService = require('../services/HooksService');
+    HooksService.installHooks().catch(e => {
+      console.error('Failed to install hooks after silent install:', e);
+    });
+  } catch (e) {
+    console.error('Failed to load HooksService after silent install:', e);
+  }
+}
+
+/**
  * Check if this is the first launch (setup not completed)
  * @returns {boolean}
  */
 function isFirstLaunch() {
   try {
+    // Check for silent install marker first
+    const silentMarker = path.join(dataDir, '.silent-install');
+    if (fs.existsSync(silentMarker)) {
+      applySilentInstallDefaults();
+      try { fs.unlinkSync(silentMarker); } catch (e) { /* ignore */ }
+      return false; // Skip wizard
+    }
+
     if (fs.existsSync(settingsFile)) {
       const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
       return !settings.setupCompleted;
