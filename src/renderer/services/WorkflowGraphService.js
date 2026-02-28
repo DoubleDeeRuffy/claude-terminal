@@ -10,20 +10,23 @@ const { getSkills } = require('./SkillService');
 
 // ── Node type colors ────────────────────────────────────────────────────────
 const NODE_COLORS = {
-  trigger:   { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
-  claude:    { bg: '#101012', border: '#1c1c20', accent: '#f59e0b', accentDim: 'rgba(245,158,11,.06)' },
-  shell:     { bg: '#101012', border: '#1c1c20', accent: '#60a5fa', accentDim: 'rgba(96,165,250,.06)' },
-  git:       { bg: '#101012', border: '#1c1c20', accent: '#a78bfa', accentDim: 'rgba(167,139,250,.06)' },
-  http:      { bg: '#101012', border: '#1c1c20', accent: '#22d3ee', accentDim: 'rgba(34,211,238,.06)' },
-  notify:    { bg: '#101012', border: '#1c1c20', accent: '#fbbf24', accentDim: 'rgba(251,191,36,.06)' },
-  wait:      { bg: '#101012', border: '#1c1c20', accent: '#6b7280', accentDim: 'rgba(107,114,128,.06)' },
-  condition: { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
-  project:   { bg: '#101012', border: '#1c1c20', accent: '#f472b6', accentDim: 'rgba(244,114,182,.06)' },
-  file:      { bg: '#101012', border: '#1c1c20', accent: '#a3e635', accentDim: 'rgba(163,230,53,.06)' },
-  db:        { bg: '#101012', border: '#1c1c20', accent: '#fb923c', accentDim: 'rgba(251,146,60,.06)' },
-  loop:      { bg: '#101012', border: '#1c1c20', accent: '#38bdf8', accentDim: 'rgba(56,189,248,.06)' },
-  variable:  { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' },
-  log:       { bg: '#101012', border: '#1c1c20', accent: '#94a3b8', accentDim: 'rgba(148,163,184,.06)' },
+  trigger:      { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
+  claude:       { bg: '#101012', border: '#1c1c20', accent: '#f59e0b', accentDim: 'rgba(245,158,11,.06)' },
+  shell:        { bg: '#101012', border: '#1c1c20', accent: '#60a5fa', accentDim: 'rgba(96,165,250,.06)' },
+  git:          { bg: '#101012', border: '#1c1c20', accent: '#a78bfa', accentDim: 'rgba(167,139,250,.06)' },
+  http:         { bg: '#101012', border: '#1c1c20', accent: '#22d3ee', accentDim: 'rgba(34,211,238,.06)' },
+  notify:       { bg: '#101012', border: '#1c1c20', accent: '#fbbf24', accentDim: 'rgba(251,191,36,.06)' },
+  wait:         { bg: '#101012', border: '#1c1c20', accent: '#6b7280', accentDim: 'rgba(107,114,128,.06)' },
+  condition:    { bg: '#101012', border: '#1c1c20', accent: '#4ade80', accentDim: 'rgba(74,222,128,.06)' },
+  project:      { bg: '#101012', border: '#1c1c20', accent: '#f472b6', accentDim: 'rgba(244,114,182,.06)' },
+  file:         { bg: '#101012', border: '#1c1c20', accent: '#a3e635', accentDim: 'rgba(163,230,53,.06)' },
+  db:           { bg: '#101012', border: '#1c1c20', accent: '#fb923c', accentDim: 'rgba(251,146,60,.06)' },
+  loop:         { bg: '#101012', border: '#1c1c20', accent: '#38bdf8', accentDim: 'rgba(56,189,248,.06)' },
+  variable:     { bg: '#101012', border: '#1c1c20', accent: '#c084fc', accentDim: 'rgba(192,132,252,.06)' },
+  log:          { bg: '#101012', border: '#1c1c20', accent: '#94a3b8', accentDim: 'rgba(148,163,184,.06)' },
+  transform:    { bg: '#101012', border: '#1c1c20', accent: '#2dd4bf', accentDim: 'rgba(45,212,191,.06)' },
+  subworkflow:  { bg: '#101012', border: '#1c1c20', accent: '#818cf8', accentDim: 'rgba(129,140,248,.06)' },
+  switch:       { bg: '#101012', border: '#1c1c20', accent: '#f87171', accentDim: 'rgba(248,113,113,.06)' },
 };
 
 const STATUS_COLORS = {
@@ -35,21 +38,24 @@ const STATUS_COLORS = {
 
 // ── Data type system — describes what each node output/input carries ─────────
 const NODE_DATA_TYPES = {
-  trigger:   { outputs: [] },
-  claude:    { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
-  shell:     { outputs: [{ slot: 0, badge: '{stdout}' },{ slot: 1, badge: 'error' }] },
-  git:       { outputs: [{ slot: 0, badge: '{output}' },{ slot: 1, badge: 'error' }] },
-  http:      { outputs: [{ slot: 0, badge: '{body}' },  { slot: 1, badge: 'error' }] },
-  file:      { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
-  db:        { outputs: [{ slot: 0, badge: 'rows[]' },  { slot: 1, badge: 'error' }] },
-  condition: { outputs: [{ slot: 0, badge: 'true' },    { slot: 1, badge: 'false' }] },
-  loop:      { outputs: [{ slot: 0, badge: 'item' },    { slot: 1, badge: 'done' }],
-               inputs:  [{ slot: 1, badge: 'array' }] },
-  variable:  { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'value' }] },
-  notify:    { outputs: [{ slot: 0, badge: 'event' }] },
-  wait:      { outputs: [{ slot: 0, badge: 'event' }] },
-  log:       { outputs: [{ slot: 0, badge: 'event' }] },
-  project:   { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'error' }] },
+  trigger:     { outputs: [] },
+  claude:      { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
+  shell:       { outputs: [{ slot: 0, badge: '{stdout}' },{ slot: 1, badge: 'error' }] },
+  git:         { outputs: [{ slot: 0, badge: '{output}' },{ slot: 1, badge: 'error' }] },
+  http:        { outputs: [{ slot: 0, badge: '{body}' },  { slot: 1, badge: 'error' }] },
+  file:        { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
+  db:          { outputs: [{ slot: 0, badge: 'rows[]' },  { slot: 1, badge: 'error' }] },
+  condition:   { outputs: [{ slot: 0, badge: 'true' },    { slot: 1, badge: 'false' }] },
+  loop:        { outputs: [{ slot: 0, badge: 'item' },    { slot: 1, badge: 'done' }],
+                 inputs:  [{ slot: 1, badge: 'array' }] },
+  variable:    { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'value' }] },
+  notify:      { outputs: [{ slot: 0, badge: 'event' }] },
+  wait:        { outputs: [{ slot: 0, badge: 'event' }] },
+  log:         { outputs: [{ slot: 0, badge: 'event' }] },
+  project:     { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'error' }] },
+  transform:   { outputs: [{ slot: 0, badge: 'result' },  { slot: 1, badge: 'error' }] },
+  subworkflow: { outputs: [{ slot: 0, badge: 'outputs' }, { slot: 1, badge: 'error' }] },
+  switch:      { outputs: [] }, // dynamic: 1 output per case
 };
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -908,6 +914,101 @@ LogNode.prototype.onDrawForeground = function(ctx) {
   drawBadge(ctx, this.properties.level.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, levelColors[this.properties.level] || c.accent);
 };
 
+// ── Transform Node ────────────────────────────────────────────────────────────
+function TransformNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.addOutput('Error', LiteGraph.EVENT);
+  this.properties = {
+    operation: 'map',
+    input: '',
+    expression: '',
+    outputVar: '',
+  };
+  this.addWidget('combo', 'Operation', 'map', (v) => { this.properties.operation = v; }, {
+    values: ['map', 'filter', 'reduce', 'find', 'pluck', 'count', 'sort', 'unique', 'flatten', 'json_parse', 'json_stringify']
+  });
+  this.addWidget('text', 'Input', '', (v) => { this.properties.input = v; });
+  this.addWidget('text', 'Expression', '', (v) => { this.properties.expression = v; });
+  this.addWidget('text', 'Output var', '', (v) => { this.properties.outputVar = v; });
+  this.size = [230, this.computeSize()[1]];
+}
+TransformNode.title = 'Transform';
+TransformNode.desc = 'Transformer des données (map, filter, reduce…)';
+TransformNode.prototype = Object.create(LGraphNode.prototype);
+TransformNode.prototype.constructor = TransformNode;
+TransformNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  drawBadge(ctx, this.properties.operation.toUpperCase(), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
+// ── Sub-workflow Node ─────────────────────────────────────────────────────────
+function SubworkflowNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.addOutput('Done', LiteGraph.EVENT);
+  this.addOutput('Error', LiteGraph.EVENT);
+  this.properties = {
+    workflow: '',
+    inputVars: '',
+    waitForCompletion: true,
+  };
+  this.addWidget('text', 'Workflow', '', (v) => { this.properties.workflow = v; });
+  this.addWidget('text', 'Input vars', '', (v) => { this.properties.inputVars = v; });
+  this.addWidget('combo', 'Wait', 'yes', (v) => { this.properties.waitForCompletion = v === 'yes'; }, {
+    values: ['yes', 'no']
+  });
+  this.size = [220, this.computeSize()[1]];
+}
+SubworkflowNode.title = 'Sub-workflow';
+SubworkflowNode.desc = 'Appeler un autre workflow';
+SubworkflowNode.prototype = Object.create(LGraphNode.prototype);
+SubworkflowNode.prototype.constructor = SubworkflowNode;
+SubworkflowNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  const label = this.properties.workflow
+    ? this.properties.workflow.slice(0, 12).toUpperCase()
+    : 'WORKFLOW';
+  drawBadge(ctx, label, this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
+// ── Switch Node ───────────────────────────────────────────────────────────────
+// Dynamic outputs: one per case + default
+function SwitchNode() {
+  this.addInput('In', LiteGraph.ACTION);
+  this.properties = {
+    variable: '',
+    cases: 'case1,case2,case3',
+  };
+  this.addWidget('text', 'Variable', '', (v) => { this.properties.variable = v; });
+  this.addWidget('text', 'Cases', 'case1,case2,case3', (v) => {
+    this.properties.cases = v;
+    this._rebuildOutputs();
+  });
+  this._rebuildOutputs();
+  this.size = [220, this.computeSize()[1]];
+}
+SwitchNode.title = 'Switch';
+SwitchNode.desc = 'Brancher sur plusieurs valeurs';
+SwitchNode.prototype = Object.create(LGraphNode.prototype);
+SwitchNode.prototype.constructor = SwitchNode;
+SwitchNode.prototype._rebuildOutputs = function() {
+  // Remove all existing outputs
+  while (this.outputs && this.outputs.length > 0) this.removeOutput(0);
+  // Add one output per case + default
+  const cases = (this.properties.cases || '')
+    .split(',').map(c => c.trim()).filter(Boolean);
+  for (const c of cases) {
+    this.addOutput(c, LiteGraph.EVENT);
+  }
+  this.addOutput('default', LiteGraph.EVENT);
+  if (this.size) this.size[1] = this.computeSize()[1];
+};
+SwitchNode.prototype.onDrawForeground = function(ctx) {
+  const c = getNodeColors(this);
+  const varName = this.properties.variable || '$var';
+  drawBadge(ctx, varName.slice(0, 14), this.size[0] - 6, -LiteGraph.NODE_TITLE_HEIGHT + 7, c.accent);
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // NODE REGISTRATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -928,8 +1029,11 @@ function registerAllNodeTypes() {
     ['workflow/file',      FileNode,      NODE_COLORS.file],
     ['workflow/db',        DbNode,        NODE_COLORS.db],
     ['workflow/loop',      LoopNode,      NODE_COLORS.loop],
-    ['workflow/variable',  VariableNode,  NODE_COLORS.variable],
-    ['workflow/log',       LogNode,       NODE_COLORS.log],
+    ['workflow/variable',    VariableNode,    NODE_COLORS.variable],
+    ['workflow/log',         LogNode,         NODE_COLORS.log],
+    ['workflow/transform',   TransformNode,   NODE_COLORS.transform],
+    ['workflow/subworkflow', SubworkflowNode, NODE_COLORS.subworkflow],
+    ['workflow/switch',      SwitchNode,      NODE_COLORS.switch],
   ];
 
   for (const [typeName, NodeClass, colors] of types) {
@@ -956,7 +1060,13 @@ class WorkflowGraphService {
     this.onNodeSelected = null;
     this.onNodeDeselected = null;
     this.onGraphChanged = null;
+    this.onHistoryChanged = null; // fired after push/undo/redo so toolbar can update
     this._lastRunOutputs = new Map(); // litegraphNodeId → output data
+    // Undo/Redo
+    this._undoStack = [];  // array of serialized graph JSON strings
+    this._redoStack = [];
+    this._historyPaused = false; // true while applying undo/redo (avoid double-push)
+    this._MAX_HISTORY = 50;
   }
 
   init(canvasElement) {
@@ -1077,15 +1187,31 @@ class WorkflowGraphService {
     };
     this.graph.onNodeAdded = () => {
       if (this.onGraphChanged) this.onGraphChanged();
+      this.pushSnapshot();
     };
     this.graph.onNodeRemoved = () => {
       if (this.onGraphChanged) this.onGraphChanged();
+      this.pushSnapshot();
     };
     this._prevLinkIds = new Set();
     this.graph.onConnectionChange = () => {
       if (this.onGraphChanged) this.onGraphChanged();
       // Detect new array→single connections for auto-loop suggestion
       this._checkNewConnections();
+      this.pushSnapshot();
+    };
+
+    // Push snapshot after node drag (mouseup on canvas)
+    this.canvasElement.addEventListener('mouseup', () => {
+      // Only snapshot if a node was being dragged
+      if (this.canvas && this.canvas.node_dragged) {
+        this.pushSnapshot();
+      }
+    });
+
+    // Also notify when selection changes so status bar can update
+    this.canvas.onSelectionChange = () => {
+      if (this.onGraphChanged) this.onGraphChanged();
     };
 
     this.graph.status = LGraph.STATUS_STOPPED;
@@ -1123,13 +1249,6 @@ class WorkflowGraphService {
     this.canvas.setDirty(true, true);
   }
 
-  zoomToFit() {
-    if (this.canvas) {
-      this.canvas.ds.reset();
-      this.canvas.setDirty(true, true);
-    }
-  }
-
   getZoom() {
     return this.canvas ? this.canvas.ds.scale : 1;
   }
@@ -1138,6 +1257,128 @@ class WorkflowGraphService {
     if (this.canvas) {
       this.canvas.ds.scale = Math.max(0.3, Math.min(3, scale));
       this.canvas.setDirty(true, true);
+    }
+  }
+
+  // ── Undo / Redo ─────────────────────────────────────────────────────────────
+
+  /** Push the current graph state onto the undo stack. Called automatically on changes. */
+  pushSnapshot() {
+    if (this._historyPaused || !this.graph) return;
+    const snap = JSON.stringify(this.graph.serialize());
+    // Avoid duplicate consecutive snapshots
+    if (this._undoStack.length > 0 && this._undoStack[this._undoStack.length - 1] === snap) return;
+    this._undoStack.push(snap);
+    if (this._undoStack.length > this._MAX_HISTORY) this._undoStack.shift();
+    this._redoStack = []; // any new change clears the redo stack
+    if (this.onHistoryChanged) this.onHistoryChanged();
+  }
+
+  canUndo() { return this._undoStack.length > 1; }
+  canRedo() { return this._redoStack.length > 0; }
+
+  undo() {
+    if (!this.canUndo()) return;
+    const current = JSON.stringify(this.graph.serialize());
+    this._redoStack.push(current);
+    this._undoStack.pop(); // discard current
+    const prev = this._undoStack[this._undoStack.length - 1];
+    this._applySnapshot(prev);
+    if (this.onHistoryChanged) this.onHistoryChanged();
+  }
+
+  redo() {
+    if (!this.canRedo()) return;
+    const next = this._redoStack.pop();
+    this._undoStack.push(next);
+    this._applySnapshot(next);
+    if (this.onHistoryChanged) this.onHistoryChanged();
+  }
+
+  _applySnapshot(snap) {
+    this._historyPaused = true;
+    try {
+      const data = JSON.parse(snap);
+      this._repairSlotRefs(data);
+      this.graph.configure(data);
+      this.canvas.deselectAllNodes();
+      this.canvas.setDirty(true, true);
+      if (this.onGraphChanged) this.onGraphChanged();
+    } finally {
+      this._historyPaused = false;
+    }
+  }
+
+  // ── Zoom to fit (real bounds) ─────────────────────────────────────────────
+
+  /** Fit all nodes in the viewport with padding. Falls back to ds.reset() if empty. */
+  zoomToFit(padding = 60) {
+    if (!this.canvas || !this.graph) return;
+    const nodes = this.graph._nodes || [];
+    if (!nodes.length) {
+      this.canvas.ds.reset();
+      this.canvas.setDirty(true, true);
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const x = n.pos[0], y = n.pos[1];
+      const w = n.size[0], h = n.size[1];
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + w > maxX) maxX = x + w;
+      if (y + h > maxY) maxY = y + h;
+    }
+    const boundsW = maxX - minX + padding * 2;
+    const boundsH = maxY - minY + padding * 2;
+    const vpW = this.canvasElement.width;
+    const vpH = this.canvasElement.height;
+    const scale = Math.min(vpW / boundsW, vpH / boundsH, 1.5); // never zoom in past 150%
+    const clamped = Math.max(0.3, Math.min(3, scale));
+    this.canvas.ds.scale = clamped;
+    this.canvas.ds.offset[0] = -(minX - padding) * clamped;
+    this.canvas.ds.offset[1] = -(minY - padding) * clamped;
+    this.canvas.setDirty(true, true);
+  }
+
+  // ── Multi-select helpers ─────────────────────────────────────────────────
+
+  selectAll() {
+    if (!this.canvas || !this.graph) return;
+    this.canvas.selectNodes(this.graph._nodes);
+    this.canvas.setDirty(true, true);
+  }
+
+  getSelectedCount() {
+    if (!this.canvas || !this.canvas.selected_nodes) return 0;
+    return Object.keys(this.canvas.selected_nodes).length;
+  }
+
+  /** Duplicate selected nodes and select the copies. */
+  duplicateSelected() {
+    if (!this.canvas || !this.graph) return;
+    const selected = this.canvas.selected_nodes;
+    if (!selected || !Object.keys(selected).length) return;
+    const newNodes = [];
+    for (const id in selected) {
+      const node = selected[id];
+      const copy = LiteGraph.createNode(node.type);
+      if (!copy) continue;
+      copy.pos = [node.pos[0] + 40, node.pos[1] + 40];
+      Object.assign(copy.properties, node.properties);
+      if (copy.widgets && node.widgets) {
+        for (let i = 0; i < node.widgets.length && i < copy.widgets.length; i++) {
+          copy.widgets[i].value = node.widgets[i].value;
+        }
+      }
+      this.graph.add(copy);
+      newNodes.push(copy);
+    }
+    if (newNodes.length) {
+      this.canvas.deselectAllNodes();
+      this.canvas.selectNodes(newNodes);
+      this.canvas.setDirty(true, true);
+      this.pushSnapshot();
     }
   }
 
@@ -1187,15 +1428,25 @@ class WorkflowGraphService {
       if (node.size[1] < computedH) node.size[1] = computedH;
     }
     this.canvas.setDirty(true, true);
+    // Push initial snapshot so undo lands on the clean loaded state
+    this._undoStack = [];
+    this._redoStack = [];
+    this.pushSnapshot();
   }
 
   createEmpty() {
     if (!this.graph) return;
+    this._historyPaused = true; // suppress individual node-add events during setup
     this.graph.clear();
     const trigger = this.addNode('workflow/trigger', [100, 200]);
     if (trigger) trigger.removable = false;
     this.canvas.ds.reset();
     this.canvas.setDirty(true, true);
+    this._historyPaused = false;
+    // Push initial snapshot
+    this._undoStack = [];
+    this._redoStack = [];
+    this.pushSnapshot();
   }
 
   // Rebuild inputs[].link and outputs[].links from the graph.links[] array.

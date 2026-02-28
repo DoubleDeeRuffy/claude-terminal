@@ -2578,6 +2578,43 @@ select.wf-step-edit-input {
   flex-shrink: 0;
   margin: 0 2px;
 }
+/* Undo/Redo button group */
+.wf-editor-history {
+  display: flex; align-items: center; gap: 0;
+  background: rgba(255,255,255,.025);
+  border-radius: 6px;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,.04);
+}
+.wf-ed-hist-btn {
+  width: 28px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .12s;
+}
+.wf-ed-hist-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,.07);
+  color: var(--text-primary);
+}
+.wf-ed-hist-btn:disabled {
+  opacity: .3;
+  cursor: default;
+}
+
+/* Selection status in status bar */
+.wf-sb-selection {
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 500;
+  padding: 0 6px;
+  background: rgba(217,119,6,.1);
+  border-radius: 4px;
+}
+
 .wf-editor-zoom {
   display: flex; align-items: center; gap: 0;
   background: rgba(255,255,255,.025);

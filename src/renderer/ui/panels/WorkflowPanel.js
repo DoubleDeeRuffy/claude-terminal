@@ -1454,12 +1454,21 @@ function openEditor(workflowId = null) {
         <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Nom du workflow…" />
         <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
         <div class="wf-editor-toolbar-sep"></div>
+        <div class="wf-editor-history">
+          <button class="wf-ed-hist-btn" id="wf-ed-undo" title="Undo (Ctrl+Z)" disabled>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          </button>
+          <button class="wf-ed-hist-btn" id="wf-ed-redo" title="Redo (Ctrl+Y)" disabled>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+          </button>
+        </div>
+        <div class="wf-editor-toolbar-sep"></div>
         <div class="wf-editor-zoom">
-          <button id="wf-ed-zoom-out" title="Zoom out">−</button>
+          <button id="wf-ed-zoom-out" title="Zoom out (−)">−</button>
           <span id="wf-ed-zoom-label">100%</span>
-          <button id="wf-ed-zoom-in" title="Zoom in">+</button>
-          <button id="wf-ed-zoom-reset" title="Reset to 100%">1:1</button>
-          <button id="wf-ed-zoom-fit" title="Fit all nodes">Fit</button>
+          <button id="wf-ed-zoom-in" title="Zoom in (+)">+</button>
+          <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
+          <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
         </div>
         <div class="wf-editor-toolbar-sep"></div>
         <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run">${svgPlay(10)} Run</button>
@@ -1498,6 +1507,7 @@ function openEditor(workflowId = null) {
       </div>
       <div class="wf-editor-statusbar">
         <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 nodes</span>
+        <span class="wf-sb-section wf-sb-selection" id="wf-ed-selection" style="display:none"></span>
         <span class="wf-sb-sep"></span>
         <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || 'Sans titre'}</span>
         <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">Modifié</span>
@@ -1534,21 +1544,38 @@ function openEditor(workflowId = null) {
   // ── Status bar updates ──
   const updateStatusBar = () => {
     const count = graphService.getNodeCount();
+    const selCount = graphService.getSelectedCount();
     const countEl = panel.querySelector('#wf-ed-nodecount');
+    const selEl = panel.querySelector('#wf-ed-selection');
     const zoomEl = panel.querySelector('#wf-ed-zoom-pct');
     const zoomLabel = panel.querySelector('#wf-ed-zoom-label');
     const sbName = panel.querySelector('#wf-ed-sb-name');
     const sbDirty = panel.querySelector('#wf-ed-sb-dirty');
     const toolbarDirty = panel.querySelector('#wf-ed-dirty');
+    const undoBtn = panel.querySelector('#wf-ed-undo');
+    const redoBtn = panel.querySelector('#wf-ed-redo');
     if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} node${count !== 1 ? 's' : ''}`;
+    if (selEl) {
+      if (selCount > 0) {
+        selEl.textContent = `${selCount} sélectionné${selCount > 1 ? 's' : ''}`;
+        selEl.style.display = '';
+      } else {
+        selEl.style.display = 'none';
+      }
+    }
     const pct = Math.round(graphService.getZoom() * 100);
     if (zoomEl) zoomEl.textContent = `${pct}%`;
     if (zoomLabel) zoomLabel.textContent = `${pct}%`;
     if (sbName) sbName.textContent = editorDraft.name || 'Sans titre';
     if (sbDirty) sbDirty.style.display = editorDraft.dirty ? '' : 'none';
     if (toolbarDirty) toolbarDirty.style.display = editorDraft.dirty ? '' : 'none';
+    if (undoBtn) undoBtn.disabled = !graphService.canUndo();
+    if (redoBtn) redoBtn.disabled = !graphService.canRedo();
   };
   updateStatusBar();
+
+  // Wire history changes → status bar update
+  graphService.onHistoryChanged = updateStatusBar;
 
   // ── Resize observer ──
   const resizeObs = new ResizeObserver(() => {
@@ -2176,6 +2203,7 @@ function openEditor(workflowId = null) {
     upgradeSelectsToDropdowns(propsEl);
 
     // ── Bind property inputs ──
+    let _propSnapshotTimer = null;
     propsEl.querySelectorAll('.wf-node-prop').forEach(input => {
       const handler = () => {
         const key = input.dataset.key;
@@ -2196,6 +2224,9 @@ function openEditor(workflowId = null) {
         if (['triggerType', 'method', 'action', 'mode', 'connection'].includes(key)) {
           renderProperties(node);
         }
+        // Debounced snapshot so rapid typing doesn't flood the history
+        clearTimeout(_propSnapshotTimer);
+        _propSnapshotTimer = setTimeout(() => graphService.pushSnapshot(), 600);
       };
       input.addEventListener('input', handler);
       input.addEventListener('change', handler);
@@ -2474,6 +2505,16 @@ function openEditor(workflowId = null) {
     updateStatusBar();
   });
 
+  // Undo / Redo
+  panel.querySelector('#wf-ed-undo').addEventListener('click', () => {
+    graphService.undo();
+    updateStatusBar();
+  });
+  panel.querySelector('#wf-ed-redo').addEventListener('click', () => {
+    graphService.redo();
+    updateStatusBar();
+  });
+
   // Save
   panel.querySelector('#wf-ed-save').addEventListener('click', async () => {
     const data = graphService.serializeToWorkflow();
@@ -2710,11 +2751,46 @@ Rules:
 
   // ── Keyboard shortcuts in editor ──
   const editorKeyHandler = (e) => {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      // Only delete if not focused on an input
-      if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
-        graphService.deleteSelected();
-      }
+    const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+    // Delete / Backspace — delete selected nodes
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput) {
+      graphService.deleteSelected();
+      return;
+    }
+    // Ctrl+Z — Undo
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      graphService.undo();
+      updateStatusBar();
+      return;
+    }
+    // Ctrl+Y or Ctrl+Shift+Z — Redo
+    if (((e.ctrlKey || e.metaKey) && e.key === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+      e.preventDefault();
+      graphService.redo();
+      updateStatusBar();
+      return;
+    }
+    // Ctrl+A — Select all
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !inInput) {
+      e.preventDefault();
+      graphService.selectAll();
+      updateStatusBar();
+      return;
+    }
+    // Ctrl+D — Duplicate selected
+    if ((e.ctrlKey || e.metaKey) && e.key === 'd' && !inInput) {
+      e.preventDefault();
+      graphService.duplicateSelected();
+      updateStatusBar();
+      return;
+    }
+    // F — Fit all nodes
+    if (e.key === 'f' && !inInput && !e.ctrlKey && !e.metaKey) {
+      graphService.zoomToFit();
+      updateStatusBar();
+      return;
     }
   };
   document.addEventListener('keydown', editorKeyHandler);
