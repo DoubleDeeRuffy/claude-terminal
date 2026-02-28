@@ -231,6 +231,12 @@ function deleteRunsForWorkflow(workflowId) {
   for (const r of toRemove) cleanResultFile(r.id);
 }
 
+function clearAllRuns() {
+  const all = loadHistory();
+  atomicWrite(HISTORY_FILE, []);
+  for (const r of all) cleanResultFile(r.id);
+}
+
 // ─── Cycle detection ──────────────────────────────────────────────────────────
 
 /**
@@ -285,6 +291,7 @@ module.exports = {
   getRecentRuns,
   getRun,
   deleteRunsForWorkflow,
+  clearAllRuns,
   // Results
   saveResultPayload,
   loadResultPayload,

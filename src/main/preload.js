@@ -439,6 +439,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     // History
     getRuns:          (workflowId, limit) => ipcRenderer.invoke('workflow-runs', { workflowId, limit }),
     getRecentRuns:    (limit)        => ipcRenderer.invoke('workflow-recent-runs', { limit }),
+    clearAllRuns:     ()             => ipcRenderer.invoke('workflow-clear-runs'),
     getRun:           (runId)        => ipcRenderer.invoke('workflow-run-get', { runId }),
     getRunResult:     (runId)        => ipcRenderer.invoke('workflow-run-result', { runId }),
     getActiveRuns:    ()             => ipcRenderer.invoke('workflow-active-runs'),

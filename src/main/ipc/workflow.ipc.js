@@ -138,6 +138,16 @@ function registerWorkflowHandlers(mainWindow) {
     }
   });
 
+  ipcMain.handle('workflow-clear-runs', async () => {
+    try {
+      workflowService.clearAllRuns();
+      return { success: true };
+    } catch (err) {
+      console.error('[workflow-clear-runs]', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('workflow-run-get', async (_e, { runId }) => {
     try {
       const run = workflowService.getRun(runId);

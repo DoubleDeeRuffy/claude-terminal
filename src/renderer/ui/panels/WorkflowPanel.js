@@ -7,6 +7,7 @@ const { LiteGraph } = require('litegraph.js');
 const { projectsState } = require('../../state/projects.state');
 const { schemaCache } = require('../../services/WorkflowSchemaCache');
 const { showContextMenu } = require('../components/ContextMenu');
+const { showConfirm } = require('../components/Modal');
 
 let ctx = null;
 
@@ -1156,57 +1157,76 @@ function renderRunHistory(el) {
     return;
   }
 
-  el.innerHTML = `
-    <div class="wf-runs">
-      ${state.runs.map(run => {
-        const wf = state.workflows.find(w => w.id === run.workflowId);
-        const steps = run.steps || [];
-        const totalSteps = steps.length;
-        const doneSteps = steps.filter(s => s.status === 'success').length;
-        const failedSteps = steps.filter(s => s.status === 'failed').length;
+  const INITIAL_LIMIT = 15;
+  const showAll = el._showAllRuns || false;
+  const runs = showAll ? state.runs : state.runs.slice(0, INITIAL_LIMIT);
+  const hasMore = state.runs.length > INITIAL_LIMIT && !showAll;
 
-        return `
-          <div class="wf-run wf-run--${run.status}" data-run-id="${run.id}" style="cursor:pointer">
-            <div class="wf-run-indicator">
-              <div class="wf-run-indicator-icon wf-run-indicator-icon--${run.status}">
-                ${run.status === 'success' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' :
-                  run.status === 'failed' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>' :
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'}
+  function buildRunRow(run) {
+    const wf = state.workflows.find(w => w.id === run.workflowId);
+    return `
+      <div class="wf-run wf-run--${run.status}" data-run-id="${run.id}">
+        <div class="wf-run-bar wf-run-bar--${run.status}"></div>
+        <div class="wf-run-body">
+          <div class="wf-run-header">
+            <div class="wf-run-header-left">
+              <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
+              <div class="wf-run-meta">
+                <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
+                <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
               </div>
-              <div class="wf-run-indicator-line"></div>
             </div>
-            <div class="wf-run-body">
-              <div class="wf-run-header">
-                <div class="wf-run-header-left">
-                  <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
-                  <div class="wf-run-meta">
-                    <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
-                    <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
-                  </div>
-                </div>
-                <div class="wf-run-header-right">
-                  <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
-                  <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
-                </div>
-              </div>
-              <div class="wf-run-pipeline">
-                ${(run.steps || []).map((s, i) => {
-                  const sType = (s.type || s.name || '').split('.')[0];
-                  const info = findStepType(sType);
-                  return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
-                    <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                    <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
-                    <span class="wf-run-pipe-dur">${fmtDuration(s.duration)}</span>
-                    <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
-                  </div>${i < run.steps.length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
-                }).join('')}
-              </div>
+            <div class="wf-run-header-right">
+              <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
+              <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
             </div>
           </div>
-        `;
-      }).join('')}
+          <div class="wf-run-pipeline">
+            ${(run.steps || []).map((s, i) => {
+              const sType = (s.type || s.name || '').split('.')[0];
+              const info = findStepType(sType);
+              return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
+                <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+                <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
+                <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
+              </div>${i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
+            }).join('')}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="wf-runs-header">
+      <span class="wf-runs-count">${state.runs.length} run${state.runs.length > 1 ? 's' : ''}</span>
+      <button class="wf-runs-clear" id="wf-clear-runs" title="Effacer l'historique">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        Effacer
+      </button>
+    </div>
+    <div class="wf-runs">
+      ${runs.map(buildRunRow).join('')}
+      ${hasMore ? `<div class="wf-runs-show-more" id="wf-show-more-runs">Afficher ${state.runs.length - INITIAL_LIMIT} runs de plus</div>` : ''}
     </div>
   `;
+
+  // Clear all runs
+  const clearBtn = el.querySelector('#wf-clear-runs');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const confirmed = await showConfirm({
+        title: 'Effacer l\'historique',
+        message: `Supprimer les ${state.runs.length} runs de l'historique ? Cette action est irréversible.`,
+        confirmLabel: 'Effacer',
+        danger: true,
+      });
+      if (!confirmed) return;
+      await api?.clearAllRuns();
+      state.runs = [];
+      renderContent();
+    });
+  }
 
   // Bind click to open run detail
   el.querySelectorAll('.wf-run[data-run-id]').forEach(runEl => {
@@ -1215,6 +1235,15 @@ function renderRunHistory(el) {
       if (run) renderRunDetail(el, run);
     });
   });
+
+  // Show more button
+  const showMoreBtn = el.querySelector('#wf-show-more-runs');
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener('click', () => {
+      el._showAllRuns = true;
+      renderRunHistory(el);
+    });
+  }
 }
 
 /* ─── Run Detail View ──────────────────────────────────────────────────── */
@@ -2651,14 +2680,15 @@ function setupAutocomplete(container, node, graphService) {
 
   function insertSuggestion(value) {
     if (!activeField || dollarPos < 0) return;
-    const before = activeField.value.substring(0, dollarPos);
-    const after = activeField.value.substring(activeField.selectionStart);
-    activeField.value = before + value + after;
+    const field = activeField;
+    const before = field.value.substring(0, dollarPos);
+    const after = field.value.substring(field.selectionStart);
+    field.value = before + value + after;
     const newPos = dollarPos + value.length;
-    activeField.setSelectionRange(newPos, newPos);
-    activeField.dispatchEvent(new Event('input', { bubbles: true }));
+    field.setSelectionRange(newPos, newPos);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
     hidePopup();
-    activeField.focus();
+    field.focus();
   }
 
   function renderPopup(suggestions, anchorField) {

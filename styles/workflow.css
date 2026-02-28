@@ -489,64 +489,32 @@
 
 /* ─── Run history (timeline) ─────────────────────────────────────────────── */
 
-.wf-runs { padding: 12px 14px 12px 16px; display: flex; flex-direction: column; gap: 0; }
+.wf-runs-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 4px; }
+.wf-runs-count { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.wf-runs-clear {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; color: var(--text-muted); background: none; border: none;
+  cursor: pointer; padding: 3px 8px; border-radius: 4px; transition: all .15s;
+}
+.wf-runs-clear:hover { color: #f87171; background: rgba(239,68,68,.08); }
+
+.wf-runs { padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 2px; }
 
 .wf-run {
   display: flex;
   gap: 0;
-  transition: all .2s var(--wf-ease);
+  transition: all .15s var(--wf-ease);
   position: relative;
+  border-radius: 8px;
+  cursor: pointer;
 }
+.wf-run:hover { background: rgba(255,255,255,.03); }
 
-/* Timeline indicator column */
-.wf-run-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 32px;
-  flex-shrink: 0;
-  padding-top: 14px;
-}
-.wf-run-indicator-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border: 2px solid rgba(255,255,255,.06);
-  background: var(--bg-primary);
-  position: relative;
-  z-index: 1;
-  transition: all .2s var(--wf-ease);
-}
-.wf-run-indicator-icon--success {
-  border-color: rgba(74,222,128,.3);
-  color: var(--wf-success);
-  background: rgba(74,222,128,.06);
-}
-.wf-run-indicator-icon--failed {
-  border-color: rgba(239,68,68,.3);
-  color: #f87171;
-  background: rgba(239,68,68,.06);
-}
-.wf-run-indicator-icon--running {
-  border-color: rgba(96,165,250,.3);
-  color: var(--wf-info);
-  background: rgba(96,165,250,.06);
-  animation: wfPulse 2s infinite;
-}
-.wf-run:hover .wf-run-indicator-icon--success { border-color: rgba(74,222,128,.5); box-shadow: 0 0 12px rgba(74,222,128,.15); }
-.wf-run:hover .wf-run-indicator-icon--failed { border-color: rgba(239,68,68,.5); box-shadow: 0 0 12px rgba(239,68,68,.15); }
-
-.wf-run-indicator-line {
-  width: 1.5px;
-  flex: 1;
-  background: rgba(255,255,255,.04);
-  margin-top: 4px;
-}
-.wf-run:last-child .wf-run-indicator-line { display: none; }
+/* Color bar on left */
+.wf-run-bar { width: 3px; flex-shrink: 0; border-radius: 3px 0 0 3px; }
+.wf-run-bar--success { background: var(--wf-success); }
+.wf-run-bar--failed  { background: #f87171; }
+.wf-run-bar--running { background: var(--wf-info); animation: wfPulse 1.5s infinite; }
 
 /* Run body */
 .wf-run-body {
@@ -554,23 +522,17 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 14px 16px 10px;
-  margin-left: 2px;
-  border-radius: 10px;
-  transition: background .15s;
-}
-.wf-run:hover .wf-run-body {
-  background: rgba(255,255,255,.02);
+  gap: 6px;
+  padding: 8px 10px;
 }
 
 .wf-run-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
-.wf-run-header-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wf-run-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .wf-run-header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
 .wf-run-name {
@@ -586,7 +548,7 @@
 .wf-run-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 10px;
   color: var(--text-muted);
 }
@@ -604,7 +566,7 @@
   font-weight: 600;
   color: var(--text-muted);
   background: rgba(255,255,255,.04);
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: .04em;
@@ -622,13 +584,12 @@
 .wf-run-pipe-step {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all .12s var(--wf-ease);
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
-.wf-run-pipe-step .wf-chip { width: 18px; height: 18px; border-radius: 5px; }
+.wf-run-pipe-step .wf-chip { width: 16px; height: 16px; border-radius: 4px; }
 
 .wf-run-pipe-name {
   font-size: 10px;
@@ -637,16 +598,12 @@
   color: var(--text-secondary);
 }
 
-.wf-run-pipe-dur {
-  font-size: 9px;
-  color: var(--text-muted);
-  opacity: .5;
-}
+.wf-run-pipe-dur { display: none; }
 
 .wf-run-pipe-status {
   font-size: 10px;
   font-weight: 700;
-  margin-left: 2px;
+  margin-left: 1px;
 }
 
 .wf-run-pipe-step--success .wf-run-pipe-status { color: var(--wf-success); }
@@ -656,21 +613,30 @@
 .wf-run-pipe-step--running .wf-run-pipe-status { color: var(--wf-info); animation: wfPulse 1.5s infinite; }
 
 .wf-run-pipe-connector {
-  width: 12px;
+  width: 8px;
   height: 1px;
   background: rgba(255,255,255,.06);
   flex-shrink: 0;
 }
 
-/* ─── Run history (compact in detail modal) ─────────────────────────────── */
+/* ─── Run history helpers ───────────────────────────────────────────────── */
 
-.wf-run--sm .wf-run-body { padding: 7px 12px; gap: 4px; }
-.wf-run-bar { width: 2.5px; flex-shrink: 0; background: rgba(255,255,255,.06); }
-.wf-run-bar--success { background: var(--wf-success); }
-.wf-run-bar--failed  { background: #f87171; }
-.wf-run-bar--running { background: var(--wf-info); animation: wfPulse 1.5s infinite; }
+.wf-run--sm .wf-run-body { padding: 6px 10px; gap: 4px; }
 .wf-run-meta-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-muted); }
 .wf-run-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.wf-runs-show-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all .15s;
+}
+.wf-runs-show-more:hover { color: var(--text-secondary); background: rgba(255,255,255,.03); }
 
 /* ─── Overlay backdrop ───────────────────────────────────────────────────── */
 
