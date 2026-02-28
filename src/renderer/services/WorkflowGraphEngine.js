@@ -1,0 +1,2054 @@
+/**
+ * WorkflowGraphEngine — Custom canvas-based graph editor
+ * Replaces LiteGraph.js with a zero-dependency Blueprint-style node editor.
+ *
+ * Architecture:
+ *   GraphModel       — nodes, links, typed pins, serialize/configure
+ *   GraphRenderer    — Blueprint-style tinted headers, pins, widgets, links
+ *   GraphInteraction — pan, zoom, drag nodes, drag links, selection, hit testing
+ */
+
+'use strict';
+
+const {
+  NODE_COLORS, PIN_TYPES, TYPE_COMPAT,
+  NODE_DATA_OUTPUTS, NODE_DATA_OUT_OFFSET,
+  getNodeColors, isValidConnection,
+} = require('../../shared/workflow-schema');
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const MONO = '"Cascadia Code", "Fira Code", monospace';
+const TITLE_H = 30;
+const SLOT_H = 22;
+const WIDGET_H = 24;
+const PIN_R = 4.5;
+const DIAMOND_R = 5;
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 3;
+const GRID_SIZE = 20;
+const MAX_HISTORY = 50;
+
+const STATUS_COLORS = {
+  running: '#f59e0b', success: '#22c55e',
+  failed: '#ef4444',  skipped: '#6b7280',
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawDiamond(ctx, cx, cy, size) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - size);
+  ctx.lineTo(cx + size, cy);
+  ctx.lineTo(cx, cy + size);
+  ctx.lineTo(cx - size, cy);
+  ctx.closePath();
+}
+
+function drawBadge(ctx, text, x, y, color) {
+  ctx.font = `700 8px ${FONT}`;
+  const tw = ctx.measureText(text).width;
+  const bx = x - tw - 10;
+  roundRect(ctx, bx, y, tw + 10, 14, 3);
+  ctx.fillStyle = hexToRgba(color, 0.12);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.85;
+  ctx.textAlign = 'center';
+  ctx.fillText(text, bx + (tw + 10) / 2, y + 10.5);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+function computeNodeHeight(node) {
+  const inputSlots = node.inputs ? node.inputs.length : 0;
+  const outputSlots = node.outputs ? node.outputs.length : 0;
+  const slots = Math.max(inputSlots, outputSlots);
+  const widgetH = (node.widgets ? node.widgets.length : 0) * (WIDGET_H + 4);
+  return Math.max(slots * SLOT_H + widgetH + 10, 50);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NODE TYPE DEFINITIONS (declarative registry)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function addDataOutputDefs(defs, nodeType) {
+  const dataOuts = NODE_DATA_OUTPUTS[nodeType] || [];
+  for (const d of dataOuts) defs.push({ name: d.name, type: d.type });
+  return defs;
+}
+
+const NODE_TYPES = {
+  'workflow/trigger': {
+    title: 'Trigger', desc: 'Point de départ',
+    inputs: [],
+    outputs: [{ name: 'Start', type: 'exec' }],
+    props: { triggerType: 'manual', triggerValue: '', hookType: 'PostToolUse' },
+    widgets: [{ type: 'combo', name: 'Type', key: 'triggerType', values: ['manual', 'cron', 'hook', 'on_workflow'] }],
+    width: 200, removable: false,
+    badge: (n) => (n.properties.triggerType || 'manual').toUpperCase(),
+  },
+  'workflow/claude': {
+    title: 'Claude', desc: 'Prompt, Agent ou Skill',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'claude'),
+    props: { mode: 'prompt', prompt: '', agentId: '', skillId: '', model: 'sonnet', effort: 'normal', outputSchema: null },
+    widgets: [
+      { type: 'combo', name: 'Mode', key: 'mode', values: ['prompt', 'agent', 'skill'] },
+      { type: 'text', name: 'Prompt', key: 'prompt' },
+      { type: 'combo', name: 'Model', key: 'model', values: ['sonnet', 'haiku', 'opus'] },
+      { type: 'combo', name: 'Effort', key: 'effort', values: ['low', 'normal', 'high'] },
+    ],
+    width: 220,
+    badge: (n) => ({ prompt: 'PROMPT', agent: 'AGENT', skill: 'SKILL' }[n.properties.mode] || 'PROMPT'),
+  },
+  'workflow/shell': {
+    title: 'Shell', desc: 'Commande bash',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'shell'),
+    props: { command: '' },
+    widgets: [{ type: 'text', name: 'Command', key: 'command' }],
+    width: 220,
+    drawExtra: (ctx, n) => {
+      if (n.properties.command) {
+        ctx.fillStyle = '#444';
+        ctx.font = `10px ${MONO}`;
+        const cmd = n.properties.command.length > 28 ? n.properties.command.slice(0, 28) + '...' : n.properties.command;
+        ctx.textAlign = 'left';
+        ctx.fillText('$ ' + cmd, 10, n.size[1] - 6);
+      }
+    },
+  },
+  'workflow/git': {
+    title: 'Git', desc: 'Opération git',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'git'),
+    props: { action: 'pull', branch: '', message: '' },
+    widgets: [{ type: 'combo', name: 'Action', key: 'action', values: ['pull', 'push', 'commit', 'checkout', 'merge', 'stash', 'stash-pop', 'reset'] }],
+    width: 200,
+    badge: (n) => (n.properties.action || 'pull').toUpperCase(),
+  },
+  'workflow/http': {
+    title: 'HTTP', desc: 'Requête API',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'http'),
+    props: { method: 'GET', url: '', headers: '', body: '' },
+    widgets: [
+      { type: 'combo', name: 'Method', key: 'method', values: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] },
+      { type: 'text', name: 'URL', key: 'url' },
+      { type: 'text', name: 'Headers', key: 'headers' },
+      { type: 'text', name: 'Body', key: 'body' },
+    ],
+    width: 220,
+    badge: (n) => n.properties.method || 'GET',
+    badgeColor: (n) => ({ GET: '#22c55e', POST: '#3b82f6', PUT: '#f59e0b', PATCH: '#a78bfa', DELETE: '#ef4444' }[n.properties.method] || '#22d3ee'),
+  },
+  'workflow/notify': {
+    title: 'Notify', desc: 'Notification',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: [{ name: 'Done', type: 'exec' }],
+    props: { title: '', message: '' },
+    widgets: [{ type: 'text', name: 'Title', key: 'title' }, { type: 'text', name: 'Message', key: 'message' }],
+    width: 200,
+  },
+  'workflow/wait': {
+    title: 'Wait', desc: 'Temporisation',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: [{ name: 'Done', type: 'exec' }],
+    props: { mode: 'duration', duration: '5s', timeout: '' },
+    widgets: [
+      { type: 'combo', name: 'Mode', key: 'mode', values: ['duration', 'approval'] },
+      { type: 'text', name: 'Duration', key: 'duration' },
+      { type: 'text', name: 'Timeout', key: 'timeout' },
+    ],
+    width: 200,
+    badge: (n) => n.properties.mode === 'approval' ? 'APPROVAL' : (n.properties.duration || '5s').toUpperCase(),
+  },
+  'workflow/condition': {
+    title: 'Condition', desc: 'Branchement conditionnel',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: [{ name: 'TRUE', type: 'exec' }, { name: 'FALSE', type: 'exec' }],
+    props: { conditionMode: 'builder', variable: '', operator: '==', value: '', expression: '' },
+    widgets: [
+      { type: 'combo', name: 'Mode', key: 'conditionMode', values: ['builder', 'expression'] },
+      { type: 'text', name: 'Variable', key: 'variable' },
+      { type: 'combo', name: 'Operator', key: 'operator', values: ['==', '!=', '>', '<', '>=', '<=', 'contains', 'starts_with', 'matches', 'is_empty', 'is_not_empty'] },
+      { type: 'text', name: 'Value', key: 'value' },
+      { type: 'text', name: 'Expression', key: 'expression' },
+    ],
+    width: 220,
+    drawExtra: (ctx, n) => {
+      const slotH = SLOT_H;
+      ctx.font = `700 8px ${FONT}`;
+      ctx.fillStyle = 'rgba(74,222,128,.12)';
+      roundRect(ctx, n.size[0] - 38, slotH * 0 + 2, 26, 13, 3);
+      ctx.fill();
+      ctx.fillStyle = '#4ade80'; ctx.textAlign = 'center';
+      ctx.fillText('TRUE', n.size[0] - 25, slotH * 0 + 12);
+      ctx.fillStyle = 'rgba(239,68,68,.12)';
+      roundRect(ctx, n.size[0] - 43, slotH * 1 + 2, 31, 13, 3);
+      ctx.fill();
+      ctx.fillStyle = '#ef4444'; ctx.textAlign = 'center';
+      ctx.fillText('FALSE', n.size[0] - 27, slotH * 1 + 12);
+    },
+  },
+  'workflow/project': {
+    title: 'Project', desc: 'Cibler un projet',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: [{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }],
+    props: { projectId: '', projectName: '', action: 'set_context' },
+    widgets: [
+      { type: 'combo', name: 'Action', key: 'action', values: ['set_context', 'open', 'build', 'install', 'test'] },
+      { type: 'text', name: 'Project', key: 'projectName' },
+    ],
+    width: 220,
+    badge: (n) => (n.properties.action || 'set_context').toUpperCase().replace('_', ' '),
+  },
+  'workflow/file': {
+    title: 'File', desc: 'Opération fichier',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'file'),
+    props: { action: 'read', path: '', destination: '', content: '' },
+    widgets: [
+      { type: 'combo', name: 'Action', key: 'action', values: ['read', 'write', 'append', 'copy', 'delete', 'exists'] },
+      { type: 'text', name: 'Path', key: 'path' },
+    ],
+    width: 220,
+    badge: (n) => (n.properties.action || 'read').toUpperCase(),
+  },
+  'workflow/db': {
+    title: 'Database', desc: 'Requête base de données',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'db'),
+    props: { connection: '', query: '', action: 'query' },
+    widgets: [
+      { type: 'combo', name: 'Action', key: 'action', values: ['query', 'schema', 'tables'] },
+      { type: 'text', name: 'Query', key: 'query' },
+    ],
+    width: 220,
+    badge: (n) => (n.properties.action || 'query').toUpperCase(),
+  },
+  'workflow/loop': {
+    title: 'Loop', desc: 'Itérer sur une liste',
+    inputs: [{ name: 'In', type: 'exec' }, { name: 'items', type: 'array' }],
+    outputs: addDataOutputDefs([{ name: 'Each', type: 'exec' }, { name: 'Done', type: 'exec' }], 'loop'),
+    props: { source: 'auto', items: '', mode: 'sequential', maxIterations: '', _itemSchema: [] },
+    widgets: [
+      { type: 'combo', name: 'Source', key: 'source', values: ['auto', 'projects', 'files', 'custom'] },
+      { type: 'text', name: 'Items', key: 'items' },
+      { type: 'combo', name: 'Mode', key: 'mode', values: ['sequential', 'parallel'] },
+      { type: 'text', name: 'Max items', key: 'maxIterations' },
+    ],
+    width: 210,
+    badge: (n) => n.properties.mode === 'parallel' ? 'PARALLEL' : (n.properties.source || 'auto').toUpperCase(),
+    badgeColor: (n) => n.properties.mode === 'parallel' ? '#f59e0b' : null,
+  },
+  'workflow/variable': {
+    title: 'Variable', desc: 'Lire/écrire une variable',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }], 'variable'),
+    props: { action: 'set', name: '', value: '' },
+    widgets: [
+      { type: 'combo', name: 'Action', key: 'action', values: ['set', 'get', 'increment', 'append'] },
+      { type: 'text', name: 'Name', key: 'name' },
+    ],
+    width: 200,
+    badge: (n) => (n.properties.action || 'set').toUpperCase(),
+    drawExtra: (ctx, n) => {
+      if (n.properties.name) {
+        ctx.fillStyle = '#555';
+        ctx.font = `10px ${MONO}`;
+        ctx.textAlign = 'left';
+        ctx.fillText('$' + n.properties.name, 10, n.size[1] - 6);
+      }
+    },
+  },
+  'workflow/log': {
+    title: 'Log', desc: 'Écrire dans le log',
+    inputs: [{ name: 'In', type: 'exec' }, { name: 'message', type: 'string' }],
+    outputs: [{ name: 'Done', type: 'exec' }],
+    props: { level: 'info', message: '' },
+    widgets: [
+      { type: 'combo', name: 'Level', key: 'level', values: ['debug', 'info', 'warn', 'error'] },
+      { type: 'text', name: 'Message', key: 'message' },
+    ],
+    width: 200,
+    badge: (n) => (n.properties.level || 'info').toUpperCase(),
+    badgeColor: (n) => ({ debug: '#94a3b8', info: '#60a5fa', warn: '#fbbf24', error: '#ef4444' }[n.properties.level]),
+  },
+  'workflow/transform': {
+    title: 'Transform', desc: 'Transformer des données',
+    inputs: [{ name: 'In', type: 'exec' }, { name: 'input', type: 'any' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'transform'),
+    props: { operation: 'map', input: '', expression: '', outputVar: '' },
+    widgets: [
+      { type: 'combo', name: 'Operation', key: 'operation', values: ['map', 'filter', 'reduce', 'find', 'pluck', 'count', 'sort', 'unique', 'flatten', 'json_parse', 'json_stringify'] },
+      { type: 'text', name: 'Input', key: 'input' },
+      { type: 'text', name: 'Expression', key: 'expression' },
+      { type: 'text', name: 'Output var', key: 'outputVar' },
+    ],
+    width: 230,
+    badge: (n) => (n.properties.operation || 'map').toUpperCase(),
+  },
+  'workflow/subworkflow': {
+    title: 'Sub-workflow', desc: 'Appeler un autre workflow',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'subworkflow'),
+    props: { workflow: '', inputVars: '', waitForCompletion: true },
+    widgets: [
+      { type: 'text', name: 'Workflow', key: 'workflow' },
+      { type: 'text', name: 'Input vars', key: 'inputVars' },
+      { type: 'combo', name: 'Wait', key: 'waitForCompletion', values: ['yes', 'no'] },
+    ],
+    width: 220,
+    badge: (n) => n.properties.workflow ? n.properties.workflow.slice(0, 12).toUpperCase() : 'WORKFLOW',
+  },
+  'workflow/switch': {
+    title: 'Switch', desc: 'Brancher sur plusieurs valeurs',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: [{ name: 'default', type: 'exec' }], // rebuilt dynamically
+    props: { variable: '', cases: 'case1,case2,case3' },
+    widgets: [
+      { type: 'text', name: 'Variable', key: 'variable' },
+      { type: 'text', name: 'Cases', key: 'cases' },
+    ],
+    width: 220, dynamic: 'switch',
+    badge: (n) => (n.properties.variable || '$var').slice(0, 14),
+  },
+  'workflow/get_variable': {
+    title: 'Get Variable', desc: 'Lire une variable (pure)',
+    inputs: [],
+    outputs: [{ name: 'value', type: 'any' }],
+    props: { name: '', varType: 'any' },
+    widgets: [],
+    width: 150, resizable: false,
+    getTitle: (n) => n.properties.name || 'Get Variable',
+    drawExtra: (ctx, n) => {
+      const t = n.properties.varType || 'any';
+      const pc = (PIN_TYPES[t] || PIN_TYPES.any).color;
+      ctx.fillStyle = pc; ctx.globalAlpha = 0.55;
+      ctx.fillRect(0, 0, 3, n.size[1]);
+      ctx.globalAlpha = 1;
+    },
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORKFLOW GRAPH ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class WorkflowGraphEngine {
+  constructor() {
+    // ── Model ──
+    this._nodes = [];         // flat array of node objects
+    this._links = new Map();  // linkId → { id, origin_id, origin_slot, target_id, target_slot, type }
+    this._nextNodeId = 1;
+    this._nextLinkId = 1;
+
+    // ── Canvas ──
+    this.canvasElement = null;
+    this._ctx = null;
+    this._animFrame = null;
+    this._dirty = true;
+
+    // ── Viewport ──
+    this._scale = 1;
+    this._offsetX = 0;
+    this._offsetY = 0;
+
+    // ── Interaction state ──
+    this._selectedNodes = new Set();  // node id set
+    this._dragging = null;            // { type: 'node'|'pan'|'link'|'box', ... }
+    this._hoveredNode = null;
+    this._hoveredPin = null;
+
+    // ── History ──
+    this._undoStack = [];
+    this._redoStack = [];
+    this._historyPaused = false;
+
+    // ── Run outputs ──
+    this._lastRunOutputs = new Map();
+
+    // ── Callbacks ──
+    this.onNodeSelected = null;
+    this.onNodeDeselected = null;
+    this.onGraphChanged = null;
+    this.onHistoryChanged = null;
+    this.onArrayToSingleConnection = null;
+
+    // ── Compatibility shims ──
+    this.graph = this._createGraphShim();
+    this.canvas = this._createCanvasShim();
+  }
+
+  // ═══ LIFECYCLE ═══════════════════════════════════════════════════════════════
+
+  init(canvasElement) {
+    this.canvasElement = canvasElement;
+    this._ctx = canvasElement.getContext('2d');
+
+    // Event listeners
+    this._onMouseDown = this._handleMouseDown.bind(this);
+    this._onMouseMove = this._handleMouseMove.bind(this);
+    this._onMouseUp = this._handleMouseUp.bind(this);
+    this._onWheel = this._handleWheel.bind(this);
+    this._onKeyDown = this._handleKeyDown.bind(this);
+    this._onDblClick = this._handleDblClick.bind(this);
+    this._onCtxMenu = (e) => e.preventDefault();
+
+    canvasElement.addEventListener('mousedown', this._onMouseDown);
+    canvasElement.addEventListener('mousemove', this._onMouseMove);
+    canvasElement.addEventListener('mouseup', this._onMouseUp);
+    canvasElement.addEventListener('wheel', this._onWheel, { passive: false });
+    canvasElement.addEventListener('dblclick', this._onDblClick);
+    canvasElement.addEventListener('contextmenu', this._onCtxMenu);
+    window.addEventListener('keydown', this._onKeyDown);
+
+    // Render loop
+    const loop = () => {
+      if (this._dirty) {
+        this._render();
+        this._dirty = false;
+      }
+      // Keep rendering if any node is in running test state (spinner animation)
+      const hasRunning = this._nodes.some(n => n._testState === 'running');
+      if (hasRunning) this._dirty = true;
+      this._animFrame = requestAnimationFrame(loop);
+    };
+    this._animFrame = requestAnimationFrame(loop);
+
+    return this;
+  }
+
+  destroy() {
+    if (this._animFrame) { cancelAnimationFrame(this._animFrame); this._animFrame = null; }
+    if (this.canvasElement) {
+      this.canvasElement.removeEventListener('mousedown', this._onMouseDown);
+      this.canvasElement.removeEventListener('mousemove', this._onMouseMove);
+      this.canvasElement.removeEventListener('mouseup', this._onMouseUp);
+      this.canvasElement.removeEventListener('wheel', this._onWheel);
+      this.canvasElement.removeEventListener('dblclick', this._onDblClick);
+      this.canvasElement.removeEventListener('contextmenu', this._onCtxMenu);
+      window.removeEventListener('keydown', this._onKeyDown);
+    }
+    this._nodes = [];
+    this._links.clear();
+    this.canvasElement = null;
+    this._ctx = null;
+    this.onNodeSelected = null;
+    this.onNodeDeselected = null;
+    this.onGraphChanged = null;
+  }
+
+  resize(width, height) {
+    if (!this.canvasElement) return;
+    this.canvasElement.width = width;
+    this.canvasElement.height = height;
+    this._dirty = true;
+  }
+
+  _markDirty() {
+    this._dirty = true;
+  }
+
+  // ═══ NODE MANAGEMENT ════════════════════════════════════════════════════════
+
+  addNode(typeName, pos) {
+    const def = NODE_TYPES[typeName];
+    if (!def) return null;
+
+    const id = this._nextNodeId++;
+    const node = {
+      id,
+      type: typeName,
+      title: def.title,
+      pos: pos ? [...pos] : [200, 200],
+      size: [def.width || 200, 0],
+      properties: { ...def.props },
+      inputs: (def.inputs || []).map(s => ({ name: s.name, type: s.type, link: null })),
+      outputs: (def.outputs || []).map(s => ({ name: s.name, type: s.type, links: [] })),
+      widgets: (def.widgets || []).map(w => ({
+        type: w.type,
+        name: w.name,
+        key: w.key,
+        value: def.props[w.key] !== undefined ? def.props[w.key] : (w.values ? w.values[0] : ''),
+        options: { values: w.values },
+        disabled: false,
+      })),
+      removable: def.removable !== false,
+      resizable: def.resizable !== false,
+      is_selected: false,
+      flags: {},
+      _runStatus: null,
+      _testState: null,
+      _testResult: null,
+      _outputSchema: null,
+    };
+
+    // Handle Switch dynamic outputs
+    if (def.dynamic === 'switch') {
+      this._rebuildSwitchOutputs(node);
+    }
+
+    node.size[1] = computeNodeHeight(node);
+    this._nodes.push(node);
+
+    // Select the new node
+    this._selectNode(node, false);
+    this._markDirty();
+    this._notifyChanged();
+    this.pushSnapshot();
+    return node;
+  }
+
+  _rebuildSwitchOutputs(node) {
+    // Clear existing links from these outputs
+    for (const out of node.outputs) {
+      for (const lid of out.links) this._links.delete(lid);
+    }
+    node.outputs = [];
+    const cases = (node.properties.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+    for (const c of cases) node.outputs.push({ name: c, type: 'exec', links: [] });
+    node.outputs.push({ name: 'default', type: 'exec', links: [] });
+    node.size[1] = computeNodeHeight(node);
+  }
+
+  deleteSelected() {
+    const toRemove = this._nodes.filter(n => this._selectedNodes.has(n.id) && n.removable !== false);
+    for (const node of toRemove) this._removeNode(node);
+    this._selectedNodes.clear();
+    this._markDirty();
+    this._notifyChanged();
+    this.pushSnapshot();
+  }
+
+  _removeNode(node) {
+    // Remove all links connected to this node
+    for (const input of node.inputs) {
+      if (input.link != null) this._removeLink(input.link);
+    }
+    for (const output of node.outputs) {
+      for (const lid of [...output.links]) this._removeLink(lid);
+    }
+    const idx = this._nodes.indexOf(node);
+    if (idx >= 0) this._nodes.splice(idx, 1);
+  }
+
+  _removeLink(linkId) {
+    const link = this._links.get(linkId);
+    if (!link) return;
+    // Clean references from source output
+    const srcNode = this._getNodeById(link.origin_id);
+    if (srcNode && srcNode.outputs[link.origin_slot]) {
+      const arr = srcNode.outputs[link.origin_slot].links;
+      const i = arr.indexOf(linkId);
+      if (i >= 0) arr.splice(i, 1);
+    }
+    // Clean reference from target input
+    const dstNode = this._getNodeById(link.target_id);
+    if (dstNode && dstNode.inputs[link.target_slot]) {
+      if (dstNode.inputs[link.target_slot].link === linkId) {
+        dstNode.inputs[link.target_slot].link = null;
+      }
+    }
+    this._links.delete(linkId);
+  }
+
+  _getNodeById(id) {
+    return this._nodes.find(n => n.id === id) || null;
+  }
+
+  selectAll() {
+    for (const n of this._nodes) {
+      n.is_selected = true;
+      this._selectedNodes.add(n.id);
+    }
+    this._markDirty();
+    this._notifyChanged();
+  }
+
+  getSelectedCount() {
+    return this._selectedNodes.size;
+  }
+
+  getNodeCount() {
+    return this._nodes.length;
+  }
+
+  duplicateSelected() {
+    if (!this._selectedNodes.size) return;
+    const newNodes = [];
+    for (const id of this._selectedNodes) {
+      const node = this._getNodeById(id);
+      if (!node) continue;
+      const copy = this.addNode(node.type, [node.pos[0] + 40, node.pos[1] + 40]);
+      if (!copy) continue;
+      Object.assign(copy.properties, JSON.parse(JSON.stringify(node.properties)));
+      // Sync widget values
+      for (let i = 0; i < copy.widgets.length; i++) {
+        if (node.widgets[i]) copy.widgets[i].value = node.widgets[i].value;
+      }
+      newNodes.push(copy);
+    }
+    if (newNodes.length) {
+      this._deselectAll();
+      for (const n of newNodes) this._selectNode(n, true);
+      this._markDirty();
+      this.pushSnapshot();
+    }
+  }
+
+  // ═══ SELECTION ══════════════════════════════════════════════════════════════
+
+  _selectNode(node, additive) {
+    if (!additive) {
+      for (const n of this._nodes) n.is_selected = false;
+      this._selectedNodes.clear();
+    }
+    node.is_selected = true;
+    this._selectedNodes.add(node.id);
+    if (this.onNodeSelected) this.onNodeSelected(node);
+  }
+
+  _deselectAll() {
+    for (const n of this._nodes) n.is_selected = false;
+    this._selectedNodes.clear();
+    if (this.onNodeDeselected) this.onNodeDeselected();
+  }
+
+  _toggleSelect(node) {
+    if (this._selectedNodes.has(node.id)) {
+      node.is_selected = false;
+      this._selectedNodes.delete(node.id);
+    } else {
+      node.is_selected = true;
+      this._selectedNodes.add(node.id);
+      if (this.onNodeSelected) this.onNodeSelected(node);
+    }
+  }
+
+  // ═══ LINKS ═════════════════════════════════════════════════════════════════
+
+  _addLink(originId, originSlot, targetId, targetSlot) {
+    const srcNode = this._getNodeById(originId);
+    const dstNode = this._getNodeById(targetId);
+    if (!srcNode || !dstNode) return null;
+    const srcSlot = srcNode.outputs[originSlot];
+    const dstSlot = dstNode.inputs[targetSlot];
+    if (!srcSlot || !dstSlot) return null;
+
+    // Validate type compatibility
+    const srcType = srcSlot.type === -1 ? 'exec' : (srcSlot.type || 'any');
+    const dstType = dstSlot.type === -1 ? 'exec' : (dstSlot.type || 'any');
+    if (!isValidConnection(srcType, dstType)) return null;
+
+    // Remove existing link on target input (single connection per input)
+    if (dstSlot.link != null) this._removeLink(dstSlot.link);
+
+    const linkId = this._nextLinkId++;
+    const link = {
+      id: linkId,
+      origin_id: originId,
+      origin_slot: originSlot,
+      target_id: targetId,
+      target_slot: targetSlot,
+      type: srcType,
+    };
+    this._links.set(linkId, link);
+    srcSlot.links.push(linkId);
+    dstSlot.link = linkId;
+
+    // Detect array→single connection (suggest auto-loop insertion)
+    if (srcType === 'array' && dstType !== 'array' && dstType !== 'any' && this.onArrayToSingleConnection) {
+      this.onArrayToSingleConnection(link, srcNode, dstNode);
+    }
+
+    this._notifyChanged();
+    this.pushSnapshot();
+    return link;
+  }
+
+  // ═══ PIN POSITIONS ═════════════════════════════════════════════════════════
+
+  _getOutputPinPos(node, slotIndex) {
+    return [node.pos[0] + node.size[0], node.pos[1] + TITLE_H + (slotIndex + 0.5) * SLOT_H];
+  }
+
+  _getInputPinPos(node, slotIndex) {
+    return [node.pos[0], node.pos[1] + TITLE_H + (slotIndex + 0.5) * SLOT_H];
+  }
+
+  /** Public: get pin position in graph coords */
+  getOutputPinPos(nodeId, slotIndex) {
+    const node = this._getNodeById(nodeId);
+    return node ? this._getOutputPinPos(node, slotIndex) : [0, 0];
+  }
+
+  getInputPinPos(nodeId, slotIndex) {
+    const node = this._getNodeById(nodeId);
+    return node ? this._getInputPinPos(node, slotIndex) : [0, 0];
+  }
+
+  /** Convert graph coordinates to screen coordinates */
+  graphToScreen(gx, gy) {
+    return [
+      gx * this._scale + this._offsetX,
+      gy * this._scale + this._offsetY,
+    ];
+  }
+
+  // ═══ SERIALIZATION ═════════════════════════════════════════════════════════
+
+  _serialize() {
+    const nodes = this._nodes.map(n => {
+      const sn = {
+        id: n.id,
+        type: n.type,
+        pos: [...n.pos],
+        size: [...n.size],
+        properties: JSON.parse(JSON.stringify(n.properties)),
+        inputs: (n.inputs || []).map(s => ({
+          name: s.name,
+          type: s.type === 'exec' ? -1 : s.type,
+          link: s.link,
+        })),
+        outputs: (n.outputs || []).map(s => ({
+          name: s.name,
+          type: s.type === 'exec' ? -1 : s.type,
+          links: [...s.links],
+          slot_index: undefined, // LiteGraph compat
+        })),
+        flags: n.flags || {},
+      };
+      // Store widget values as flat array (LiteGraph format)
+      if (n.widgets && n.widgets.length) {
+        sn.widgets_values = n.widgets.map(w => w.value);
+      }
+      return sn;
+    });
+
+    const links = [];
+    for (const [, link] of this._links) {
+      const type = link.type === 'exec' ? -1 : link.type;
+      links.push([link.id, link.origin_id, link.origin_slot, link.target_id, link.target_slot, type]);
+    }
+
+    return { nodes, links, last_node_id: this._nextNodeId, last_link_id: this._nextLinkId };
+  }
+
+  _configure(data) {
+    this._nodes = [];
+    this._links.clear();
+    this._selectedNodes.clear();
+
+    if (!data) return;
+
+    // Repair slot refs first
+    this._repairSlotRefs(data);
+
+    // Load nodes
+    for (const sn of (data.nodes || [])) {
+      const def = NODE_TYPES[sn.type];
+      if (!def) continue;
+
+      // Build node from serialized data
+      const node = {
+        id: sn.id,
+        type: sn.type,
+        title: def.title,
+        pos: sn.pos ? [...sn.pos] : [200, 200],
+        size: sn.size ? [...sn.size] : [def.width || 200, 0],
+        properties: sn.properties ? JSON.parse(JSON.stringify(sn.properties)) : { ...def.props },
+        inputs: (sn.inputs || []).map(s => ({
+          name: s.name,
+          type: s.type === -1 ? 'exec' : (s.type || 'exec'),
+          link: s.link != null ? s.link : null,
+        })),
+        outputs: (sn.outputs || []).map(s => ({
+          name: s.name,
+          type: s.type === -1 ? 'exec' : (s.type || 'exec'),
+          links: Array.isArray(s.links) ? [...s.links] : [],
+        })),
+        widgets: (def.widgets || []).map(w => ({
+          type: w.type,
+          name: w.name,
+          key: w.key,
+          value: sn.properties?.[w.key] !== undefined ? sn.properties[w.key] : (w.values ? w.values[0] : ''),
+          options: { values: w.values },
+          disabled: false,
+        })),
+        removable: def.removable !== false,
+        resizable: def.resizable !== false,
+        is_selected: false,
+        flags: sn.flags || {},
+        _runStatus: null,
+        _testState: null,
+        _testResult: null,
+        _outputSchema: null,
+      };
+
+      // Restore widget values from serialized flat array
+      if (sn.widgets_values && node.widgets) {
+        for (let i = 0; i < Math.min(sn.widgets_values.length, node.widgets.length); i++) {
+          node.widgets[i].value = sn.widgets_values[i];
+        }
+      }
+
+      // Recompute height to fit all slots
+      const h = computeNodeHeight(node);
+      if (node.size[1] < h) node.size[1] = h;
+
+      this._nodes.push(node);
+      if (sn.id >= this._nextNodeId) this._nextNodeId = sn.id + 1;
+    }
+
+    // Load links
+    for (const la of (data.links || [])) {
+      const [id, fromId, fromSlot, toId, toSlot, type] = la;
+      const link = {
+        id,
+        origin_id: fromId,
+        origin_slot: fromSlot,
+        target_id: toId,
+        target_slot: toSlot,
+        type: type === -1 ? 'exec' : (type || 'any'),
+      };
+      this._links.set(id, link);
+      if (id >= this._nextLinkId) this._nextLinkId = id + 1;
+    }
+
+    this._markDirty();
+  }
+
+  _repairSlotRefs(data) {
+    if (!data || !Array.isArray(data.links)) return;
+    for (const node of data.nodes || []) {
+      if (node.outputs) for (const o of node.outputs) { if (!Array.isArray(o.links)) o.links = []; }
+      if (node.inputs) for (const i of node.inputs) { if (i.link === undefined) i.link = null; }
+    }
+    for (const link of data.links) {
+      const [linkId, fromId, fromSlot, toId, toSlot] = link;
+      const src = (data.nodes || []).find(n => n.id === fromId);
+      const dst = (data.nodes || []).find(n => n.id === toId);
+      if (src && src.outputs && src.outputs[fromSlot]) {
+        if (!Array.isArray(src.outputs[fromSlot].links)) src.outputs[fromSlot].links = [];
+        if (!src.outputs[fromSlot].links.includes(linkId)) src.outputs[fromSlot].links.push(linkId);
+      }
+      if (dst && dst.inputs && dst.inputs[toSlot]) {
+        dst.inputs[toSlot].link = linkId;
+      }
+    }
+  }
+
+  serializeToWorkflow() {
+    const data = this._serialize();
+    const triggerNode = this._nodes.find(n => n.type === 'workflow/trigger');
+    const trigger = triggerNode ? {
+      type: triggerNode.properties.triggerType || 'manual',
+      value: triggerNode.properties.triggerValue || '',
+    } : { type: 'manual', value: '' };
+    const hookType = triggerNode ? triggerNode.properties.hookType : 'PostToolUse';
+
+    const steps = [];
+    for (const node of data.nodes) {
+      if (node.type === 'workflow/trigger') continue;
+      steps.push({
+        id: `node_${node.id}`,
+        type: node.type.replace('workflow/', ''),
+        _nodeId: node.id,
+        ...node.properties,
+      });
+    }
+
+    return { trigger, hookType, graph: data, steps };
+  }
+
+  loadFromWorkflow(workflow) {
+    if (workflow.graph) {
+      this._configure(workflow.graph);
+    } else if (workflow.steps) {
+      this._migrateLegacySteps(workflow);
+    }
+    this._undoStack = [];
+    this._redoStack = [];
+    this.pushSnapshot();
+    this._markDirty();
+  }
+
+  createEmpty() {
+    this._historyPaused = true;
+    this._nodes = [];
+    this._links.clear();
+    this._selectedNodes.clear();
+    this._nextNodeId = 1;
+    this._nextLinkId = 1;
+
+    const trigger = this.addNode('workflow/trigger', [100, 200]);
+    if (trigger) trigger.removable = false;
+
+    this._scale = 1;
+    this._offsetX = 0;
+    this._offsetY = 0;
+    this._historyPaused = false;
+    this._undoStack = [];
+    this._redoStack = [];
+    this.pushSnapshot();
+    this._markDirty();
+  }
+
+  _migrateLegacySteps(workflow) {
+    this._nodes = [];
+    this._links.clear();
+    this._nextNodeId = 1;
+    this._nextLinkId = 1;
+    this._historyPaused = true;
+
+    const SPACING_X = 280;
+    const trigger = this.addNode('workflow/trigger', [100, 200]);
+    if (trigger) {
+      trigger.removable = false;
+      trigger.properties.triggerType = workflow.trigger?.type || 'manual';
+      trigger.properties.triggerValue = workflow.trigger?.value || '';
+      trigger.properties.hookType = workflow.hookType || 'PostToolUse';
+    }
+
+    let prevNode = trigger;
+    for (let i = 0; i < (workflow.steps || []).length; i++) {
+      const step = workflow.steps[i];
+      const typeName = `workflow/${step.type === 'agent' ? 'claude' : step.type}`;
+      const node = this.addNode(typeName, [100 + SPACING_X * (i + 1), 200]);
+      if (!node) continue;
+      Object.assign(node.properties, step);
+      delete node.properties.id;
+      delete node.properties.type;
+      // Sync widgets
+      for (const w of node.widgets) {
+        if (node.properties[w.key] !== undefined) w.value = node.properties[w.key];
+      }
+      if (prevNode) this._addLink(prevNode.id, 0, node.id, 0);
+      prevNode = node;
+    }
+    this._historyPaused = false;
+  }
+
+  // ═══ INSERT LOOP BETWEEN ════════════════════════════════════════════════════
+
+  /**
+   * Insert a loop node between two connected nodes (array→single auto-loop).
+   * @param {object} link  — { id, origin_id, origin_slot, target_id, target_slot }
+   */
+  insertLoopBetween(link) {
+    const srcNode = this._getNodeById(link.origin_id);
+    const dstNode = this._getNodeById(link.target_id);
+    if (!srcNode || !dstNode) return;
+
+    // Calculate midpoint position
+    const [sx, sy] = this._getOutputPinPos(srcNode, link.origin_slot);
+    const [dx, dy] = this._getInputPinPos(dstNode, link.target_slot);
+    const mx = (sx + dx) / 2;
+    const my = (sy + dy) / 2;
+
+    // Remove existing link
+    this._removeLink(link.id);
+
+    // Create loop node at midpoint
+    const loopNode = this.addNode('workflow/loop', [mx - 100, my - 30]);
+    if (!loopNode) return;
+    loopNode.properties.source = 'auto';
+
+    // Connect: source → loop In (slot 0), loop Each (output 0) → target
+    this._addLink(srcNode.id, link.origin_slot, loopNode.id, 0);
+    this._addLink(loopNode.id, 0, dstNode.id, link.target_slot);
+
+    this._markDirty();
+    this._notifyChanged();
+    this.pushSnapshot();
+  }
+
+  // ═══ UNDO / REDO ══════════════════════════════════════════════════════════
+
+  pushSnapshot() {
+    if (this._historyPaused) return;
+    const snap = JSON.stringify(this._serialize());
+    if (this._undoStack.length > 0 && this._undoStack[this._undoStack.length - 1] === snap) return;
+    this._undoStack.push(snap);
+    if (this._undoStack.length > MAX_HISTORY) this._undoStack.shift();
+    this._redoStack = [];
+    if (this.onHistoryChanged) this.onHistoryChanged();
+  }
+
+  canUndo() { return this._undoStack.length > 1; }
+  canRedo() { return this._redoStack.length > 0; }
+
+  undo() {
+    if (!this.canUndo()) return;
+    const current = JSON.stringify(this._serialize());
+    this._redoStack.push(current);
+    this._undoStack.pop();
+    this._applySnapshot(this._undoStack[this._undoStack.length - 1]);
+    if (this.onHistoryChanged) this.onHistoryChanged();
+  }
+
+  redo() {
+    if (!this.canRedo()) return;
+    const next = this._redoStack.pop();
+    this._undoStack.push(next);
+    this._applySnapshot(next);
+    if (this.onHistoryChanged) this.onHistoryChanged();
+  }
+
+  _applySnapshot(snap) {
+    this._historyPaused = true;
+    try {
+      this._configure(JSON.parse(snap));
+      this._deselectAll();
+      this._notifyChanged();
+    } finally {
+      this._historyPaused = false;
+    }
+  }
+
+  // ═══ ZOOM ═════════════════════════════════════════════════════════════════
+
+  getZoom() { return this._scale; }
+
+  setZoom(scale) {
+    this._scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
+    this._markDirty();
+  }
+
+  zoomToFit(padding = 60) {
+    if (!this._nodes.length) {
+      this._scale = 1;
+      this._offsetX = 0;
+      this._offsetY = 0;
+      this._markDirty();
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of this._nodes) {
+      if (n.pos[0] < minX) minX = n.pos[0];
+      if (n.pos[1] < minY) minY = n.pos[1];
+      if (n.pos[0] + n.size[0] > maxX) maxX = n.pos[0] + n.size[0];
+      if (n.pos[1] + n.size[1] + TITLE_H > maxY) maxY = n.pos[1] + n.size[1] + TITLE_H;
+    }
+    const bw = maxX - minX + padding * 2;
+    const bh = maxY - minY + padding * 2;
+    const vw = this.canvasElement.width;
+    const vh = this.canvasElement.height;
+    const scale = Math.min(vw / bw, vh / bh, 1.5);
+    this._scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
+    this._offsetX = -(minX - padding) * this._scale;
+    this._offsetY = -(minY - padding) * this._scale;
+    this._markDirty();
+  }
+
+  // ═══ OUTPUT TRACKING ══════════════════════════════════════════════════════
+
+  setNodeOutput(nodeId, output) {
+    this._lastRunOutputs.set(nodeId, output);
+    const node = this._getNodeById(nodeId);
+    if (!node || !output) return;
+    const schema = this._extractItemSchema(output);
+    if (schema?.length) {
+      node._outputSchema = schema;
+      // Propagate to downstream Loop nodes
+      for (const out of node.outputs) {
+        for (const lid of out.links) {
+          const link = this._links.get(lid);
+          if (!link) continue;
+          const target = this._getNodeById(link.target_id);
+          if (target?.type === 'workflow/loop') {
+            this._applyLoopSchema(target, schema);
+          }
+        }
+      }
+    }
+  }
+
+  getNodeOutput(nodeId) { return this._lastRunOutputs.get(nodeId) || null; }
+  clearRunOutputs() { this._lastRunOutputs.clear(); }
+
+  setNodeStatus(nodeId, status) {
+    const node = this._getNodeById(nodeId);
+    if (node) { node._runStatus = status; this._markDirty(); }
+  }
+
+  clearAllStatuses() {
+    for (const n of this._nodes) n._runStatus = null;
+    this._markDirty();
+  }
+
+  _extractItemSchema(output) {
+    if (Array.isArray(output) && output.length > 0 && typeof output[0] === 'object' && output[0] !== null) {
+      return Object.keys(output[0]);
+    }
+    if (output && typeof output === 'object') {
+      for (const key of ['rows', 'items', 'content', 'tables', 'data', 'results']) {
+        const arr = output[key];
+        if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) {
+          return Object.keys(arr[0]);
+        }
+      }
+    }
+    return null;
+  }
+
+  _applyLoopSchema(node, schema) {
+    // Remove dynamic outputs beyond base 4 (Each, Done, item, index)
+    while (node.outputs.length > 4) {
+      const out = node.outputs.pop();
+      for (const lid of out.links) this._removeLink(lid);
+    }
+    node.properties._itemSchema = schema;
+    for (const key of schema) {
+      node.outputs.push({ name: 'item.' + key, type: 'any', links: [] });
+    }
+    node.size[1] = computeNodeHeight(node);
+    this._markDirty();
+  }
+
+  // ═══ NOTIFICATIONS ════════════════════════════════════════════════════════
+
+  _notifyChanged() {
+    if (this.onGraphChanged) this.onGraphChanged();
+    this._markDirty();
+  }
+
+  // ═══ RENDERING ════════════════════════════════════════════════════════════
+
+  _render() {
+    const ctx = this._ctx;
+    const W = this.canvasElement.width;
+    const H = this.canvasElement.height;
+
+    // Clear
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.translate(this._offsetX, this._offsetY);
+    ctx.scale(this._scale, this._scale);
+
+    this._drawGrid(ctx, W, H);
+    this._drawLinks(ctx);
+    for (const node of this._nodes) this._drawNode(ctx, node);
+
+    // Draw rubber-band link during drag
+    if (this._dragging?.type === 'link') {
+      const d = this._dragging;
+      ctx.save();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(d.startX, d.startY);
+      ctx.lineTo(d.curX, d.curY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // Draw selection box
+    if (this._dragging?.type === 'box') {
+      const d = this._dragging;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(245,158,11,0.5)';
+      ctx.fillStyle = 'rgba(245,158,11,0.05)';
+      ctx.lineWidth = 1;
+      const x = Math.min(d.startX, d.curX);
+      const y = Math.min(d.startY, d.curY);
+      const w = Math.abs(d.curX - d.startX);
+      const h = Math.abs(d.curY - d.startY);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  _drawGrid(ctx, vpW, vpH) {
+    const s = this._scale;
+    const startX = (-this._offsetX / s);
+    const startY = (-this._offsetY / s);
+    const endX = startX + vpW / s;
+    const endY = startY + vpH / s;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 0.5;
+    const gs = GRID_SIZE;
+
+    const fromX = Math.floor(startX / gs) * gs;
+    const fromY = Math.floor(startY / gs) * gs;
+
+    ctx.beginPath();
+    for (let x = fromX; x < endX; x += gs) {
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, endY);
+    }
+    for (let y = fromY; y < endY; y += gs) {
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+    }
+    ctx.stroke();
+  }
+
+  _drawLinks(ctx) {
+    for (const [, link] of this._links) {
+      const srcNode = this._getNodeById(link.origin_id);
+      const dstNode = this._getNodeById(link.target_id);
+      if (!srcNode || !dstNode) continue;
+
+      const [sx, sy] = this._getOutputPinPos(srcNode, link.origin_slot);
+      const [ex, ey] = this._getInputPinPos(dstNode, link.target_slot);
+
+      const pinType = link.type === 'exec' ? 'exec' : (link.type || 'any');
+      const color = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.7;
+
+      // Bezier curve
+      const dx = Math.abs(ex - sx) * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.bezierCurveTo(sx + dx, sy, ex - dx, ey, ex, ey);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  _drawNode(ctx, node) {
+    const c = getNodeColors(node);
+    const x = node.pos[0];
+    const y = node.pos[1];
+    const w = node.size[0];
+    const h = node.size[1];
+    const r = 8;
+    const ty = y; // title starts at y - TITLE_H visually, but node body at y
+
+    // ── Title bar (accent-tinted) ──
+    ctx.fillStyle = '#141416';
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + TITLE_H);
+    ctx.lineTo(x, y + TITLE_H);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+
+    // Accent tint overlay
+    ctx.fillStyle = hexToRgba(c.accent, 0.18);
+    ctx.fill();
+
+    // Top accent stripe (2px)
+    ctx.fillStyle = c.accent;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + 2);
+    ctx.lineTo(x, y + 2);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Title dot (accent glow)
+    ctx.save();
+    ctx.shadowColor = c.accent;
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = c.accent;
+    ctx.beginPath();
+    ctx.arc(x + 12, y + TITLE_H * 0.5, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Title text
+    const def = NODE_TYPES[node.type];
+    const titleText = (def?.getTitle ? def.getTitle(node) : null) || node.title;
+    ctx.font = `600 12px ${FONT}`;
+    ctx.fillStyle = node.is_selected ? '#fff' : '#bbb';
+    ctx.textAlign = 'left';
+    ctx.fillText(titleText, x + 22, y + TITLE_H * 0.5 + 4);
+
+    // ── Body ──
+    ctx.fillStyle = '#101012';
+    ctx.beginPath();
+    ctx.moveTo(x, y + TITLE_H);
+    ctx.lineTo(x + w, y + TITLE_H);
+    ctx.lineTo(x + w, y + TITLE_H + h - r);
+    ctx.quadraticCurveTo(x + w, y + TITLE_H + h, x + w - r, y + TITLE_H + h);
+    ctx.lineTo(x + r, y + TITLE_H + h);
+    ctx.quadraticCurveTo(x, y + TITLE_H + h, x, y + TITLE_H + h - r);
+    ctx.lineTo(x, y + TITLE_H);
+    ctx.closePath();
+    ctx.fill();
+
+    // Accent gradient at top of body
+    const grad = ctx.createLinearGradient(x, y + TITLE_H, x, y + TITLE_H + 18);
+    grad.addColorStop(0, c.accentDim);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y + TITLE_H, w, 18);
+
+    // Border
+    ctx.strokeStyle = 'rgba(255,255,255,.04)';
+    ctx.lineWidth = 0.5;
+    roundRect(ctx, x, y, w, TITLE_H + h, r);
+    ctx.stroke();
+
+    // Run status bar (left edge)
+    if (node._runStatus && STATUS_COLORS[node._runStatus]) {
+      ctx.fillStyle = STATUS_COLORS[node._runStatus];
+      ctx.fillRect(x, y + TITLE_H, 2.5, h);
+    }
+
+    // Selection outline
+    if (node.is_selected) {
+      ctx.strokeStyle = hexToRgba(c.accent, 0.35);
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, x - 0.5, y - 0.5, w + 1, TITLE_H + h + 1, r);
+      ctx.stroke();
+    }
+
+    // ── Pins ──
+    const bodyY = y + TITLE_H;
+    this._drawPins(ctx, node, bodyY);
+
+    // ── Widgets ──
+    this._drawWidgets(ctx, node, bodyY, c);
+
+    // ── Badge ──
+    if (def?.badge) {
+      const badgeText = def.badge(node);
+      const badgeColor = def.badgeColor ? def.badgeColor(node) || c.accent : c.accent;
+      drawBadge(ctx, badgeText, x + w - 6, y + 7, badgeColor);
+    }
+
+    // ── Custom drawing ──
+    if (def?.drawExtra) {
+      ctx.save();
+      ctx.translate(x, bodyY);
+      def.drawExtra(ctx, node);
+      ctx.restore();
+    }
+
+    // ── Test button ──
+    const nodeType = (node.type || '').replace('workflow/', '');
+    const UNTESTABLE = new Set(['trigger', 'loop', 'condition', 'switch', 'subworkflow', 'wait', 'get_variable']);
+    if (!UNTESTABLE.has(nodeType)) {
+      this._drawTestButton(ctx, node, x, y, w);
+    }
+
+    // Separator line
+    ctx.fillStyle = 'rgba(255,255,255,.03)';
+    ctx.fillRect(x, y + TITLE_H - 1, w, 1);
+  }
+
+  _drawPins(ctx, node, bodyY) {
+    const w = node.size[0];
+    const x = node.pos[0];
+
+    ctx.save();
+    ctx.font = `500 11px ${FONT}`;
+    ctx.textBaseline = 'middle';
+
+    // Output pins (right side)
+    if (node.outputs) {
+      for (let i = 0; i < node.outputs.length; i++) {
+        const slot = node.outputs[i];
+        const pinType = slot.type === -1 ? 'exec' : (slot.type || 'any');
+        const isExec = pinType === 'exec';
+        const py = bodyY + (i + 0.5) * SLOT_H;
+        const px = x + w;
+        const hasLinks = slot.links && slot.links.length > 0;
+
+        if (isExec) {
+          drawDiamond(ctx, px, py, DIAMOND_R);
+          if (hasLinks) { ctx.fillStyle = '#ccc'; ctx.fill(); }
+          else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
+        } else {
+          const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
+          ctx.save();
+          if (hasLinks) { ctx.shadowColor = pinColor; ctx.shadowBlur = 6; }
+          ctx.beginPath();
+          ctx.arc(px, py, PIN_R, 0, Math.PI * 2);
+          if (hasLinks) { ctx.fillStyle = pinColor; ctx.fill(); }
+          else { ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke(); }
+          ctx.restore();
+
+          // Label
+          const label = slot.name || '';
+          if (label) {
+            ctx.fillStyle = pinColor;
+            ctx.globalAlpha = 0.7;
+            ctx.textAlign = 'right';
+            ctx.fillText(label, x + w - 12, py);
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+    }
+
+    // Input pins (left side)
+    if (node.inputs) {
+      for (let i = 0; i < node.inputs.length; i++) {
+        const slot = node.inputs[i];
+        const pinType = slot.type === -1 ? 'exec' : (slot.type || 'any');
+        const isExec = pinType === 'exec';
+        const py = bodyY + (i + 0.5) * SLOT_H;
+        const px = x;
+        const hasLink = slot.link != null;
+
+        if (isExec) {
+          drawDiamond(ctx, px, py, DIAMOND_R);
+          if (hasLink) { ctx.fillStyle = '#ccc'; ctx.fill(); }
+          else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
+        } else {
+          const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
+          ctx.save();
+          if (hasLink) { ctx.shadowColor = pinColor; ctx.shadowBlur = 6; }
+          ctx.beginPath();
+          ctx.arc(px, py, PIN_R, 0, Math.PI * 2);
+          if (hasLink) { ctx.fillStyle = pinColor; ctx.fill(); }
+          else { ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke(); }
+          ctx.restore();
+
+          const label = slot.name || '';
+          if (label) {
+            ctx.fillStyle = pinColor;
+            ctx.globalAlpha = 0.7;
+            ctx.textAlign = 'left';
+            ctx.fillText(label, x + 12, py);
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+    }
+
+    ctx.restore();
+  }
+
+  _drawWidgets(ctx, node, bodyY, colors) {
+    if (!node.widgets || !node.widgets.length) return;
+    if (this._scale < 0.5) return; // hide widgets when zoomed out
+
+    const x = node.pos[0];
+    const w = node.size[0];
+    const margin = 10;
+    const innerW = w - margin * 2;
+    const slotArea = Math.max(node.inputs?.length || 0, node.outputs?.length || 0) * SLOT_H;
+    let posY = bodyY + slotArea + 4;
+
+    ctx.save();
+
+    for (const widget of node.widgets) {
+      if (widget.disabled) ctx.globalAlpha = 0.4;
+
+      // Background pill
+      roundRect(ctx, x + margin, posY, innerW, WIDGET_H, 6);
+      ctx.fillStyle = '#0c0c0e';
+      ctx.fill();
+      ctx.strokeStyle = '#1a1a1e';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      // Label (left)
+      ctx.fillStyle = '#555';
+      ctx.font = `500 9.5px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.fillText(widget.name, x + margin + 8, posY + WIDGET_H * 0.65);
+
+      if (widget.type === 'combo') {
+        // Value pill
+        const valStr = String(widget.value || '');
+        ctx.font = `600 9.5px ${FONT}`;
+        const valW = ctx.measureText(valStr).width;
+        const pillW = valW + 12;
+        const pillX = x + w - margin - pillW - 4;
+        const pillY = posY + 3;
+        const pillH = WIDGET_H - 6;
+        roundRect(ctx, pillX, pillY, pillW, pillH, 4);
+        ctx.fillStyle = hexToRgba(colors.accent, 0.1);
+        ctx.fill();
+        ctx.fillStyle = colors.accent;
+        ctx.textAlign = 'center';
+        ctx.fillText(valStr, pillX + pillW / 2, posY + WIDGET_H * 0.65);
+        // Chevron
+        ctx.fillStyle = '#444';
+        ctx.font = `8px ${FONT}`;
+        ctx.textAlign = 'right';
+        ctx.fillText('\u25BE', x + w - margin - 3, posY + WIDGET_H * 0.6);
+      } else if (widget.type === 'text' || widget.type === 'string') {
+        if (widget.value) {
+          let valStr = String(widget.value);
+          const maxChars = Math.floor((innerW - 80) / 5.5);
+          if (valStr.length > maxChars && maxChars > 3) valStr = valStr.substring(0, maxChars) + '\u2026';
+          ctx.fillStyle = '#9a9a9a';
+          ctx.font = `10px ${MONO}`;
+          ctx.textAlign = 'right';
+          ctx.fillText(valStr, x + w - margin - 6, posY + WIDGET_H * 0.65);
+        } else {
+          ctx.fillStyle = '#333';
+          ctx.font = `italic 9px ${FONT}`;
+          ctx.textAlign = 'right';
+          ctx.fillText('\u2014', x + w - margin - 6, posY + WIDGET_H * 0.65);
+        }
+      } else if (widget.type === 'toggle') {
+        const pillW = 20, pillH = 10;
+        const pillX = x + w - margin - pillW - 6;
+        const pillY = posY + (WIDGET_H - pillH) / 2;
+        roundRect(ctx, pillX, pillY, pillW, pillH, 5);
+        ctx.fillStyle = widget.value ? hexToRgba(colors.accent, 0.25) : '#1a1a1e';
+        ctx.fill();
+        const dotX = widget.value ? pillX + pillW - 5 : pillX + 5;
+        ctx.beginPath();
+        ctx.arc(dotX, pillY + pillH / 2, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = widget.value ? colors.accent : '#3a3a40';
+        ctx.fill();
+      }
+
+      if (widget.disabled) ctx.globalAlpha = 1;
+      posY += WIDGET_H + 4;
+    }
+
+    ctx.restore();
+  }
+
+  _drawTestButton(ctx, node, nx, ny, nw) {
+    const btnW = 20, btnH = 14;
+    const btnX = nx + nw - btnW - 4;
+    const btnY = ny + TITLE_H * 0.5 - btnH * 0.5;
+    const ts = node._testState || 'idle';
+
+    const btnColor = ts === 'running' ? '#f59e0b' : ts === 'success' ? '#22c55e' : ts === 'error' ? '#ef4444' : 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = btnColor;
+    ctx.globalAlpha = ts === 'idle' ? 0.7 : 0.9;
+    ctx.beginPath();
+    ctx.roundRect(btnX, btnY, btnW, btnH, 3);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = ts === 'idle' ? '#aaa' : '#fff';
+    ctx.font = `bold 8px ${FONT}`;
+    ctx.textAlign = 'center';
+    if (ts === 'running') {
+      const t = Math.floor(Date.now() / 300) % 3;
+      for (let i = 0; i < 3; i++) {
+        ctx.globalAlpha = i === t ? 1 : 0.3;
+        ctx.beginPath();
+        ctx.arc(btnX + 5 + i * 5, btnY + btnH * 0.5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      const icon = ts === 'success' ? '\u2713' : ts === 'error' ? '\u2715' : '\u25B6';
+      ctx.fillText(icon, btnX + btnW * 0.5, btnY + btnH * 0.5 + 3);
+    }
+    ctx.textAlign = 'left';
+
+    // Store bounds for hit testing
+    node._testBtnBounds = { x: btnX, y: btnY, w: btnW, h: btnH };
+  }
+
+  // ═══ INTERACTION ══════════════════════════════════════════════════════════
+
+  _screenToCanvas(sx, sy) {
+    return [(sx - this._offsetX) / this._scale, (sy - this._offsetY) / this._scale];
+  }
+
+  _getMousePos(e) {
+    const rect = this.canvasElement.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  }
+
+  _hitTestNode(cx, cy) {
+    // Iterate in reverse (top-most first)
+    for (let i = this._nodes.length - 1; i >= 0; i--) {
+      const n = this._nodes[i];
+      if (cx >= n.pos[0] && cx <= n.pos[0] + n.size[0] &&
+          cy >= n.pos[1] && cy <= n.pos[1] + TITLE_H + n.size[1]) {
+        return n;
+      }
+    }
+    return null;
+  }
+
+  _hitTestPin(cx, cy) {
+    const threshold = 10;
+    for (const node of this._nodes) {
+      // Check output pins
+      if (node.outputs) {
+        for (let i = 0; i < node.outputs.length; i++) {
+          const [px, py] = this._getOutputPinPos(node, i);
+          if (Math.abs(cx - px) < threshold && Math.abs(cy - py) < threshold) {
+            return { node, slotIndex: i, isOutput: true, slot: node.outputs[i] };
+          }
+        }
+      }
+      // Check input pins
+      if (node.inputs) {
+        for (let i = 0; i < node.inputs.length; i++) {
+          const [px, py] = this._getInputPinPos(node, i);
+          if (Math.abs(cx - px) < threshold && Math.abs(cy - py) < threshold) {
+            return { node, slotIndex: i, isOutput: false, slot: node.inputs[i] };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  _hitTestTestButton(cx, cy) {
+    for (const node of this._nodes) {
+      const b = node._testBtnBounds;
+      if (b && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  _handleMouseDown(e) {
+    const [sx, sy] = this._getMousePos(e);
+    const [cx, cy] = this._screenToCanvas(sx, sy);
+
+    // Middle-click or Space+click → pan
+    if (e.button === 1) {
+      this._dragging = { type: 'pan', startSX: sx, startSY: sy, startOX: this._offsetX, startOY: this._offsetY };
+      e.preventDefault();
+      return;
+    }
+
+    if (e.button !== 0) return;
+
+    // Check test button
+    const testNode = this._hitTestTestButton(cx, cy);
+    if (testNode) {
+      this._runTestNode(testNode);
+      return;
+    }
+
+    // Check pins first (for link dragging)
+    const pin = this._hitTestPin(cx, cy);
+    if (pin) {
+      const [px, py] = pin.isOutput
+        ? this._getOutputPinPos(pin.node, pin.slotIndex)
+        : this._getInputPinPos(pin.node, pin.slotIndex);
+      this._dragging = {
+        type: 'link',
+        fromNode: pin.node,
+        fromSlot: pin.slotIndex,
+        isOutput: pin.isOutput,
+        slot: pin.slot,
+        startX: px,
+        startY: py,
+        curX: cx,
+        curY: cy,
+      };
+      return;
+    }
+
+    // Check nodes
+    const node = this._hitTestNode(cx, cy);
+    if (node) {
+      if (e.shiftKey) {
+        this._toggleSelect(node);
+      } else if (!this._selectedNodes.has(node.id)) {
+        this._selectNode(node, false);
+      }
+      // Start node drag
+      this._dragging = {
+        type: 'node',
+        startCX: cx,
+        startCY: cy,
+        nodeStarts: new Map(),
+      };
+      // Store initial positions of all selected nodes
+      for (const id of this._selectedNodes) {
+        const n = this._getNodeById(id);
+        if (n) this._dragging.nodeStarts.set(id, [...n.pos]);
+      }
+      // Bring clicked node to top
+      const idx = this._nodes.indexOf(node);
+      if (idx >= 0) {
+        this._nodes.splice(idx, 1);
+        this._nodes.push(node);
+      }
+      this._markDirty();
+      return;
+    }
+
+    // Empty space → deselect and start box selection
+    this._deselectAll();
+    this._dragging = {
+      type: 'box',
+      startX: cx,
+      startY: cy,
+      curX: cx,
+      curY: cy,
+    };
+    this._markDirty();
+  }
+
+  _handleMouseMove(e) {
+    if (!this._dragging) return;
+    const [sx, sy] = this._getMousePos(e);
+    const [cx, cy] = this._screenToCanvas(sx, sy);
+    const d = this._dragging;
+
+    if (d.type === 'pan') {
+      this._offsetX = d.startOX + (sx - d.startSX);
+      this._offsetY = d.startOY + (sy - d.startSY);
+      this._markDirty();
+    } else if (d.type === 'node') {
+      const dx = cx - d.startCX;
+      const dy = cy - d.startCY;
+      for (const [id, startPos] of d.nodeStarts) {
+        const n = this._getNodeById(id);
+        if (n) {
+          n.pos[0] = startPos[0] + dx;
+          n.pos[1] = startPos[1] + dy;
+        }
+      }
+      this._markDirty();
+    } else if (d.type === 'link') {
+      d.curX = cx;
+      d.curY = cy;
+      this._markDirty();
+    } else if (d.type === 'box') {
+      d.curX = cx;
+      d.curY = cy;
+      // Update selection
+      const minX = Math.min(d.startX, cx);
+      const minY = Math.min(d.startY, cy);
+      const maxX = Math.max(d.startX, cx);
+      const maxY = Math.max(d.startY, cy);
+      this._selectedNodes.clear();
+      for (const n of this._nodes) {
+        const inside = n.pos[0] + n.size[0] > minX && n.pos[0] < maxX &&
+                       n.pos[1] + TITLE_H + n.size[1] > minY && n.pos[1] < maxY;
+        n.is_selected = inside;
+        if (inside) this._selectedNodes.add(n.id);
+      }
+      this._markDirty();
+    }
+  }
+
+  _handleMouseUp(e) {
+    if (!this._dragging) return;
+    const d = this._dragging;
+
+    if (d.type === 'node') {
+      // Snapshot after drag
+      this.pushSnapshot();
+      this._notifyChanged();
+    } else if (d.type === 'link') {
+      // Try to connect
+      const [sx, sy] = this._getMousePos(e);
+      const [cx, cy] = this._screenToCanvas(sx, sy);
+      const target = this._hitTestPin(cx, cy);
+      if (target && target.isOutput !== d.isOutput) {
+        if (d.isOutput) {
+          this._addLink(d.fromNode.id, d.fromSlot, target.node.id, target.slotIndex);
+        } else {
+          this._addLink(target.node.id, target.slotIndex, d.fromNode.id, d.fromSlot);
+        }
+      }
+    } else if (d.type === 'box') {
+      if (this._selectedNodes.size > 0 && this.onNodeSelected) {
+        const first = this._getNodeById([...this._selectedNodes][0]);
+        if (first) this.onNodeSelected(first);
+      }
+    }
+
+    this._dragging = null;
+    this._markDirty();
+  }
+
+  _handleWheel(e) {
+    e.preventDefault();
+    const [sx, sy] = this._getMousePos(e);
+    const [cx, cy] = this._screenToCanvas(sx, sy);
+
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this._scale * factor));
+
+    // Zoom towards mouse position
+    this._offsetX = sx - cx * newScale;
+    this._offsetY = sy - cy * newScale;
+    this._scale = newScale;
+    this._markDirty();
+  }
+
+  _handleKeyDown(e) {
+    // Only handle if canvas is focused or no other input is focused
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.contentEditable === 'true')) return;
+    if (!this.canvasElement) return;
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      this.deleteSelected();
+      e.preventDefault();
+    } else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (e.shiftKey) this.redo(); else this.undo();
+    } else if (e.key === 'y' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      this.redo();
+    } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      this.selectAll();
+    } else if (e.key === 'd' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      this.duplicateSelected();
+    }
+  }
+
+  _handleDblClick(e) {
+    const [sx, sy] = this._getMousePos(e);
+    const [cx, cy] = this._screenToCanvas(sx, sy);
+    const node = this._hitTestNode(cx, cy);
+    if (node) {
+      // Double-click on node: check if it's a widget area for inline editing
+      this._handleWidgetClick(node, cx, cy);
+    }
+  }
+
+  _handleWidgetClick(node, cx, cy) {
+    if (!node.widgets?.length) return;
+    const bodyY = node.pos[1] + TITLE_H;
+    const slotArea = Math.max(node.inputs?.length || 0, node.outputs?.length || 0) * SLOT_H;
+    let widgetY = bodyY + slotArea + 4;
+
+    for (const widget of node.widgets) {
+      if (widget.disabled) { widgetY += WIDGET_H + 4; continue; }
+      if (cy >= widgetY && cy <= widgetY + WIDGET_H && cx >= node.pos[0] + 10 && cx <= node.pos[0] + node.size[0] - 10) {
+        this._editWidget(node, widget);
+        return;
+      }
+      widgetY += WIDGET_H + 4;
+    }
+  }
+
+  _editWidget(node, widget) {
+    if (widget.type === 'combo') {
+      this._showComboDropdown(node, widget);
+    } else if (widget.type === 'text' || widget.type === 'string') {
+      const val = prompt(widget.name + ':', widget.value || '');
+      if (val !== null) {
+        widget.value = val;
+        if (widget.key) node.properties[widget.key] = val;
+        // Handle special cases
+        if (node.type === 'workflow/switch' && widget.key === 'cases') {
+          this._rebuildSwitchOutputs(node);
+        }
+        this._markDirty();
+        this._notifyChanged();
+        this.pushSnapshot();
+      }
+    } else if (widget.type === 'toggle') {
+      widget.value = !widget.value;
+      if (widget.key) node.properties[widget.key] = widget.value;
+      this._markDirty();
+      this._notifyChanged();
+      this.pushSnapshot();
+    }
+  }
+
+  _showComboDropdown(node, widget) {
+    const values = widget.options?.values || [];
+    if (!values.length) return;
+
+    // Create HTML dropdown overlay
+    const container = this.canvasElement.parentElement;
+    if (!container) return;
+
+    // Compute screen position of widget
+    const bodyY = node.pos[1] + TITLE_H;
+    const slotArea = Math.max(node.inputs?.length || 0, node.outputs?.length || 0) * SLOT_H;
+    let wY = bodyY + slotArea + 4;
+    for (const w of node.widgets) {
+      if (w === widget) break;
+      wY += WIDGET_H + 4;
+    }
+
+    const screenX = node.pos[0] * this._scale + this._offsetX + 10;
+    const screenY = wY * this._scale + this._offsetY;
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'wf-engine-dropdown';
+    dropdown.style.cssText = `position:absolute;left:${screenX}px;top:${screenY + WIDGET_H * this._scale}px;z-index:9999;
+      background:#1a1a1e;border:1px solid #2d2d2d;border-radius:6px;padding:4px 0;min-width:120px;
+      box-shadow:0 4px 16px rgba(0,0,0,0.5);max-height:200px;overflow-y:auto;`;
+
+    for (const val of values) {
+      const opt = document.createElement('div');
+      opt.textContent = val;
+      opt.style.cssText = `padding:6px 12px;cursor:pointer;font:500 11px ${FONT};color:${val === widget.value ? '#f59e0b' : '#ccc'};`;
+      opt.addEventListener('mouseenter', () => { opt.style.background = '#252525'; });
+      opt.addEventListener('mouseleave', () => { opt.style.background = 'none'; });
+      opt.addEventListener('click', () => {
+        widget.value = val;
+        if (widget.key) node.properties[widget.key] = val;
+        if (node.type === 'workflow/switch' && widget.key === 'cases') {
+          this._rebuildSwitchOutputs(node);
+        }
+        dropdown.remove();
+        this._markDirty();
+        this._notifyChanged();
+        this.pushSnapshot();
+      });
+      dropdown.appendChild(opt);
+    }
+
+    container.appendChild(dropdown);
+
+    // Close on click outside
+    const closeHandler = (e) => {
+      if (!dropdown.contains(e.target)) {
+        dropdown.remove();
+        document.removeEventListener('mousedown', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+  }
+
+  // ═══ TEST NODE ════════════════════════════════════════════════════════════
+
+  _runTestNode(node) {
+    if (node._testState === 'running') return;
+    const api = window.electron_api;
+    if (!api?.workflow?.testNode) return;
+
+    node._testState = 'running';
+    node._testResult = null;
+    this._markDirty();
+
+    const step = { id: `node_${node.id}`, type: (node.type || '').replace('workflow/', ''), ...(node.properties || {}) };
+    api.workflow.testNode(step, {}).then(result => {
+      node._testState = result.success ? 'success' : 'error';
+      node._testResult = result;
+      this._markDirty();
+      setTimeout(() => { node._testState = 'idle'; this._markDirty(); }, 5000);
+      if (result.success && result.output) this.setNodeOutput(node.id, result.output);
+    }).catch(err => {
+      node._testState = 'error';
+      node._testResult = { success: false, error: err.message };
+      this._markDirty();
+      setTimeout(() => { node._testState = 'idle'; this._markDirty(); }, 5000);
+    });
+  }
+
+  // ═══ COMPATIBILITY SHIMS ══════════════════════════════════════════════════
+
+  _createGraphShim() {
+    const engine = this;
+    return {
+      get _nodes() { return engine._nodes; },
+      get links() {
+        // Return as object keyed by linkId for compat
+        const obj = {};
+        for (const [id, link] of engine._links) obj[id] = link;
+        return obj;
+      },
+      getNodeById(id) { return engine._getNodeById(id); },
+      serialize() { return engine._serialize(); },
+      configure(data) { engine._configure(data); },
+      add(node) { engine._nodes.push(node); engine._markDirty(); },
+      remove(node) { engine._removeNode(node); engine._markDirty(); },
+      removeLink(linkId) { engine._removeLink(linkId); engine._markDirty(); },
+      clear() { engine._nodes = []; engine._links.clear(); engine._selectedNodes.clear(); },
+      setDirtyCanvas() { engine._markDirty(); },
+      getNodes() { return engine._nodes; },
+    };
+  }
+
+  _createCanvasShim() {
+    const engine = this;
+    return {
+      ds: {
+        get scale() { return engine._scale; },
+        set scale(v) { engine._scale = v; },
+        get offset() { return [engine._offsetX, engine._offsetY]; },
+        set offset(v) { if (Array.isArray(v)) { engine._offsetX = v[0]; engine._offsetY = v[1]; } },
+        get min_scale() { return MIN_ZOOM; },
+        get max_scale() { return MAX_ZOOM; },
+        reset() { engine._scale = 1; engine._offsetX = 0; engine._offsetY = 0; },
+        convertOffsetToCanvas(pos) { return engine.graphToScreen(pos[0], pos[1]); },
+      },
+      get selected_nodes() {
+        const obj = {};
+        for (const id of engine._selectedNodes) {
+          const n = engine._getNodeById(id);
+          if (n) obj[id] = n;
+        }
+        return obj;
+      },
+      selectNode(node) { engine._selectNode(node, false); },
+      selectNodes(nodes) {
+        engine._deselectAll();
+        for (const n of (nodes || [])) { n.is_selected = true; engine._selectedNodes.add(n.id); }
+        if (nodes?.length && engine.onNodeSelected) engine.onNodeSelected(nodes[0]);
+      },
+      deselectAllNodes() { engine._deselectAll(); },
+      setDirty() { engine._markDirty(); },
+      resize(w, h) { engine.resize(w, h); },
+      get node_dragged() { return engine._dragging?.type === 'node'; },
+    };
+  }
+}
+
+// ═══ SINGLETON ══════════════════════════════════════════════════════════════
+
+let instance = null;
+
+function getGraphService() {
+  if (!instance) instance = new WorkflowGraphEngine();
+  if (typeof window !== 'undefined') window._workflowGraphService = instance;
+  return instance;
+}
+
+function resetGraphService() {
+  if (instance) instance.destroy();
+  instance = null;
+}
+
+module.exports = {
+  getGraphService,
+  resetGraphService,
+  WorkflowGraphEngine,
+  NODE_COLORS,
+};
