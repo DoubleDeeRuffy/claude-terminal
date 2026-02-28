@@ -215,15 +215,12 @@ class ChatService {
     /** @type {BrowserWindow|null} */
     this.mainWindow = null;
 
-    // Catch SDK internal errors that bubble as unhandled rejections when
-    // the underlying CLI process has already exited or the session was closed.
+    // Catch SDK internal "ProcessTransport is not ready" errors that bubble as
+    // unhandled rejections when a permission response is resolved after the
+    // underlying CLI process has already exited.
     this._unhandledRejectionHandler = (reason) => {
-      const msg = reason?.message || '';
-      if (msg.includes('ProcessTransport is not ready')
-          || msg === 'Session closed'
-          || msg === 'Aborted'
-          || msg.includes('Request was aborted')) {
-        console.warn(`[ChatService] Suppressed post-close rejection: ${msg}`);
+      if (reason?.message?.includes('ProcessTransport is not ready')) {
+        console.warn('[ChatService] Suppressed SDK ProcessTransport error (CLI process already exited)');
         return;
       }
     };
@@ -238,29 +235,7 @@ class ChatService {
     this._remoteEventCallback = fn || null;
   }
 
-  /**
-   * Register a per-session message interceptor.
-   * When set, messages for that sessionId are routed to the interceptor
-   * instead of the main window. Used by WorkflowRunner agent steps.
-   * @param {string} sessionId
-   * @param {Function} fn - (channel, data) => void
-   * @returns {Function} unregister function
-   */
-  addSessionInterceptor(sessionId, fn) {
-    if (!this._sessionInterceptors) this._sessionInterceptors = new Map();
-    this._sessionInterceptors.set(sessionId, fn);
-    return () => this._sessionInterceptors.delete(sessionId);
-  }
-
   _send(channel, data) {
-    // Route to session interceptor if one is registered
-    if (this._sessionInterceptors && data?.sessionId) {
-      const interceptor = this._sessionInterceptors.get(data.sessionId);
-      if (interceptor) {
-        interceptor(channel, data);
-        return;
-      }
-    }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data);
     }
@@ -278,7 +253,7 @@ class ChatService {
    * @param {string} [params.resumeSessionId] - Session ID to resume
    * @returns {Promise<string>} Session ID
    */
-  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null, outputFormat = null, skills = null }) {
+  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null }) {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -339,16 +314,6 @@ class ChatService {
       // Enable 1M token context window (beta)
       if (enable1MContext) {
         options.betas = ['context-1m-2025-08-07'];
-      }
-
-      // Structured output format (JSON schema)
-      if (outputFormat) {
-        options.outputFormat = outputFormat;
-      }
-
-      // Skills to load into the session
-      if (skills && skills.length) {
-        options.skills = skills;
       }
 
       // Resume existing session if requested
@@ -863,12 +828,11 @@ class ChatService {
       if (session.abortController) session.abortController.abort();
       if (session.queryStream?.close) session.queryStream.close();
       if (session.messageQueue) session.messageQueue.close();
-      // Reject pending permissions for this session (wrap in try/catch
-      // to prevent unhandled rejections if the SDK transport is gone)
+      // Reject pending permissions for this session
       for (const [id, pending] of this.pendingPermissions) {
         if (pending.sessionId === sessionId) {
           this.pendingPermissions.delete(id);
-          try { pending.reject(new Error('Session closed')); } catch (_) {}
+          pending.reject(new Error('Session closed'));
         }
       }
       const alreadyNotified = session._streamEnded;

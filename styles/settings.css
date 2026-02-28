@@ -2387,7 +2387,199 @@
   border-color: var(--accent);
 }
 
-/* Cloud styles moved to cloud.css */
+/* ── Cloud Install ── */
+.rp-cloud-install {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.rp-cloud-install-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+.rp-cloud-install-header svg { opacity: 0.6; }
+.rp-cloud-install-cmd {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rp-cloud-install-cmd code {
+  flex: 1;
+  padding: 10px 14px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow-x: auto;
+  user-select: all;
+  line-height: 1.5;
+}
+.rp-cloud-install-copy {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 10px;
+  transition: color 0.15s, background 0.15s;
+}
+.rp-cloud-install-copy:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.rp-cloud-install-copy.copied {
+  color: var(--success);
+}
+.rp-cloud-install-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+/* ── Cloud Zone ── */
+.rp-cloud-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rp-cloud-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rp-cloud-field > label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rp-cloud-input {
+  padding: 9px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+
+.rp-cloud-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.rp-cloud-input::placeholder {
+  color: var(--text-muted);
+}
+
+.rp-cloud-key-row {
+  display: flex;
+  gap: 0;
+  position: relative;
+}
+
+.rp-cloud-key-input {
+  padding-right: 42px;
+}
+
+.rp-key-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.rp-key-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+.rp-key-toggle.revealed {
+  color: var(--accent);
+}
+
+.rp-cloud-field-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Cloud footer */
+.rp-cloud-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.rp-cloud-auto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rp-cloud-auto-label {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.rp-cloud-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rp-cloud-status-text {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-weight: 500;
+}
 
 /* ── Shared: keep old remote-status classes for back-compat if referenced elsewhere ── */
 .remote-status-row {
