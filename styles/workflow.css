@@ -17,6 +17,7 @@
   --wf-orange:  #fb923c;
   --wf-violet:  #c084fc;
   --wf-sky:     #38bdf8;
+  --wf-teal:    #2dd4bf;
   --wf-slate:   #94a3b8;
   --wf-card-bg: rgba(255,255,255,.025);
   --wf-border:  rgba(255,255,255,.06);
@@ -384,6 +385,7 @@
 .wf-chip--orange  { background: rgba(251,146,60,.1);  color: var(--wf-orange); }
 .wf-chip--violet  { background: rgba(192,132,252,.1); color: var(--wf-violet); }
 .wf-chip--sky     { background: rgba(56,189,248,.1);  color: var(--wf-sky); }
+.wf-chip--teal    { background: rgba(45,212,191,.1);  color: var(--wf-teal); }
 .wf-chip--slate   { background: rgba(148,163,184,.1); color: var(--wf-slate); }
 
 /* ─── Status pills ───────────────────────────────────────────────────────── */
@@ -2742,73 +2744,71 @@ select.wf-step-edit-input {
 
 /* ── Palette (left) ───────────────────────────────────────────────────────── */
 .wf-editor-palette {
-  width: 56px;
+  width: 130px;
   flex-shrink: 0;
   border-right: 1px solid rgba(255,255,255,.04);
-  padding: 8px 0;
+  padding: 6px 6px 12px;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex; flex-direction: column; gap: 1px;
-  align-items: center;
-  background: rgba(0,0,0,.15);
-  scrollbar-width: none;
+  background: #0c0c0e;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.08) transparent;
 }
-.wf-editor-palette::-webkit-scrollbar { display: none; }
+.wf-editor-palette::-webkit-scrollbar { width: 3px; }
+.wf-editor-palette::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 2px; }
 .wf-palette-title {
-  font-size: 7px; font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 9px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .1em;
-  color: rgba(255,255,255,.2);
-  padding: 10px 0 4px;
-  text-align: center;
-  width: 100%;
+  color: rgba(255,255,255,.22);
+  padding: 12px 4px 4px;
+  white-space: nowrap;
 }
-.wf-palette-title:first-child { padding-top: 2px; }
+.wf-palette-title:first-child { padding-top: 6px; }
+.wf-palette-title::after {
+  content: ''; flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,.05);
+}
 .wf-palette-item {
-  display: flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all .15s var(--wf-ease);
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 6px;
+  height: 32px;
+  border-radius: 7px;
+  cursor: grab;
+  transition: background .12s, transform .1s;
   border: 1px solid transparent;
   position: relative;
   flex-shrink: 0;
+  user-select: none;
 }
-.wf-palette-item:active { cursor: grabbing; }
-.wf-palette-item::after { display: none; }
 .wf-palette-item:hover {
-  background: rgba(255,255,255,.06);
-  border-color: rgba(255,255,255,.06);
-  transform: scale(1.08);
+  background: rgba(255,255,255,.055);
+  border-color: rgba(255,255,255,.05);
 }
 .wf-palette-item:active {
-  background: rgba(255,255,255,.1);
-  transform: scale(.95);
-  border-color: rgba(255,255,255,.1);
-}
-/* Tooltip on hover */
-.wf-palette-item::before {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%; transform: translateY(-50%);
-  background: #1a1a1c;
-  border: 1px solid rgba(255,255,255,.08);
-  color: var(--text-primary);
-  font-size: 11px; font-weight: 500;
-  padding: 5px 10px;
-  border-radius: 6px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .12s;
-  z-index: 100;
-  box-shadow: 0 4px 16px rgba(0,0,0,.4);
-}
-.wf-palette-item:hover::before {
-  opacity: 1;
+  cursor: grabbing;
+  background: rgba(255,255,255,.09);
+  transform: scale(.97);
 }
 .wf-palette-icon {
   flex-shrink: 0;
+  width: 22px !important; height: 22px !important;
+  border-radius: 6px !important;
+  display: flex; align-items: center; justify-content: center;
+}
+.wf-palette-label {
+  font-size: 11.5px;
+  font-weight: 450;
+  color: rgba(255,255,255,.65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: .01em;
+}
+.wf-palette-item:hover .wf-palette-label {
+  color: rgba(255,255,255,.85);
 }
 .wf-palette-text { display: none; }
 .wf-palette-add { display: none; }
@@ -2925,6 +2925,7 @@ select.wf-step-edit-input {
 .wf-props-section[data-node-color="violet"] .wf-props-header::before  { background: var(--wf-violet); }
 .wf-props-section[data-node-color="sky"] .wf-props-header::before     { background: var(--wf-sky); }
 .wf-props-section[data-node-color="slate"] .wf-props-header::before   { background: var(--wf-slate); }
+.wf-props-section[data-node-color="teal"] .wf-props-header::before    { background: var(--wf-teal); }
 
 .wf-props-header--workflow {
   gap: 8px;
