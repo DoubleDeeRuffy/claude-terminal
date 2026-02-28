@@ -542,10 +542,8 @@ const STEP_TYPES = [
   { type: 'project',   label: 'Project',   color: 'pink',     icon: svgProject(),    desc: 'Cibler un projet',        category: 'data' },
   { type: 'file',      label: 'File',      color: 'lime',     icon: svgFile(),       desc: 'Opération fichier',       category: 'data' },
   { type: 'db',        label: 'Database',  color: 'orange',   icon: svgDb(),         desc: 'Requête base de données', category: 'data' },
-  { type: 'variable',  label: 'Variable',  color: 'violet',   icon: svgVariable(),   desc: 'Lire/écrire une variable',category: 'data' },
   // ── Transform ──
   { type: 'transform',    label: 'Transform',    color: 'teal',    icon: svgTransform(),    desc: 'Transformer des données',     category: 'data' },
-  { type: 'get_variable', label: 'Get Var',      color: 'violet',  icon: svgGetVar(),       desc: 'Lire une variable (pure)',     category: 'data' },
   // ── Flow ──
   { type: 'condition',   label: 'Condition',    color: 'success', icon: svgCond(),         desc: 'Branchement conditionnel',    category: 'flow' },
   { type: 'loop',        label: 'Loop',         color: 'sky',     icon: svgLoop(),         desc: 'Itérer sur une liste',        category: 'flow' },
@@ -1435,6 +1433,7 @@ function openEditor(workflowId = null) {
     scope: wf?.scope || 'current',
     concurrency: wf?.concurrency || 'skip',
     dirty: false,
+    variables: (wf?.variables || []).map(v => ({ ...v })), // abstract variable definitions
   };
 
   // ── Render editor into the panel ──
@@ -1503,30 +1502,42 @@ function openEditor(workflowId = null) {
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-left-panel">
-          <div class="wf-editor-palette" id="wf-ed-palette">
-            ${[
-              { key: 'action', title: 'Actions' },
-              { key: 'data',   title: 'Données' },
-              { key: 'flow',   title: 'Contrôle' },
-            ].map(cat => {
-              const items = nodeTypes.filter(st => st.category === cat.key);
-              if (!items.length) return '';
-              return `<div class="wf-palette-title"><span>${cat.title}</span></div>` +
-                items.map(st => `
-                  <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="${st.desc}" draggable="true">
-                    <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
-                    <span class="wf-palette-label">${st.label}</span>
-                  </div>
-                `).join('');
-            }).join('')}
+          <div class="wf-lp-tabs">
+            <button class="wf-lp-tab active" data-lp-tab="nodes">Nodes</button>
+            <button class="wf-lp-tab" data-lp-tab="vars">Variables</button>
           </div>
-          <div class="wf-vars-panel" id="wf-vars-panel">
-            <div class="wf-vars-panel-header">
-              <span class="wf-vars-panel-title">Variables</span>
-              <button class="wf-vars-add-btn" id="wf-vars-add" title="Ajouter une variable">+</button>
+          <div class="wf-lp-content" data-lp-content="nodes">
+            <div class="wf-editor-palette" id="wf-ed-palette">
+              ${[
+                { key: 'action', title: 'Actions' },
+                { key: 'data',   title: 'Données' },
+                { key: 'flow',   title: 'Contrôle' },
+              ].map(cat => {
+                const items = nodeTypes.filter(st => st.category === cat.key);
+                if (!items.length) return '';
+                return `<div class="wf-palette-title"><span>${cat.title}</span></div>` +
+                  items.map(st => `
+                    <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="${st.desc}" draggable="true">
+                      <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
+                      <span class="wf-palette-label">${st.label}</span>
+                    </div>
+                  `).join('');
+              }).join('')}
             </div>
-            <div class="wf-vars-list" id="wf-vars-list">
-              <div class="wf-vars-empty">Aucune variable</div>
+          </div>
+          <div class="wf-lp-content" data-lp-content="vars" style="display:none">
+            <div class="wf-vars-panel" id="wf-vars-panel">
+              <div class="wf-vars-panel-header">
+                <button class="wf-vars-add-btn" id="wf-vars-add" title="Ajouter une variable">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+              </div>
+              <div class="wf-vars-list" id="wf-vars-list">
+                <div class="wf-vars-empty">
+                  <svg class="wf-vars-empty-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                  <span class="wf-vars-empty-text">Cliquer + pour créer<br>une variable</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1571,6 +1582,18 @@ function openEditor(workflowId = null) {
   canvasEl.height = canvasWrap.offsetHeight;
 
   graphService.init(canvasEl);
+
+  // ── Left panel tab switching ──
+  panel.querySelectorAll('.wf-lp-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.lpTab;
+      panel.querySelectorAll('.wf-lp-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      panel.querySelectorAll('.wf-lp-content').forEach(c => {
+        c.style.display = c.dataset.lpContent === target ? '' : 'none';
+      });
+    });
+  });
 
   // Load or create empty
   if (wf) {
@@ -2296,11 +2319,6 @@ function openEditor(workflowId = null) {
         // Refresh pin type on get_variable when varType changes
         if (key === 'varType' && node._updatePinType) {
           node._updatePinType();
-          updateVarsPanel();
-        }
-        // Refresh vars panel when variable name/type changes
-        if (['name', 'varType', 'action'].includes(key) && ['variable', 'get_variable'].includes(nodeType)) {
-          updateVarsPanel();
         }
         // Debounced snapshot so rapid typing doesn't flood the history
         clearTimeout(_propSnapshotTimer);
@@ -2360,7 +2378,6 @@ function openEditor(workflowId = null) {
         node.properties.varType = t;
         editorDraft.dirty = true;
         if (node._updatePinType) node._updatePinType();
-        updateVarsPanel();
         // Update active state visually
         propsEl.querySelectorAll('.wf-var-type-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -2516,11 +2533,11 @@ function openEditor(workflowId = null) {
   graphService.onGraphChanged = () => {
     editorDraft.dirty = true;
     updateStatusBar();
-    updateVarsPanel();
   };
 
   // ── Variables panel (Blueprint-style) ──────────────────────────────────────
-  // Type color map (mirror of PIN_TYPES in WorkflowGraphService)
+  // Abstract variable definitions live in editorDraft.variables (not as graph nodes).
+  // Clicking a variable inserts a workflow/variable node with name pre-filled.
   const VAR_TYPE_COLORS = {
     string:  '#c8c8c8',
     number:  '#60a5fa',
@@ -2529,93 +2546,200 @@ function openEditor(workflowId = null) {
     object:  '#a78bfa',
     any:     '#6b7280',
   };
-  /**
-   * Collect variables from the graph:
-   * - 'variable' nodes with action=set → define a variable
-   * - 'get_variable' nodes → reference a variable (show in list if not already from set)
-   * Returns array of { name, type, source: 'set'|'get' }
-   */
-  function collectGraphVariables() {
-    const graph = graphService.graph;
-    if (!graph || !graph._nodes) return [];
-    const vars = new Map(); // name → { name, type, source }
-    for (const node of graph._nodes) {
-      const ntype = (node.type || '').replace('workflow/', '');
-      if (ntype === 'variable' && node.properties?.action === 'set') {
-        const name = (node.properties.name || '').trim();
-        if (!name) continue;
-        const type = node.properties.varType || 'any';
-        if (!vars.has(name)) vars.set(name, { name, type, source: 'set' });
-      }
-    }
-    // Also surface get_variable nodes whose name isn't from a set node
-    for (const node of graph._nodes) {
-      const ntype = (node.type || '').replace('workflow/', '');
-      if (ntype === 'get_variable') {
-        const name = (node.properties.name || '').trim();
-        if (!name || vars.has(name)) continue;
-        const type = node.properties.varType || 'any';
-        vars.set(name, { name, type, source: 'get' });
-      }
-    }
-    return [...vars.values()];
-  }
+  const VAR_TYPE_LIST = ['string', 'number', 'boolean', 'array', 'object', 'any'];
 
   const varsList = panel.querySelector('#wf-vars-list');
 
+  /** Generate a unique variable name */
+  function nextVarName() {
+    const names = new Set(editorDraft.variables.map(v => v.name));
+    let i = 1;
+    while (names.has(`var${i}`)) i++;
+    return `var${i}`;
+  }
+
+  /** Also used by the AI chat context injection */
+  function collectGraphVariables() {
+    return editorDraft.variables;
+  }
+
   function updateVarsPanel() {
     if (!varsList) return;
-    const vars = collectGraphVariables();
+    const vars = editorDraft.variables;
     if (!vars.length) {
-      varsList.innerHTML = '<div class="wf-vars-empty">Aucune variable</div>';
+      varsList.innerHTML = `
+        <div class="wf-vars-empty">
+          <svg class="wf-vars-empty-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          <span class="wf-vars-empty-text">Cliquer + pour créer<br>une variable</span>
+        </div>`;
       return;
     }
-    varsList.innerHTML = vars.map(v => {
-      const color = VAR_TYPE_COLORS[v.type] || VAR_TYPE_COLORS.any;
-      const isDefined = v.source === 'set';
+    varsList.innerHTML = vars.map((v, idx) => {
+      const color = VAR_TYPE_COLORS[v.varType] || VAR_TYPE_COLORS.any;
       return `
-        <div class="wf-var-item ${isDefined ? '' : 'wf-var-item--ghost'}" data-var-name="${escapeHtml(v.name)}" data-var-type="${escapeHtml(v.type)}" title="${isDefined ? 'Cliquer pour insérer un Get Variable' : 'Variable référencée mais non définie'}">
+        <div class="wf-var-item" data-var-idx="${idx}" style="--var-color:${color}" title="Cliquer pour insérer un node Variable">
           <span class="wf-var-dot" style="background:${color}"></span>
           <span class="wf-var-name">${escapeHtml(v.name)}</span>
-          <span class="wf-var-type" style="color:${color}">${v.type}</span>
+          <span class="wf-var-type-badge" style="--var-color:${color}">${v.varType || 'any'}</span>
         </div>
       `;
     }).join('');
 
-    // Bind clicks → add GetVariableNode
+    // Bind clicks → insert a workflow/variable node with this name
     varsList.querySelectorAll('.wf-var-item').forEach(item => {
       item.addEventListener('click', () => {
-        const name = item.dataset.varName;
-        const type = item.dataset.varType;
+        const idx = parseInt(item.dataset.varIdx, 10);
+        const v = editorDraft.variables[idx];
+        if (!v) return;
         const canvas = graphService.canvas;
         if (!canvas) return;
         const cx = (-canvas.ds.offset[0] + canvasWrap.offsetWidth / 2) / canvas.ds.scale;
         const cy = (-canvas.ds.offset[1] + canvasWrap.offsetHeight / 2) / canvas.ds.scale;
-        const node = graphService.addNode('workflow/get_variable', [cx - 75, cy - 18]);
+        const node = graphService.addNode('workflow/variable', [cx - 100, cy - 30]);
         if (node) {
-          node.properties.name = name;
-          node.properties.varType = type;
-          if (node.widgets) {
-            const w = node.widgets.find(w => w.name === 'Name');
-            if (w) w.value = name;
-          }
-          if (node._updatePinType) node._updatePinType();
+          node.properties.name = v.name;
+          node.properties.varType = v.varType || 'any';
+          node.properties.action = 'get';
           graphService.canvas.setDirty(true, true);
         }
+      });
+
+      // Right-click → edit inline
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const idx = parseInt(item.dataset.varIdx, 10);
+        openVarEditor(idx);
       });
     });
   }
   updateVarsPanel();
 
-  // Bouton + → ajouter une variable (crée un nœud Variable Set)
+  /** Open floating popover editor for a variable definition */
+  function openVarEditor(idx) {
+    const v = editorDraft.variables[idx];
+    if (!v) return;
+
+    // Remove any existing popover
+    const old = panel.querySelector('.wf-var-popover-backdrop');
+    if (old) old.remove();
+
+    const isNew = !v._persisted;
+    v._persisted = true;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'wf-var-popover-backdrop';
+    backdrop.innerHTML = `
+      <div class="wf-var-popover">
+        <div class="wf-var-popover-header">
+          <span class="wf-var-popover-title">${isNew ? 'Nouvelle variable' : 'Modifier la variable'}</span>
+          <button class="wf-var-popover-close" title="Fermer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="wf-var-popover-body">
+          <div class="wf-var-popover-field">
+            <label class="wf-var-popover-label">Nom</label>
+            <input class="wf-var-popover-input" id="wf-vp-name" value="${escapeHtml(v.name)}" placeholder="myVariable" spellcheck="false" autocomplete="off" />
+          </div>
+          <div class="wf-var-popover-field">
+            <label class="wf-var-popover-label">Type</label>
+            <div class="wf-var-popover-types">
+              ${VAR_TYPE_LIST.map(t => {
+                const c = VAR_TYPE_COLORS[t];
+                return `<button class="wf-var-popover-type-btn ${(v.varType || 'any') === t ? 'active' : ''}" data-type="${t}" style="--type-color:${c}">
+                  <span class="wf-var-popover-type-dot" style="background:${c}"></span>
+                  ${t}
+                </button>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="wf-var-popover-footer">
+          <button class="wf-var-popover-delete" id="wf-vp-delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Supprimer
+          </button>
+          <button class="wf-var-popover-save" id="wf-vp-save">Enregistrer</button>
+        </div>
+      </div>
+    `;
+
+    // Insert into the editor (not body — stays within workflow scope)
+    panel.querySelector('.wf-editor').appendChild(backdrop);
+
+    const pop = backdrop.querySelector('.wf-var-popover');
+    const nameInput = backdrop.querySelector('#wf-vp-name');
+
+    // Focus
+    requestAnimationFrame(() => {
+      nameInput.focus();
+      nameInput.select();
+    });
+
+    // Type buttons
+    backdrop.querySelectorAll('.wf-var-popover-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        backdrop.querySelectorAll('.wf-var-popover-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        v.varType = btn.dataset.type;
+      });
+    });
+
+    // Close
+    const close = () => {
+      backdrop.classList.add('closing');
+      setTimeout(() => backdrop.remove(), 120);
+    };
+
+    // Save
+    const save = () => {
+      const newName = (nameInput.value || '').trim();
+      if (newName) {
+        v.name = newName;
+        editorDraft.dirty = true;
+      }
+      updateVarsPanel();
+      close();
+    };
+
+    backdrop.querySelector('.wf-var-popover-close').addEventListener('click', () => {
+      // If new and name is still default, revert
+      if (isNew && !nameInput.value.trim()) {
+        editorDraft.variables.splice(idx, 1);
+      }
+      save();
+    });
+    backdrop.querySelector('#wf-vp-save').addEventListener('click', save);
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') save();
+      if (e.key === 'Escape') close();
+      e.stopPropagation();
+    });
+    nameInput.addEventListener('keyup', (e) => e.stopPropagation());
+
+    // Delete
+    backdrop.querySelector('#wf-vp-delete').addEventListener('click', () => {
+      editorDraft.variables.splice(idx, 1);
+      editorDraft.dirty = true;
+      updateVarsPanel();
+      close();
+    });
+
+    // Click backdrop to close
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) save();
+    });
+  }
+
+  // Bouton + → add a new abstract variable definition
   const varsAddBtn = panel.querySelector('#wf-vars-add');
   if (varsAddBtn) {
     varsAddBtn.addEventListener('click', () => {
-      const canvas = graphService.canvas;
-      if (!canvas) return;
-      const cx = (-canvas.ds.offset[0] + canvasWrap.offsetWidth / 2) / canvas.ds.scale;
-      const cy = (-canvas.ds.offset[1] + canvasWrap.offsetHeight / 2) / canvas.ds.scale;
-      graphService.addNode('workflow/variable', [cx - 100, cy - 40]);
+      const name = nextVarName();
+      editorDraft.variables.push({ name, varType: 'string' });
+      editorDraft.dirty = true;
+      updateVarsPanel();
+      openVarEditor(editorDraft.variables.length - 1);
     });
   }
 
@@ -2722,6 +2846,7 @@ function openEditor(workflowId = null) {
       concurrency: editorDraft.concurrency,
       graph: data.graph,
       steps: data.steps,
+      variables: editorDraft.variables.filter(v => v.name),
     };
     const res = await api.save(workflow);
     if (res?.success) {
@@ -2929,15 +3054,12 @@ Rules:
       const aiProject = { path: homeDir };
       const wfName = editorDraft.name || (workflowId ? state.workflows.find(w => w.id === workflowId)?.name : null) || null;
 
-      // Inject existing variables from the graph into the system prompt
+      // Inject existing variables from editorDraft into the system prompt
       let varsContext = '';
-      if (typeof collectGraphVariables === 'function' && typeof graphService !== 'undefined' && graphService?.graph) {
-        const existingVars = collectGraphVariables(graphService.graph);
-        if (existingVars.length > 0) {
-          varsContext = '\n\nEXISTING VARIABLES IN THIS WORKFLOW:\n' +
-            existingVars.map(v => `- ${v.name} (${v.varType || 'any'})`).join('\n') +
-            '\nUse workflow/get_variable nodes with these names to read them.';
-        }
+      if (editorDraft.variables.length > 0) {
+        varsContext = '\n\nEXISTING VARIABLES IN THIS WORKFLOW:\n' +
+          editorDraft.variables.map(v => `- ${v.name} (${v.varType || 'any'})`).join('\n') +
+          '\nUse workflow/variable nodes with these names to get/set them.';
       }
 
       const promptWithContext = wfName

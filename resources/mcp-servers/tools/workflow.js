@@ -458,7 +458,7 @@ const tools = [
   },
   {
     name: 'workflow_get_variables',
-    description: 'List all variables declared in a workflow. Shows variable nodes (Set/Get), their type (string/number/boolean/array/object/any), and current default value. Also lists get_variable nodes that reference variables not defined in this workflow.',
+    description: 'List all variables defined in a workflow. Variables are abstract definitions (name + type) stored in the Variables panel, separate from graph nodes. Also shows which graph nodes reference each variable.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -566,21 +566,12 @@ async function handle(name, args) {
           output += `  ${srcType}[${l[1]}].${srcOut} → ${dstType}[${l[3]}].${dstIn}\n`;
         }
 
-        // Show declared variables (variable nodes with action=set)
-        const varNodes = graphNodes.filter(n => n.type === 'workflow/variable' && n.properties?.action === 'set' && n.properties?.name);
-        const getVarNodes = graphNodes.filter(n => n.type === 'workflow/get_variable' && n.properties?.name);
-        if (varNodes.length || getVarNodes.length) {
-          output += `\n## Variables\n`;
-          for (const n of varNodes) {
-            const t = n.properties.varType || 'any';
-            output += `  SET ${n.properties.name} (${t})`;
-            if (n.properties.value) output += ` = ${String(n.properties.value).slice(0, 40)}`;
-            output += '\n';
-          }
-          for (const n of getVarNodes) {
-            const t = n.properties.varType || 'any';
-            const alreadyShown = varNodes.some(v => v.properties.name === n.properties.name);
-            if (!alreadyShown) output += `  GET ${n.properties.name} (${t}) — referenced but not defined in this workflow\n`;
+        // Show abstract variable definitions
+        const abstractVars = wf.variables || [];
+        if (abstractVars.length) {
+          output += `\n## Variables (${abstractVars.length})\n`;
+          for (const v of abstractVars) {
+            output += `  ${v.name} (${v.varType || 'any'})\n`;
           }
         }
       } else {
@@ -711,59 +702,54 @@ async function handle(name, args) {
       const wf = loadWorkflowDef(args.workflow);
       if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
 
-      const nodes = (wf.graph && wf.graph.nodes) || [];
-      const defined = new Map();
-      const referenced = new Map();
+      // Abstract variable definitions (stored in wf.variables[])
+      const abstractVars = wf.variables || [];
 
+      // Also scan graph nodes for variable usage
+      const nodes = (wf.graph && wf.graph.nodes) || [];
+      const nodeUsage = new Map(); // varName → [{action, nodeId}]
       for (const n of nodes) {
         if (n.type === 'workflow/variable' && n.properties?.name) {
-          const name2 = n.properties.name;
-          const t = n.properties.varType || 'any';
-          const val = n.properties.value;
-          const action = n.properties.action || 'set';
-          if (!defined.has(name2)) defined.set(name2, []);
-          defined.get(name2).push({ action, type: t, value: val, nodeId: n.id });
+          const vn = n.properties.name;
+          if (!nodeUsage.has(vn)) nodeUsage.set(vn, []);
+          nodeUsage.get(vn).push({ action: n.properties.action || 'set', nodeId: n.id });
         }
         if (n.type === 'workflow/get_variable' && n.properties?.name) {
-          const name2 = n.properties.name;
-          const t = n.properties.varType || 'any';
-          if (!referenced.has(name2)) referenced.set(name2, []);
-          referenced.get(name2).push({ type: t, nodeId: n.id });
+          const vn = n.properties.name;
+          if (!nodeUsage.has(vn)) nodeUsage.set(vn, []);
+          nodeUsage.get(vn).push({ action: 'get (pure)', nodeId: n.id });
         }
       }
 
-      if (!defined.size && !referenced.size) {
-        return ok(`No variables in workflow "${wf.name}".\n\nTo add a variable:\n- Use workflow_add_node with type "workflow/variable" and properties { name: "myVar", action: "set", value: "initial", varType: "string" }\n- Or use workflow_add_node with type "workflow/get_variable" and properties { name: "myVar", varType: "string" } to read a variable inline (no exec pins needed).`);
+      if (!abstractVars.length && !nodeUsage.size) {
+        return ok(`No variables in workflow "${wf.name}".\n\nVariables are defined in the Variables panel (not as nodes). When you click a variable in the panel, it creates a workflow/variable node on the canvas.`);
       }
 
       let out = `# Variables in "${wf.name}"\n\n`;
 
-      if (defined.size) {
-        out += `## Declared Variables (${defined.size})\n`;
-        for (const [varName, usages] of defined) {
-          const types = [...new Set(usages.map(u => u.type))].join('/');
-          const setUsages = usages.filter(u => u.action === 'set');
-          const val = setUsages[0]?.value;
-          out += `  ${varName} (${types})`;
-          if (val !== undefined && val !== '') out += ` = ${JSON.stringify(val)}`;
-          out += ` — nodes: ${usages.map(u => `[${u.nodeId}] ${u.action}`).join(', ')}\n`;
+      if (abstractVars.length) {
+        out += `## Defined Variables (${abstractVars.length})\n`;
+        for (const v of abstractVars) {
+          const usage = nodeUsage.get(v.name);
+          out += `  ${v.name} (${v.varType || 'any'})`;
+          if (usage) out += ` — used in nodes: ${usage.map(u => `[${u.nodeId}] ${u.action}`).join(', ')}`;
+          out += '\n';
         }
         out += '\n';
       }
 
-      if (referenced.size) {
-        const unreferenced = [...referenced.entries()].filter(([n]) => !defined.has(n));
-        if (unreferenced.length) {
-          out += `## Get Variable References (not defined in this workflow — ${unreferenced.length})\n`;
-          for (const [varName, usages] of unreferenced) {
-            const types = [...new Set(usages.map(u => u.type))].join('/');
-            out += `  ${varName} (${types}) — nodes: ${usages.map(u => `[${u.nodeId}]`).join(', ')}\n`;
-          }
-          out += '\n';
+      // Check for node-only variables (not in abstract defs)
+      const abstractNames = new Set(abstractVars.map(v => v.name));
+      const orphanVars = [...nodeUsage.entries()].filter(([n]) => !abstractNames.has(n));
+      if (orphanVars.length) {
+        out += `## Node-only Variables (not in panel — ${orphanVars.length})\n`;
+        for (const [varName, usages] of orphanVars) {
+          out += `  ${varName} — nodes: ${usages.map(u => `[${u.nodeId}] ${u.action}`).join(', ')}\n`;
         }
+        out += '\n';
       }
 
-      out += `Tip: Connect a "workflow/get_variable" node output directly to any data input pin to pass a variable value without exec flow.`;
+      out += `Tip: Variables are defined in the Variables panel. Click a variable to insert a workflow/variable node on the canvas. On the node, choose get/set/increment/append.`;
       return ok(out);
     }
 
