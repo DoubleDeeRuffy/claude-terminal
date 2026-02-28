@@ -504,6 +504,32 @@ function installCustomRendering(NodeClass) {
 
     if (origOnDrawBackground) origOnDrawBackground.call(this, ctx, canvas);
   };
+
+  // ── Hide native LiteGraph slot indicators per-slot ──
+  // LiteGraph checks slot.color_on/off FIRST before any global fallback,
+  // so this is the most reliable way to suppress default pin shapes.
+  const _addIn = LGraphNode.prototype.addInput;
+  NodeClass.prototype.addInput = function() {
+    const r = _addIn.apply(this, arguments);
+    const s = this.inputs?.[this.inputs.length - 1];
+    if (s) { s.color_on = 'transparent'; s.color_off = 'transparent'; }
+    return r;
+  };
+  const _addOut = LGraphNode.prototype.addOutput;
+  NodeClass.prototype.addOutput = function() {
+    const r = _addOut.apply(this, arguments);
+    const s = this.outputs?.[this.outputs.length - 1];
+    if (s) { s.color_on = 'transparent'; s.color_off = 'transparent'; }
+    return r;
+  };
+
+  // Also hide slots after deserialization (LiteGraph.configure sets slots directly, bypassing addInput/addOutput)
+  const _origCfg = NodeClass.prototype.onConfigure;
+  NodeClass.prototype.onConfigure = function(data) {
+    if (_origCfg) _origCfg.call(this, data);
+    if (this.inputs) this.inputs.forEach(s => { s.color_on = 'transparent'; s.color_off = 'transparent'; });
+    if (this.outputs) this.outputs.forEach(s => { s.color_on = 'transparent'; s.color_off = 'transparent'; });
+  };
 }
 
 /**
