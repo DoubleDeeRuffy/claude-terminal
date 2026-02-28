@@ -33,6 +33,25 @@ const STATUS_COLORS = {
   skipped: '#6b7280',
 };
 
+// ── Data type system — describes what each node output/input carries ─────────
+const NODE_DATA_TYPES = {
+  trigger:   { outputs: [] },
+  claude:    { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
+  shell:     { outputs: [{ slot: 0, badge: '{stdout}' },{ slot: 1, badge: 'error' }] },
+  git:       { outputs: [{ slot: 0, badge: '{output}' },{ slot: 1, badge: 'error' }] },
+  http:      { outputs: [{ slot: 0, badge: '{body}' },  { slot: 1, badge: 'error' }] },
+  file:      { outputs: [{ slot: 0, badge: 'string' },  { slot: 1, badge: 'error' }] },
+  db:        { outputs: [{ slot: 0, badge: 'rows[]' },  { slot: 1, badge: 'error' }] },
+  condition: { outputs: [{ slot: 0, badge: 'true' },    { slot: 1, badge: 'false' }] },
+  loop:      { outputs: [{ slot: 0, badge: 'item' },    { slot: 1, badge: 'done' }],
+               inputs:  [{ slot: 1, badge: 'array' }] },
+  variable:  { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'value' }] },
+  notify:    { outputs: [{ slot: 0, badge: 'event' }] },
+  wait:      { outputs: [{ slot: 0, badge: 'event' }] },
+  log:       { outputs: [{ slot: 0, badge: 'event' }] },
+  project:   { outputs: [{ slot: 0, badge: 'event' },   { slot: 1, badge: 'error' }] },
+};
+
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -73,6 +92,65 @@ function drawBadge(ctx, text, x, y, color) {
   ctx.fillStyle = color;
   ctx.textAlign = 'left';
   ctx.fillText(text, bx + 5, y + 10.5);
+}
+
+/**
+ * Format output data for link tooltip preview.
+ * @param {*} output - Node execution output
+ * @param {number} slotIndex - Output slot (0=Done/success, 1=Error)
+ * @returns {string|null} Multi-line preview string
+ */
+function formatOutputPreview(output, slotIndex) {
+  if (output == null) return null;
+
+  // Error slot — show error message
+  if (slotIndex === 1 && output.error) {
+    return `Error: ${String(output.error).substring(0, 120)}`;
+  }
+
+  // DB output
+  if (output.rows && Array.isArray(output.rows)) {
+    const lines = [`${output.rowCount ?? output.rows.length} rows (${output.duration || '?'}ms)`];
+    const preview = output.rows.slice(0, 3);
+    for (const row of preview) {
+      lines.push(truncateJson(row, 60));
+    }
+    if (output.rows.length > 3) lines.push(`... +${output.rows.length - 3} more`);
+    return lines.join('\n');
+  }
+
+  // Shell output
+  if (output.stdout !== undefined) {
+    const code = output.exitCode !== undefined ? ` (exit ${output.exitCode})` : '';
+    const text = String(output.stdout || '').trim();
+    return `stdout${code}: ${text.substring(0, 150)}${text.length > 150 ? '...' : ''}`;
+  }
+
+  // HTTP output
+  if (output.status !== undefined && output.body !== undefined) {
+    const ok = output.ok ? 'OK' : 'FAIL';
+    const bodyStr = typeof output.body === 'string' ? output.body : JSON.stringify(output.body);
+    return `HTTP ${output.status} ${ok}\n${(bodyStr || '').substring(0, 120)}`;
+  }
+
+  // String output
+  if (typeof output === 'string') {
+    return output.substring(0, 180) + (output.length > 180 ? '...' : '');
+  }
+
+  // Generic object
+  if (typeof output === 'object') {
+    return truncateJson(output, 180);
+  }
+
+  return String(output).substring(0, 120);
+}
+
+function truncateJson(obj, maxLen) {
+  try {
+    const s = JSON.stringify(obj);
+    return s.length > maxLen ? s.substring(0, maxLen) + '...' : s;
+  } catch { return '[Object]'; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -237,7 +315,9 @@ function installWidgetOverrides(canvasInstance) {
     const width = node.size[0];
     const H = LiteGraph.NODE_WIDGET_HEIGHT;
     const show_text = this.ds.scale > 0.5;
-    const margin = 12;
+    const margin = 10;
+    const c = getNodeColors(node);
+    const accent = c.accent;
 
     ctx.save();
     ctx.globalAlpha = this.editor_alpha;
@@ -256,39 +336,63 @@ function installWidgetOverrides(canvasInstance) {
       switch (w.type) {
         case 'combo':
         case 'number': {
-          roundRect(ctx, margin, y, innerW, H, 5);
-          ctx.fillStyle = '#0a0a0c';
+          // Background pill
+          roundRect(ctx, margin, y, innerW, H, 6);
+          ctx.fillStyle = '#0c0c0e';
           ctx.fill();
-          ctx.strokeStyle = '#1e1e22';
+          ctx.strokeStyle = '#1a1a1e';
           ctx.lineWidth = 0.5;
           ctx.stroke();
 
           if (show_text) {
-            ctx.fillStyle = '#4a4a50';
-            ctx.font = `500 10px ${FONT}`;
+            // Label (left, dim)
+            ctx.fillStyle = '#555';
+            ctx.font = `500 9.5px ${FONT}`;
             ctx.textAlign = 'left';
             ctx.fillText(w.label || w.name, margin + 8, y + H * 0.65);
 
-            ctx.fillStyle = '#b0b0b8';
-            ctx.font = `600 10.5px ${FONT}`;
-            ctx.textAlign = 'right';
+            // Value (right, accent tinted)
             let val = w.type === 'number'
               ? Number(w.value).toFixed(w.options.precision != null ? w.options.precision : 3)
               : w.value;
             if (w.options && w.options.values && typeof w.options.values === 'object' && !Array.isArray(w.options.values)) {
               val = w.options.values[w.value] || val;
             }
-            ctx.fillText(String(val), ww - margin - 8, y + H * 0.65);
+            const valStr = String(val);
+
+            // Value pill background
+            ctx.font = `600 9.5px ${FONT}`;
+            const valW = ctx.measureText(valStr).width;
+            const pillW = valW + 12;
+            const pillX = ww - margin - pillW - 4;
+            const pillY = y + 3;
+            const pillH = H - 6;
+            roundRect(ctx, pillX, pillY, pillW, pillH, 4);
+            ctx.fillStyle = hexToRgba(accent, 0.1);
+            ctx.fill();
+
+            // Value text
+            ctx.fillStyle = accent;
+            ctx.textAlign = 'center';
+            ctx.fillText(valStr, pillX + pillW / 2, y + H * 0.65);
+
+            // Combo chevron icon (tiny ▾)
+            if (w.type === 'combo') {
+              ctx.fillStyle = '#444';
+              ctx.font = `8px ${FONT}`;
+              ctx.textAlign = 'right';
+              ctx.fillText('\u25BE', ww - margin - 3, y + H * 0.6);
+            }
           }
           break;
         }
 
         case 'text':
         case 'string': {
-          roundRect(ctx, margin, y, innerW, H, 5);
-          ctx.fillStyle = '#0a0a0c';
+          roundRect(ctx, margin, y, innerW, H, 6);
+          ctx.fillStyle = '#0c0c0e';
           ctx.fill();
-          ctx.strokeStyle = '#1e1e22';
+          ctx.strokeStyle = '#1a1a1e';
           ctx.lineWidth = 0.5;
           ctx.stroke();
 
@@ -298,16 +402,29 @@ function installWidgetOverrides(canvasInstance) {
             ctx.rect(margin, y, innerW, H);
             ctx.clip();
 
-            ctx.fillStyle = '#4a4a50';
-            ctx.font = `500 10px ${FONT}`;
+            // Label (left, dim)
+            ctx.fillStyle = '#555';
+            ctx.font = `500 9.5px ${FONT}`;
             ctx.textAlign = 'left';
             ctx.fillText(w.label || w.name, margin + 8, y + H * 0.65);
 
             if (w.value) {
-              ctx.fillStyle = '#888';
-              ctx.font = `10.5px ${FONT}`;
+              // Truncate value for display
+              let valStr = String(w.value);
+              const maxChars = Math.floor((innerW - 80) / 5.5);
+              if (valStr.length > maxChars && maxChars > 3) {
+                valStr = valStr.substring(0, maxChars) + '\u2026';
+              }
+              ctx.fillStyle = '#9a9a9a';
+              ctx.font = `10px 'Cascadia Code', 'Fira Code', monospace`;
               ctx.textAlign = 'right';
-              ctx.fillText(String(w.value), ww - margin - 8, y + H * 0.65);
+              ctx.fillText(valStr, ww - margin - 6, y + H * 0.65);
+            } else {
+              // Empty placeholder
+              ctx.fillStyle = '#333';
+              ctx.font = `italic 9px ${FONT}`;
+              ctx.textAlign = 'right';
+              ctx.fillText('\u2014', ww - margin - 6, y + H * 0.65);
             }
 
             ctx.restore();
@@ -316,40 +433,49 @@ function installWidgetOverrides(canvasInstance) {
         }
 
         case 'toggle': {
-          roundRect(ctx, margin, y, innerW, H, 5);
-          ctx.fillStyle = '#0a0a0c';
+          roundRect(ctx, margin, y, innerW, H, 6);
+          ctx.fillStyle = '#0c0c0e';
           ctx.fill();
-          ctx.strokeStyle = '#1e1e22';
+          ctx.strokeStyle = '#1a1a1e';
           ctx.lineWidth = 0.5;
           ctx.stroke();
 
           if (show_text) {
-            ctx.fillStyle = '#4a4a50';
-            ctx.font = `500 10px ${FONT}`;
+            ctx.fillStyle = '#555';
+            ctx.font = `500 9.5px ${FONT}`;
             ctx.textAlign = 'left';
             ctx.fillText(w.label || w.name, margin + 8, y + H * 0.65);
 
-            const dotX = ww - margin - 12;
+            // Toggle pill indicator
+            const pillW = 20;
+            const pillH = 10;
+            const pillX = ww - margin - pillW - 6;
+            const pillY = y + (H - pillH) / 2;
+            roundRect(ctx, pillX, pillY, pillW, pillH, 5);
+            ctx.fillStyle = w.value ? hexToRgba(accent, 0.25) : '#1a1a1e';
+            ctx.fill();
+
+            // Toggle dot
+            const dotX = w.value ? pillX + pillW - 5 : pillX + 5;
             ctx.beginPath();
-            ctx.arc(dotX, y + H * 0.5, 3.5, 0, Math.PI * 2);
-            ctx.fillStyle = w.value ? '#d97706' : '#2a2a30';
+            ctx.arc(dotX, pillY + pillH / 2, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = w.value ? accent : '#3a3a40';
             ctx.fill();
           }
           break;
         }
 
         case 'button': {
-          roundRect(ctx, margin, y, innerW, H, 5);
-          ctx.fillStyle = w.clicked ? '#161618' : '#0d0d0f';
+          roundRect(ctx, margin, y, innerW, H, 6);
+          ctx.fillStyle = '#0d0d0f';
           ctx.fill();
           ctx.strokeStyle = '#1e1e22';
           ctx.lineWidth = 0.5;
           ctx.stroke();
-          if (w.clicked) { w.clicked = false; this.dirty_canvas = true; }
 
           if (show_text) {
-            ctx.fillStyle = '#aaa';
-            ctx.font = `600 10.5px ${FONT}`;
+            ctx.fillStyle = '#777';
+            ctx.font = `600 9.5px ${FONT}`;
             ctx.textAlign = 'center';
             ctx.fillText(w.label || w.name, ww * 0.5, y + H * 0.65);
           }
@@ -413,7 +539,8 @@ function TriggerNode() {
   this.addWidget('combo', 'Type', 'manual', (v) => { this.properties.triggerType = v; }, {
     values: ['manual', 'cron', 'hook', 'on_workflow']
   });
-  this.size = [200, 56];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
   this.removable = false;
 }
 TriggerNode.title = 'Trigger';
@@ -440,7 +567,8 @@ function ClaudeNode() {
     values: ['prompt', 'agent', 'skill']
   });
   this.addWidget('text', 'Prompt', '', (v) => { this.properties.prompt = v; });
-  this.size = [220, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 220);
 }
 ClaudeNode.title = 'Claude';
 ClaudeNode.desc = 'Prompt, Agent ou Skill';
@@ -460,7 +588,8 @@ function ShellNode() {
   this.addOutput('Error', LiteGraph.EVENT);
   this.properties = { command: '' };
   this.addWidget('text', 'Command', '', (v) => { this.properties.command = v; });
-  this.size = [220, 64];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 220);
 }
 ShellNode.title = 'Shell';
 ShellNode.desc = 'Commande bash';
@@ -486,7 +615,8 @@ function GitNode() {
   this.addWidget('combo', 'Action', 'pull', (v) => { this.properties.action = v; }, {
     values: ['pull', 'push', 'commit', 'checkout', 'merge', 'stash', 'stash-pop', 'reset']
   });
-  this.size = [200, 56];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
 }
 GitNode.title = 'Git';
 GitNode.desc = 'Opération git';
@@ -507,7 +637,8 @@ function HttpNode() {
     values: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   });
   this.addWidget('text', 'URL', '', (v) => { this.properties.url = v; });
-  this.size = [220, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 220);
 }
 HttpNode.title = 'HTTP';
 HttpNode.desc = 'Requête API';
@@ -525,7 +656,8 @@ function NotifyNode() {
   this.addOutput('Done', LiteGraph.EVENT);
   this.properties = { title: '', message: '' };
   this.addWidget('text', 'Title', '', (v) => { this.properties.title = v; });
-  this.size = [200, 56];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
 }
 NotifyNode.title = 'Notify';
 NotifyNode.desc = 'Notification';
@@ -538,7 +670,8 @@ function WaitNode() {
   this.addOutput('Done', LiteGraph.EVENT);
   this.properties = { duration: '5s' };
   this.addWidget('text', 'Duration', '5s', (v) => { this.properties.duration = v; });
-  this.size = [180, 56];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 180);
 }
 WaitNode.title = 'Wait';
 WaitNode.desc = 'Temporisation';
@@ -552,7 +685,8 @@ function ConditionNode() {
   this.addOutput('False', LiteGraph.EVENT);
   this.properties = { variable: '$ctx.branch', operator: '==', value: '' };
   this.addWidget('text', 'Expression', '', (v) => { this.properties.expression = v; });
-  this.size = [200, 64];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
 }
 ConditionNode.title = 'Condition';
 ConditionNode.desc = 'Branchement conditionnel';
@@ -589,7 +723,8 @@ function ProjectNode() {
     values: ['set_context', 'open', 'build', 'install', 'test']
   });
   this.addWidget('text', 'Project', '', (v) => { this.properties.projectName = v; });
-  this.size = [220, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 220);
 }
 ProjectNode.title = 'Project';
 ProjectNode.desc = 'Cibler un projet';
@@ -618,7 +753,8 @@ function FileNode() {
     values: ['read', 'write', 'append', 'copy', 'delete', 'exists']
   });
   this.addWidget('text', 'Path', '', (v) => { this.properties.path = v; });
-  this.size = [220, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 220);
 }
 FileNode.title = 'File';
 FileNode.desc = 'Opération fichier';
@@ -636,10 +772,11 @@ function DbNode() {
   this.addOutput('Error', LiteGraph.EVENT);
   this.properties = { connection: '', query: '', action: 'query' };
   this.addWidget('combo', 'Action', 'query', (v) => { this.properties.action = v; }, {
-    values: ['query', 'execute', 'list_tables', 'describe']
+    values: ['query', 'schema', 'tables']
   });
   this.addWidget('text', 'Query', '', (v) => { this.properties.query = v; });
-  this.size = [220, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 220);
 }
 DbNode.title = 'Database';
 DbNode.desc = 'Requête base de données';
@@ -660,7 +797,8 @@ function LoopNode() {
   this.addWidget('combo', 'Source', 'auto', (v) => { this.properties.source = v; }, {
     values: ['auto', 'projects', 'files', 'custom']
   });
-  this.size = [200, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
 }
 LoopNode.title = 'Loop';
 LoopNode.desc = 'Itérer sur une liste';
@@ -681,7 +819,8 @@ function VariableNode() {
     values: ['set', 'get', 'increment', 'append']
   });
   this.addWidget('text', 'Name', '', (v) => { this.properties.name = v; });
-  this.size = [200, 84];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
 }
 VariableNode.title = 'Variable';
 VariableNode.desc = 'Lire/écrire une variable';
@@ -707,7 +846,8 @@ function LogNode() {
     values: ['debug', 'info', 'warn', 'error']
   });
   this.addWidget('text', 'Message', '', (v) => { this.properties.message = v; });
-  this.size = [200, 76];
+  this.size = this.computeSize();
+  this.size[0] = Math.max(this.size[0], 200);
 }
 LogNode.title = 'Log';
 LogNode.desc = 'Écrire dans le log';
@@ -767,6 +907,7 @@ class WorkflowGraphService {
     this.onNodeSelected = null;
     this.onNodeDeselected = null;
     this.onGraphChanged = null;
+    this._lastRunOutputs = new Map(); // litegraphNodeId → output data
   }
 
   init(canvasElement) {
@@ -809,6 +950,75 @@ class WorkflowGraphService {
     // Install custom widget rendering
     installWidgetOverrides(this.canvas);
 
+    // Disable widget interactivity — nodes are visual-only, editing happens in the right panel
+    this.canvas.processNodeWidgets = function(_node, _pos, _event, _active_widget) {
+      return null; // Block all widget clicks/drags on canvas
+    };
+
+    // Block LiteGraph's default node panel on double-click (we use the right panel instead)
+    this.canvas.onShowNodePanel = function(_node) { /* noop */ };
+
+    // Link tooltip on hover — show last run output preview
+    const self = this;
+    this.canvas.onDrawLinkTooltip = function(ctx, link, _canvas) {
+      if (!link) return;
+      const output = self._lastRunOutputs.get(link.origin_id);
+      if (!output) return;
+
+      const preview = formatOutputPreview(output, link.origin_slot);
+      if (!preview) return;
+
+      // Find the midpoint of the link on canvas
+      const originNode = self.graph.getNodeById(link.origin_id);
+      const targetNode = self.graph.getNodeById(link.target_id);
+      if (!originNode || !targetNode) return;
+
+      const originPos = originNode.getConnectionPos(false, link.origin_slot);
+      const targetPos = targetNode.getConnectionPos(true, link.target_slot);
+      const mx = (originPos[0] + targetPos[0]) / 2;
+      const my = (originPos[1] + targetPos[1]) / 2;
+
+      // Draw tooltip background
+      ctx.save();
+      ctx.font = `11px 'Cascadia Code', 'Fira Code', monospace`;
+      const lines = preview.split('\n');
+      const lineHeight = 15;
+      const padding = 8;
+      let maxW = 0;
+      for (const line of lines) {
+        const w = ctx.measureText(line).width;
+        if (w > maxW) maxW = w;
+      }
+      maxW = Math.min(maxW, 280);
+      const tooltipW = maxW + padding * 2;
+      const tooltipH = lines.length * lineHeight + padding * 2;
+      const tx = mx - tooltipW / 2;
+      const ty = my - tooltipH - 12;
+
+      // Background
+      roundRect(ctx, tx, ty, tooltipW, tooltipH, 6);
+      ctx.fillStyle = 'rgba(12,12,14,.92)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.08)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Text
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        // Truncate long lines
+        while (ctx.measureText(line).width > maxW && line.length > 10) {
+          line = line.substring(0, line.length - 4) + '...';
+        }
+        ctx.fillStyle = i === 0 ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.55)';
+        ctx.fillText(line, tx + padding, ty + padding + i * lineHeight);
+      }
+      ctx.restore();
+    };
+
     // Events
     this.canvas.onNodeSelected = (node) => {
       if (this.onNodeSelected) this.onNodeSelected(node);
@@ -822,8 +1032,11 @@ class WorkflowGraphService {
     this.graph.onNodeRemoved = () => {
       if (this.onGraphChanged) this.onGraphChanged();
     };
+    this._prevLinkIds = new Set();
     this.graph.onConnectionChange = () => {
       if (this.onGraphChanged) this.onGraphChanged();
+      // Detect new array→single connections for auto-loop suggestion
+      this._checkNewConnections();
     };
 
     this.graph.status = LGraph.STATUS_STOPPED;
@@ -916,6 +1129,13 @@ class WorkflowGraphService {
     } else if (workflow.steps) {
       this._migrateLegacySteps(workflow);
     }
+    // Recalculate node sizes to fit slots + widgets (fixes legacy hardcoded sizes)
+    const nodes = this.graph.getNodes ? this.graph.getNodes() : this.graph._nodes || [];
+    for (const node of nodes) {
+      const computed = node.computeSize();
+      node.size[0] = Math.max(node.size[0], computed[0]);
+      node.size[1] = Math.max(node.size[1], computed[1]);
+    }
     this.canvas.setDirty(true, true);
   }
 
@@ -974,6 +1194,77 @@ class WorkflowGraphService {
     if (!this.graph) return;
     for (const node of this.graph._nodes) node._runStatus = null;
     this.canvas.setDirty(true, true);
+  }
+
+  // ── Auto-loop detection ───────────────────────────────────────────────────
+
+  _checkNewConnections() {
+    if (!this.graph) return;
+    const currentLinks = new Set();
+    const newLinks = [];
+
+    // Collect all current link IDs
+    if (this.graph.links) {
+      const linksObj = this.graph.links;
+      // LiteGraph stores links as object or array
+      const entries = linksObj instanceof Map ? [...linksObj.entries()] :
+                      Array.isArray(linksObj) ? linksObj.map((l, i) => [i, l]).filter(([, l]) => l) :
+                      Object.entries(linksObj).filter(([, l]) => l);
+
+      for (const [id, link] of entries) {
+        if (!link) continue;
+        currentLinks.add(Number(id));
+        if (!this._prevLinkIds.has(Number(id))) {
+          newLinks.push(link);
+        }
+      }
+    }
+
+    this._prevLinkIds = currentLinks;
+
+    // Check each new link for array→single mismatch
+    for (const link of newLinks) {
+      const originNode = this.graph.getNodeById(link.origin_id);
+      const targetNode = this.graph.getNodeById(link.target_id);
+      if (!originNode || !targetNode) continue;
+
+      const originType = (originNode.type || '').replace('workflow/', '');
+      const targetType = (targetNode.type || '').replace('workflow/', '');
+
+      // Skip if target is already a loop
+      if (targetType === 'loop') continue;
+
+      // Check if source produces an array on this slot
+      const producesArray = this._slotProducesArray(originNode, originType, link.origin_slot);
+      if (producesArray && this.onArrayToSingleConnection) {
+        this.onArrayToSingleConnection(link, originNode, targetNode);
+      }
+    }
+  }
+
+  _slotProducesArray(node, nodeType, slot) {
+    // DB slot 0 with action=query → rows[]
+    if (nodeType === 'db' && slot === 0) {
+      const action = node.properties?.action || 'query';
+      return action === 'query';
+    }
+    // Loop slot 1 (Done) returns collected items
+    if (nodeType === 'loop' && slot === 1) return false; // Done = event, not array
+    return false;
+  }
+
+  // ── Run output tracking (for link tooltips) ──────────────────────────────
+
+  setNodeOutput(nodeId, output) {
+    this._lastRunOutputs.set(nodeId, output);
+  }
+
+  getNodeOutput(nodeId) {
+    return this._lastRunOutputs.get(nodeId) || null;
+  }
+
+  clearRunOutputs() {
+    this._lastRunOutputs.clear();
   }
 
   destroy() {

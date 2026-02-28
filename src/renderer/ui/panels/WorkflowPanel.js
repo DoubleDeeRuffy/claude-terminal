@@ -3,7 +3,10 @@ const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
 const { getAgents } = require('../../services/AgentService');
 const { getSkills } = require('../../services/SkillService');
 const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphService');
+const { LiteGraph } = require('litegraph.js');
 const { projectsState } = require('../../state/projects.state');
+const { schemaCache } = require('../../services/WorkflowSchemaCache');
+const { showContextMenu } = require('../components/ContextMenu');
 
 let ctx = null;
 
@@ -128,6 +131,211 @@ function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
   }
 
   return suggestions;
+}
+
+/**
+ * Extract table name from a SQL query (FROM clause).
+ */
+function extractTableFromSQL(sql) {
+  if (!sql) return null;
+  const match = sql.match(/\bFROM\s+[`"']?(\w+(?:\.\w+)?)[`"']?/i);
+  if (!match) return null;
+  const name = match[1];
+  return name.includes('.') ? name.split('.').pop() : name;
+}
+
+/**
+ * BFS backward through graph links to find the nearest upstream DB node.
+ */
+function findUpstreamDbNode(graph, startNode) {
+  if (!graph || !startNode) return null;
+  const visited = new Set();
+  const queue = [startNode];
+  visited.add(startNode.id);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current.inputs) continue;
+
+    for (const input of current.inputs) {
+      if (!input.link) continue;
+      const linkInfo = graph.links?.[input.link] || graph._links?.get?.(input.link);
+      if (!linkInfo) continue;
+      const originNode = graph.getNodeById(linkInfo.origin_id);
+      if (!originNode || visited.has(originNode.id)) continue;
+      visited.add(originNode.id);
+
+      const originType = (originNode.type || '').replace('workflow/', '');
+      if (originType === 'db') return originNode;
+      queue.push(originNode);
+    }
+  }
+  return null;
+}
+
+/**
+ * Get deep autocomplete suggestions (async) — resolves DB column names from schema.
+ * Called when user types second-level property like `$node_X.firstRow.` or `$loop.item.`
+ */
+async function getDeepAutocompleteSuggestions(graph, currentNodeId, filterText) {
+  const suggestions = [];
+  if (!graph || !filterText) return suggestions;
+
+  // Match patterns like $node_X.firstRow. or $node_X.rows.
+  const nodeMatch = filterText.match(/^\$node_(\d+)\.(firstRow|rows)\.(.*)?$/i);
+  // Match patterns like $loop.item. or $item.
+  const loopMatch = filterText.match(/^\$(loop\.item|item)\.(.*)?$/i);
+
+  let dbNode = null;
+  let columnFilter = '';
+
+  if (nodeMatch) {
+    const sourceNodeId = parseInt(nodeMatch[1], 10);
+    columnFilter = (nodeMatch[3] || '').toLowerCase();
+    const sourceNode = graph.getNodeById(sourceNodeId);
+    if (sourceNode) {
+      const sourceType = (sourceNode.type || '').replace('workflow/', '');
+      if (sourceType === 'db') dbNode = sourceNode;
+    }
+  } else if (loopMatch) {
+    columnFilter = (loopMatch[2] || '').toLowerCase();
+    // Find the node being edited, then trace upstream to find a DB node
+    const currentNode = graph.getNodeById(currentNodeId);
+    if (currentNode) {
+      dbNode = findUpstreamDbNode(graph, currentNode);
+    }
+  }
+
+  if (!dbNode) return suggestions;
+
+  // Extract connection and table from the DB node properties
+  const connectionId = dbNode.properties?.connection;
+  const sql = dbNode.properties?.query;
+  const tableName = extractTableFromSQL(sql);
+
+  if (!connectionId || !tableName) return suggestions;
+
+  // Fetch schema (async, cached)
+  await schemaCache.getSchema(connectionId);
+  const columns = schemaCache.getColumnsForTable(connectionId, tableName);
+  if (!columns || !columns.length) return suggestions;
+
+  for (const col of columns) {
+    const colName = col.name || col;
+    const colType = col.type || '';
+    if (columnFilter && !colName.toLowerCase().includes(columnFilter)) continue;
+
+    const pkBadge = col.primaryKey ? ' 🔑' : '';
+    suggestions.push({
+      category: 'Colonnes DB',
+      label: colName,
+      value: filterText.substring(0, filterText.lastIndexOf('.') + 1) + colName,
+      detail: `${colType}${pkBadge}`,
+    });
+  }
+
+  return suggestions;
+}
+
+/**
+ * Build loop preview info by tracing the upstream connection.
+ * Returns { html, itemDesc } for display in the Loop panel.
+ */
+function getLoopPreview(loopNode, graphService) {
+  const noPreview = { html: '', itemDesc: 'Valeur de l\'itération courante' };
+  if (!graphService?.graph || !loopNode) return noPreview;
+
+  const graph = graphService.graph;
+
+  // Find what's connected to Loop's In slot (slot 0)
+  const inSlot = loopNode.inputs?.[0];
+  if (!inSlot?.link) return { html: '<div class="wf-loop-preview wf-loop-preview--empty"><span class="wf-loop-preview-icon">⚠</span> Aucun node connecté au port <strong>In</strong></div>', itemDesc: 'Valeur de l\'itération courante' };
+
+  const linkInfo = graph.links?.[inSlot.link] || graph._links?.get?.(inSlot.link);
+  if (!linkInfo) return noPreview;
+
+  const sourceNode = graph.getNodeById(linkInfo.origin_id);
+  if (!sourceNode) return noPreview;
+
+  const sourceType = (sourceNode.type || '').replace('workflow/', '');
+  const sourceName = sourceNode.title || sourceType;
+  const sourceProps = sourceNode.properties || {};
+
+  // Determine what the source produces
+  let dataType = '';
+  let dataDesc = '';
+  let itemDesc = 'Valeur de l\'itération courante';
+  let previewItems = [];
+
+  if (sourceType === 'db') {
+    const action = sourceProps.action || 'query';
+    if (action === 'query') {
+      const table = extractTableFromSQL(sourceProps.query);
+      dataType = 'rows[]';
+      dataDesc = table ? `Lignes de <code>${escapeHtml(table)}</code>` : 'Résultats de la requête SQL';
+      itemDesc = table ? `Ligne de ${table} (objet avec colonnes)` : 'Ligne de résultat (objet)';
+    } else if (action === 'tables') {
+      dataType = 'string[]';
+      dataDesc = 'Noms des tables de la base';
+      itemDesc = 'Nom de table (string)';
+    } else if (action === 'schema') {
+      dataType = 'object[]';
+      dataDesc = 'Tables avec leurs colonnes';
+      itemDesc = 'Table (objet avec name, columns)';
+    }
+  } else if (sourceType === 'shell') {
+    dataType = 'lines';
+    dataDesc = 'Sortie du shell (stdout)';
+    itemDesc = 'Ligne de sortie';
+  } else if (sourceType === 'http') {
+    dataType = 'array';
+    dataDesc = 'Réponse HTTP (body)';
+    itemDesc = 'Élément du tableau de réponse';
+  } else if (sourceType === 'file') {
+    dataType = 'lines';
+    dataDesc = 'Contenu du fichier';
+    itemDesc = 'Ligne du fichier';
+  } else {
+    dataType = 'auto';
+    dataDesc = `Sortie de ${escapeHtml(sourceName)}`;
+    itemDesc = 'Élément de la sortie';
+  }
+
+  // Check for last run output for actual preview
+  const lastOutput = graphService.getNodeOutput(sourceNode.id);
+  if (lastOutput) {
+    // Extract array from output
+    if (Array.isArray(lastOutput)) previewItems = lastOutput;
+    else if (Array.isArray(lastOutput.rows)) previewItems = lastOutput.rows;
+    else if (Array.isArray(lastOutput.tables)) previewItems = lastOutput.tables;
+    else if (Array.isArray(lastOutput.items)) previewItems = lastOutput.items;
+  }
+
+  const countText = previewItems.length > 0 ? `<span class="wf-loop-preview-count">${previewItems.length} items</span>` : '';
+
+  // Build preview items list (max 5)
+  let previewHtml = '';
+  if (previewItems.length > 0) {
+    const shown = previewItems.slice(0, 5);
+    previewHtml = `<div class="wf-loop-preview-list">${shown.map((item, i) => {
+      const text = typeof item === 'string' ? item : (item?.name || JSON.stringify(item));
+      return `<div class="wf-loop-preview-item"><span class="wf-loop-preview-idx">${i}</span><code>${escapeHtml(String(text).substring(0, 60))}</code></div>`;
+    }).join('')}${previewItems.length > 5 ? `<div class="wf-loop-preview-more">… +${previewItems.length - 5} autres</div>` : ''}</div>`;
+  }
+
+  const html = `
+    <div class="wf-loop-preview">
+      <div class="wf-loop-preview-header">
+        <span class="wf-loop-preview-source">${escapeHtml(sourceName)}</span>
+        <span class="wf-loop-preview-type">${dataType}</span>
+        ${countText}
+      </div>
+      <div class="wf-loop-preview-desc">${dataDesc}</div>
+      ${previewHtml}
+    </div>
+  `;
+
+  return { html, itemDesc };
 }
 
 const STEP_TYPES = [
@@ -545,6 +753,8 @@ function registerLiveListeners() {
 
   api.onRunStart(({ run }) => {
     state.runs.unshift(run);
+    // Clear previous run outputs for fresh tooltip data
+    try { getGraphService().clearRunOutputs(); } catch (_) {}
     renderContent();
   });
 
@@ -561,7 +771,25 @@ function registerLiveListeners() {
     const run = state.runs.find(r => r.id === runId);
     if (run) {
       const step = run.steps?.find(s => s.id === stepId);
-      if (step) step.status = status;
+      if (step) {
+        step.status = status;
+        if (output) step.output = output;
+      }
+    }
+    // Store step output for link tooltip preview
+    if (output && status === 'success') {
+      try {
+        const graphService = getGraphService();
+        if (graphService?.graph) {
+          // Find the litegraph node matching this stepId
+          for (const node of graphService.graph._nodes) {
+            if (node.properties?.stepId === stepId || `node_${node.id}` === stepId) {
+              graphService.setNodeOutput(node.id, output);
+              break;
+            }
+          }
+        }
+      } catch (_) { /* ignore */ }
     }
     renderContent();
   });
@@ -658,6 +886,25 @@ function renderWorkflowList(el) {
       toggle.addEventListener('change', e => { e.stopPropagation(); toggleWorkflow(id, e.target.checked); });
       toggle.closest('.wf-switch')?.addEventListener('click', e => e.stopPropagation());
     }
+
+    // Right-click context menu
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const wf = state.workflows.find(w => w.id === id);
+      if (!wf) return;
+      showContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { label: 'Modifier', icon: svgEdit(), onClick: () => openEditor(id) },
+          { label: 'Lancer maintenant', icon: svgPlay(12), onClick: () => triggerWorkflow(id) },
+          { label: 'Dupliquer', icon: svgCopy(), onClick: () => duplicateWorkflow(id) },
+          { separator: true },
+          { label: 'Supprimer', icon: svgTrash(), danger: true, onClick: () => confirmDeleteWorkflow(id, wf.name) },
+        ],
+      });
+    });
   });
 }
 
@@ -729,7 +976,7 @@ function renderRunHistory(el) {
         const failedSteps = steps.filter(s => s.status === 'failed').length;
 
         return `
-          <div class="wf-run wf-run--${run.status}">
+          <div class="wf-run wf-run--${run.status}" data-run-id="${run.id}" style="cursor:pointer">
             <div class="wf-run-indicator">
               <div class="wf-run-indicator-icon wf-run-indicator-icon--${run.status}">
                 ${run.status === 'success' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' :
@@ -770,6 +1017,88 @@ function renderRunHistory(el) {
       }).join('')}
     </div>
   `;
+
+  // Bind click to open run detail
+  el.querySelectorAll('.wf-run[data-run-id]').forEach(runEl => {
+    runEl.addEventListener('click', () => {
+      const run = state.runs.find(r => r.id === runEl.dataset.runId);
+      if (run) renderRunDetail(el, run);
+    });
+  });
+}
+
+/* ─── Run Detail View ──────────────────────────────────────────────────── */
+
+function renderRunDetail(el, run) {
+  const wf = state.workflows.find(w => w.id === run.workflowId);
+  const steps = run.steps || [];
+
+  el.innerHTML = `
+    <div class="wf-run-detail">
+      <div class="wf-run-detail-header">
+        <button class="wf-run-detail-back" id="wf-run-back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="wf-run-detail-info">
+          <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprimé')}</span>
+          <div class="wf-run-detail-meta">
+            ${svgClock(9)} ${fmtTime(run.startedAt)}
+            <span style="margin:0 6px;opacity:.3">·</span>
+            ${svgTimer()} ${fmtDuration(run.duration)}
+            <span style="margin:0 6px;opacity:.3">·</span>
+            <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
+          </div>
+        </div>
+        <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+      </div>
+      <div class="wf-run-detail-steps">
+        ${steps.map((step, i) => {
+          const sType = (step.type || step.name || '').split('.')[0];
+          const info = findStepType(sType);
+          const hasOutput = step.output != null;
+          return `
+            <div class="wf-run-step wf-run-step--${step.status}" data-step-idx="${i}">
+              <div class="wf-run-step-header">
+                <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+                <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
+                <span class="wf-run-step-type">${escapeHtml(sType)}</span>
+                <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
+                <span class="wf-run-step-status-icon">${step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…'}</span>
+                ${hasOutput ? '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' : ''}
+              </div>
+              ${hasOutput ? `<div class="wf-run-step-output" style="display:none"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+
+  // Back button
+  el.querySelector('#wf-run-back').addEventListener('click', () => renderContent());
+
+  // Toggle step outputs
+  el.querySelectorAll('.wf-run-step').forEach(stepEl => {
+    const header = stepEl.querySelector('.wf-run-step-header');
+    const output = stepEl.querySelector('.wf-run-step-output');
+    if (!output) return;
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => {
+      const visible = output.style.display !== 'none';
+      output.style.display = visible ? 'none' : 'block';
+      stepEl.classList.toggle('expanded', !visible);
+    });
+  });
+}
+
+function formatStepOutput(output) {
+  if (output == null) return '';
+  if (typeof output === 'string') return output;
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
 }
 
 /* ─── Node Graph Editor ─────────────────────────────────────────────────── */
@@ -1344,6 +1673,9 @@ function openEditor(workflowId = null) {
     }
     // Loop node
     else if (nodeType === 'loop') {
+      // Detect upstream source for preview
+      const loopPreview = getLoopPreview(node, graphService);
+
       fieldsHtml = `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgLoop()} Source d'itération</label>
@@ -1367,6 +1699,16 @@ function openEditor(workflowId = null) {
           <span class="wf-field-hint">Un item par ligne</span>
           <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" rows="4" placeholder="api-service\nweb-app\nworker">${escapeHtml(props.filter || '')}</textarea>
         </div>` : ''}
+        ${loopPreview.html}
+        <div class="wf-loop-usage-hint">
+          <div class="wf-loop-usage-title">${svgTriggerType()} Utilisation dans Each</div>
+          <div class="wf-loop-usage-items">
+            <code>$item</code> <span>${escapeHtml(loopPreview.itemDesc)}</span>
+            <code>$loop.index</code> <span>Index courant (0, 1, 2…)</span>
+            <code>$loop.total</code> <span>Nombre total d'items</span>
+          </div>
+          <div class="wf-loop-usage-tip">Connectez un node au port <strong>Each</strong> pour traiter chaque item</div>
+        </div>
       `;
     }
     // Variable node
@@ -1470,6 +1812,11 @@ function openEditor(workflowId = null) {
     // ── Autocomplete for $variable references ──
     setupAutocomplete(propsEl, node, graphService);
 
+    // ── Prefetch DB schema when a DB node with connection is selected ──
+    if (nodeType === 'db' && node.properties?.connection) {
+      schemaCache.getSchema(node.properties.connection).catch(() => {});
+    }
+
     // Claude mode tabs
     propsEl.querySelectorAll('.wf-claude-mode-tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -1542,6 +1889,52 @@ function openEditor(workflowId = null) {
   graphService.onGraphChanged = () => {
     editorDraft.dirty = true;
     updateStatusBar();
+  };
+
+  // ── Auto-loop suggestion ──
+  graphService.onArrayToSingleConnection = (link, sourceNode, targetNode) => {
+    // Remove any existing suggestion popup
+    const old = panel.querySelector('.wf-loop-suggest');
+    if (old) old.remove();
+
+    // Position popup at the midpoint of the link (converted from graph coords to screen)
+    const canvas = graphService.canvas;
+    const originPos = sourceNode.getConnectionPos(false, link.origin_slot);
+    const targetPos = targetNode.getConnectionPos(true, link.target_slot);
+    const mx = (originPos[0] + targetPos[0]) / 2;
+    const my = (originPos[1] + targetPos[1]) / 2;
+    const screenPos = canvas.ds.convertOffsetToCanvas([mx, my]);
+    const canvasRect = graphService.canvasElement.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+
+    const popup = document.createElement('div');
+    popup.className = 'wf-loop-suggest';
+    popup.style.left = (canvasRect.left - panelRect.left + screenPos[0]) + 'px';
+    popup.style.top = (canvasRect.top - panelRect.top + screenPos[1] + 10) + 'px';
+    popup.innerHTML = `
+      <div class="wf-loop-suggest-text">Ce lien transporte un tableau. Insérer un Loop ?</div>
+      <div class="wf-loop-suggest-actions">
+        <button class="wf-loop-suggest-btn wf-loop-suggest-btn--yes">Insérer Loop</button>
+        <button class="wf-loop-suggest-btn wf-loop-suggest-btn--no">Ignorer</button>
+      </div>
+    `;
+    panel.appendChild(popup);
+
+    // Auto-dismiss after 6s
+    const autoDismiss = setTimeout(() => popup.remove(), 6000);
+
+    popup.querySelector('.wf-loop-suggest-btn--no').addEventListener('click', () => {
+      clearTimeout(autoDismiss);
+      popup.remove();
+    });
+
+    popup.querySelector('.wf-loop-suggest-btn--yes').addEventListener('click', () => {
+      clearTimeout(autoDismiss);
+      popup.remove();
+      insertLoopBetween(graphService, link, sourceNode, targetNode);
+      editorDraft.dirty = true;
+      updateStatusBar();
+    });
   };
 
   // ── Toolbar events ──
@@ -1778,6 +2171,55 @@ async function toggleWorkflow(id, enabled) {
   }
 }
 
+async function confirmDeleteWorkflow(id, name) {
+  if (!api) return;
+  // Simple confirmation via a small modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'wf-confirm-overlay';
+  overlay.innerHTML = `
+    <div class="wf-confirm-box">
+      <div class="wf-confirm-title">${svgTrash(16)} Supprimer le workflow</div>
+      <div class="wf-confirm-text">Supprimer <strong>${escapeHtml(name || 'ce workflow')}</strong> ? Cette action est irréversible.</div>
+      <div class="wf-confirm-actions">
+        <button class="wf-confirm-btn wf-confirm-btn--cancel">Annuler</button>
+        <button class="wf-confirm-btn wf-confirm-btn--delete">Supprimer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.wf-confirm-btn--cancel').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('.wf-confirm-btn--delete').addEventListener('click', async () => {
+    overlay.remove();
+    const res = await api.delete(id);
+    if (res?.success) {
+      state.workflows = state.workflows.filter(w => w.id !== id);
+      renderContent();
+    }
+  });
+}
+
+async function duplicateWorkflow(id) {
+  if (!api) return;
+  const wf = state.workflows.find(w => w.id === id);
+  if (!wf) return;
+  const copy = {
+    name: wf.name + ' (copie)',
+    enabled: false,
+    trigger: { ...wf.trigger },
+    scope: wf.scope,
+    concurrency: wf.concurrency,
+    steps: JSON.parse(JSON.stringify(wf.steps || [])),
+  };
+  const res = await api.save(copy);
+  if (res?.success) {
+    await refreshData();
+    renderContent();
+  }
+}
+
 /* ─── Helpers ───────────────────────────────────────────────────────────────── */
 
 /** Format ISO date to relative/short string */
@@ -1852,6 +2294,8 @@ function svgMode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 
 function svgEdit(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`; }
 function svgBranch(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`; }
 function svgCode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`; }
+function svgTrash(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`; }
+function svgCopy(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`; }
 
 /**
  * Replace native <select> elements with custom styled dropdowns.
@@ -1949,6 +2393,35 @@ function upgradeSelectsToDropdowns(container) {
   });
 }
 
+// ── Auto-loop insertion ───────────────────────────────────────────────────────
+function insertLoopBetween(graphService, link, sourceNode, targetNode) {
+  const graph = graphService.graph;
+  if (!graph) return;
+
+  // Calculate position: midpoint between source and target
+  const originPos = sourceNode.getConnectionPos(false, link.origin_slot);
+  const targetPos = targetNode.getConnectionPos(true, link.target_slot);
+  const mx = (originPos[0] + targetPos[0]) / 2;
+  const my = (originPos[1] + targetPos[1]) / 2;
+
+  // Remove the existing link
+  graph.removeLink(link.id);
+
+  // Create a Loop node at the midpoint
+  const loopNode = LiteGraph.createNode('workflow/loop');
+  if (!loopNode) return;
+  loopNode.pos = [mx - 70, my - 30];
+  loopNode.properties = loopNode.properties || {};
+  loopNode.properties.source = 'auto';
+  graph.add(loopNode);
+
+  // Connect: source.slot → loop.In (slot 0), then loop.Each (output 0) → target.slot
+  sourceNode.connect(link.origin_slot, loopNode, 0);  // source → loop In
+  loopNode.connect(0, targetNode, link.target_slot);   // loop Each → target
+
+  graphService.canvas.setDirty(true, true);
+}
+
 // ── Autocomplete for $variable references ────────────────────────────────────
 function setupAutocomplete(container, node, graphService) {
   // Only wire up text inputs and textareas that accept variables
@@ -2040,8 +2513,10 @@ function setupAutocomplete(container, node, graphService) {
     if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
   }
 
+  let deepFetchId = 0; // debounce async deep suggestions
+
   fields.forEach(field => {
-    field.addEventListener('input', () => {
+    field.addEventListener('input', async () => {
       const val = field.value;
       const cursor = field.selectionStart;
 
@@ -2060,6 +2535,21 @@ function setupAutocomplete(container, node, graphService) {
       const filterText = val.substring(dPos, cursor);
 
       const graph = graphService?.graph;
+
+      // Check if this is a deep property access (has 2+ dots: $node_X.firstRow.col)
+      const dotCount = (filterText.match(/\./g) || []).length;
+      if (dotCount >= 2) {
+        // Async deep suggestions (DB columns)
+        const fetchId = ++deepFetchId;
+        const deepSuggestions = await getDeepAutocompleteSuggestions(graph, node?.id, filterText);
+        if (fetchId !== deepFetchId) return; // stale request
+        if (deepSuggestions.length > 0) {
+          renderPopup(deepSuggestions, field);
+          return;
+        }
+      }
+
+      // Standard suggestions
       const suggestions = getAutocompleteSuggestions(graph, node?.id, filterText);
       renderPopup(suggestions, field);
     });
