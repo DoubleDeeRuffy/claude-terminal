@@ -39,15 +39,26 @@ const {
  */
 function resolveVars(value, vars) {
   if (typeof value !== 'string') return value;
-  return value.replace(/\$([a-zA-Z_][\w.]*)(\.[a-zA-Z_][\w.]*)?/g, (match, prefix, suffix) => {
-    const key = prefix + (suffix || '');
-    // Walk the key path into vars (dot-separated)
+
+  // Fast path: entire string is a single $variable — return raw value (object, array, etc.)
+  const singleVarMatch = value.match(/^\$([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)$/);
+  if (singleVarMatch) {
+    const parts = singleVarMatch[1].split('.');
+    let cur = vars.get(parts[0]);
+    for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
+    if (cur != null) return cur;
+  }
+
+  // Mixed text with variables: interpolate as strings
+  return value.replace(/\$([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)/g, (match, key) => {
     const parts = key.split('.');
     let cur = vars.get(parts[0]);
     for (let i = 1; i < parts.length && cur != null; i++) {
       cur = cur[parts[i]];
     }
-    return cur != null ? String(cur) : match;
+    if (cur == null) return match;
+    if (typeof cur === 'object') return JSON.stringify(cur);
+    return String(cur);
   });
 }
 
