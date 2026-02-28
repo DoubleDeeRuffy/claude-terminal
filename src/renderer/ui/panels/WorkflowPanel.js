@@ -1900,6 +1900,7 @@ function openEditor(workflowId = null) {
     else if (nodeType === 'loop') {
       // Detect upstream source for preview
       const loopPreview = getLoopPreview(node, graphService);
+      const loopMode = props.mode || 'sequential';
 
       fieldsHtml = `
         <div class="wf-step-edit-field">
@@ -1921,12 +1922,25 @@ function openEditor(workflowId = null) {
         ${props.source === 'custom' ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCode()} Items</label>
-          <span class="wf-field-hint">Un item par ligne</span>
+          <span class="wf-field-hint">Un item par ligne, ou variable $node_X.rows</span>
           <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" rows="4" placeholder="api-service\nweb-app\nworker">${escapeHtml(props.filter || '')}</textarea>
         </div>` : ''}
         ${loopPreview.html}
+        <div class="wf-loop-options">
+          <div class="wf-loop-opt">
+            <span class="wf-loop-opt-label">Mode</span>
+            <div class="wf-loop-mode-tabs">
+              <button class="wf-loop-mode-tab ${loopMode === 'sequential' ? 'active' : ''}" data-mode="sequential" title="Un par un dans l'ordre">Séq.</button>
+              <button class="wf-loop-mode-tab ${loopMode === 'parallel' ? 'active' : ''}" data-mode="parallel" title="Tous en parallèle">Par.</button>
+            </div>
+          </div>
+          <div class="wf-loop-opt">
+            <span class="wf-loop-opt-label">Limite</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono wf-loop-max-input" data-key="maxIterations" type="number" min="1" max="10000" value="${escapeHtml(String(props.maxIterations || ''))}" placeholder="∞" />
+          </div>
+        </div>
         <div class="wf-loop-usage-hint">
-          <div class="wf-loop-usage-title">${svgTriggerType()} Utilisation dans Each</div>
+          <div class="wf-loop-usage-title">${svgTriggerType()} Variables dans Each</div>
           <div class="wf-loop-usage-items">
             <code>$item</code> <span>${escapeHtml(loopPreview.itemDesc)}</span>
             <code>$loop.index</code> <span>Index courant (0, 1, 2…)</span>
@@ -1963,20 +1977,40 @@ function openEditor(workflowId = null) {
     }
     // Log node
     else if (nodeType === 'log') {
+      const logLevel = props.level || 'info';
+      const LOG_LEVELS = [
+        { value: 'debug', label: 'Debug',   icon: '🔍', color: 'var(--text-muted)' },
+        { value: 'info',  label: 'Info',    icon: 'ℹ',  color: '#60a5fa' },
+        { value: 'warn',  label: 'Warn',    icon: '⚠',  color: '#fbbf24' },
+        { value: 'error', label: 'Error',   icon: '✕',  color: '#f87171' },
+      ];
+      const LOG_TEMPLATES = [
+        { label: 'Status',   value: '[$ctx.project] Step $loop.index completed' },
+        { label: 'Result',   value: 'Output: $node_1.stdout' },
+        { label: 'Timing',   value: 'Done at $ctx.date' },
+      ];
       fieldsHtml = `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgLog()} Niveau</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="level">
-            <option value="debug" ${props.level === 'debug' ? 'selected' : ''}>Debug (gris)</option>
-            <option value="info" ${props.level === 'info' ? 'selected' : ''}>Info (bleu)</option>
-            <option value="warn" ${props.level === 'warn' ? 'selected' : ''}>Warning (jaune)</option>
-            <option value="error" ${props.level === 'error' ? 'selected' : ''}>Error (rouge)</option>
-          </select>
+          <div class="wf-log-level-tabs">
+            ${LOG_LEVELS.map(l => `
+              <button class="wf-log-level-tab ${logLevel === l.value ? 'active' : ''}" data-level="${l.value}" style="${logLevel === l.value ? `--tab-color:${l.color}` : ''}">
+                <span class="wf-log-level-icon">${l.icon}</span>
+                ${l.label}
+              </button>
+            `).join('')}
+          </div>
         </div>
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgEdit()} Message</label>
-          <span class="wf-field-hint">Variables : $ctx.project, $ctx.branch, $node_X.stdout</span>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Build finished for $ctx.project">${escapeHtml(props.message || '')}</textarea>
+          <div class="wf-log-tpl-bar">
+            ${LOG_TEMPLATES.map(t => `<button class="wf-log-tpl" data-tpl="${escapeHtml(t.value)}" title="${escapeHtml(t.value)}">${t.label}</button>`).join('')}
+          </div>
+          <textarea class="wf-step-edit-input wf-node-prop wf-log-textarea" data-key="message" rows="3" placeholder="Build finished for $ctx.project">${escapeHtml(props.message || '')}</textarea>
+          <div class="wf-log-preview" data-level="${logLevel}">
+            <span class="wf-log-preview-badge">${LOG_LEVELS.find(l => l.value === logLevel)?.icon || 'ℹ'}</span>
+            <span class="wf-log-preview-text">${escapeHtml(props.message || 'Aperçu du message...')}</span>
+          </div>
         </div>
       `;
     }
@@ -2080,6 +2114,54 @@ function openEditor(workflowId = null) {
         card.classList.add('active');
       });
     });
+
+    // Loop mode tabs (sequential/parallel)
+    propsEl.querySelectorAll('.wf-loop-mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        node.properties.mode = tab.dataset.mode;
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // Log level tabs
+    propsEl.querySelectorAll('.wf-log-level-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        node.properties.level = tab.dataset.level;
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // Log template buttons
+    propsEl.querySelectorAll('.wf-log-tpl').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const textarea = propsEl.querySelector('.wf-log-textarea');
+        if (textarea) {
+          const start = textarea.selectionStart || textarea.value.length;
+          const before = textarea.value.substring(0, start);
+          const after = textarea.value.substring(textarea.selectionEnd || start);
+          textarea.value = before + btn.dataset.tpl + after;
+          node.properties.message = textarea.value;
+          editorDraft.dirty = true;
+          textarea.focus();
+          // Update preview
+          const preview = propsEl.querySelector('.wf-log-preview-text');
+          if (preview) preview.textContent = textarea.value || 'Aperçu du message...';
+        }
+      });
+    });
+
+    // Log message live preview
+    const logTextarea = propsEl.querySelector('.wf-log-textarea');
+    if (logTextarea) {
+      logTextarea.addEventListener('input', () => {
+        const preview = propsEl.querySelector('.wf-log-preview-text');
+        if (preview) preview.textContent = logTextarea.value || 'Aperçu du message...';
+      });
+    }
 
     // Delete node button
     const deleteBtn = propsEl.querySelector('#wf-props-delete-node');

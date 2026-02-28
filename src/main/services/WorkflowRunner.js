@@ -922,8 +922,12 @@ class WorkflowRunner {
         try {
           this._emitStep(runId, step, 'running', null);
 
-          // 1. Resolve the items array
-          const items = this._resolveLoopItems(step, nodeId, vars, incoming);
+          // 1. Resolve the items array and apply maxIterations cap
+          let items = this._resolveLoopItems(step, nodeId, vars, incoming);
+          const maxIter = parseInt(step.maxIterations, 10);
+          if (maxIter > 0 && items.length > maxIter) {
+            items = items.slice(0, maxIter);
+          }
 
           // 2. Identify "Each" body nodes (slot 0) and "Done" continuation (slot 1)
           const eachTargets = this._getNextNodes(nodeId, 0, outgoing);
@@ -932,21 +936,40 @@ class WorkflowRunner {
           // 3. Execute sub-BFS for each item
           const allBodyVisited = new Set();
           const iterationResults = [];
+          const isParallel = step.mode === 'parallel';
 
-          for (let idx = 0; idx < items.length; idx++) {
-            if (signal.aborted) throw new Error('Cancelled');
+          if (isParallel && eachTargets.length) {
+            // Parallel execution: run all iterations concurrently
+            const promises = items.map(async (item, idx) => {
+              if (signal.aborted) throw new Error('Cancelled');
+              const iterVars = new Map(vars);
+              iterVars.set('loop', { item, index: idx, total: items.length });
+              iterVars.set('item', item);
+              iterVars.set('index', idx);
+              const { outputs, visitedNodes } = await this._executeSubGraph(
+                eachTargets, nodeById, outgoing, incoming, iterVars, runId, signal, stepOutputs, workflow
+              );
+              for (const nid of visitedNodes) allBodyVisited.add(nid);
+              return outputs;
+            });
+            iterationResults.push(...await Promise.all(promises));
+          } else {
+            // Sequential execution (default)
+            for (let idx = 0; idx < items.length; idx++) {
+              if (signal.aborted) throw new Error('Cancelled');
 
-            // Set loop context variables
-            vars.set('loop', { item: items[idx], index: idx, total: items.length });
-            vars.set('item', items[idx]);
-            vars.set('index', idx);
+              // Set loop context variables
+              vars.set('loop', { item: items[idx], index: idx, total: items.length });
+              vars.set('item', items[idx]);
+              vars.set('index', idx);
 
-            // Execute the "Each" body sub-graph
-            const { outputs, visitedNodes } = await this._executeSubGraph(
-              eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
-            );
-            iterationResults.push(outputs);
-            for (const nid of visitedNodes) allBodyVisited.add(nid);
+              // Execute the "Each" body sub-graph
+              const { outputs, visitedNodes } = await this._executeSubGraph(
+                eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
+              );
+              iterationResults.push(outputs);
+              for (const nid of visitedNodes) allBodyVisited.add(nid);
+            }
           }
 
           // 4. Store loop result and emit success
