@@ -107,3 +107,4 @@ Detailed architecture and gotchas in `.planning/knowledge/`:
 | [infrastructure.md](.planning/knowledge/infrastructure.md) | Preload bridge, data storage, dependencies, HTML pages, project types, remote control, CI/CD, bundled resources |
 | [resume-dialogs.md](.planning/knowledge/resume-dialogs.md) | Two resume dialog implementations that must stay in sync |
 | [pr-playbook.md](.planning/knowledge/pr-playbook.md) | PR creation, squash workflow, branch updates, maintainer preferences |
+| [upstream-merge-playbook.md](.planning/knowledge/upstream-merge-playbook.md) | Safe upstream merge procedure, WIP protection, conflict resolution |
