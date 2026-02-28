@@ -118,7 +118,7 @@ function getToolDisplayInfo(toolName, input) {
 // ── Create Chat View ──
 
 function createChatView(wrapperEl, project, options = {}) {
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -1435,7 +1435,7 @@ function createChatView(wrapperEl, project, options = {}) {
 
     sendLock = true;
     if (project?.id) heartbeat(project.id, 'chat');
-    api.telemetry?.sendFeature({ feature: 'chat:message', metadata: {} });
+    api.telemetry?.sendFeature?.({ feature: 'chat:message', metadata: {} });
 
     // Reset scroll detection when user sends a message
     resetScrollDetection();
@@ -1492,6 +1492,11 @@ function createChatView(wrapperEl, project, options = {}) {
           effort: selectedEffort,
           enable1MContext: getSetting('enable1MContext') || false
         };
+        if (systemPrompt) {
+          startOpts.systemPrompt = systemPrompt;
+          // Keep 'user' to load ~/.claude.json MCP config, but skip project/local CLAUDE.md
+          startOpts.settingSources = ['user'];
+        }
 
         if (pendingResumeId) {
           startOpts.resumeSessionId = pendingResumeId;

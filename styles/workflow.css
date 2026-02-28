@@ -3491,6 +3491,131 @@ select.wf-step-edit-input {
   background: transparent !important;
 }
 
+/* ── AI Workflow Builder Panel ────────────────────────────────────────────── */
+.wf-editor { position: relative; }
+
+.wf-editor-btn--ai {
+  color: #a78bfa;
+  border-color: rgba(167,139,250,.15);
+  background: rgba(167,139,250,.06);
+  letter-spacing: .02em;
+}
+.wf-editor-btn--ai:hover {
+  background: rgba(167,139,250,.14);
+  border-color: rgba(167,139,250,.28);
+  color: #c4b5fd;
+  box-shadow: 0 0 12px rgba(167,139,250,.12);
+}
+.wf-editor-btn--ai.active {
+  background: rgba(167,139,250,.16);
+  border-color: rgba(167,139,250,.35);
+  color: #c4b5fd;
+  box-shadow: 0 0 0 1px rgba(167,139,250,.15), 0 0 12px rgba(167,139,250,.1);
+}
+
+.wf-ai-panel {
+  position: absolute;
+  top: 44px; /* toolbar height */
+  right: 0;
+  bottom: 22px; /* statusbar height */
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: #0c0c10;
+  border-left: 1px solid rgba(167,139,250,.14);
+  box-shadow: -8px 0 32px rgba(0,0,0,.4), -1px 0 0 rgba(167,139,250,.06);
+  z-index: 50;
+  animation: wfAiPanelSlide .22s cubic-bezier(.4,0,.2,1) both;
+}
+
+@keyframes wfAiPanelSlide {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+
+.wf-ai-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  height: 40px;
+  border-bottom: 1px solid rgba(167,139,250,.1);
+  flex-shrink: 0;
+  background: rgba(167,139,250,.04);
+}
+
+.wf-ai-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c4b5fd;
+  letter-spacing: .01em;
+}
+
+.wf-ai-panel-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .15s;
+}
+.wf-ai-panel-close:hover {
+  background: rgba(255,255,255,.07);
+  border-color: rgba(255,255,255,.08);
+  color: var(--text-primary);
+}
+
+.wf-ai-panel-chat {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Adapt chat-view inside the AI panel to fit the narrow space */
+.wf-ai-panel-chat .chat-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.wf-ai-panel-chat .chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  min-height: 0;
+}
+.wf-ai-panel-chat .chat-input-area {
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255,255,255,.04);
+  background: rgba(0,0,0,.15);
+}
+.wf-ai-panel-chat .chat-welcome {
+  padding: 24px 16px;
+  text-align: center;
+}
+.wf-ai-panel-chat .chat-welcome-logo {
+  width: 36px;
+  height: 36px;
+}
+.wf-ai-panel-chat .chat-welcome-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+/* Hide model/effort selectors in the AI panel (keep it simple) */
+.wf-ai-panel-chat .chat-toolbar {
+  display: none !important;
+}
+/* Narrower messages font */
+.wf-ai-panel-chat .chat-msg-text {
+  font-size: 12px;
+}
+
 .litegraph .litecontextmenu {
   background: #111113 !important;
   border: 1px solid rgba(255,255,255,.06) !important;
@@ -4220,3 +4345,73 @@ select.wf-step-edit-input {
 .wf-log-preview[data-level="info"] .wf-log-preview-text { color: #60a5fa; }
 .wf-log-preview[data-level="warn"] .wf-log-preview-text { color: #fbbf24; }
 .wf-log-preview[data-level="error"] .wf-log-preview-text { color: #f87171; }
+
+/* ── AI Panel: Workflow Diagram Cards ─────────────────────────────────────── */
+.wf-diag-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 12px 14px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 10px;
+  margin: 2px 0;
+}
+
+.wf-diag-node {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  border-left: 3px solid var(--node-color, #94a3b8);
+  border-radius: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background .15s;
+}
+.wf-diag-node:hover {
+  background: rgba(255,255,255,.07);
+}
+
+.wf-diag-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--node-color, #94a3b8);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px var(--node-color, #94a3b8);
+}
+
+.wf-diag-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -.01em;
+  flex-shrink: 0;
+}
+
+.wf-diag-detail {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  opacity: .8;
+}
+
+.wf-diag-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: rgba(255,255,255,.2);
+  font-size: 14px;
+  padding: 2px 0;
+  user-select: none;
+}

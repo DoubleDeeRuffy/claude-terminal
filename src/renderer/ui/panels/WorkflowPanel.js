@@ -8,6 +8,7 @@ const { projectsState } = require('../../state/projects.state');
 const { schemaCache } = require('../../services/WorkflowSchemaCache');
 const { showContextMenu } = require('../components/ContextMenu');
 const { showConfirm } = require('../components/Modal');
+const { createChatView } = require('../components/ChatView');
 
 let ctx = null;
 
@@ -1001,6 +1002,18 @@ function registerLiveListeners() {
   api.onListUpdated(({ workflows }) => {
     if (workflows) state.workflows = workflows;
     renderContent();
+
+    // If the editor is open, reload the live graph from the updated definition
+    const graphService = getGraphService();
+    if (graphService) {
+      const editorEl = document.querySelector('.wf-editor');
+      const nameEl = editorEl?.querySelector('#wf-ed-name');
+      const currentName = nameEl?.value;
+      if (currentName && workflows) {
+        const updated = workflows.find(w => w.name === currentName);
+        if (updated) graphService.loadFromWorkflow(updated);
+      }
+    }
   });
 }
 
@@ -1348,6 +1361,64 @@ async function loadDbConnections() {
   } catch { _dbConnectionsCache = []; }
 }
 
+// Node type → color mapping for diagram cards
+const WF_NODE_COLORS = {
+  trigger: '#22c55e', claude: '#a78bfa', shell: '#60a5fa', git: '#f97316',
+  http: '#06b6d4', db: '#f59e0b', file: '#e2e8f0', notify: '#ec4899',
+  wait: '#94a3b8', log: '#64748b', condition: '#eab308', loop: '#8b5cf6',
+  variable: '#10b981',
+};
+
+/**
+ * Transform a plain-text workflow diagram code block into a visual card.
+ * Handles lines like: [Trigger Manuel], ↓, [DB Query] → SELECT * FROM users
+ */
+function _renderWfDiagramBlock(block, text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const items = [];
+  for (const line of lines) {
+    if (line === '↓' || line === '→') {
+      items.push({ type: 'arrow' });
+      continue;
+    }
+    // Match [Node Name] → description  OR  [Node Name]
+    const m = line.match(/^\[([^\]]+)\](?:\s*→\s*(.+))?$/);
+    if (m) {
+      const label = m[1];
+      const detail = m[2] || null;
+      // Guess node type from label
+      const lc = label.toLowerCase();
+      let nodeType = 'variable';
+      for (const t of Object.keys(WF_NODE_COLORS)) {
+        if (lc.includes(t)) { nodeType = t; break; }
+      }
+      items.push({ type: 'node', label, detail, nodeType });
+    } else {
+      // Plain text line inside a step (e.g. detail continuation)
+      if (items.length && items[items.length - 1].type === 'node' && !items[items.length - 1].detail) {
+        items[items.length - 1].detail = line;
+      }
+    }
+  }
+
+  if (!items.some(i => i.type === 'node')) return; // nothing to render
+
+  const rows = items.map(item => {
+    if (item.type === 'arrow') {
+      return `<div class="wf-diag-arrow">↓</div>`;
+    }
+    const color = WF_NODE_COLORS[item.nodeType] || '#94a3b8';
+    const detail = item.detail ? `<span class="wf-diag-detail">${escapeHtml(item.detail)}</span>` : '';
+    return `<div class="wf-diag-node" style="--node-color:${color}">
+      <span class="wf-diag-dot"></span>
+      <span class="wf-diag-label">${escapeHtml(item.label)}</span>
+      ${detail}
+    </div>`;
+  }).join('');
+
+  block.innerHTML = `<div class="wf-diag-card">${rows}</div>`;
+}
+
 function openEditor(workflowId = null) {
   const wf = workflowId ? state.workflows.find(w => w.id === workflowId) : null;
   const editorDraft = {
@@ -1388,6 +1459,7 @@ function openEditor(workflowId = null) {
         </div>
         <div class="wf-editor-toolbar-sep"></div>
         <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run">${svgPlay(10)} Run</button>
+        <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="AI Workflow Builder">✨ AI</button>
         <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save</button>
       </div>
       <div class="wf-editor-body">
@@ -1427,6 +1499,15 @@ function openEditor(workflowId = null) {
         <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">Modifié</span>
         <span class="wf-sb-spacer"></span>
         <span class="wf-sb-section" id="wf-ed-zoom-pct">100%</span>
+      </div>
+      <div class="wf-ai-panel" id="wf-ai-panel" style="display:none">
+        <div class="wf-ai-panel-header">
+          <span class="wf-ai-panel-title">✨ AI Workflow Builder</span>
+          <button class="wf-ai-panel-close" id="wf-ai-panel-close" title="Fermer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="wf-ai-panel-chat" id="wf-ai-panel-chat"></div>
       </div>
     </div>
   `;
@@ -2419,6 +2500,196 @@ function openEditor(workflowId = null) {
   // Run
   panel.querySelector('#wf-ed-run').addEventListener('click', () => {
     if (workflowId) triggerWorkflow(workflowId);
+  });
+
+  // ── AI Workflow Builder ──
+  const aiPanel = panel.querySelector('#wf-ai-panel');
+  const aiPanelChat = panel.querySelector('#wf-ai-panel-chat');
+  let aiChatInitialized = false;
+
+  const WORKFLOW_SYSTEM_PROMPT = `You are the AI assistant built into the Workflow Builder of Claude Terminal.
+
+Claude Terminal is an Electron desktop app for managing development projects. It includes a visual workflow editor (LiteGraph.js) for automating tasks: git, shell commands, AI tasks, HTTP requests, file operations, databases, notifications, and more.
+
+YOUR ONLY ROLE: help the user build and modify the workflow currently open in the visual editor, using the MCP tools available. You do nothing else — no code help, no project advice, nothing outside of workflow building.
+
+AVAILABLE MCP TOOLS:
+- workflow_get_graph(workflow) — read current nodes and links
+- workflow_add_node(workflow, type, pos, properties, title) — add a node
+- workflow_connect_nodes(workflow, from_node, from_slot, to_node, to_slot) — connect two nodes
+- workflow_update_node(workflow, node_id, properties, title) — update node properties
+- workflow_delete_node(workflow, node_id) — delete a node
+
+The "workflow" parameter is the name shown in the editor toolbar.
+
+NODE TYPES:
+
+workflow/trigger — Entry point (always the first node, required)
+  triggerType: manual | cron | hook | on_workflow
+  triggerValue: cron expression e.g. "0 9 * * 1-5"
+  Output: slot0=Start
+
+workflow/claude — AI task
+  mode: prompt | agent | skill
+  prompt, model, effort
+  Outputs: slot0=Done, slot1=Error
+
+workflow/shell — Terminal command
+  command (supports $vars)
+  Outputs: slot0=Done, slot1=Error
+
+workflow/git — Git operation
+  action: pull | push | commit | checkout | merge | stash | stash-pop | reset
+  branch, message
+  Outputs: slot0=Done, slot1=Error
+
+workflow/http — HTTP request
+  method: GET | POST | PUT | PATCH | DELETE
+  url, headers (JSON string), body (JSON string)
+  Outputs: slot0=Done, slot1=Error
+
+workflow/db — SQL query
+  connection (connection name), query (SQL with $vars)
+  Outputs: slot0=Done, slot1=Error
+
+workflow/file — File operation
+  action: read | write | append | copy | delete | exists
+  path, content
+  Outputs: slot0=Done, slot1=Error
+
+workflow/notify — Desktop notification
+  title, message
+  Output: slot0=Done
+
+workflow/wait — Pause execution
+  duration: "5s" | "2m" | "1h"
+  Output: slot0=Done
+
+workflow/log — Log a message
+  level: debug | info | warn | error
+  message (supports $vars)
+  Output: slot0=Done
+
+workflow/condition — Conditional branch
+  variable (dot-path to value), operator: == | != | > | < | >= | <= | contains | starts_with | matches | is_empty | is_not_empty
+  value
+  Outputs: slot0=TRUE path, slot1=FALSE path
+
+workflow/loop — Iterate over a list
+  source: auto | projects | files | custom
+  items ($var pointing to an array)
+  Outputs: slot0=Each iteration (loop body), slot1=Done (after loop)
+
+workflow/variable — Store/retrieve a variable
+  action: set | get | increment | append
+  name, value
+
+AVAILABLE VARIABLES IN PROPERTIES:
+$ctx.project — current project name
+$ctx.branch — active git branch
+$node_X.stdout — stdout output of node X (shell/git)
+$node_X.body — HTTP response body of node X
+$node_X.rows — SQL result rows of node X
+$node_X.result — boolean result of condition node X
+$loop.item — current item in loop iteration
+$loop.index — current index (0-based)
+
+NODE POSITIONING (top-to-bottom, 160px spacing):
+Trigger: [100, 100] → next nodes: [100, 260] → [100, 420] → etc.
+TRUE branch: same X column, FALSE branch: shift X by +260
+
+APPROACH:
+1. ALWAYS start by calling workflow_get_graph to see the current state
+2. If the graph is empty, ask the user what they want to automate
+3. Build node by node, briefly explaining each step
+4. Connect each node immediately after adding it
+5. Proactively suggest error handling where relevant
+6. Reply in the user's language (French if they write in French, English otherwise)
+7. NEVER discuss anything outside of workflow building
+
+DIAGRAM FORMAT (MANDATORY):
+Whenever you describe, summarize, or list the nodes of a workflow — whether showing the current state, a proposed plan, or the result after modifications — you MUST use this exact format in a plain code block (no language tag):
+
+\`\`\`
+[Node Name] → key detail
+↓
+[Node Name] → key detail
+↓
+[Node Name] → key detail
+\`\`\`
+
+Rules:
+- One line per node, starting with [Node Name] (using the node type label, e.g. [Trigger], [Shell], [Condition], [Notify])
+- After → write the most relevant property (command, title, condition, etc.)
+- Separate nodes with ↓ on its own line
+- NEVER use bullet points, numbered lists, or prose to describe the node structure
+- Always show this diagram when the user asks "what does this workflow do", "show me the graph", or after any modification`;
+
+  panel.querySelector('#wf-ed-ai').addEventListener('click', () => {
+    const isOpen = aiPanel.style.display !== 'none';
+    if (isOpen) {
+      aiPanel.style.display = 'none';
+      panel.querySelector('#wf-ed-ai').classList.remove('active');
+      return;
+    }
+    aiPanel.style.display = 'flex';
+    panel.querySelector('#wf-ed-ai').classList.add('active');
+
+    if (!aiChatInitialized) {
+      aiChatInitialized = true;
+      const homeDir = window.electron_nodeModules?.os?.homedir() || '';
+      const aiProject = { path: homeDir };
+      const wfName = editorDraft.name || (workflowId ? state.workflows.find(w => w.id === workflowId)?.name : null) || null;
+      const promptWithContext = wfName
+        ? `${WORKFLOW_SYSTEM_PROMPT}\n\nCURRENT WORKFLOW: "${wfName}" — this is the workflow open in the editor right now. Always use this name as the "workflow" parameter in your tool calls.`
+        : WORKFLOW_SYSTEM_PROMPT;
+      createChatView(aiPanelChat, aiProject, {
+        systemPrompt: promptWithContext,
+        skipPermissions: true,
+        initialPrompt: null,
+      });
+
+      // MutationObserver: transform workflow diagram code blocks into visual cards
+      const wfGraphObserver = new MutationObserver(() => {
+        aiPanelChat.querySelectorAll('.chat-code-block:not([data-wf-rendered])').forEach(block => {
+          const code = block.querySelector('code');
+          if (!code) return;
+          const text = code.textContent || '';
+          // Detect workflow diagram pattern: lines with [Node] or ↓ arrows
+          if (!text.includes('↓') && !/ → /.test(text)) return;
+          block.setAttribute('data-wf-rendered', '1');
+          _renderWfDiagramBlock(block, text);
+        });
+      });
+      wfGraphObserver.observe(aiPanelChat, { childList: true, subtree: true });
+    }
+    // Focus the chat input so Enter works immediately
+    setTimeout(() => {
+      const chatInput = aiPanelChat.querySelector('.chat-input');
+      if (chatInput) chatInput.focus();
+    }, 80);
+  });
+
+  // Re-focus chat input when clicking anywhere inside the AI panel
+  aiPanel.addEventListener('click', (e) => {
+    if (e.target.closest('.wf-ai-panel-close')) return;
+    const chatInput = aiPanelChat.querySelector('.chat-input');
+    if (chatInput && document.activeElement !== chatInput && !e.target.closest('button, a, input, select, textarea')) {
+      chatInput.focus();
+    }
+  });
+
+  // Prevent keyboard events bubbling out of the AI panel to the LiteGraph canvas handlers
+  aiPanel.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+  });
+  aiPanel.addEventListener('keyup', (e) => {
+    e.stopPropagation();
+  });
+
+  panel.querySelector('#wf-ai-panel-close').addEventListener('click', () => {
+    aiPanel.style.display = 'none';
+    panel.querySelector('#wf-ed-ai').classList.remove('active');
   });
 
   // ── Palette clicks ──

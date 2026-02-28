@@ -278,7 +278,7 @@ class ChatService {
    * @param {string} [params.resumeSessionId] - Session ID to resume
    * @returns {Promise<string>} Session ID
    */
-  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null, outputFormat = null, skills = null }) {
+  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null, outputFormat = null, skills = null, systemPrompt = null, settingSources = null }) {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -308,9 +308,10 @@ class ChatService {
 
     try {
       const runtime = resolveRuntime();
+      const effectiveCwd = cwd || require('os').homedir();
 
       const options = {
-        cwd,
+        cwd: effectiveCwd,
         abortController,
         maxTurns: 100,
         includePartialMessages: true,
@@ -318,8 +319,8 @@ class ChatService {
         executable: runtime.executable,
         env: runtime.env,
         pathToClaudeCodeExecutable: getSdkCliPath(),
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
-        settingSources: ['user', 'project', 'local'],
+        systemPrompt: systemPrompt || { type: 'preset', preset: 'claude_code' },
+        settingSources: settingSources !== null ? settingSources : ['user', 'project', 'local'],
         canUseTool: async (toolName, input, opts) => {
           return this._handlePermission(sessionId, toolName, input, opts);
         },
