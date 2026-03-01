@@ -401,19 +401,20 @@ class WorkflowService {
     const triggerData = opts.triggerData || {};
 
     // Build context variables
-    const contextVars = await this._buildContext(workflow, opts.projectPath);
+    const projectPath = opts.projectPath || this._resolveProjectPath(workflow) || '';
+    const contextVars = await this._buildContext(workflow, projectPath);
+    contextVars.projectPath = projectPath; // Pass to runner for ctx.project
 
-    // Build step list from graph or legacy steps
+    // Build step list from graph or legacy steps — sorted by execution order (BFS)
     let runSteps;
     if (workflow.graph && workflow.graph.nodes) {
-      runSteps = workflow.graph.nodes
-        .filter(n => n.type !== 'workflow/trigger')
-        .map(n => ({
-          id:     `node_${n.id}`,
-          type:   n.type.replace('workflow/', ''),
-          status: RUN_STATUS.PENDING,
-          duration: null,
-        }));
+      const ordered = this._bfsNodeOrder(workflow.graph);
+      runSteps = ordered.map(n => ({
+        id:     `node_${n.id}`,
+        type:   n.type.replace('workflow/', ''),
+        status: RUN_STATUS.PENDING,
+        duration: null,
+      }));
     } else {
       runSteps = (workflow.steps || []).map(s => ({
         id:     s.id,
@@ -645,6 +646,58 @@ class WorkflowService {
   _resolveProjectPath(workflow) {
     // Scope.project = 'specific' may carry a path in scope.projectPath
     return workflow.scope?.projectPath || null;
+  }
+
+  /**
+   * BFS from trigger node to get nodes in execution order.
+   * Only follows exec links (type === 'exec' or slot 0/1 of non-data outputs).
+   */
+  _bfsNodeOrder(graph) {
+    const { nodes = [], links = [] } = graph;
+    if (!nodes.length) return [];
+
+    const trigger = nodes.find(n => n.type === 'workflow/trigger');
+    if (!trigger) return nodes.filter(n => n.type !== 'workflow/trigger');
+
+    // Build outgoing exec adjacency: nodeId → Set<targetNodeId>
+    const outExec = new Map();
+    for (const link of links) {
+      // link: [id, originId, originSlot, targetId, targetSlot, type]
+      const originId = link[1], targetId = link[3], targetSlot = link[4], type = link[5];
+      // Exec links connect to slot 0 (the "In" exec pin) and have type 'exec' or -1
+      if (targetSlot === 0 || type === 'exec' || type === -1 || type == null) {
+        if (!outExec.has(originId)) outExec.set(originId, new Set());
+        outExec.get(originId).add(targetId);
+      }
+    }
+
+    const visited = new Set();
+    const ordered = [];
+    const queue = [trigger.id];
+    visited.add(trigger.id);
+
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const node = nodes.find(n => n.id === id);
+      if (node && node.type !== 'workflow/trigger') {
+        ordered.push(node);
+      }
+      for (const nextId of (outExec.get(id) || [])) {
+        if (!visited.has(nextId)) {
+          visited.add(nextId);
+          queue.push(nextId);
+        }
+      }
+    }
+
+    // Append any unvisited nodes (disconnected) at the end
+    for (const n of nodes) {
+      if (n.type !== 'workflow/trigger' && !visited.has(n.id)) {
+        ordered.push(n);
+      }
+    }
+
+    return ordered;
   }
 
   // ─── Dependency graph for UI ─────────────────────────────────────────────────
