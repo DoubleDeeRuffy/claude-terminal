@@ -12,6 +12,7 @@ let mainWindow = null;
 let isQuitting = false;
 let normalBounds = null;
 let saveTimer = null;
+let ctrlTabEnabled = true;
 
 /**
  * Load saved window state from settings.json
@@ -138,7 +139,8 @@ function createMainWindow({ isDev = false } = {}) {
       contextIsolation: true,
       sandbox: false,
       webviewTag: true,
-      preload: path.join(__dirname, '..', 'preload.js')
+      preload: path.join(__dirname, '..', 'preload.js'),
+      additionalArguments: isDev ? ['--dev'] : []
     }
   };
 
@@ -177,7 +179,7 @@ function createMainWindow({ isDev = false } = {}) {
           mainWindow.webContents.send('ctrl-arrow', dir);
         }
       }
-      if (input.key === 'Tab') {
+      if (input.key === 'Tab' && ctrlTabEnabled) {
         event.preventDefault();
         mainWindow.webContents.send('ctrl-tab', input.shift ? 'left' : 'right');
       }
@@ -282,6 +284,14 @@ function isAppQuitting() {
 }
 
 /**
+ * Enable or disable Ctrl+Tab terminal switching
+ * @param {boolean} enabled
+ */
+function setCtrlTabEnabled(enabled) {
+  ctrlTabEnabled = enabled;
+}
+
+/**
  * Send message to main window
  * @param {string} channel
  * @param {*} data
@@ -307,5 +317,6 @@ module.exports = {
   setQuitting,
   isAppQuitting,
   sendToMainWindow,
-  isMainWindowVisible
+  isMainWindowVisible,
+  setCtrlTabEnabled
 };

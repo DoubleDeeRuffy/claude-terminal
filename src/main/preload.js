@@ -227,7 +227,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     close: () => ipcRenderer.send('window-close'),
     setTitle: (title) => ipcRenderer.send('set-window-title', title),
     onCtrlArrow: createListener('ctrl-arrow'),
-    onCtrlTab: createListener('ctrl-tab')
+    onCtrlTab: createListener('ctrl-tab'),
+    setCtrlTabEnabled: (enabled) => ipcRenderer.send('set-ctrl-tab-enabled', enabled)
   },
 
   app: {
@@ -419,7 +420,8 @@ contextBridge.exposeInMainWorld('electron_api', {
 
   // ==================== APP LIFECYCLE ====================
   lifecycle: {
-    onWillQuit: createListener('app-will-quit')
+    onWillQuit: createListener('app-will-quit'),
+    isDev: process.argv.includes('--dev')
   },
 
   // ==================== DATABASE ====================

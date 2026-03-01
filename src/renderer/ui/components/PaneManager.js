@@ -155,8 +155,14 @@ function unregisterTab(termId) {
     if (pane.tabs.has(termId)) {
       pane.tabs.delete(termId);
       if (pane.activeTab === termId) {
+        // Prefer visible tabs (not hidden by project filter) over hidden ones
         const remaining = Array.from(pane.tabs);
-        pane.activeTab = remaining.length > 0 ? remaining[0] : null;
+        const visibleRemaining = remaining.filter(id => {
+          const tabEl = pane.tabsEl.querySelector(`.terminal-tab[data-id="${id}"]`);
+          return tabEl && tabEl.style.display !== 'none';
+        });
+        pane.activeTab = visibleRemaining.length > 0 ? visibleRemaining[0]
+          : remaining.length > 0 ? remaining[0] : null;
       }
       return pane.tabs.size === 0 ? paneId : null;
     }
@@ -206,8 +212,24 @@ function moveTabToPane(termId, targetPaneId) {
   // Update state
   sourcePane.tabs.delete(termId);
   if (sourcePane.activeTab === termId) {
+    // Prefer visible tabs (not hidden by project filter) over hidden ones
     const remaining = Array.from(sourcePane.tabs);
-    sourcePane.activeTab = remaining.length > 0 ? remaining[0] : null;
+    const visibleRemaining = remaining.filter(id => {
+      const tabEl = sourcePane.tabsEl.querySelector(`.terminal-tab[data-id="${id}"]`);
+      return tabEl && tabEl.style.display !== 'none';
+    });
+    sourcePane.activeTab = visibleRemaining.length > 0 ? visibleRemaining[0]
+      : remaining.length > 0 ? remaining[0] : null;
+
+    // Activate the new active tab's DOM elements in the source pane
+    if (sourcePane.activeTab) {
+      sourcePane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.id === sourcePane.activeTab));
+      sourcePane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
+        w.classList.toggle('active', w.dataset.id === sourcePane.activeTab);
+        w.style.removeProperty('display');
+      });
+    }
   }
   targetPane.tabs.add(termId);
 

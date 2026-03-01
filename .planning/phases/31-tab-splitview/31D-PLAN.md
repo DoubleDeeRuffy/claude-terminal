@@ -100,15 +100,7 @@ if (paneOrder.length > 1) {
       }
     }
 
-    // Build pane layout for this project
-    const paneMap = new Map(); // paneId -> { tabIndices, activeTabIndex }
-    const tabIdToIndex = new Map();
-    session.tabs.forEach((tab, idx) => {
-      // Match by index position — tabs are already in order from the pane iteration
-      // Actually, we need to match tab entries to their pane assignments
-    });
-
-    // Simpler approach: iterate panes and build tabIndices arrays
+    // Iterate panes and build tabIndices arrays
     const panes = [];
     let globalTabIdx = 0;
     const allTabsFlat = []; // rebuild tabs in pane order
@@ -126,8 +118,8 @@ if (paneOrder.length > 1) {
         const td = terminals.get(termId) || terminals.get(Number(termId));
         if (!td || td.project?.id !== projectId) return;
 
-        // Check if tab is visible (not filtered out)
-        if (tabEl.style.display === 'none') return;
+        // NOTE: Do NOT skip tabs with display:none — those are just filter-hidden
+        // and must still be saved. Skipping them would cause data loss on restore.
 
         paneTabIndices.push(globalTabIdx);
         if (String(termId) === String(paneActiveTab)) {

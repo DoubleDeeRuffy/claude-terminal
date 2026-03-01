@@ -6,6 +6,7 @@
 const { ipcMain } = require('electron');
 const terminalService = require('../services/TerminalService');
 const { sendFeaturePing } = require('../services/TelemetryService');
+const { setCtrlTabEnabled } = require('../windows/MainWindow');
 
 /**
  * Register terminal IPC handlers
@@ -35,6 +36,11 @@ function registerTerminalHandlers() {
   // Kill terminal
   ipcMain.on('terminal-kill', (event, { id }) => {
     terminalService.kill(id);
+  });
+
+  // Toggle Ctrl+Tab terminal switching
+  ipcMain.on('set-ctrl-tab-enabled', (_, enabled) => {
+    setCtrlTabEnabled(enabled);
   });
 }
 

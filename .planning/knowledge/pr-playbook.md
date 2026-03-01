@@ -77,6 +77,18 @@ grep -c "settingKey" src/state/file.js     # expected: 1
 grep -c "i18nKey" src/renderer/i18n/locales/en.json  # expected: N
 ```
 
+### 4b. Build Installer for VM Testing (in worktree)
+
+If `npm install` fails on native modules (gyp errors for `better-sqlite3`, `keytar`, `node-pty`), copy `node_modules` from another working worktree:
+
+```bash
+rm -rf node_modules
+cp -r ../phase-XX-pr/node_modules .       # Copy from a worktree with working node_modules
+npm run build:win                          # Build NSIS installer → build/Claude Terminal Setup X.Y.Z.exe
+```
+
+The installer can then be tested in a VM. After each code fix, amend the commit and re-run `npm run build:win`.
+
 ### 5. Manual UAT Session — STOP AND HAND OFF TO USER
 
 **Do NOT push or create a PR until the user has tested the feature.**

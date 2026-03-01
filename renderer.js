@@ -1369,10 +1369,11 @@ function _buildModalCardHtml(s, index) {
   const iconId = s.isSkill ? 'sm-bolt' : 'sm-terminal';
   const pinTitle = s.pinned ? t('sessions.unpin') : t('sessions.pin');
 
+  const devIdPrefix = api.lifecycle.isDev ? `${s.sessionId.slice(0, 8)} ` : '';
   return `<div class="session-card${freshClass}${pinnedClass}${animClass}" data-sid="${s.sessionId}" style="--ci:${index < 10 ? index : 0}">
 <div class="session-card-icon${skillClass}"><svg width="16" height="16"><use href="#${iconId}"/></svg></div>
 <div class="session-card-body">
-<span class="session-card-title${titleSkillClass}">${escapeHtml(_truncateModalText(s.displayTitle, 80))}</span>
+<span class="session-card-title${titleSkillClass}">${devIdPrefix ? `<span class="session-card-devid">${devIdPrefix}</span>` : ''}${escapeHtml(_truncateModalText(s.displayTitle, 80))}</span>
 ${s.displaySubtitle ? `<span class="session-card-subtitle">${escapeHtml(_truncateModalText(s.displaySubtitle, 120))}</span>` : ''}
 </div>
 <div class="session-card-meta">

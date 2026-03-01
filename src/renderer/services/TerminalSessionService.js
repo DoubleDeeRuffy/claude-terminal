@@ -220,6 +220,11 @@ function saveTerminalSessionsImmediate() {
     const tmpPath = filePath + '.tmp';
     fs.writeFileSync(tmpPath, JSON.stringify(sessionData, null, 2), 'utf8');
     fs.renameSync(tmpPath, filePath);
+
+    // Write debug dump alongside save (dev mode only)
+    if (window.electron_api?.lifecycle?.isDev) {
+      _dumpSessionDebugFromData(sessionData, projects);
+    }
   } catch (e) {
     console.error('[TerminalSessionService] Error saving session data:', e);
   }
@@ -256,6 +261,66 @@ function clearAllSessions() {
     }
   } catch (e) {
     console.error('[TerminalSessionService] Error clearing all sessions:', e);
+  }
+}
+
+/**
+ * Write a debug markdown file from in-memory session data + projects array.
+ * Called inline after every save (dev mode only) so it always reflects the exact data written.
+ */
+function _dumpSessionDebugFromData(data, projects) {
+  try {
+    if (!data || !data.projects) return;
+
+    const lines = [`# Session Debug Dump`, `> ${data.savedAt}`, ''];
+
+    for (const [projectId, session] of Object.entries(data.projects)) {
+      const project = Array.isArray(projects)
+        ? projects.find(p => p.id === projectId)
+        : projects[projectId];
+      const projectName = (project && project.name) || projectId;
+
+      lines.push(`## ${projectName}`);
+      lines.push('');
+
+      const tabs = session.tabs || [];
+      const layout = session.paneLayout;
+
+      if (layout && layout.panes && layout.panes.length > 1) {
+        // Multi-pane: build columns
+        const panes = layout.panes;
+        const headers = panes.map((_, i) => `Pane ${i + 1}${i === layout.activePane ? ' *' : ''}`);
+        const nameRows = panes.map(p => p.tabIndices.map(idx => tabs[idx]?.name || `Tab ${idx}`).join(' | '));
+        const idRows = panes.map(p => p.tabIndices.map(idx => {
+          const t = tabs[idx];
+          return t?.claudeSessionId ? t.claudeSessionId.slice(0, 8) : (t?.type === 'file' ? 'file' : '—');
+        }).join(' | '));
+
+        const colWidths = panes.map((_, i) => Math.max(headers[i].length, nameRows[i].length, idRows[i].length));
+        const pad = (str, w) => str + ' '.repeat(Math.max(0, w - str.length));
+        lines.push('```');
+        lines.push(colWidths.map((w, i) => pad(headers[i], w)).join('   '));
+        lines.push(colWidths.map(w => '-'.repeat(w)).join('   '));
+        lines.push(colWidths.map((w, i) => pad(nameRows[i], w)).join('   '));
+        lines.push(colWidths.map((w, i) => pad(idRows[i], w)).join('   '));
+        lines.push('```');
+      } else {
+        // Single pane
+        lines.push('```');
+        lines.push('Pane 1');
+        lines.push('-'.repeat(40));
+        lines.push(tabs.map(t => t.name || 'unnamed').join(' | '));
+        lines.push(tabs.map(t => t.claudeSessionId ? t.claudeSessionId.slice(0, 8) : (t.type === 'file' ? 'file' : '—')).join(' | '));
+        lines.push('```');
+      }
+      lines.push('');
+    }
+
+    const { dataDir } = require('../utils/paths');
+    const outPath = path.join(dataDir, 'session-debug.md');
+    fs.writeFileSync(outPath, lines.join('\n'), 'utf8');
+  } catch (e) {
+    console.error('[TerminalSessionService] Error writing debug dump:', e);
   }
 }
 

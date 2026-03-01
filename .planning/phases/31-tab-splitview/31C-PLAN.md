@@ -19,7 +19,7 @@ requirements:
 must_haves:
   truths:
     - "Right-click tab > Split Right creates a new pane with that tab"
-    - "Right-click tab > Move Right / Move Left moves tab between panes"
+    - "Right-click tab > Move Right / Move Left moves tab between panes (2-pane mode uses relative direction, 3-pane mode shows specific 'Move to Pane N' targets)"
     - "Dragging a tab over the right half of another pane's content area triggers split/move"
     - "VSCode-style semi-transparent overlay appears when dragging over content area"
     - "Closing the last tab in a pane collapses the pane automatically"
@@ -278,47 +278,67 @@ After the existing "Close Tabs to Right" menu item, add a separator and the spli
 }
 ```
 
-Add Move Right / Move Left items. These should be context-aware — only show when multiple panes exist:
+Add Move Right / Move Left items. These should be context-aware — only show when multiple panes exist.
+
+**For 2-pane mode:** Show simple "Move Right"/"Move Left" items (relative direction, disabled at boundaries).
+
+**For 3-pane mode:** CONTEXT.md requires "submenu shows specific pane targets." When `getPaneCount() === 3`, replace Move Right/Move Left with a "Move to Pane..." parent item containing specific pane targets (using the `moveToPane` i18n key with pane number replacement). Skip the current pane.
 
 ```javascript
 // Only add move items when multiple panes exist
-...(PaneManager.getPaneCount() > 1 ? [
-  {
-    label: t('tabs.moveLeft'),
-    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>',
-    disabled: PaneManager.getPaneOrder().indexOf(PaneManager.getPaneForTab(String(id))) === 0,
-    onClick: () => {
-      const currentPaneId = PaneManager.getPaneForTab(String(id));
-      const order = PaneManager.getPaneOrder();
-      const idx = order.indexOf(currentPaneId);
-      if (idx > 0) {
-        const targetPaneId = order[idx - 1];
-        const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
-        setActiveTerminal(id);
-        if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+...(PaneManager.getPaneCount() > 1 ? (() => {
+  const order = PaneManager.getPaneOrder();
+  const currentPaneId = PaneManager.getPaneForTab(String(id));
+  const currentIdx = order.indexOf(currentPaneId);
+
+  if (order.length === 2) {
+    // 2 panes: simple Move Right / Move Left
+    return [
+      {
+        label: t('tabs.moveLeft'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>',
+        disabled: currentIdx === 0,
+        onClick: () => {
+          if (currentIdx > 0) {
+            const targetPaneId = order[currentIdx - 1];
+            const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
+            setActiveTerminal(id);
+            if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+          }
+        }
+      },
+      {
+        label: t('tabs.moveRight'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>',
+        disabled: currentIdx === order.length - 1,
+        onClick: () => {
+          if (currentIdx < order.length - 1) {
+            const targetPaneId = order[currentIdx + 1];
+            const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
+            setActiveTerminal(id);
+            if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+          }
+        }
       }
-    }
-  },
-  {
-    label: t('tabs.moveRight'),
-    icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>',
-    disabled: (() => {
-      const order = PaneManager.getPaneOrder();
-      return order.indexOf(PaneManager.getPaneForTab(String(id))) === order.length - 1;
-    })(),
-    onClick: () => {
-      const currentPaneId = PaneManager.getPaneForTab(String(id));
-      const order = PaneManager.getPaneOrder();
-      const idx = order.indexOf(currentPaneId);
-      if (idx < order.length - 1) {
-        const targetPaneId = order[idx + 1];
-        const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
-        setActiveTerminal(id);
-        if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
-      }
-    }
+    ];
+  } else {
+    // 3 panes: submenu with specific pane targets (CONTEXT.md requirement)
+    return order
+      .filter(pId => pId !== currentPaneId)
+      .map((pId, _i) => {
+        const paneNum = order.indexOf(pId) + 1;
+        return {
+          label: t('tabs.moveToPane').replace('{0}', paneNum),
+          icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 3h8v18H3V3zm10 0h8v18h-8V3z"/></svg>',
+          onClick: () => {
+            const sourceEmpty = PaneManager.moveTabToPane(String(id), pId);
+            setActiveTerminal(id);
+            if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+          }
+        };
+      });
   }
-] : [])
+})() : [])
 ```
 
 **8. Update `closeTerminal()` in TerminalManager.js** (around line 1438):
@@ -431,11 +451,20 @@ function setupPaneDragTargets() {
     if (!draggedTabId) return;
 
     const sourcePaneId = getPaneForTab(draggedTabId);
+
     if (sourcePaneId === targetPaneId && paneOrder.length < 3) {
-      // Same pane — show overlay for "split into new pane" if under max
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      showDropOverlay(targetPaneId);
+      // Same pane — only show overlay when hovering the RIGHT HALF of content area
+      // This prevents accidental splits when the user is just moving their mouse
+      // across the content area during tab reorder (addresses RESEARCH Pitfall 4)
+      const contentRect = contentEl.getBoundingClientRect();
+      const isRightHalf = e.clientX > contentRect.left + contentRect.width / 2;
+      if (isRightHalf) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        showDropOverlay(targetPaneId);
+      } else {
+        hideDropOverlay(targetPaneId);
+      }
     } else if (sourcePaneId !== targetPaneId) {
       // Different pane — show overlay for "move to this pane"
       e.preventDefault();

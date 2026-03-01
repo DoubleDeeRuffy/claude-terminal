@@ -125,6 +125,9 @@ async function getClaudeSessions(projectPath) {
         // Skip files that are too small (empty/aborted sessions)
         if (stat.size < 200) return null;
 
+        // Skip sessions with no user messages (file-history-snapshot only)
+        if (!info.firstPrompt && info.messageCount === 0) return null;
+
         const sessionId = info.sessionId || file.replace('.jsonl', '');
 
         return {

@@ -28,7 +28,7 @@ const DEFAULT_SHORTCUTS = {
 const TERMINAL_SHORTCUTS = {
   ctrlC: { labelKey: 'shortcuts.terminalCopy', defaultEnabled: true },
   ctrlV: { labelKey: 'shortcuts.terminalPaste', defaultEnabled: true },
-  ctrlArrow: { labelKey: 'shortcuts.terminalWordJump', defaultEnabled: true },
+  ctrlArrow: { labelKey: 'shortcuts.terminalWordJump', defaultEnabled: false },
   ctrlTab: { labelKey: 'shortcuts.terminalTabSwitch', defaultEnabled: true },
   rightClickPaste: { labelKey: 'shortcuts.terminalRightClickPaste', defaultEnabled: true },
   rightClickCopyPaste: { labelKey: 'shortcuts.terminalRightClickCopyPaste', defaultEnabled: false }
@@ -296,6 +296,11 @@ function setupShortcutsPanelHandlers() {
       terminalShortcuts[id] = { enabled: toggle.checked };
       ctx.settingsState.setProp('terminalShortcuts', terminalShortcuts);
       ctx.saveSettings();
+
+      // Sync Ctrl+Tab enabled state with main process
+      if (id === 'ctrlTab') {
+        ctx.api.window.setCtrlTabEnabled(toggle.checked);
+      }
     };
   });
 
