@@ -1334,6 +1334,12 @@
     "searchPlaceholder": "Rechercher dans le document...",
     "noResults": "Aucun résultat"
   },
+  "tabs": {
+    "rename": "Renommer",
+    "close": "Fermer",
+    "closeOthers": "Fermer les autres",
+    "closeToRight": "Fermer les onglets à droite"
+  },
   "telemetry": {
     "consentTitle": "Aidez à améliorer Claude Terminal",
     "consentDescription": "Nous aimerions collecter des données d'utilisation anonymes pour améliorer Claude Terminal. C'est complètement optionnel et peut être désactivé à tout moment dans les Paramètres.",
