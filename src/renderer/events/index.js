@@ -466,6 +466,19 @@ function initClaudeEvents() {
   wireTabRenameConsumer();
   wireDebugListener();
 
+  // Listen for close-warning activity check from main process
+  window.electron_api.lifecycle.onCheckClaudeActivity(() => {
+    const { terminalsState } = require('../state/terminals.state');
+    const terminals = terminalsState.get().terminals;
+    const activeList = [];
+    for (const [id, td] of terminals) {
+      if (!td.isBasic && td.status === 'working') {
+        activeList.push({ terminalId: id, tabName: td.name, projectName: td.project?.name || 'Unknown' });
+      }
+    }
+    window.electron_api.lifecycle.respondClaudeActivity(activeList);
+  });
+
   // Activate provider
   activateProvider(hooksEnabled ? 'hooks' : 'scraping');
 

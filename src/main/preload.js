@@ -421,6 +421,8 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== APP LIFECYCLE ====================
   lifecycle: {
     onWillQuit: createListener('app-will-quit'),
+    onCheckClaudeActivity: createListener('check-claude-activity'),
+    respondClaudeActivity: (data) => ipcRenderer.send('claude-activity-response', data),
     isDev: process.argv.includes('--dev')
   },
 

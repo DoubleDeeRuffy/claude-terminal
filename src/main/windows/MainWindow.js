@@ -3,7 +3,7 @@
  * Manages the main application window
  */
 
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { settingsFile } = require('../utils/paths');
@@ -310,6 +310,50 @@ function isMainWindowVisible() {
   return mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
 }
 
+/**
+ * Check if any Claude instance is actively working before allowing quit.
+ * Shows a native confirmation dialog if active work is detected.
+ * @returns {Promise<boolean>} true if quit should proceed, false to cancel
+ */
+async function checkClaudeActivityBeforeQuit() {
+  const win = getMainWindow();
+  if (!win || win.isDestroyed()) return true;
+
+  try {
+    const activeList = await new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        ipcMain.removeAllListeners('claude-activity-response');
+        resolve([]);
+      }, 2000);
+
+      ipcMain.once('claude-activity-response', (event, data) => {
+        clearTimeout(timeout);
+        resolve(data || []);
+      });
+
+      win.webContents.send('check-claude-activity');
+    });
+
+    if (!activeList.length) return true;
+
+    // Build list of active projects/tabs
+    const lines = activeList.map(a => `- ${a.projectName}: ${a.tabName}`).join('\n');
+    const result = await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'Claude is working',
+      message: `Claude is actively working in:\n\n${lines}\n\nAre you sure you want to quit?`,
+      buttons: ['Quit Anyway', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1
+    });
+
+    return result.response === 0;
+  } catch (e) {
+    console.error('[MainWindow] Activity check failed:', e);
+    return true; // Allow quit on error
+  }
+}
+
 module.exports = {
   createMainWindow,
   getMainWindow,
@@ -318,5 +362,6 @@ module.exports = {
   isAppQuitting,
   sendToMainWindow,
   isMainWindowVisible,
-  setCtrlTabEnabled
+  setCtrlTabEnabled,
+  checkClaudeActivityBeforeQuit
 };
