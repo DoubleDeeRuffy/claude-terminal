@@ -176,10 +176,8 @@ function registerLiveListeners() {
     const graphService = getGraphService();
     if (graphService) {
       const editorEl = document.querySelector('.wf-editor');
-      const nameEl = editorEl?.querySelector('#wf-ed-name');
-      const currentName = nameEl?.value;
-      if (currentName && workflows) {
-        const updated = workflows.find(w => w.name === currentName);
+      if (workflowId && workflows) {
+        const updated = workflows.find(w => w.id === workflowId);
         if (updated) graphService.loadFromWorkflow(updated);
       }
     }
@@ -1061,8 +1059,11 @@ function openEditor(workflowId = null) {
         ${props.triggerType === 'on_workflow' ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgLink()} Workflow source</label>
-          <span class="wf-field-hint">Nom du workflow à surveiller</span>
-          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="deploy-production" />
+          <span class="wf-field-hint">Se déclenche après la fin de ce workflow</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="triggerValue">
+            <option value="" ${!props.triggerValue ? 'selected' : ''}>Sélectionner un workflow…</option>
+            ${(state.workflows || []).filter(w => w.id !== editorDraft?.id && w.id !== workflowId).map(w => `<option value="${w.id}" ${props.triggerValue === w.id ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
+          </select>
         </div>` : ''}
       `;
     }

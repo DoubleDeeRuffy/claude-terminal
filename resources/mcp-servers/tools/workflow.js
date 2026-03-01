@@ -7,7 +7,7 @@
  * from CT_DATA_DIR/workflows/ directory.
  *
  * Tools: workflow_list, workflow_get, workflow_trigger, workflow_cancel,
- *        workflow_runs, workflow_status
+ *        workflow_runs, workflow_status, workflow_rename
  */
 
 const fs = require('fs');
@@ -478,6 +478,18 @@ const tools = [
       required: ['workflow'],
     },
   },
+  {
+    name: 'workflow_rename',
+    description: 'Rename an existing workflow. Changes the display name of the workflow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Current workflow name or ID' },
+        new_name: { type: 'string', description: 'New name for the workflow' },
+      },
+      required: ['workflow', 'new_name'],
+    },
+  },
 ];
 
 // -- Tool handler -------------------------------------------------------------
@@ -498,11 +510,12 @@ async function handle(name, args) {
           .filter(r => r.workflowId === w.id)
           .sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''))[0];
 
+        const nodeCount = w.graph?.nodes?.length || (w.steps || []).length || 0;
         const parts = [
-          `${w.name}`,
-          `  Type: ${formatTrigger(w.trigger)}`,
+          `${w.name} (${w.id})`,
+          `  Trigger: ${formatTrigger(w.trigger)}`,
           `  Enabled: ${w.enabled !== false ? 'yes' : 'no'}`,
-          `  Steps: ${(w.steps || []).length}`,
+          `  Nodes: ${nodeCount}`,
         ];
 
         if (lastRun) {
@@ -514,7 +527,7 @@ async function handle(name, args) {
         return parts.join('\n');
       });
 
-      return ok(`Workflows (${defs.length}):\n\n${lines.join('\n\n')}`);
+      return ok(`Workflows (${defs.length}):\n\n${lines.join('\n\n')}\n\nUse the workflow ID (e.g. "${defs[0]?.id}") to reference workflows in other tools.`);
     }
 
     if (name === 'workflow_get') {
@@ -829,6 +842,25 @@ async function handle(name, args) {
       signalReload();
       log(`Created workflow "${args.name}" (${id})`);
       return ok(`Workflow "${args.name}" created successfully.\nID: ${id}\nTrigger: ${triggerType}\nNodes: ${graph.nodes.length} (trigger node added at ID 1)\n\nUse workflow_add_node with workflow="${id}" to add more nodes.`);
+    }
+
+    // ── workflow_rename ──────────────────────────────────────────────────────
+
+    if (name === 'workflow_rename') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      if (!args.new_name) return fail('Missing required parameter: new_name');
+
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow not found: "${args.workflow}"`);
+
+      const oldName = wf.name;
+      wf.name = args.new_name.trim();
+      wf.updatedAt = new Date().toISOString();
+
+      saveWorkflowDef(wf);
+      signalReload();
+      log(`Renamed workflow "${oldName}" → "${wf.name}" (${wf.id})`);
+      return ok(`Workflow renamed from "${oldName}" to "${wf.name}" (ID: ${wf.id}).`);
     }
 
     // ── workflow_add_node ────────────────────────────────────────────────────

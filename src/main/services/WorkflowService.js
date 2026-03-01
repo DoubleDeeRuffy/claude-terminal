@@ -570,7 +570,7 @@ class WorkflowService {
 
     // Notify on_workflow triggers
     if (status === RUN_STATUS.SUCCESS || status === RUN_STATUS.FAILED) {
-      this._scheduler.onWorkflowComplete(workflow.name, {
+      this._scheduler.onWorkflowComplete(workflow.id, {
         success:    status === RUN_STATUS.SUCCESS,
         outputs:    result.outputs || {},
         workflowId: workflow.id,
@@ -720,7 +720,7 @@ class WorkflowService {
       }
       // on_workflow trigger
       if (wf.trigger?.type === 'on_workflow') {
-        const target = workflows.find(w => w.name === wf.trigger.value);
+        const target = workflows.find(w => w.id === wf.trigger.value || w.name === wf.trigger.value);
         if (target) edges.push({ from: target.id, to: wf.id, type: 'chain' });
       }
     }
