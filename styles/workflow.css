@@ -3817,18 +3817,20 @@ select.wf-step-edit-input {
   max-height: 220px; overflow-y: auto;
 }
 .wf-editor-properties .wf-agent-grid::-webkit-scrollbar { width: 2px; }
-.wf-editor-properties .wf-agent-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,.06); border-radius: 2px; }
+.wf-editor-properties .wf-agent-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
 
 .wf-editor-properties .wf-agent-card {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; flex-direction: row; align-items: center; gap: 9px;
   padding: 9px 11px;
-  background: rgba(255,255,255,.03);
-  border: 1.5px solid rgba(255,255,255,.06);
+  background: rgba(255,255,255,.06);
+  border: 1.5px solid rgba(255,255,255,.1);
   border-radius: 8px;
   cursor: pointer;
   transition: all .2s cubic-bezier(.4,0,.2,1);
   position: relative;
   overflow: hidden;
+  color: #e0e0e0;
+  text-align: left;
 }
 .wf-editor-properties .wf-agent-card::before {
   content: '';
@@ -3838,13 +3840,13 @@ select.wf-step-edit-input {
   border-radius: 0 2px 2px 0;
 }
 .wf-editor-properties .wf-agent-card:hover {
-  border-color: rgba(255,255,255,.14);
-  background: rgba(255,255,255,.055);
+  border-color: rgba(255,255,255,.2);
+  background: rgba(255,255,255,.09);
 }
 .wf-editor-properties .wf-agent-card.active {
-  border-color: rgba(217,119,6,.4);
-  background: rgba(217,119,6,.06);
-  box-shadow: 0 0 0 1px rgba(217,119,6,.1);
+  border-color: rgba(217,119,6,.45);
+  background: rgba(217,119,6,.1);
+  box-shadow: 0 0 0 1px rgba(217,119,6,.15);
 }
 .wf-editor-properties .wf-agent-card.active::before {
   background: var(--accent);
@@ -3853,15 +3855,15 @@ select.wf-step-edit-input {
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 7px;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.05);
-  color: var(--text-muted);
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.1);
+  color: var(--text-secondary);
   flex-shrink: 0;
   transition: all .2s;
 }
 .wf-editor-properties .wf-agent-card.active .wf-agent-card-icon {
-  background: rgba(217,119,6,.1);
-  border-color: rgba(217,119,6,.2);
+  background: rgba(217,119,6,.15);
+  border-color: rgba(217,119,6,.25);
   color: var(--accent);
 }
 .wf-editor-properties .wf-agent-card-text {
@@ -3877,11 +3879,10 @@ select.wf-step-edit-input {
 }
 .wf-editor-properties .wf-agent-card-desc {
   font-size: 9.5px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   display: block;
   margin-top: 1px;
   line-height: 1.35;
-  opacity: .6;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3899,9 +3900,9 @@ select.wf-step-edit-input {
   display: flex; align-items: center; gap: 8px;
   padding: 12px;
   font-size: 11px;
-  color: var(--text-muted);
-  opacity: .5;
-  border: 1px dashed rgba(255,255,255,.08);
+  color: var(--text-secondary);
+  opacity: .7;
+  border: 1px dashed rgba(255,255,255,.15);
   border-radius: 8px;
   justify-content: center;
 }
