@@ -262,7 +262,7 @@ function wireTerminalStatusConsumer() {
     // Claude working → set tab to 'working'
     eventBus.on(EVENT_TYPES.CLAUDE_WORKING, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      const terminalId = resolveTerminalId(e.projectId);
+      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
       if (!terminalId) return;
       try {
         const TerminalManager = require('../ui/components/TerminalManager');
@@ -273,7 +273,7 @@ function wireTerminalStatusConsumer() {
     // Session end (Stop/SessionEnd) → set tab to 'ready'
     eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      const terminalId = resolveTerminalId(e.projectId);
+      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
       if (!terminalId) return;
       try {
         const TerminalManager = require('../ui/components/TerminalManager');
