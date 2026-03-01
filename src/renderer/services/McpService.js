@@ -141,7 +141,10 @@ async function saveMcps(mcps) {
       }
     });
 
-    fs.writeFileSync(claudeConfigFile, JSON.stringify(config, null, 2));
+    // Atomic write: write to temp file then rename to prevent corruption
+    const tmpFile = claudeConfigFile + '.tmp';
+    fs.writeFileSync(tmpFile, JSON.stringify(config, null, 2));
+    fs.renameSync(tmpFile, claudeConfigFile);
   } catch (e) {
     console.error('Error saving MCPs:', e);
   }
