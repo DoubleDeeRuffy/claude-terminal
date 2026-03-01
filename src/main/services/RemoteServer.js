@@ -446,6 +446,11 @@ function _handleClientMessage(ws, token, raw) {
         if (_isMainWindowReady()) {
           const mentions = Array.isArray(data?.mentions) ? data.mentions : [];
           const cwd = data?.cwd;
+          // Validate cwd against registered projects to prevent path traversal
+          if (cwd && !_isRegisteredProjectPath(cwd)) {
+            _wsSend(ws, 'chat-error', { sessionId: data?.sessionId, error: 'Invalid project path' });
+            break;
+          }
           _resolveMentions(mentions, cwd).then(resolvedText => {
             const prompt = resolvedText ? (data.prompt || '') + resolvedText : (data.prompt || '');
             mainWindow.webContents.send('remote:open-chat-tab', {
@@ -483,6 +488,11 @@ function _handleClientMessage(ws, token, raw) {
         const { requestId, result } = data || {};
         if (!requestId || typeof result?.behavior !== 'string') {
           console.warn('[Remote] Invalid permission response');
+          break;
+        }
+        // Validate that the requestId exists in pending permissions before resolving
+        if (!chatService.pendingPermissions.has(requestId)) {
+          console.warn(`[Remote] Permission response for unknown requestId: ${requestId}`);
           break;
         }
         chatService.resolvePermission(requestId, result);

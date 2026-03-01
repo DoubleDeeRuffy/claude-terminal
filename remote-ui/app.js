@@ -155,16 +155,17 @@ function _saveSessions() {
           status: s.status,
         };
       }
-      localStorage.setItem('remote_sessions', JSON.stringify(serializable));
-      localStorage.setItem('remote_selected_session', state.selectedSessionId || '');
-      localStorage.setItem('remote_selected_project', state.selectedProjectId || '');
+      // Use sessionStorage for chat messages — cleared on tab close, not persisted
+      sessionStorage.setItem('remote_sessions', JSON.stringify(serializable));
+      sessionStorage.setItem('remote_selected_session', state.selectedSessionId || '');
+      sessionStorage.setItem('remote_selected_project', state.selectedProjectId || '');
     } catch (e) {}
   }, 500);
 }
 
 function _restoreSessions() {
   try {
-    const raw = localStorage.getItem('remote_sessions');
+    const raw = sessionStorage.getItem('remote_sessions');
     if (!raw) return;
     const saved = JSON.parse(raw);
     for (const [id, s] of Object.entries(saved)) {
@@ -173,8 +174,8 @@ function _restoreSessions() {
         state.sessions[id].status = s.status || 'idle';
       }
     }
-    const selSession = localStorage.getItem('remote_selected_session');
-    const selProject = localStorage.getItem('remote_selected_project');
+    const selSession = sessionStorage.getItem('remote_selected_session');
+    const selProject = sessionStorage.getItem('remote_selected_project');
     if (selSession && state.sessions[selSession]) {
       state.selectedSessionId = selSession;
     }
