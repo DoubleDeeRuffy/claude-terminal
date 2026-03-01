@@ -107,6 +107,7 @@ const state = {
   selectedSessionId: null,
   pendingPermissions: new Map(), // Map<requestId, permData>
   currentView: 'projects',
+  todayMs: 0,
   _pendingUserMessage: null,
   selectedModel: 'claude-sonnet-4-6',
   selectedEffort: 'high',
@@ -621,6 +622,7 @@ function handleMessage(msg) {
     case 'chat-done':            onChatDone(data); break;
     case 'chat-error':           onChatError(data); break;
     case 'chat-permission-request': onPermissionRequest(data); break;
+    case 'time:update':          onTimeUpdate(data); break;
     case 'git:status':           onGitStatus(data); break;
     case 'git:pull':             onGitResult('pull', data); break;
     case 'git:push':             onGitResult('push', data); break;
@@ -731,6 +733,10 @@ function onSessionClosed({ sessionId }) {
   if (state.currentView === 'control') renderControlView();
 }
 
+function onTimeUpdate({ todayMs }) {
+  state.todayMs = todayMs || 0;
+  renderDashboard();
+}
 
 // ─── Chat Message Handler (mirrors ChatView.js SDK format) ────────────────────
 
@@ -2585,6 +2591,9 @@ function formatDuration(ms) {
 }
 
 function renderDashboard() {
+  const timeEl = $('dash-time');
+  if (timeEl) timeEl.textContent = formatDuration(state.todayMs);
+
   const projectEl = $('dash-project');
   if (projectEl) {
     const activeProject = state.projects.find(p => p.id === state.selectedProjectId);

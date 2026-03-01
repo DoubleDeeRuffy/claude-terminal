@@ -3694,6 +3694,20 @@ api.remote.onOpenChatTab(({ cwd, prompt, images, model, effort }) => {
   });
 });
 
+// Remote Control: push live time tracking data
+(function _startRemoteTimePush() {
+  function pushTime() {
+    try {
+      const { today } = getGlobalTimes();
+      console.log('[Remote] pushTime → todayMs:', today);
+      api.remote.pushTimeData({ todayMs: today });
+    } catch (e) { console.error('[Remote] pushTime error:', e); }
+  }
+  // Push immédiat quand le serveur le demande (nouveau client connecté)
+  api.remote.onRequestTimePush(pushTime);
+  // Push périodique toutes les 30s pour les clients déjà connectés
+  setInterval(pushTime, 30000);
+})();
 
 api.tray.onOpenTerminal(() => {
   const selectedFilter = projectsState.get().selectedProjectFilter;
