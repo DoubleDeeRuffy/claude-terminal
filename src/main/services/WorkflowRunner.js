@@ -463,7 +463,8 @@ function runVariableStep(config, vars) {
 
   switch (action) {
     case 'set': {
-      const value = resolveVars(config.value || '', vars);
+      const raw = config.value != null ? config.value : '';
+      const value = resolveVars(raw, vars);
       vars.set(name, value);
       return { name, value, action: 'set' };
     }
@@ -477,7 +478,8 @@ function runVariableStep(config, vars) {
       return { name, value: newValue, action: 'increment' };
     }
     case 'append': {
-      const value = resolveVars(config.value || '', vars);
+      const rawA = config.value != null ? config.value : '';
+      const value = resolveVars(rawA, vars);
       const arr = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
       arr.push(value);
       vars.set(name, arr);
@@ -605,97 +607,41 @@ function buildJsonSchema(fields) {
 async function runAgentStep(config, vars, signal, chatService, onMessage) {
   const mode     = config.mode || 'prompt';
   const prompt   = resolveVars(config.prompt || '', vars);
-  const cwd      = resolveVars(config.cwd || process.cwd(), vars);
+  const ctx      = vars.get('ctx') || {};
+  const home     = require('os').homedir();
+  // Resolve cwd: prefer explicit cwd, then project context (same pattern as git/shell steps)
+  let   cwd      = resolveVars(config.cwd || '', vars) || ctx.project || '';
   const model    = config.model || null;
-  const effort   = config.effort || null;
+  const VALID_EFFORTS = ['low', 'medium', 'high', 'max'];
+  const rawEffort = config.effort || null;
+  const effort   = rawEffort && VALID_EFFORTS.includes(rawEffort) ? rawEffort : null;
   const maxTurns = config.maxTurns || 30;
+
+  // Validate cwd exists on disk — fallback to home dir to avoid ENOENT
+  if (!cwd || !fs.existsSync(cwd)) {
+    console.warn(`[WorkflowRunner] Claude step cwd invalid or missing: "${cwd}", falling back to ${home}`);
+    cwd = home;
+  }
 
   if (signal?.aborted) throw new Error('Cancelled');
 
-  // Build session options based on mode
-  const sessionOpts = {
-    cwd,
-    prompt,
-    permissionMode: 'bypassPermissions',
-    model,
-    effort,
-    maxTurns,
-  };
+  // Build options
+  const opts = { cwd, prompt, model, effort, maxTurns, signal, onMessage };
 
-  // Skill mode: pass skill to SDK
+  // Skill mode
   if (mode === 'skill' && config.skillId) {
-    sessionOpts.skills = [config.skillId];
+    opts.skills = [config.skillId];
   }
 
-  // Structured output: build JSON schema from field definitions
+  // Structured output
   if (config.outputSchema && config.outputSchema.length > 0) {
     const validFields = config.outputSchema.filter(f => f.name);
     if (validFields.length > 0) {
-      sessionOpts.outputFormat = { type: 'json_schema', schema: buildJsonSchema(validFields) };
+      opts.outputFormat = { type: 'json_schema', schema: buildJsonSchema(validFields) };
     }
   }
 
-  return new Promise((resolve, reject) => {
-    let sessionId;
-    let stdout = '';
-    let structuredOutput = null;
-    let cleanup;
-
-    const onAbort = () => {
-      if (sessionId) {
-        try { chatService.interrupt(sessionId); } catch {}
-        try { chatService.closeSession(sessionId); } catch {}
-      }
-      cleanup?.();
-      reject(new Error('Cancelled'));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-
-    let unregisterInterceptor;
-
-    const interceptor = (channel, data) => {
-      if (channel === 'chat-message' && onMessage) onMessage(data.message);
-      if (channel === 'chat-message' && data.message?.type === 'assistant') {
-        const content = data.message?.message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text') stdout += block.text;
-          }
-        }
-      }
-      // Capture structured output from result message
-      if (channel === 'chat-message' && data.message?.type === 'result' && data.message?.structured_output) {
-        structuredOutput = data.message.structured_output;
-      }
-      if (channel === 'chat-done') {
-        signal?.removeEventListener('abort', onAbort);
-        unregisterInterceptor?.();
-        cleanup?.();
-        const result = { output: stdout.trim(), success: true };
-        // Merge structured output fields into step result (accessible as $stepId.fieldName)
-        if (structuredOutput && typeof structuredOutput === 'object') {
-          Object.assign(result, structuredOutput);
-        }
-        resolve(result);
-      }
-      if (channel === 'chat-error') {
-        signal?.removeEventListener('abort', onAbort);
-        unregisterInterceptor?.();
-        cleanup?.();
-        reject(new Error(data.error || 'Agent step failed'));
-      }
-    };
-
-    chatService.startSession(sessionOpts).then(id => {
-      sessionId = id;
-      unregisterInterceptor = chatService.addSessionInterceptor(id, interceptor);
-      cleanup = () => {};
-    }).catch(err => {
-      signal?.removeEventListener('abort', onAbort);
-      unregisterInterceptor?.();
-      reject(err);
-    });
-  });
+  return chatService.runSinglePrompt(opts);
 }
 
 // ─── Notify step ─────────────────────────────────────────────────────────────
@@ -977,7 +923,7 @@ class WorkflowRunner {
     const vars = new Map([
       // Context variables
       ['ctx', {
-        project:    workflow.scope?.project || '',
+        project:    run.projectPath || workflow.scope?.project || '',
         branch:     run.contextBranch  || '',
         date:       new Date().toISOString(),
         lastCommit: run.contextCommit  || '',
@@ -1278,7 +1224,20 @@ class WorkflowRunner {
 
       const { originId, originSlot } = links[0];
       const originStepId = `node_${originId}`;
-      const originOutput = vars.get(originStepId);
+      let originOutput = vars.get(originStepId);
+
+      // Pure data nodes (no exec pins) are never visited by BFS.
+      // Resolve them inline when first encountered.
+      if (originOutput == null) {
+        const pureNode = nodeById.get(originId);
+        const pureType = pureNode?.type?.replace('workflow/', '') ?? '';
+        if (pureType === 'get_variable' || (pureType === 'variable' && pureNode?.properties?.action === 'get')) {
+          const varName = pureNode?.properties?.name || '';
+          const val = vars.get(varName) ?? vars.get(`var_${varName}`) ?? null;
+          originOutput = { value: val };
+          vars.set(originStepId, originOutput); // cache for future reads
+        }
+      }
       if (originOutput == null) continue;
 
       // Get the output key from slot mapping

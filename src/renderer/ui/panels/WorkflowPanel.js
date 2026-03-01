@@ -39,7 +39,11 @@ const state = {
   workflows: [],
   runs: [],
   activeTab: 'workflows',  // 'workflows' | 'runs' | 'hub'
+  viewingRunId: null,       // track which run detail is open
 };
+
+const _agentLogs = new Map(); // stepId → [{ type, text, ts }]
+const MAX_LOG_ENTRIES = 50;
 
 function init(context) {
   ctx = context;
@@ -88,8 +92,17 @@ function registerLiveListeners() {
       run.status = status;
       run.duration = duration;
     }
-    renderContent();
+    // Clear all agent logs for this run's steps
+    for (const step of (run?.steps || [])) _agentLogs.delete(step.id);
+    // If viewing this run's detail, re-render it fully (with final outputs)
+    if (state.viewingRunId === runId) {
+      renderRunDetail(document.getElementById('wf-content'), run);
+    } else {
+      renderContent();
+    }
   });
+
+  const _stepStartTimes = new Map(); // stepId → Date.now()
 
   api.onStepUpdate(({ runId, stepId, status, output }) => {
     const run = state.runs.find(r => r.id === runId);
@@ -100,22 +113,58 @@ function registerLiveListeners() {
         if (output) step.output = output;
       }
     }
-    // Store step output for link tooltip preview
-    if (output && status === 'success') {
-      try {
-        const graphService = getGraphService();
-        if (graphService?.graph) {
-          // Find the litegraph node matching this stepId
-          for (const node of graphService.graph._nodes) {
-            if (node.properties?.stepId === stepId || `node_${node.id}` === stepId) {
-              graphService.setNodeOutput(node.id, output);
-              break;
+
+    // Track step timing
+    if (status === 'running') {
+      _stepStartTimes.set(stepId, Date.now());
+    }
+
+    // Update canvas node status for live visualization
+    try {
+      const graphService = getGraphService();
+      if (graphService) {
+        // Find the graph node matching this stepId
+        const graphNode = graphService._nodes?.find(n =>
+          n.properties?.stepId === stepId || `node_${n.id}` === stepId
+        );
+        if (graphNode) {
+          // Map runner status to canvas status
+          const canvasStatus = status === 'retrying' ? 'running' : status;
+          graphService.setNodeStatus(graphNode.id, canvasStatus);
+
+          // Store duration on completion
+          if (status === 'success' || status === 'failed' || status === 'skipped') {
+            const startTime = _stepStartTimes.get(stepId);
+            if (startTime) {
+              graphNode._runDuration = Date.now() - startTime;
+              _stepStartTimes.delete(stepId);
             }
           }
+
+          // Store error
+          if (status === 'failed' && output?.error) {
+            graphNode._runError = output.error;
+          }
+
+          // Store step output for tooltips and Last Run tab
+          if (output && status === 'success') {
+            graphService.setNodeOutput(graphNode.id, output);
+          }
         }
-      } catch (_) { /* ignore */ }
+      }
+    } catch (_) { /* ignore */ }
+
+    // Incremental update if viewing this run's detail, otherwise full re-render
+    if (state.viewingRunId === runId) {
+      _updateStepInDetail(runId, stepId, status, output);
+    } else {
+      renderContent();
     }
-    renderContent();
+
+    // Clean up agent logs when step finishes
+    if (status === 'success' || status === 'failed' || status === 'skipped') {
+      _agentLogs.delete(stepId);
+    }
   });
 
   // MCP graph edit tools signal a reload after modifying definitions.json directly
@@ -135,6 +184,109 @@ function registerLiveListeners() {
       }
     }
   });
+
+  // Live streaming logs for Claude/agent nodes
+  api.onAgentMessage(({ runId, stepId, message }) => {
+    if (!message) return;
+    const entries = _agentLogs.get(stepId) || [];
+
+    if (message.type === 'assistant' && message.message?.content) {
+      for (const block of message.message.content) {
+        if (block.type === 'tool_use') {
+          const detail = block.input?.file_path || block.input?.command || block.input?.pattern || '';
+          entries.push({ type: 'tool', text: detail ? `${block.name}: ${detail}` : block.name, ts: Date.now() });
+        }
+        if (block.type === 'text' && block.text) {
+          entries.push({ type: 'text', text: block.text.slice(0, 200), ts: Date.now() });
+        }
+      }
+    }
+    while (entries.length > MAX_LOG_ENTRIES) entries.shift();
+    _agentLogs.set(stepId, entries);
+    _scheduleLogUpdate(stepId);
+  });
+}
+
+/* ─── Live log throttled DOM updater ─────────────────────────────────────── */
+
+let _logTimer = null;
+const _pendingLogs = new Set();
+
+function _scheduleLogUpdate(stepId) {
+  _pendingLogs.add(stepId);
+  if (_logTimer) return;
+  _logTimer = requestAnimationFrame(() => {
+    _logTimer = null;
+    for (const sid of _pendingLogs) _updateLiveLogDOM(sid);
+    _pendingLogs.clear();
+  });
+}
+
+function _updateLiveLogDOM(stepId) {
+  const container = document.querySelector(`.wf-live-log[data-step-id="${stepId}"]`);
+  if (!container) return;
+  const entries = _agentLogs.get(stepId) || [];
+  container.innerHTML = entries.map(e =>
+    `<div class="wf-log-entry wf-log-entry--${e.type}">` +
+    (e.type === 'tool' ? `<span class="wf-log-icon">\u2699</span>` : '') +
+    `<span class="wf-log-text">${escapeHtml(e.text)}</span></div>`
+  ).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+/** Incremental update of a single step in the detail view (avoids full re-render) */
+function _updateStepInDetail(runId, stepId, status, output) {
+  const run = state.runs.find(r => r.id === runId);
+  if (!run) return;
+  const stepIdx = run.steps?.findIndex(s => s.id === stepId);
+  if (stepIdx === -1) return;
+
+  const stepEl = document.querySelector(`.wf-run-step[data-step-id="${stepId}"]`);
+  if (!stepEl) { renderRunDetail(document.getElementById('wf-content'), run); return; }
+
+  // Update status class
+  stepEl.className = stepEl.className.replace(/wf-run-step--\w+/g, '');
+  stepEl.classList.add(`wf-run-step--${status}`);
+  if (status === 'failed') stepEl.classList.add('wf-run-step--error-highlight');
+
+  // Update status icon
+  const iconEl = stepEl.querySelector('.wf-run-step-status-icon');
+  if (iconEl) {
+    iconEl.textContent = status === 'success' ? '\u2713' : status === 'failed' ? '\u2717' : status === 'skipped' ? '\u2013' : '\u2026';
+  }
+
+  // Add/remove live log container
+  const existingLog = stepEl.querySelector('.wf-live-log');
+  if (status === 'running' && !existingLog) {
+    const logEl = document.createElement('div');
+    logEl.className = 'wf-live-log';
+    logEl.dataset.stepId = stepId;
+    stepEl.querySelector('.wf-run-step-header')?.after(logEl);
+  } else if (status !== 'running' && existingLog) {
+    existingLog.remove();
+  }
+
+  // Show output when step completes
+  if ((status === 'success' || status === 'failed') && output != null) {
+    let outputEl = stepEl.querySelector('.wf-run-step-output');
+    if (!outputEl) {
+      outputEl = document.createElement('div');
+      outputEl.className = 'wf-run-step-output';
+      outputEl.innerHTML = `<pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(output))}</pre>`;
+      stepEl.appendChild(outputEl);
+      // Add chevron if missing
+      if (!stepEl.querySelector('.wf-run-step-chevron')) {
+        const header = stepEl.querySelector('.wf-run-step-header');
+        header?.insertAdjacentHTML('beforeend', '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>');
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', () => {
+          const visible = outputEl.style.display !== 'none';
+          outputEl.style.display = visible ? 'none' : 'block';
+          stepEl.classList.toggle('expanded', !visible);
+        });
+      }
+    }
+  }
 }
 
 /* ─── Panel shell ──────────────────────────────────────────────────────────── */
@@ -179,6 +331,7 @@ function renderPanel() {
 }
 
 function renderContent() {
+  state.viewingRunId = null;
   const el = document.getElementById('wf-content');
   if (!el) return;
   // Update badge counts
@@ -357,10 +510,11 @@ function renderRunHistory(el) {
             ${(run.steps || []).map((s, i) => {
               const sType = (s.type || s.name || '').split('.')[0];
               const info = findStepType(sType);
+              const statusIcon = s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : s.status === 'running' ? '…' : '';
               return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
                 <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
-                <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
+                <span class="wf-run-pipe-name">${escapeHtml(info.label || sType)}</span>
+                ${statusIcon ? `<span class="wf-run-pipe-status">${statusIcon}</span>` : ''}
               </div>${i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
             }).join('')}
           </div>
@@ -421,6 +575,7 @@ function renderRunHistory(el) {
 /* ─── Run Detail View ──────────────────────────────────────────────────── */
 
 function renderRunDetail(el, run) {
+  state.viewingRunId = run.id;
   const wf = state.workflows.find(w => w.id === run.workflowId);
   const steps = run.steps || [];
   const totalDuration = run.duration || steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
@@ -454,14 +609,16 @@ function renderRunDetail(el, run) {
           const info = findStepType(sType);
           const hasOutput = step.output != null;
           const isFailed = step.status === 'failed';
+          const isRunningAgent = step.status === 'running' && (sType === 'claude' || sType === 'agent');
           const errorMsg = isFailed && step.error ? step.error : (isFailed && typeof step.output === 'string' && step.output.length < 500 ? step.output : null);
           const pct = Math.max(2, Math.round(((step.duration || 0) / totalDuration) * 100));
           return `
-            <div class="wf-run-step wf-run-step--${step.status} ${isFailed ? 'wf-run-step--error-highlight' : ''}" data-step-idx="${i}">
+            <div class="wf-run-step wf-run-step--${step.status} ${isFailed ? 'wf-run-step--error-highlight' : ''}" data-step-idx="${i}" data-step-id="${step.id}">
               <div class="wf-run-step-header">
+                <span class="wf-run-step-num">${i + 1}</span>
                 <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
                 <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
-                <span class="wf-run-step-type">${escapeHtml(sType)}</span>
+                <span class="wf-run-step-type">${escapeHtml(info.label || sType).toUpperCase()}</span>
                 <div class="wf-run-step-timing">
                   <div class="wf-run-step-timing-bar" style="width:${pct}%"></div>
                 </div>
@@ -469,6 +626,7 @@ function renderRunDetail(el, run) {
                 <span class="wf-run-step-status-icon">${step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…'}</span>
                 ${hasOutput ? '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' : ''}
               </div>
+              ${isRunningAgent ? `<div class="wf-live-log" data-step-id="${step.id}"></div>` : ''}
               ${errorMsg ? `<div class="wf-run-step-error"><span class="wf-run-step-error-label">Error</span> ${escapeHtml(errorMsg)}</div>` : ''}
               ${hasOutput ? `<div class="wf-run-step-output" style="display:${isFailed ? 'block' : 'none'}"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
             </div>
@@ -479,7 +637,10 @@ function renderRunDetail(el, run) {
   `;
 
   // Back button
-  el.querySelector('#wf-run-back').addEventListener('click', () => renderContent());
+  el.querySelector('#wf-run-back').addEventListener('click', () => {
+    state.viewingRunId = null;
+    renderContent();
+  });
 
   // Re-run button
   el.querySelector('#wf-run-rerun')?.addEventListener('click', async () => {
@@ -498,6 +659,11 @@ function renderRunDetail(el, run) {
       stepEl.classList.toggle('expanded', !visible);
     });
   });
+
+  // Populate existing live logs (e.g. when navigating back into detail)
+  for (const [stepId, entries] of _agentLogs) {
+    if (entries.length > 0) _updateLiveLogDOM(stepId);
+  }
 }
 
 function formatStepOutput(output) {
@@ -905,7 +1071,16 @@ function openEditor(workflowId = null) {
       const mode = props.mode || 'prompt';
       const agents = getAgents() || [];
       const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
+      const allProjects = projectsState.get().projects || [];
       fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} Exécuter dans</label>
+          <span class="wf-field-hint">Répertoire de travail de la session Claude</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgMode()} Mode d'exécution</label>
           <div class="wf-claude-mode-tabs">
@@ -990,6 +1165,7 @@ function openEditor(workflowId = null) {
               <option value="low" ${props.effort === 'low' ? 'selected' : ''}>Low</option>
               <option value="medium" ${props.effort === 'medium' ? 'selected' : ''}>Medium</option>
               <option value="high" ${props.effort === 'high' ? 'selected' : ''}>High</option>
+              <option value="max" ${props.effort === 'max' ? 'selected' : ''}>Max</option>
             </select>
           </div>
         </div>
@@ -1319,10 +1495,36 @@ function openEditor(workflowId = null) {
             <input class="wf-step-edit-input wf-node-prop wf-field-mono wf-loop-max-input" data-key="maxIterations" type="number" min="1" max="10000" value="${escapeHtml(String(props.maxIterations || ''))}" placeholder="∞" />
           </div>
         </div>
+        ${(() => {
+          // Item schema preview — from propagated schema or last run data
+          const itemSchema = props._itemSchema || node._outputSchema || loopPreview.schema;
+          if (itemSchema && itemSchema.length > 0) {
+            return `<div class="wf-loop-schema">
+              <div class="wf-loop-schema-title">${svgCode()} Structure de $item</div>
+              <div class="wf-loop-schema-keys">
+                ${itemSchema.map(key => `<div class="wf-loop-schema-key"><code>$item.${escapeHtml(key)}</code></div>`).join('')}
+              </div>
+              <div class="wf-loop-schema-hint">Utilisez ces chemins dans les nodes du corps de la boucle</div>
+            </div>`;
+          }
+          return `<div class="wf-loop-schema wf-loop-schema--empty">
+            <div class="wf-loop-schema-title">${svgCode()} Structure de $item</div>
+            <div class="wf-loop-schema-hint">Connectez une source array ou lancez un run pour voir le schéma</div>
+          </div>`;
+        })()}
         <div class="wf-loop-usage-hint">
           <div class="wf-loop-usage-title">${svgTriggerType()} Variables dans Each</div>
           <div class="wf-loop-usage-items">
             <code>$item</code> <span>${escapeHtml(loopPreview.itemDesc)}</span>
+            ${(() => {
+              const itemSchema = props._itemSchema || node._outputSchema || loopPreview.schema;
+              if (itemSchema && itemSchema.length > 0) {
+                return itemSchema.map(key =>
+                  `<code>$item.${escapeHtml(key)}</code> <span>Champ "${escapeHtml(key)}"</span>`
+                ).join('');
+              }
+              return '';
+            })()}
             <code>$loop.index</code> <span>Index courant (0, 1, 2…)</span>
             <code>$loop.total</code> <span>Nombre total d'items</span>
           </div>
@@ -1334,7 +1536,24 @@ function openEditor(workflowId = null) {
     else if (nodeType === 'variable') {
       const VAR_TYPE_OPTIONS = ['string', 'number', 'boolean', 'array', 'object', 'any'];
       const varType = props.varType || 'any';
+      // Collect all variable names defined in this workflow
+      const allVarNodes = (graphService?._nodes || []).filter(n =>
+        (n.type === 'workflow/variable' || n.type === 'workflow/get_variable') && n.id !== node.id
+      );
+      const varNames = [...new Set(allVarNodes.map(n => n.properties.name).filter(Boolean))];
       fieldsHtml = `
+        ${varNames.length ? `
+        <div class="wf-var-browser">
+          <div class="wf-var-browser-title">${svgVariable()} Variables du workflow</div>
+          <div class="wf-var-browser-list">
+            ${varNames.map(v => {
+              const vNode = allVarNodes.find(n => n.properties.name === v);
+              const vType = vNode?.properties.varType || 'any';
+              const color = { string:'#c8c8c8', number:'#60a5fa', boolean:'#4ade80', array:'#fb923c', object:'#a78bfa', any:'#6b7280' }[vType] || '#6b7280';
+              return `<button class="wf-var-browser-item" data-varname="${escapeHtml(v)}" title="Cliquer pour utiliser"><code style="color:${color}">$${escapeHtml(v)}</code><span class="wf-var-browser-type" style="color:${color}">${vType}</span></button>`;
+            }).join('')}
+          </div>
+        </div>` : ''}
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCond()} Action</label>
           <select class="wf-step-edit-input wf-node-prop" data-key="action">
@@ -1425,9 +1644,159 @@ function openEditor(workflowId = null) {
         </div>
       `;
     }
+    // Switch node — visual case editor
+    else if (nodeType === 'switch') {
+      const cases = (props.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgSwitch()} Variable à tester</label>
+          <span class="wf-field-hint">Variable dont la valeur détermine la branche</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="variable" value="${escapeHtml(props.variable || '')}" placeholder="$ctx.branch" />
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCond()} Cases</label>
+          <span class="wf-field-hint">Chaque case crée un port de sortie. Le port "default" est automatique.</span>
+          <div class="wf-switch-cases" id="wf-switch-case-list">
+            ${cases.map((c, i) => `
+              <div class="wf-switch-case-row" data-idx="${i}">
+                <span class="wf-switch-case-idx">${i + 1}</span>
+                <input class="wf-switch-case-input wf-field-mono" value="${escapeHtml(c)}" placeholder="valeur" />
+                <button class="wf-switch-case-del" title="Supprimer ce case">${svgX(10)}</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="wf-switch-case-add" id="wf-switch-add-case">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            Ajouter un case
+          </button>
+        </div>
+        <div class="wf-switch-preview">
+          <div class="wf-switch-preview-title">${svgTriggerType()} Ports de sortie</div>
+          <div class="wf-switch-preview-ports">
+            ${cases.map(c => `<span class="wf-switch-preview-port">${escapeHtml(c)}</span>`).join('')}
+            <span class="wf-switch-preview-port wf-switch-preview-port--default">default</span>
+          </div>
+        </div>
+      `;
+    }
+    // Transform node — data transformation
+    else if (nodeType === 'transform') {
+      const TRANSFORM_OPS = [
+        { value: 'map',            label: 'Map',            desc: 'Transformer chaque élément', tpl: 'item.fieldName' },
+        { value: 'filter',         label: 'Filter',         desc: 'Garder les éléments qui matchent', tpl: 'item.status === "active"' },
+        { value: 'reduce',         label: 'Reduce',         desc: 'Agréger en une seule valeur', tpl: 'acc + item.value' },
+        { value: 'find',           label: 'Find',           desc: 'Trouver le premier élément', tpl: 'item.id === $targetId' },
+        { value: 'pluck',          label: 'Pluck',          desc: 'Extraire un seul champ', tpl: 'name' },
+        { value: 'count',          label: 'Count',          desc: 'Compter les éléments', tpl: '' },
+        { value: 'sort',           label: 'Sort',           desc: 'Trier les éléments', tpl: 'name' },
+        { value: 'unique',         label: 'Unique',         desc: 'Supprimer les doublons', tpl: '' },
+        { value: 'flatten',        label: 'Flatten',        desc: 'Aplatir les tableaux imbriqués', tpl: '' },
+        { value: 'json_parse',     label: 'JSON Parse',     desc: 'Convertir string → objet', tpl: '' },
+        { value: 'json_stringify',  label: 'JSON Stringify', desc: 'Convertir objet → string', tpl: '' },
+      ];
+      const currentOp = props.operation || 'map';
+      const opInfo = TRANSFORM_OPS.find(o => o.value === currentOp) || TRANSFORM_OPS[0];
+      const needsExpr = !['count', 'unique', 'flatten', 'json_parse', 'json_stringify'].includes(currentOp);
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgTransform()} Opération</label>
+          <div class="wf-transform-ops">
+            ${TRANSFORM_OPS.map(o => `
+              <button class="wf-transform-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.desc}">
+                <span class="wf-transform-op-name">${o.label}</span>
+                <span class="wf-transform-op-desc">${o.desc}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgVariable()} Input</label>
+          <span class="wf-field-hint">Source des données — variable ou node output</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="input" value="${escapeHtml(props.input || '')}" placeholder="$node_1.rows" />
+        </div>
+        ${needsExpr ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Expression</label>
+          <span class="wf-field-hint">${currentOp === 'pluck' || currentOp === 'sort' ? 'Nom du champ' : currentOp === 'reduce' ? 'acc = accumulateur, item = élément' : 'item = élément courant'}</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="expression" value="${escapeHtml(props.expression || '')}" placeholder="${escapeHtml(opInfo.tpl)}" />
+        </div>` : ''}
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgEdit()} Variable de sortie</label>
+          <span class="wf-field-hint">Stocker le résultat dans une variable (optionnel)</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar" value="${escapeHtml(props.outputVar || '')}" placeholder="transformedData" />
+        </div>
+        <div class="wf-transform-preview">
+          <code class="wf-transform-preview-code">${escapeHtml(currentOp)}(${escapeHtml(props.input || 'input')}${needsExpr && props.expression ? ', ' + escapeHtml(props.expression) : ''})${props.outputVar ? ' → $' + escapeHtml(props.outputVar) : ''}</code>
+        </div>
+      `;
+    }
+    // Subworkflow node
+    else if (nodeType === 'subworkflow') {
+      const allWorkflows = state.workflows || [];
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgSubworkflow()} Workflow</label>
+          <span class="wf-field-hint">Workflow à exécuter comme sous-processus</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="workflow">
+            <option value="">-- Choisir un workflow --</option>
+            ${allWorkflows.filter(w => w.id !== editorDraft.id).map(w => `<option value="${w.id}" ${props.workflow === w.id ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgVariable()} Variables d'entrée</label>
+          <span class="wf-field-hint">JSON des variables à passer (optionnel)</span>
+          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="inputVars" rows="3" placeholder='{"key": "$node_1.output"}'>${escapeHtml(props.inputVars || '')}</textarea>
+        </div>
+      `;
+    }
 
     const customTitle = node.properties._customTitle || '';
     const nodeStepId = `node_${node.id}`;
+
+    // Check for last run data
+    const runOutput = graphService?.getNodeOutput?.(node.id);
+    const hasRunData = runOutput != null || node._runStatus;
+    const activeTab = propsEl._activeTab || 'properties';
+
+    // Build Last Run tab HTML
+    let lastRunHtml = '';
+    if (hasRunData && activeTab === 'lastrun') {
+      const status = node._runStatus || 'unknown';
+      const statusCol = { success:'#22c55e', failed:'#ef4444', running:'#f59e0b', skipped:'#6b7280' }[status] || '#888';
+      const duration = node._runDuration != null ? `${node._runDuration}ms` : '-';
+      const error = node._runError || '';
+
+      let outputsHtml = '';
+      if (runOutput && typeof runOutput === 'object') {
+        const entries = Object.entries(runOutput);
+        outputsHtml = entries.map(([k, v]) => {
+          let display, typeLabel;
+          if (v === null || v === undefined) { display = 'null'; typeLabel = 'null'; }
+          else if (typeof v === 'string') { display = v.length > 200 ? escapeHtml(v.slice(0, 197)) + '...' : escapeHtml(v); typeLabel = 'string'; }
+          else if (typeof v === 'number') { display = String(v); typeLabel = 'number'; }
+          else if (typeof v === 'boolean') { display = String(v); typeLabel = 'boolean'; }
+          else if (Array.isArray(v)) { display = `Array[${v.length}]`; typeLabel = 'array'; }
+          else { display = JSON.stringify(v, null, 2); if (display.length > 200) display = display.slice(0, 197) + '...'; display = escapeHtml(display); typeLabel = 'object'; }
+          const typeColor = { string:'#c8c8c8', number:'#60a5fa', boolean:'#4ade80', array:'#fb923c', object:'#a78bfa', null:'#6b7280' }[typeLabel] || '#888';
+          return `<div class="wf-lastrun-entry">
+            <div class="wf-lastrun-key"><code>${escapeHtml(k)}</code><span class="wf-lastrun-type" style="color:${typeColor}">${typeLabel}</span></div>
+            <pre class="wf-lastrun-value">${display}</pre>
+          </div>`;
+        }).join('');
+      }
+
+      lastRunHtml = `
+        <div class="wf-lastrun-content">
+          <div class="wf-lastrun-status-row">
+            <span class="wf-lastrun-status-dot" style="background:${statusCol}"></span>
+            <span class="wf-lastrun-status-label" style="color:${statusCol}">${status}</span>
+            <span class="wf-lastrun-duration">${duration}</span>
+          </div>
+          ${error ? `<div class="wf-lastrun-error"><span class="wf-lastrun-error-label">Erreur</span><pre class="wf-lastrun-error-msg">${escapeHtml(error)}</pre></div>` : ''}
+          ${outputsHtml ? `<div class="wf-lastrun-section"><div class="wf-lastrun-section-title">Outputs</div>${outputsHtml}</div>` : '<div class="wf-lastrun-empty">Aucune donnée de sortie</div>'}
+        </div>`;
+    }
+
     propsEl.innerHTML = `
       <div class="wf-props-section" data-node-color="${typeInfo.color}">
         <div class="wf-props-header">
@@ -1438,6 +1807,12 @@ function openEditor(workflowId = null) {
           </div>
           <span class="wf-props-badge wf-props-badge--${typeInfo.color}">${nodeType.toUpperCase()}</span>
         </div>
+        ${hasRunData ? `
+        <div class="wf-props-tabs">
+          <button class="wf-props-tab ${activeTab === 'properties' ? 'active' : ''}" data-tab="properties">Properties</button>
+          <button class="wf-props-tab ${activeTab === 'lastrun' ? 'active' : ''}" data-tab="lastrun">Last Run</button>
+        </div>` : ''}
+        ${activeTab === 'lastrun' ? lastRunHtml : `
         ${nodeType !== 'trigger' ? `<div class="wf-node-id-badge"><code>$${nodeStepId}</code> <span>ID de ce node pour les variables</span></div>` : ''}
         ${nodeType !== 'trigger' ? `
         <div class="wf-step-edit-field">
@@ -1451,8 +1826,17 @@ function openEditor(workflowId = null) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           Supprimer ce node
         </button>` : ''}
+        `}
       </div>
     `;
+
+    // ── Bind tab switching ──
+    propsEl.querySelectorAll('.wf-props-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        propsEl._activeTab = tab.dataset.tab;
+        renderProperties(node);
+      });
+    });
 
     // Upgrade native selects to custom dropdowns
     upgradeSelectsToDropdowns(propsEl);
@@ -1478,6 +1862,13 @@ function openEditor(workflowId = null) {
         // Re-render properties if field affects visibility (trigger type, method, action, mode, connection)
         if (['triggerType', 'method', 'action', 'mode', 'connection'].includes(key)) {
           renderProperties(node);
+        }
+        // Rebuild Variable pins when action changes (adaptive Get/Set like Unreal)
+        if (key === 'action' && node.type === 'workflow/variable') {
+          // Sync the widget combo
+          const aw = node.widgets?.find(w => w.key === 'action');
+          if (aw) aw.value = val;
+          graphService._rebuildVariablePins(node);
         }
         // Refresh pin type on get_variable when varType changes
         if (key === 'varType' && node._updatePinType) {
@@ -1681,6 +2072,80 @@ function openEditor(workflowId = null) {
         graphService.canvas.setDirty(true, true);
       });
     }
+
+    // ── Switch case editor ──
+    const _syncSwitchCases = () => {
+      const rows = propsEl.querySelectorAll('.wf-switch-case-input');
+      const cases = Array.from(rows).map(r => r.value.trim()).filter(Boolean);
+      node.properties.cases = cases.join(',');
+      // Sync widget
+      if (node.widgets) {
+        const w = node.widgets.find(w => w.key === 'cases');
+        if (w) w.value = node.properties.cases;
+      }
+      editorDraft.dirty = true;
+      graphService.canvas._rebuildSwitchOutputs(node);
+      graphService.canvas.setDirty(true, true);
+      graphService.pushSnapshot();
+    };
+    // Bind case inputs
+    propsEl.querySelectorAll('.wf-switch-case-input').forEach(input => {
+      input.addEventListener('change', _syncSwitchCases);
+    });
+    // Delete case buttons
+    propsEl.querySelectorAll('.wf-switch-case-del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.closest('.wf-switch-case-row')?.remove();
+        _syncSwitchCases();
+        renderProperties(node);
+      });
+    });
+    // Add case button
+    const addCaseBtn = propsEl.querySelector('#wf-switch-add-case');
+    if (addCaseBtn) {
+      addCaseBtn.addEventListener('click', () => {
+        const cases = (node.properties.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+        cases.push(`case${cases.length + 1}`);
+        node.properties.cases = cases.join(',');
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.key === 'cases');
+          if (w) w.value = node.properties.cases;
+        }
+        editorDraft.dirty = true;
+        graphService.canvas._rebuildSwitchOutputs(node);
+        graphService.canvas.setDirty(true, true);
+        graphService.pushSnapshot();
+        renderProperties(node);
+      });
+    }
+
+    // ── Transform operation picker ──
+    propsEl.querySelectorAll('.wf-transform-op-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        node.properties.operation = btn.dataset.op;
+        // Sync widget
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.key === 'operation');
+          if (w) w.value = btn.dataset.op;
+        }
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // ── Variable browser — click to fill name ──
+    propsEl.querySelectorAll('.wf-var-browser-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nameInput = propsEl.querySelector('[data-key="name"]');
+        if (nameInput) {
+          nameInput.value = btn.dataset.varname;
+          node.properties.name = btn.dataset.varname;
+          editorDraft.dirty = true;
+          graphService.canvas.setDirty(true, true);
+        }
+      });
+    });
   };
 
   // ── Graph events ──
@@ -1763,7 +2228,13 @@ function openEditor(workflowId = null) {
           node.properties.name = v.name;
           node.properties.varType = v.varType || 'any';
           node.properties.action = 'get';
-          graphService.canvas.setDirty(true, true);
+          // Update widget value to match
+          const actionW = node.widgets?.find(w => w.key === 'action');
+          if (actionW) actionW.value = 'get';
+          const nameW = node.widgets?.find(w => w.key === 'name');
+          if (nameW) nameW.value = v.name;
+          graphService._rebuildVariablePins(node);
+          graphService._markDirty();
         }
       });
 
@@ -2042,19 +2513,24 @@ function openEditor(workflowId = null) {
   // Save
   panel.querySelector('#wf-ed-save').addEventListener('click', saveWorkflow);
 
-  // Run — save first if needed, then trigger
+  // Run — always save before triggering to persist graph changes
   panel.querySelector('#wf-ed-run').addEventListener('click', async () => {
     const btn = panel.querySelector('#wf-ed-run');
     btn.disabled = true;
+    btn.textContent = 'Saving...';
     try {
-      // If workflow has no id yet (unsaved), save it first
-      if (!workflowId) {
-        const ok = await saveWorkflow();
-        if (!ok) return;
+      const ok = await saveWorkflow();
+      if (!ok) {
+        console.warn('[Workflow] Save failed, cannot run');
+        return;
       }
-      if (workflowId) await triggerWorkflow(workflowId);
+      if (workflowId) {
+        btn.textContent = 'Running...';
+        await triggerWorkflow(workflowId);
+      }
     } finally {
       btn.disabled = false;
+      btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
     }
   });
 
@@ -2499,7 +2975,11 @@ async function saveWorkflow(draft, existingId) {
 
 async function triggerWorkflow(id) {
   if (!api) return;
-  await api.trigger(id);
+  // Pass the currently opened project path so the runner has a valid cwd
+  const pState = projectsState.get();
+  const openedProject = (pState.projects || []).find(p => p.id === pState.openedProjectId);
+  const projectPath = openedProject?.path || '';
+  await api.trigger(id, { projectPath });
   // Live listener will update UI when run starts
 }
 

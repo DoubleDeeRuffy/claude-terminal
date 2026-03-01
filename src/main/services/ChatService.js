@@ -228,6 +228,23 @@ class ChatService {
       }
     };
     process.on('unhandledRejection', this._unhandledRejectionHandler);
+
+    // Catch low-level stream errors (write EOF, EPIPE) that occur when the
+    // Agent SDK subprocess exits while Node is still writing to its stdin.
+    // These surface as uncaughtExceptions and would otherwise crash the app.
+    this._uncaughtExceptionHandler = (err) => {
+      const msg = err?.message || '';
+      if (msg.includes('write EOF')
+          || msg.includes('EPIPE')
+          || msg.includes('write after end')
+          || msg.includes('This socket has been ended')) {
+        console.warn(`[ChatService] Suppressed stream exception: ${msg}`);
+        return;
+      }
+      // Re-throw non-stream errors so Electron's default handler shows them
+      throw err;
+    };
+    process.on('uncaughtException', this._uncaughtExceptionHandler);
   }
 
   setMainWindow(window) {
@@ -278,7 +295,7 @@ class ChatService {
    * @param {string} [params.resumeSessionId] - Session ID to resume
    * @returns {Promise<string>} Session ID
    */
-  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null, outputFormat = null, skills = null, systemPrompt = null, settingSources = null }) {
+  async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null, outputFormat = null, skills = null, systemPrompt = null, settingSources = null, maxTurns = null }) {
     const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -313,7 +330,7 @@ class ChatService {
       const options = {
         cwd: effectiveCwd,
         abortController,
-        maxTurns: 100,
+        maxTurns: maxTurns || 100,
         includePartialMessages: true,
         permissionMode,
         executable: runtime.executable,
@@ -324,7 +341,16 @@ class ChatService {
         canUseTool: async (toolName, input, opts) => {
           return this._handlePermission(sessionId, toolName, input, opts);
         },
-        stderr: (data) => { console.error(`[ChatService][stderr] ${data}`); }
+        stderr: (data) => {
+          console.error(`[ChatService][stderr] ${data}`);
+          // Accumulate stderr per session for better error diagnostics
+          const s = this.sessions.get(sessionId);
+          if (s) {
+            s._stderr = (s._stderr || '') + data;
+            // Cap at 4 KB to avoid memory leaks
+            if (s._stderr.length > 4096) s._stderr = s._stderr.slice(-4096);
+          }
+        }
       };
 
       // Set model if specified
@@ -374,12 +400,13 @@ class ChatService {
         queryStream,
         alwaysAllow: permissionMode === 'bypassPermissions',
         cwd,
+        _stderr: '',
       });
 
       this._processStream(sessionId, queryStream);
       return sessionId;
     } catch (err) {
-      console.error(`[ChatService] startSession error:`, err.message);
+      console.error(`[ChatService] startSession error (cwd: ${cwd}, perm: ${permissionMode}):`, err.message, err.stack);
       this.sessions.delete(sessionId);
       const humanized = this._humanizeError(err.message);
       throw humanized === err.message ? err : new Error(humanized);
@@ -595,8 +622,13 @@ class ChatService {
       if (wasInterrupted) {
         this._send('chat-done', { sessionId, aborted: true });
       } else {
-        console.error(`[ChatService] Stream error after ${msgCount} msgs:`, err.message);
-        const errorMsg = this._humanizeError(err.message);
+        const stderrLog = session?._stderr || '';
+        console.error(`[ChatService] Stream error after ${msgCount} msgs:`, err.message, stderrLog ? `\nstderr: ${stderrLog}` : '');
+        let errorMsg = this._humanizeError(err.message);
+        // Append stderr details for crash diagnostics (exit code errors)
+        if (stderrLog && err.message?.includes('exited with code')) {
+          errorMsg += `\n\nDetails: ${stderrLog.trim().slice(0, 500)}`;
+        }
         this._send('chat-error', { sessionId, error: errorMsg });
       }
     } finally {
@@ -617,9 +649,16 @@ class ChatService {
   _humanizeError(raw) {
     if (!raw) return 'An unknown error occurred.';
 
-    // Node.js not found
+    // ENOENT — distinguish between spawn failures and file-not-found
     if (raw.includes('ENOENT')) {
-      return 'Node.js not found. Please install Node.js (https://nodejs.org) and restart the app.';
+      // Spawn failure (executable not found)
+      if (raw.includes('spawn') || /ENOENT.*node|node.*ENOENT/i.test(raw) || /ENOENT.*bun|bun.*ENOENT/i.test(raw)) {
+        return 'Node.js not found. Please install Node.js (https://nodejs.org) and restart the app.';
+      }
+      // File/directory not found — extract path if possible
+      const pathMatch = raw.match(/ENOENT[^']*'([^']+)'/);
+      const detail = pathMatch ? `: ${pathMatch[1]}` : '';
+      return `File or directory not found${detail}. ${raw}`;
     }
 
     // SDK process crashed at startup (exit code 1, 0 messages)
@@ -656,6 +695,11 @@ class ChatService {
     // Network errors
     if (raw.includes('ECONNREFUSED') || raw.includes('ENOTFOUND') || raw.includes('ETIMEDOUT') || raw.includes('fetch failed')) {
       return 'Network error. Please check your internet connection and try again.';
+    }
+
+    // Stream/pipe errors (subprocess died mid-write)
+    if (raw.includes('write EOF') || raw.includes('EPIPE') || raw.includes('write after end')) {
+      return 'Claude Code process disconnected unexpectedly. Please try again.';
     }
 
     return raw;
@@ -851,6 +895,73 @@ class ChatService {
   }
 
   /**
+   * Run a single prompt through the SDK (no streaming input, no session to manage).
+   * Used by WorkflowRunner for Claude/agent steps — the stream terminates on its own.
+   * @param {Object} opts - { cwd, prompt, model, effort, maxTurns, permissionMode, outputFormat, skills, onMessage, signal }
+   * @returns {Promise<{ output: string, success: boolean, ... }>}
+   */
+  async runSinglePrompt({ cwd, prompt, model, effort, maxTurns, permissionMode, outputFormat, skills, onMessage, signal }) {
+    const sdk = await loadSDK();
+    const runtime = resolveRuntime();
+
+    const abortController = new AbortController();
+    if (signal) {
+      signal.addEventListener('abort', () => abortController.abort(), { once: true });
+    }
+
+    // Remove CLAUDECODE env to avoid nested session detection
+    const prevClaudeCode = process.env.CLAUDECODE;
+    delete process.env.CLAUDECODE;
+
+    try {
+      const options = {
+        cwd: cwd || require('os').homedir(),
+        abortController,
+        maxTurns: maxTurns || 30,
+        permissionMode: permissionMode || 'bypassPermissions',
+        executable: runtime.executable,
+        env: runtime.env,
+        pathToClaudeCodeExecutable: getSdkCliPath(),
+        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        settingSources: ['user', 'project', 'local'],
+      };
+
+      if (model) options.model = model;
+      if (effort) options.effort = effort;
+      if (outputFormat) options.outputFormat = outputFormat;
+      if (skills?.length) options.skills = skills;
+
+      const queryStream = sdk.query({ prompt, options });
+
+      let stdout = '';
+      let structuredOutput = null;
+
+      for await (const message of queryStream) {
+        if (onMessage) onMessage(message);
+        if (message.type === 'assistant') {
+          const content = message.message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'text') stdout += block.text;
+            }
+          }
+        }
+        if (message.type === 'result' && message.structured_output) {
+          structuredOutput = message.structured_output;
+        }
+      }
+
+      const result = { output: stdout.trim(), success: true };
+      if (structuredOutput && typeof structuredOutput === 'object') {
+        Object.assign(result, structuredOutput);
+      }
+      return result;
+    } finally {
+      if (prevClaudeCode) process.env.CLAUDECODE = prevClaudeCode;
+    }
+  }
+
+  /**
    * Cancel an in-progress background generation
    */
   cancelGeneration(genId) {
@@ -912,9 +1023,12 @@ class ChatService {
       gen.abortController.abort();
     }
     this.backgroundGenerations.clear();
-    // Remove global listener to prevent memory leak
+    // Remove global listeners to prevent memory leak
     if (this._unhandledRejectionHandler) {
       process.removeListener('unhandledRejection', this._unhandledRejectionHandler);
+    }
+    if (this._uncaughtExceptionHandler) {
+      process.removeListener('uncaughtException', this._uncaughtExceptionHandler);
     }
   }
 }
