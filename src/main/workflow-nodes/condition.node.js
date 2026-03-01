@@ -1,5 +1,7 @@
 'use strict';
 
+const { esc } = require('./_registry');
+
 const CONDITION_OPS = [
   { value: '==',           group: 'compare', label: '==' },
   { value: '!=',           group: 'compare', label: '!=' },
@@ -43,7 +45,7 @@ module.exports = {
       type: 'custom',
       key:  'condition_ui',
       render(field, props, node) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
         const CONDITION_OPS = [
           { value: '==',           group: 'compare', label: '==' },
           { value: '!=',           group: 'compare', label: '!=' },

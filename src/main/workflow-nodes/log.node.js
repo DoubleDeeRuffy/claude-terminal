@@ -1,5 +1,7 @@
 'use strict';
 
+const { esc } = require('./_registry');
+
 module.exports = {
   type:     'workflow/log',
   title:    'Log',
@@ -19,7 +21,7 @@ module.exports = {
       type: 'custom',
       key:  'log_ui',
       render(field, props, node) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
         const LOG_LEVELS = [
           { value: 'debug', label: 'Debug', icon: '🔍', color: 'var(--text-muted)' },
           { value: 'info',  label: 'Info',  icon: 'ℹ',  color: '#60a5fa' },

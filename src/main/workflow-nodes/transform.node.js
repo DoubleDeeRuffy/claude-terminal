@@ -1,5 +1,7 @@
 'use strict';
 
+const { esc } = require('./_registry');
+
 const TRANSFORM_OPS = [
   { value: 'map',           label: 'Map',           desc: 'Transformer chaque élément',       tpl: 'item.fieldName' },
   { value: 'filter',        label: 'Filter',         desc: 'Garder les éléments qui matchent', tpl: 'item.status === "active"' },
@@ -38,7 +40,7 @@ module.exports = {
       type: 'custom',
       key:  'transform_ui',
       render(field, props, node) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
         const TRANSFORM_OPS = [
           { value: 'map',           label: 'Map',           desc: 'Transformer chaque élément',       tpl: 'item.fieldName' },
           { value: 'filter',        label: 'Filter',         desc: 'Garder les éléments qui matchent', tpl: 'item.status === "active"' },

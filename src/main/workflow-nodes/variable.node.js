@@ -1,5 +1,7 @@
 'use strict';
 
+const { esc } = require('./_registry');
+
 const VAR_COLORS = {
   string:  '#c8c8c8',
   number:  '#60a5fa',
@@ -28,7 +30,7 @@ module.exports = {
       type: 'custom',
       key:  'variable_ui',
       render(field, props, node) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
         const VAR_COLORS = {
           string:  '#c8c8c8',
           number:  '#60a5fa',
@@ -92,7 +94,7 @@ module.exports = {
           object:  '#a78bfa',
           any:     '#6b7280',
         };
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
 
         // Populate the variable browser from sibling variable nodes in DOM context
         // We attempt to get node list from the graph service if available via window

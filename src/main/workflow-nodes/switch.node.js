@@ -1,5 +1,7 @@
 'use strict';
 
+const { esc } = require('./_registry');
+
 module.exports = {
   type:     'workflow/switch',
   title:    'Switch',
@@ -20,7 +22,7 @@ module.exports = {
       type: 'custom',
       key:  'switch_ui',
       render(field, props, node) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
         const p     = props || {};
         const cases = (p.cases || '').split(',').map(c => c.trim()).filter(Boolean);
 
@@ -57,7 +59,7 @@ module.exports = {
         `;
       },
       bind(container, field, node, onChange) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
 
         function getCases() {
           const inputs = container.querySelectorAll('.wf-switch-case-input');

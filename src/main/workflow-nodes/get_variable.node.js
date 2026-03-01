@@ -1,5 +1,7 @@
 'use strict';
 
+const { esc } = require('./_registry');
+
 module.exports = {
   type:     'workflow/get_variable',
   title:    'Get Variable',
@@ -19,7 +21,7 @@ module.exports = {
       type: 'custom',
       key:  'get_variable_ui',
       render(field, props, node) {
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        // esc() imported from _registry
         const VAR_TYPE_OPTIONS = ['string', 'number', 'boolean', 'array', 'object', 'any'];
         const VAR_COLORS = {
           string:  '#c8c8c8',

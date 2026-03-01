@@ -28,4 +28,18 @@ function getAll()    { return [..._nodes.values()]; }
 function has(type)   { return _nodes.has(type); }
 function getTypes()  { return [..._nodes.keys()]; }
 
-module.exports = { loadRegistry, get, getAll, has, getTypes };
+/**
+ * Shared HTML escaping utility for node render() functions.
+ * Centralised here to avoid duplication across every .node.js file.
+ * @param {*} s
+ * @returns {string}
+ */
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+module.exports = { loadRegistry, get, getAll, has, getTypes, esc };
