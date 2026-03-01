@@ -5499,3 +5499,425 @@ select.wf-step-edit-input {
   letter-spacing: .04em;
   opacity: .5;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HISTORY REDESIGN — 2-column layout + run cards + loop accordion
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 2-column layout container */
+.wf-history-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Left column — runs list */
+.wf-runs-list {
+  width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,.06);
+  overflow: hidden;
+}
+
+.wf-runs-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  flex-shrink: 0;
+}
+
+.wf-runs-list-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.wf-runs-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+/* Right column — detail panel */
+.wf-run-detail-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Empty state (no run selected) */
+.wf-run-detail-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.wf-run-detail-empty-icon {
+  font-size: 28px;
+  opacity: .3;
+}
+
+.wf-run-detail-empty-text {
+  font-size: 12px;
+}
+
+/* ── Run cards (left column) ────────────────────────────────────────────── */
+
+.wf-run-card {
+  display: flex;
+  gap: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 2px 8px;
+  border: 1px solid transparent;
+  transition: background .12s, border-color .12s;
+  overflow: hidden;
+}
+
+.wf-run-card:hover {
+  background: rgba(var(--accent-rgb), .04);
+}
+
+.wf-run-card--selected {
+  background: rgba(var(--accent-rgb), .08);
+  border-color: rgba(var(--accent-rgb), .15);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .08);
+}
+
+/* Accent bar (left border colored) */
+.wf-run-card-accent {
+  width: 3px;
+  flex-shrink: 0;
+  background: var(--accent);
+  opacity: .35;
+  transition: opacity .12s, width .12s;
+}
+
+.wf-run-card--selected .wf-run-card-accent {
+  opacity: 1;
+  width: 4px;
+}
+
+.wf-run-card--failed .wf-run-card-accent { background: #ef4444; opacity: .7; }
+.wf-run-card--running .wf-run-card-accent { background: #3b82f6; opacity: .8; animation: wfPulse 1.5s infinite; }
+.wf-run-card--cancelled .wf-run-card-accent { background: #6b7280; }
+
+/* Card body */
+.wf-run-card-body {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wf-run-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wf-run-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -.01em;
+}
+
+.wf-run-card-status {
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.wf-run-card--success .wf-run-card-status { color: var(--accent); }
+.wf-run-card--failed  .wf-run-card-status { color: #ef4444; }
+.wf-run-card--running .wf-run-card-status { color: #3b82f6; }
+.wf-run-card--cancelled .wf-run-card-status { color: #6b7280; }
+
+.wf-run-card-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Pipeline chips inside card */
+.wf-run-card-pipeline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  row-gap: 2px;
+  margin-top: 2px;
+}
+
+/* Loop iteration count badge in pipeline */
+.wf-run-pipe-loop-count {
+  font-size: 9px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: rgba(var(--accent-rgb), .65);
+  font-weight: 600;
+  margin-left: 1px;
+  margin-right: 2px;
+}
+
+/* ── Run detail header redesign ─────────────────────────────────────────── */
+
+.wf-run-detail-header-new {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  background: linear-gradient(to bottom, rgba(var(--accent-rgb), .03), transparent);
+  flex-shrink: 0;
+}
+
+.wf-run-detail-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 3px;
+}
+
+/* Timeline bar (proportional duration by step type) */
+.wf-run-detail-timeline {
+  display: flex;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 10px;
+  gap: 1px;
+}
+
+.wf-run-timeline-seg {
+  height: 100%;
+  border-radius: 1px;
+  min-width: 2px;
+  transition: width .3s ease-out;
+}
+
+.wf-run-timeline-seg--shell     { background: #3b82f6; }
+.wf-run-timeline-seg--claude,
+.wf-run-timeline-seg--agent     { background: #8b5cf6; }
+.wf-run-timeline-seg--loop      { background: var(--accent); }
+.wf-run-timeline-seg--condition { background: #eab308; }
+.wf-run-timeline-seg--file      { background: #06b6d4; }
+.wf-run-timeline-seg--notify    { background: #f97316; }
+.wf-run-timeline-seg--variable  { background: #6b7280; }
+.wf-run-timeline-seg--git       { background: #f97316; }
+.wf-run-timeline-seg--http      { background: #22d3ee; }
+.wf-run-timeline-seg--db        { background: #a78bfa; }
+.wf-run-timeline-seg--wait      { background: #94a3b8; }
+.wf-run-timeline-seg--project   { background: #f472b6; }
+
+/* Connector lines use accent color */
+.wf-run-step--success:not(:last-child)::after {
+  background: rgba(var(--accent-rgb), .15) !important;
+}
+
+/* ── Loop step accordion ────────────────────────────────────────────────── */
+
+/* Badge ×N on loop step header */
+.wf-loop-iter-badge {
+  font-size: 10px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: rgba(var(--accent-rgb), .7);
+  font-weight: 600;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Iterations container */
+.wf-loop-iterations {
+  margin: 0 12px 8px 40px;
+  border-left: 1px solid rgba(var(--accent-rgb), .2);
+  border-radius: 0 0 0 4px;
+  overflow: hidden;
+}
+
+.wf-loop-iter {
+  border-bottom: 1px solid rgba(255,255,255,.025);
+}
+
+.wf-loop-iter:last-child {
+  border-bottom: none;
+}
+
+/* Iteration header row */
+.wf-loop-iter-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  cursor: pointer;
+  background: rgba(var(--accent-rgb), .02);
+  transition: background .1s;
+  user-select: none;
+}
+
+.wf-loop-iter-header:hover {
+  background: rgba(var(--accent-rgb), .06);
+}
+
+.wf-loop-iter-num {
+  font-size: 9px;
+  color: var(--text-muted);
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.wf-loop-iter-item {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wf-loop-iter-status {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.wf-loop-iter--success .wf-loop-iter-status { color: var(--accent); }
+.wf-loop-iter--failed  .wf-loop-iter-status { color: #ef4444; }
+.wf-loop-iter--skipped .wf-loop-iter-status { color: var(--text-muted); }
+
+.wf-loop-iter-dur {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: 'Cascadia Code', monospace;
+  flex-shrink: 0;
+}
+
+.wf-loop-iter-chevron {
+  flex-shrink: 0;
+  color: rgba(255,255,255,.2);
+  transition: transform .15s;
+}
+
+.wf-loop-iter.expanded .wf-loop-iter-chevron {
+  transform: rotate(180deg);
+}
+
+/* Child steps inside iteration */
+.wf-loop-iter-steps {
+  padding: 3px 0 3px 12px;
+  background: rgba(0,0,0,.12);
+}
+
+.wf-loop-child-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: default;
+  border-radius: 3px;
+  transition: background .1s;
+}
+
+.wf-loop-child-step.has-output {
+  cursor: pointer;
+}
+
+.wf-loop-child-step.has-output:hover {
+  background: rgba(255,255,255,.025);
+}
+
+.wf-loop-child-step .wf-chip {
+  width: 14px;
+  height: 14px;
+  font-size: 7px;
+  flex-shrink: 0;
+}
+
+.wf-loop-child-type {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.wf-loop-child-timing {
+  flex: 1;
+  height: 2px;
+  background: rgba(255,255,255,.06);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.wf-loop-child-timing-bar {
+  height: 100%;
+  border-radius: 1px;
+  background: rgba(var(--accent-rgb), .3);
+}
+
+.wf-loop-child-step--success .wf-loop-child-timing-bar { background: rgba(var(--accent-rgb), .4); }
+.wf-loop-child-step--failed  .wf-loop-child-timing-bar { background: rgba(239,68,68,.4); }
+
+.wf-loop-child-dur {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: 'Cascadia Code', monospace;
+  flex-shrink: 0;
+}
+
+.wf-loop-child-status {
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.wf-loop-child-step--success .wf-loop-child-status { color: var(--accent); }
+.wf-loop-child-step--failed  .wf-loop-child-status { color: #ef4444; }
+.wf-loop-child-step--skipped { opacity: .35; }
+
+.wf-loop-child-chevron {
+  flex-shrink: 0;
+  color: rgba(255,255,255,.2);
+  transition: transform .12s;
+}
+
+.wf-loop-child-step.expanded .wf-loop-child-chevron {
+  transform: rotate(180deg);
+}
+
+/* Child step output */
+.wf-loop-child-output {
+  padding: 4px 10px 6px 32px;
+}
+
+/* Show-more button */
+.wf-runs-show-more {
+  text-align: center;
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color .1s;
+}
+
+.wf-runs-show-more:hover {
+  color: var(--text-secondary);
+}
