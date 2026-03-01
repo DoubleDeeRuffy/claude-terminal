@@ -1197,6 +1197,32 @@ function openEditor(workflowId = null) {
     const typeInfo = findStepType(nodeType) || { label: nodeType, color: 'muted', icon: '' };
     const props = node.properties || {};
 
+    /** Render the CWD select + optional custom path input, shared by claude/shell/git nodes */
+    const cwdFieldHtml = (labelText, hintText) => {
+      const allProjects = projectsState.get().projects || [];
+      const isCustom = !!props.cwd && !props.projectId;
+      const selectedProjectId = isCustom ? '__custom__' : (props.projectId || '');
+      return `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} ${escapeHtml(labelText)}</label>
+          <span class="wf-field-hint">${escapeHtml(hintText)}</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="" ${!selectedProjectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${selectedProjectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+            <option value="__custom__" ${selectedProjectId === '__custom__' ? 'selected' : ''}>Chemin personnalisé…</option>
+          </select>
+        </div>
+        ${selectedProjectId === '__custom__' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Chemin de travail</label>
+          <span class="wf-field-hint">Chemin absolu ou variable — ex: $item.path</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="cwd"
+            value="${escapeHtml(props.cwd || '')}"
+            placeholder="$item.path ou E:\\MonProjet" />
+        </div>` : ''}
+      `;
+    };
+
     let fieldsHtml = '';
 
     // Trigger node properties
@@ -1242,16 +1268,8 @@ function openEditor(workflowId = null) {
       const mode = props.mode || 'prompt';
       const agents = getAgents() || [];
       const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
-      const allProjects = projectsState.get().projects || [];
       fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Exécuter dans</label>
-          <span class="wf-field-hint">Répertoire de travail de la session Claude</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
+        ${cwdFieldHtml('Exécuter dans', 'Répertoire de travail de la session Claude')}
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgMode()} Mode d'exécution</label>
           <div class="wf-claude-mode-tabs">
@@ -1344,16 +1362,8 @@ function openEditor(workflowId = null) {
     }
     // Shell node
     else if (nodeType === 'shell') {
-      const allProjects = projectsState.get().projects || [];
       fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Exécuter dans</label>
-          <span class="wf-field-hint">Répertoire de travail de la commande</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
+        ${cwdFieldHtml('Exécuter dans', 'Répertoire de travail de la commande')}
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgShell()} Commande</label>
           <span class="wf-field-hint">Commande bash exécutée dans un terminal</span>
@@ -1363,16 +1373,8 @@ function openEditor(workflowId = null) {
     }
     // Git node
     else if (nodeType === 'git') {
-      const allProjects = projectsState.get().projects || [];
       fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Projet cible</label>
-          <span class="wf-field-hint">Dépôt git sur lequel opérer</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
+        ${cwdFieldHtml('Projet cible', 'Dépôt git sur lequel opérer')}
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgGit()} Action</label>
           <select class="wf-step-edit-input wf-node-prop" data-key="action">
@@ -2037,7 +2039,11 @@ function openEditor(workflowId = null) {
           schemaCache.invalidate(val);
         }
         // Re-render properties if field affects visibility (trigger type, method, action, mode, connection)
-        if (['triggerType', 'method', 'action', 'mode', 'connection'].includes(key)) {
+        if (['triggerType', 'method', 'action', 'mode', 'connection', 'projectId'].includes(key)) {
+          // When switching to custom path, clear projectId so cwd takes priority
+          if (key === 'projectId' && val === '__custom__') {
+            node.properties.projectId = '';
+          }
           renderProperties(node);
         }
         // Rebuild Variable pins when action changes (adaptive Get/Set like Unreal)
