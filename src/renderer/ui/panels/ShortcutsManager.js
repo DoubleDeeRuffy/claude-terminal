@@ -88,6 +88,7 @@ function resetShortcut(id) {
 
 function resetAllShortcuts() {
   ctx.settingsState.setProp('shortcuts', {});
+  ctx.settingsState.setProp('terminalShortcuts', {});
   ctx.saveSettings();
   registerAllShortcuts();
 }
