@@ -1328,19 +1328,13 @@ function openEditor(workflowId = null) {
     // Project node
     else if (nodeType === 'project') {
       const allProjects = projectsState.get().projects || [];
+      const isListAction = props.action === 'list';
       fieldsHtml = `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Projet</label>
-          <span class="wf-field-hint">Projet cible de cette opération</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="">-- Choisir un projet --</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCond()} Action</label>
-          <span class="wf-field-hint">Opération à effectuer sur le projet</span>
+          <span class="wf-field-hint">Opération à effectuer</span>
           <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="list" ${props.action === 'list' ? 'selected' : ''}>Lister tous les projets</option>
             <option value="set_context" ${props.action === 'set_context' ? 'selected' : ''}>Définir comme contexte actif</option>
             <option value="open" ${props.action === 'open' ? 'selected' : ''}>Ouvrir dans l'éditeur</option>
             <option value="build" ${props.action === 'build' ? 'selected' : ''}>Lancer le build</option>
@@ -1348,6 +1342,18 @@ function openEditor(workflowId = null) {
             <option value="test" ${props.action === 'test' ? 'selected' : ''}>Exécuter les tests</option>
           </select>
         </div>
+        ${!isListAction ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} Projet</label>
+          <span class="wf-field-hint">Projet cible de cette opération</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
+            <option value="">-- Choisir un projet --</option>
+            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>` : `
+        <div class="wf-step-edit-field">
+          <span class="wf-field-hint">Retourne un array de tous les projets Claude Terminal. Connectez la sortie au slot Items d'un node Loop pour itérer.</span>
+        </div>`}
       `;
     }
     // File node

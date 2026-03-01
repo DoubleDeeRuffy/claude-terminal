@@ -215,12 +215,12 @@ const NODE_TYPES = {
     },
   },
   'workflow/project': {
-    title: 'Project', desc: 'Cibler un projet',
+    title: 'Project', desc: 'Cibler ou lister des projets',
     inputs: [{ name: 'In', type: 'exec' }],
-    outputs: [{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }],
+    outputs: [{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }, { name: 'Projects', type: 'array' }],
     props: { projectId: '', projectName: '', action: 'set_context' },
     widgets: [
-      { type: 'combo', name: 'Action', key: 'action', values: ['set_context', 'open', 'build', 'install', 'test'] },
+      { type: 'combo', name: 'Action', key: 'action', values: ['list', 'set_context', 'open', 'build', 'install', 'test'] },
       { type: 'text', name: 'Project', key: 'projectName' },
     ],
     width: 220,
@@ -1200,8 +1200,8 @@ class WorkflowGraphEngine {
       return Object.keys(output[0]);
     }
     if (output && typeof output === 'object') {
-      for (const key of ['rows', 'items', 'content', 'tables', 'data', 'results']) {
-        const arr = output[key];
+      // Generic scan: find any array property containing objects — no hardcoded keys needed
+      for (const arr of Object.values(output)) {
         if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null) {
           return Object.keys(arr[0]);
         }

@@ -73,12 +73,13 @@ const NODE_DATA_OUTPUTS = {
   subworkflow:  [{ name: 'outputs',  type: 'object',  key: 'outputs' }],
   loop:         [{ name: 'item',     type: 'any',     key: 'item' },
                  { name: 'index',    type: 'number',  key: 'index' }],
+  project:      [{ name: 'projects', type: 'array',   key: 'projects' }],
 };
 
 // node type → slot index of first data output (after exec slots)
 const NODE_DATA_OUT_OFFSET = {
   trigger: 1, claude: 2, shell: 2, git: 2, http: 2, db: 2, file: 2,
-  notify: 1, wait: 1, log: 1, condition: 2, loop: 2,
+  notify: 1, wait: 1, log: 1, condition: 2, loop: 2, project: 2,
   variable: 1, transform: 2, subworkflow: 2, switch: 0,
   get_variable: 0,
 };

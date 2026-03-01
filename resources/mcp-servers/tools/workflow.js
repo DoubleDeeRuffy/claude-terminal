@@ -495,7 +495,7 @@ const tools = [
   },
   {
     name: 'workflow_add_node',
-    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
+    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch, workflow/project. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. workflow/project with action "list" returns all Claude Terminal projects as an array — connect its Projects output (slot 2) to a Loop node Items input (slot 1) to iterate over projects. Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
     inputSchema: {
       type: 'object',
       properties: {
