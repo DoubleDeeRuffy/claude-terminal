@@ -60,6 +60,34 @@
   background: var(--bg-primary);
 }
 
+/* Pane-scoped wrapper visibility (mirrors .terminal-wrapper rules for pane context) */
+.pane-content .terminal-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.pane-content .terminal-wrapper.active {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  pointer-events: auto;
+}
+
+/* Empty state sits outside pane area and overlays everything */
+.terminals-panel > .empty-state {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+}
+
 .terminals-header {
   display: flex;
   align-items: center;

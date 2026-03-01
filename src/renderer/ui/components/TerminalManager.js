@@ -2369,6 +2369,46 @@ function filterByProject(projectIndex) {
     }
   });
 
+  // Check each pane for visible tabs — hide panes with zero visible tabs during filtering
+  const paneOrder = PaneManager.getPaneOrder();
+  for (const pId of paneOrder) {
+    const pane = PaneManager.getPanes().get(pId);
+    if (!pane) continue;
+    const visibleTabsInPane = Array.from(pane.tabsEl.querySelectorAll('.terminal-tab'))
+      .filter(tab => tab.style.display !== 'none');
+
+    if (visibleTabsInPane.length === 0) {
+      // Hide this pane (but don't collapse — filter may change)
+      pane.el.style.display = 'none';
+      const prevSibling = pane.el.previousElementSibling;
+      if (prevSibling && prevSibling.classList.contains('split-divider')) {
+        prevSibling.style.display = 'none';
+      }
+    } else {
+      pane.el.style.display = '';
+      const prevSibling = pane.el.previousElementSibling;
+      if (prevSibling && prevSibling.classList.contains('split-divider')) {
+        prevSibling.style.display = '';
+      }
+
+      // If pane's active tab is hidden, switch to first visible tab in this pane
+      const currentActive = PaneManager.getPaneActiveTab(pId);
+      const activeTabEl = currentActive ? pane.tabsEl.querySelector(`.terminal-tab[data-id="${currentActive}"]`) : null;
+      if (!activeTabEl || activeTabEl.style.display === 'none') {
+        const firstVisible = visibleTabsInPane[0];
+        if (firstVisible) {
+          PaneManager.setPaneActiveTab(pId, firstVisible.dataset.id);
+          pane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
+            t.classList.toggle('active', t.dataset.id === firstVisible.dataset.id));
+          pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
+            w.classList.toggle('active', w.dataset.id === firstVisible.dataset.id);
+            w.style.removeProperty('display');
+          });
+        }
+      }
+    }
+  }
+
   if (visibleCount === 0) {
     emptyState.style.display = 'flex';
     if (projectIndex !== null) {
