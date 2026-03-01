@@ -4530,7 +4530,16 @@ function scheduleScrollAfterRestore(id) {
 
     if (silentFor >= SILENCE_MS || timedOut) {
       clearInterval(poll);
-      td.terminal.scrollToBottom();
+      // Re-fit before scrolling: background terminals may have been sized at 0x0 while
+      // hidden, causing xterm to wrap content into too many rows and leave empty buffer
+      // space. fit() corrects dimensions and reflows the buffer, then RAF-deferred
+      // scrollToBottom lands at the true end of content.
+      if (td.fitAddon) {
+        try { td.fitAddon.fit(); } catch (e) { /* fit failed for hidden terminal */ }
+      }
+      requestAnimationFrame(() => {
+        try { td.terminal.scrollToBottom(); } catch (e) { /* terminal gone */ }
+      });
     }
   }, POLL_MS);
 }
