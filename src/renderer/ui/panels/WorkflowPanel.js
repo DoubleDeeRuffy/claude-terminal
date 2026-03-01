@@ -183,6 +183,18 @@ function registerLiveListeners() {
     }
   });
 
+  // Live loop progress — update loop step output as iterations complete
+  api.onLoopProgress(({ runId, stepId, loopOutput }) => {
+    const run = state.runs.find(r => r.id === runId);
+    if (!run) return;
+    const step = run.steps?.find(s => s.id === stepId);
+    if (step) step.output = loopOutput;
+    // Update loop step in detail view without full re-render
+    if (state.viewingRunId === runId) {
+      _updateLoopStepInDetail(stepId, loopOutput, run);
+    }
+  });
+
   // Live streaming logs for Claude/agent nodes
   api.onAgentMessage(({ runId, stepId, message }) => {
     if (!message) return;
@@ -203,6 +215,121 @@ function registerLiveListeners() {
     _agentLogs.set(stepId, entries);
     _scheduleLogUpdate(stepId);
   });
+}
+
+/* ─── Step accordion toggle bindings ─────────────────────────────────────── */
+
+/** Bind click-to-expand/collapse for a loop's iteration accordion and child steps */
+function _bindLoopAccordion(stepEl) {
+  // Iteration headers → toggle iteration steps visibility
+  stepEl.querySelectorAll('.wf-loop-iter-header').forEach(header => {
+    // Remove previous listener by cloning
+    const fresh = header.cloneNode(true);
+    header.replaceWith(fresh);
+    fresh.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const iter = fresh.closest('.wf-loop-iter');
+      if (!iter) return;
+      const stepsEl = iter.querySelector('.wf-loop-iter-steps');
+      if (!stepsEl) return;
+      const visible = stepsEl.style.display !== 'none';
+      stepsEl.style.display = visible ? 'none' : 'block';
+      iter.classList.toggle('expanded', !visible);
+    });
+  });
+
+  // Child steps with output → toggle output visibility
+  stepEl.querySelectorAll('.wf-loop-child-step.has-output').forEach(childEl => {
+    const fresh = childEl.cloneNode(true);
+    childEl.replaceWith(fresh);
+    const outputEl = fresh.nextElementSibling;
+    if (!outputEl || !outputEl.classList.contains('wf-loop-child-output')) return;
+    fresh.style.cursor = 'pointer';
+    fresh.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const visible = outputEl.style.display !== 'none';
+      outputEl.style.display = visible ? 'none' : 'block';
+      fresh.classList.toggle('expanded', !visible);
+    });
+  });
+}
+
+/** Bind click-to-expand/collapse for a single run step element */
+function _bindStepToggle(stepEl) {
+  const sType = (stepEl.dataset.stepType || '').split('.')[0]
+    || (stepEl.querySelector('.wf-run-step-type')?.textContent || '').toLowerCase();
+  const isLoop = stepEl.querySelector('.wf-loop-iterations') != null;
+
+  if (isLoop) {
+    // Loop step: header click toggles the iterations accordion
+    const header = stepEl.querySelector('.wf-run-step-header');
+    const iterationsEl = stepEl.querySelector('.wf-loop-iterations');
+    if (header && iterationsEl) {
+      const fresh = header.cloneNode(true);
+      header.replaceWith(fresh);
+      fresh.style.cursor = 'pointer';
+      fresh.addEventListener('click', () => {
+        const visible = iterationsEl.style.display !== 'none';
+        iterationsEl.style.display = visible ? 'none' : 'block';
+        stepEl.classList.toggle('expanded', !visible);
+      });
+    }
+    _bindLoopAccordion(stepEl);
+  } else {
+    // Regular step: header click toggles the output section
+    const header = stepEl.querySelector('.wf-run-step-header');
+    const outputEl = stepEl.querySelector('.wf-run-step-output');
+    if (header && outputEl) {
+      const fresh = header.cloneNode(true);
+      header.replaceWith(fresh);
+      fresh.style.cursor = 'pointer';
+      fresh.addEventListener('click', () => {
+        const visible = outputEl.style.display !== 'none';
+        outputEl.style.display = visible ? 'none' : 'block';
+        stepEl.classList.toggle('expanded', !visible);
+      });
+    }
+  }
+}
+
+/* ─── Live loop progress updater ─────────────────────────────────────────── */
+
+function _updateLoopStepInDetail(stepId, loopOutput, run) {
+  const stepEl = document.querySelector(`.wf-run-step[data-step-id="${stepId}"]`);
+  if (!stepEl) return;
+
+  // Update iteration badge (×N done / total)
+  const done = loopOutput.done || (loopOutput.items || []).length;
+  const total = loopOutput.count || done;
+  const badge = stepEl.querySelector('.wf-loop-iter-badge');
+  if (badge) badge.textContent = `×${done}/${total}`;
+
+  // Rebuild the iterations accordion with current data
+  const totalRunDuration = (run.steps || []).reduce((s, st) => s + (st.duration || 0), 0) || 1;
+  const step = run.steps?.find(s => s.id === stepId);
+  if (!step) return;
+  step.output = loopOutput;
+
+  const existingAccordion = stepEl.querySelector('.wf-loop-iterations');
+  const newHtml = buildLoopIterationsHtml(step, totalRunDuration);
+  if (newHtml) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = newHtml;
+    const newAccordion = tmp.firstElementChild;
+    if (existingAccordion) {
+      // Preserve open/closed state of existing iterations
+      existingAccordion.querySelectorAll('.wf-loop-iter').forEach((el, i) => {
+        if (!el.classList.contains('collapsed')) {
+          newAccordion?.querySelectorAll('.wf-loop-iter')[i]?.classList.remove('collapsed');
+        }
+      });
+      existingAccordion.replaceWith(newAccordion);
+    } else {
+      stepEl.querySelector('.wf-run-step-header')?.after(newAccordion);
+    }
+    // Re-bind all accordion toggle events (header + inner iterations + child steps)
+    _bindStepToggle(stepEl);
+  }
 }
 
 /* ─── Live log throttled DOM updater ─────────────────────────────────────── */
@@ -768,53 +895,7 @@ function renderRunDetailInCol(col, run) {
   });
 
   // Toggle step outputs / loop accordion
-  col.querySelectorAll('.wf-run-step').forEach(stepEl => {
-    const header = stepEl.querySelector('.wf-run-step-header');
-    const isLoop = stepEl.querySelector('.wf-loop-iterations') != null;
-
-    if (isLoop) {
-      const iterationsEl = stepEl.querySelector('.wf-loop-iterations');
-      if (!iterationsEl) return;
-      header.style.cursor = 'pointer';
-      header.addEventListener('click', () => {
-        const visible = iterationsEl.style.display !== 'none';
-        iterationsEl.style.display = visible ? 'none' : 'block';
-        stepEl.classList.toggle('expanded', !visible);
-      });
-
-      iterationsEl.querySelectorAll('.wf-loop-iter-header').forEach(iterHeader => {
-        iterHeader.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const iter = iterHeader.closest('.wf-loop-iter');
-          const iterSteps = iter.querySelector('.wf-loop-iter-steps');
-          if (!iterSteps) return;
-          const visible = iterSteps.style.display !== 'none';
-          iterSteps.style.display = visible ? 'none' : 'block';
-          iter.classList.toggle('expanded', !visible);
-        });
-      });
-
-      iterationsEl.querySelectorAll('.wf-loop-child-step.has-output').forEach(childStep => {
-        const output = childStep.nextElementSibling;
-        if (!output?.classList.contains('wf-loop-child-output')) return;
-        childStep.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const visible = output.style.display !== 'none';
-          output.style.display = visible ? 'none' : 'block';
-          childStep.classList.toggle('expanded', !visible);
-        });
-      });
-    } else {
-      const output = stepEl.querySelector('.wf-run-step-output');
-      if (!output) return;
-      header.style.cursor = 'pointer';
-      header.addEventListener('click', () => {
-        const visible = output.style.display !== 'none';
-        output.style.display = visible ? 'none' : 'block';
-        stepEl.classList.toggle('expanded', !visible);
-      });
-    }
-  });
+  col.querySelectorAll('.wf-run-step').forEach(stepEl => _bindStepToggle(stepEl));
 
   // Populate existing live logs
   for (const [stepId, entries] of _agentLogs) {
