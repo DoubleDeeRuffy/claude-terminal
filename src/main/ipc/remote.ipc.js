@@ -76,11 +76,6 @@ function registerRemoteHandlers() {
     remoteServer.broadcastTabRenamed({ sessionId, tabName });
   });
 
-  // Renderer pushes live time tracking data
-  ipcMain.on('remote:push-time-data', (_e, { todayMs }) => {
-    remoteServer.setTimeData({ todayMs });
-  });
-
 }
 
 module.exports = { registerRemoteHandlers };

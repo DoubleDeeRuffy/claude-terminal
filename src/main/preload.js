@@ -325,11 +325,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     notifyProjectsUpdated: (params) => ipcRenderer.send('remote:notify-projects-updated', params),
     notifySessionCreated: (params) => ipcRenderer.send('remote:session-created', params),
     notifyTabRenamed: (params) => ipcRenderer.send('remote:tab-renamed', params),
-    pushTimeData: (params) => ipcRenderer.send('remote:push-time-data', params),
     startServer: () => ipcRenderer.invoke('remote:start-server'),
     stopServer: () => ipcRenderer.invoke('remote:stop-server'),
     onOpenChatTab: createListener('remote:open-chat-tab'),
-    onRequestTimePush: createListener('remote:request-time-push'),
     onUserMessage: createListener('remote:user-message'),
   },
 

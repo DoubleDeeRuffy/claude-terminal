@@ -66,9 +66,6 @@ const _connectedClients = new Map(); // Map<sessionToken, WebSocket>
 let _failedAttempts = 0;
 let _lockoutUntil = 0;
 
-// Live time data pushed from renderer
-let _timeData = { todayMs: 0 };
-
 // ─── Cloud Relay Bridge ──────────────────────────────────────────────────────
 // CloudRelayClient reference — injected via setCloudClient()
 let _cloudClient = null;
@@ -315,10 +312,6 @@ function _handleWsUpgrade(request, socket, head) {
     });
     // 2. projets + sessions actives en différé (lecture disque)
     setImmediate(() => _sendProjectsAndSessions(ws));
-    // 3. Demander au renderer un push frais du time tracking → arrivera via time:update
-    if (_isMainWindowReady()) {
-      mainWindow.webContents.send('remote:request-time-push');
-    }
   });
 }
 
@@ -586,10 +579,6 @@ function _handleClientMessage(ws, token, raw) {
         });
         setImmediate(() => {
           _sendProjectsAndSessions(ws);
-          _wsSend(ws, 'time:update', _timeData);
-          if (_isMainWindowReady()) {
-            mainWindow.webContents.send('remote:request-time-push');
-          }
         });
         break;
       }
@@ -805,10 +794,6 @@ function broadcastTabRenamed({ sessionId, tabName }) {
   _broadcast('session:tab-renamed', { sessionId, tabName });
 }
 
-function setTimeData({ todayMs }) {
-  _timeData.todayMs = todayMs || 0;
-  _broadcast('time:update', { todayMs: _timeData.todayMs });
-}
 
 // ─── Auto-Start / Stop Logic ──────────────────────────────────────────────────
 
@@ -1008,13 +993,6 @@ function sendInitToCloud() {
   // 2. projects + sessions
   _sendProjectsAndSessions(_cloudWsProxy);
 
-  // 3. time tracking
-  _cloudClient.send(JSON.stringify({ type: 'time:update', data: _timeData }));
-
-  // 4. Request fresh time data from renderer
-  if (_isMainWindowReady()) {
-    mainWindow.webContents.send('remote:request-time-push');
-  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -1046,7 +1024,6 @@ module.exports = {
   broadcastProjectsUpdate,
   broadcastSessionStarted,
   broadcastTabRenamed,
-  setTimeData,
   setCloudClient,
   handleCloudMessage,
   sendInitToCloud,
