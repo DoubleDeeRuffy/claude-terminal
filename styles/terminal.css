@@ -14,6 +14,48 @@
   overflow: hidden;
 }
 
+/* Split Pane Layout */
+.split-pane-area {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.split-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.split-divider {
+  width: 1px;
+  background: var(--border-color);
+  flex-shrink: 0;
+}
+
+/* Pane-scoped tab bar — reuses .terminals-tabs styling */
+.pane-tabs {
+  display: flex;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 8px;
+  min-height: 40px;
+  gap: 4px;
+  overflow-x: auto;
+  align-items: center;
+}
+
+/* Pane-scoped content — reuses .terminals-container sizing */
+.pane-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
 .terminals-header {
   display: flex;
   align-items: center;

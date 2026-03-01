@@ -424,9 +424,13 @@
                 <svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
               </button>
             </div>
-            <div class="terminals-tabs" id="terminals-tabs" role="tablist" aria-label="Terminal tabs"></div>
-            <div class="terminals-container" id="terminals-container" role="region" aria-label="Terminals">
-              <div class="empty-state" id="empty-terminals">
+            <div class="split-pane-area" id="split-pane-area">
+              <div class="split-pane" data-pane-id="0">
+                <div class="pane-tabs" role="tablist" aria-label="Terminal tabs"></div>
+                <div class="pane-content" role="region" aria-label="Terminals"></div>
+              </div>
+            </div>
+            <div class="empty-state" id="empty-terminals">
                 <svg viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.89 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10z"/>
                 </svg>
