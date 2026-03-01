@@ -1610,32 +1610,130 @@ function openEditor(workflowId = null) {
         </div>`}
       `;
     }
+    // Time tracking node
+    else if (nodeType === 'time') {
+      const timeAction = props.action || 'get_today';
+      const needsProject = timeAction === 'get_project';
+      const needsDates   = timeAction === 'get_sessions';
+      const allProjects  = (window.electron_api?.app?.getProjects ? [] : []);
+      fieldsHtml = `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgClock()} Action</label>
+          <span class="wf-field-hint">Type de données à récupérer</span>
+          <select class="wf-step-edit-input wf-node-prop" data-key="action">
+            <option value="get_today"        ${timeAction === 'get_today'        ? 'selected' : ''}>Aujourd'hui — total global + projets actifs</option>
+            <option value="get_week"         ${timeAction === 'get_week'         ? 'selected' : ''}>Cette semaine — détail par jour</option>
+            <option value="get_project"      ${timeAction === 'get_project'      ? 'selected' : ''}>Projet — stats d'un projet spécifique</option>
+            <option value="get_all_projects" ${timeAction === 'get_all_projects' ? 'selected' : ''}>Tous les projets — classés par temps aujourd'hui</option>
+            <option value="get_sessions"     ${timeAction === 'get_sessions'     ? 'selected' : ''}>Sessions — liste brute (filtrable)</option>
+          </select>
+        </div>
+        ${needsProject ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} ID Projet</label>
+          <span class="wf-field-hint">Identifiant du projet (ou variable — ex: $item.id)</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="projectId" value="${escapeHtml(props.projectId || '')}" placeholder="$ctx.project" />
+        </div>` : ''}
+        ${needsDates ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgProject()} ID Projet (optionnel)</label>
+          <span class="wf-field-hint">Vide = sessions globales, sinon sessions d'un projet</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="projectId" value="${escapeHtml(props.projectId || '')}" placeholder="" />
+        </div>
+        <div class="wf-field-row">
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">${svgClock()} Date début</label>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="startDate" type="date" value="${escapeHtml(props.startDate || '')}" />
+          </div>
+          <div class="wf-step-edit-field wf-field-half">
+            <label class="wf-step-edit-label">${svgClock()} Date fin</label>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="endDate" type="date" value="${escapeHtml(props.endDate || '')}" />
+          </div>
+        </div>` : ''}
+        <div class="wf-db-output-hint">
+          <div class="wf-db-output-title">${svgTriggerType()} Sorties disponibles</div>
+          <div class="wf-db-output-items">
+            ${timeAction === 'get_today' ? `
+              <code>$node_${node.id}.today</code> <span>ms aujourd'hui</span>
+              <code>$node_${node.id}.week</code> <span>ms cette semaine</span>
+              <code>$node_${node.id}.month</code> <span>ms ce mois</span>
+              <code>$node_${node.id}.projects</code> <span>projets actifs aujourd'hui</span>` : ''}
+            ${timeAction === 'get_week' ? `
+              <code>$node_${node.id}.total</code> <span>ms total semaine</span>
+              <code>$node_${node.id}.days</code> <span>tableau des 7 jours [{date, ms, formatted}]</span>` : ''}
+            ${timeAction === 'get_project' ? `
+              <code>$node_${node.id}.today</code> <span>ms aujourd'hui</span>
+              <code>$node_${node.id}.week</code> <span>ms cette semaine</span>
+              <code>$node_${node.id}.total</code> <span>ms total</span>
+              <code>$node_${node.id}.sessionCount</code> <span>nombre de sessions</span>` : ''}
+            ${timeAction === 'get_all_projects' ? `
+              <code>$node_${node.id}.projects</code> <span>tableau de tous les projets</span>
+              <code>$node_${node.id}.count</code> <span>nombre de projets</span>` : ''}
+            ${timeAction === 'get_sessions' ? `
+              <code>$node_${node.id}.sessions</code> <span>tableau des sessions</span>
+              <code>$node_${node.id}.count</code> <span>nombre de sessions</span>
+              <code>$node_${node.id}.totalMs</code> <span>durée totale en ms</span>` : ''}
+          </div>
+        </div>
+      `;
+    }
     // File node
     else if (nodeType === 'file') {
+      const fileAction = props.action || 'read';
+      const isList  = fileAction === 'list';
+      const isMove  = fileAction === 'move' || fileAction === 'rename';
+      const isCopy  = fileAction === 'copy';
+      const isWrite = fileAction === 'write' || fileAction === 'append';
       fieldsHtml = `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCond()} Action</label>
           <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            <option value="read" ${props.action === 'read' ? 'selected' : ''}>Lire le fichier</option>
-            <option value="write" ${props.action === 'write' ? 'selected' : ''}>Écrire (remplacer)</option>
-            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la fin</option>
-            <option value="copy" ${props.action === 'copy' ? 'selected' : ''}>Copier</option>
-            <option value="delete" ${props.action === 'delete' ? 'selected' : ''}>Supprimer</option>
-            <option value="exists" ${props.action === 'exists' ? 'selected' : ''}>Vérifier existence</option>
+            <option value="read"   ${fileAction === 'read'   ? 'selected' : ''}>Lire le fichier</option>
+            <option value="write"  ${fileAction === 'write'  ? 'selected' : ''}>Écrire (remplacer)</option>
+            <option value="append" ${fileAction === 'append' ? 'selected' : ''}>Ajouter à la fin</option>
+            <option value="copy"   ${fileAction === 'copy'   ? 'selected' : ''}>Copier</option>
+            <option value="move"   ${fileAction === 'move'   ? 'selected' : ''}>Déplacer / Renommer</option>
+            <option value="delete" ${fileAction === 'delete' ? 'selected' : ''}>Supprimer</option>
+            <option value="exists" ${fileAction === 'exists' ? 'selected' : ''}>Vérifier existence</option>
+            <option value="list"   ${fileAction === 'list'   ? 'selected' : ''}>Lister (glob)</option>
           </select>
         </div>
+        ${!isList ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgFile()} Chemin</label>
-          <span class="wf-field-hint">Chemin relatif ou absolu du fichier</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="path" value="${escapeHtml(props.path || '')}" placeholder="./src/index.js" />
+          <span class="wf-field-hint">${isMove ? 'Fichier source à déplacer' : 'Chemin relatif ou absolu du fichier'}</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="path" value="${escapeHtml(props.path || '')}" placeholder="${isMove ? './src/old-name.js' : './src/index.js'}" />
+        </div>` : ''}
+        ${isList ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgFile()} Dossier</label>
+          <span class="wf-field-hint">Répertoire de base à explorer (vide = projet courant)</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="path" value="${escapeHtml(props.path || '')}" placeholder="./src" />
         </div>
-        ${props.action === 'copy' ? `
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">${svgCode()} Pattern glob</label>
+          <span class="wf-field-hint">Filtre de fichiers — ex: *.ts, **/*.test.js</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="pattern" value="${escapeHtml(props.pattern || '*')}" placeholder="**/*.js" />
+        </div>
+        <div class="wf-step-edit-field">
+          <label class="wf-step-edit-label">Type</label>
+          <select class="wf-step-edit-input wf-node-prop" data-key="type">
+            <option value="files" ${(props.type || 'files') === 'files' ? 'selected' : ''}>Fichiers uniquement</option>
+            <option value="dirs"  ${props.type === 'dirs'  ? 'selected' : ''}>Dossiers uniquement</option>
+            <option value="all"   ${props.type === 'all'   ? 'selected' : ''}>Fichiers et dossiers</option>
+          </select>
+        </div>
+        <div class="wf-step-edit-field" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" class="wf-node-prop" data-key="recursive" id="wf-file-recursive" ${props.recursive ? 'checked' : ''} style="width:auto;margin:0" />
+          <label for="wf-file-recursive" style="margin:0;cursor:pointer;font-size:var(--font-xs)">Récursif (sous-dossiers)</label>
+        </div>` : ''}
+        ${isCopy || isMove ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgFile()} Destination</label>
-          <span class="wf-field-hint">Chemin cible pour la copie</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="destination" value="${escapeHtml(props.destination || '')}" placeholder="./backup/index.js.bak" />
+          <span class="wf-field-hint">${isMove ? 'Nouveau chemin / nouveau nom' : 'Chemin cible pour la copie'}</span>
+          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="destination" value="${escapeHtml(props.destination || '')}" placeholder="${isMove ? './src/new-name.js' : './backup/index.js.bak'}" />
         </div>` : ''}
-        ${props.action === 'write' || props.action === 'append' ? `
+        ${isWrite ? `
         <div class="wf-step-edit-field">
           <label class="wf-step-edit-label">${svgCode()} Contenu</label>
           <span class="wf-field-hint">Texte ou données à écrire dans le fichier</span>
@@ -2130,6 +2228,12 @@ function openEditor(workflowId = null) {
           const aw = node.widgets?.find(w => w.key === 'action');
           if (aw) aw.value = val;
           graphService._rebuildVariablePins(node);
+        }
+        // Rebuild Time outputs when action changes
+        if (key === 'action' && node.type === 'workflow/time') {
+          const aw = node.widgets?.find(w => w.key === 'action');
+          if (aw) aw.value = val;
+          graphService._rebuildTimeOutputs(node);
         }
         // Refresh pin type on get_variable when varType changes
         if (key === 'varType' && node._updatePinType) {
@@ -2913,10 +3017,11 @@ workflow/db — SQL query
   Data outputs: rows (array), rowCount (number), firstRow (object)
 
 workflow/file — File operation
-  action: read | write | append | copy | delete | exists
-  path, content
+  action: read | write | append | copy | delete | exists | move | list
+  path, content, destination (for copy/move), pattern (glob for list), recursive (bool), type (files|dirs|all)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: content (string), exists (boolean)
+  Data outputs: content (string, slot2), exists (boolean, slot3), files (array, slot4), count (number, slot5)
+  list action: set path=directory, pattern="**/*.js", recursive=true — returns files array (ideal to connect to Loop)
 
 workflow/notify — Desktop notification
   title, message
@@ -2973,23 +3078,46 @@ workflow/switch — Multi-branch routing (like switch/case)
   Each case creates an exec output slot (slot0=first case, slot1=second, etc.), last slot=default
   No data outputs
 
-workflow/project — Set project context
-  action: set_context | open | build | install | test
-  projectId (project to target)
-  Exec output: slot0=Done
+workflow/project — Set project context or list projects
+  action: list | set_context | open | build | install | test
+  projectId (project to target, not needed for list)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: projects (array, slot2) — only populated for action=list
+  list action: returns all Claude Terminal projects array — connect slot2 to Loop node Items (slot1) to iterate
+
+workflow/time — Read time tracking data
+  action: get_today | get_week | get_project | get_all_projects | get_sessions
+  projectId (required for get_project, optional for get_sessions — can also be connected via data input pin)
+  startDate, endDate (ISO date strings, for get_sessions filtering)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs vary by action:
+    get_today: today=slot2 (ms), week=slot3 (ms), month=slot4 (ms), projects=slot5 (array of active projects)
+    get_week: total=slot2 (ms), days=slot3 (array [{date, dayOfWeek, ms, formatted}])
+    get_project: today=slot2, week=slot3, month=slot4, total=slot5, sessionCount=slot6 (all ms except count)
+    get_all_projects: projects=slot2 (array sorted by today desc), count=slot3
+    get_sessions: sessions=slot2 (array), count=slot3, totalMs=slot4
+  NOTE: get_project and get_sessions expose a projectId data INPUT pin (slot1) — connect any string output to it
+  TIP: get_all_projects → Loop → get_project pattern to build per-project reports
+  TIP: divide ms by 3600000 to get hours, by 60000 to get minutes
 
 DATA PIN CONNECTION SLOTS (for workflow_connect_nodes):
 When connecting data pins, slot indices start AFTER the exec slots:
   shell: stdout=slot2, stderr=slot3, exitCode=slot4
   db: rows=slot2, rowCount=slot3, firstRow=slot4
   http: body=slot2, status=slot3, ok=slot4
-  file: content=slot2, exists=slot3
+  file: content=slot2, exists=slot3, files=slot4, count=slot5
   loop: item=slot2, index=slot3
   variable: value=slot1
   get_variable: value=slot0
   claude: output=slot2
   transform: result=slot2
   subworkflow: outputs=slot2
+  project: projects=slot2
+  time/get_today: today=slot2, week=slot3, month=slot4, projects=slot5
+  time/get_week: total=slot2, days=slot3
+  time/get_project: today=slot2, week=slot3, month=slot4, total=slot5, sessionCount=slot6
+  time/get_all_projects: projects=slot2, count=slot3
+  time/get_sessions: sessions=slot2, count=slot3, totalMs=slot4
 
 AVAILABLE VARIABLES IN PROPERTIES (legacy $var syntax, still works):
 $ctx.project — current project name

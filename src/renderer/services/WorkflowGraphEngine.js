@@ -230,9 +230,9 @@ const NODE_TYPES = {
     title: 'File', desc: 'Opération fichier',
     inputs: [{ name: 'In', type: 'exec' }],
     outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'file'),
-    props: { action: 'read', path: '', destination: '', content: '' },
+    props: { action: 'read', path: '', destination: '', content: '', pattern: '*', recursive: false },
     widgets: [
-      { type: 'combo', name: 'Action', key: 'action', values: ['read', 'write', 'append', 'copy', 'delete', 'exists'] },
+      { type: 'combo', name: 'Action', key: 'action', values: ['read', 'write', 'append', 'copy', 'delete', 'exists', 'move', 'list'] },
       { type: 'text', name: 'Path', key: 'path' },
     ],
     width: 220,
@@ -334,6 +334,18 @@ const NODE_TYPES = {
     ],
     width: 220,
     badge: (n) => n.properties.workflow ? n.properties.workflow.slice(0, 12).toUpperCase() : 'WORKFLOW',
+  },
+  'workflow/time': {
+    title: 'Time', desc: 'Consulter le time tracking',
+    inputs: [{ name: 'In', type: 'exec' }],
+    outputs: [{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], // rebuilt dynamically
+    props: { action: 'get_today', projectId: '' },
+    widgets: [
+      { type: 'combo', name: 'Action', key: 'action', values: ['get_today', 'get_week', 'get_project', 'get_all_projects', 'get_sessions'] },
+      { type: 'text', name: 'Project ID', key: 'projectId' },
+    ],
+    width: 220, dynamic: 'time',
+    badge: (n) => (n.properties.action || 'get_today').replace('get_', '').toUpperCase(),
   },
   'workflow/switch': {
     title: 'Switch', desc: 'Brancher sur plusieurs valeurs',
@@ -534,6 +546,10 @@ class WorkflowGraphEngine {
     if (def.dynamic === 'switch') {
       this._rebuildSwitchOutputs(node);
     }
+    // Handle Time dynamic outputs
+    if (def.dynamic === 'time') {
+      this._rebuildTimeOutputs(node);
+    }
 
     node.size[1] = computeNodeHeight(node);
     this._nodes.push(node);
@@ -555,6 +571,44 @@ class WorkflowGraphEngine {
     const cases = (node.properties.cases || '').split(',').map(c => c.trim()).filter(Boolean);
     for (const c of cases) node.outputs.push({ name: c, type: 'exec', links: [] });
     node.outputs.push({ name: 'default', type: 'exec', links: [] });
+    node.size[1] = computeNodeHeight(node);
+  }
+
+  _rebuildTimeOutputs(node) {
+    const action = node.properties.action || 'get_today';
+    const needsProjectInput = action === 'get_project' || action === 'get_sessions';
+
+    // ── Rebuild inputs ──────────────────────────────────────────────────────
+    // slot 0 = exec In (always), slot 1 = projectId (optional)
+    const hasProjectInput = node.inputs.length > 1 && node.inputs[1]?.name === 'projectId';
+    if (needsProjectInput && !hasProjectInput) {
+      // Add projectId input
+      node.inputs.push({ name: 'projectId', type: 'string', link: null });
+    } else if (!needsProjectInput && hasProjectInput) {
+      // Remove projectId input and its link
+      if (node.inputs[1].link != null) this._removeLink(node.inputs[1].link);
+      node.inputs.splice(1, 1);
+    }
+
+    // ── Rebuild outputs ─────────────────────────────────────────────────────
+    // Clear data output links (keep exec slots 0 and 1 intact)
+    for (let i = 2; i < node.outputs.length; i++) {
+      for (const lid of [...node.outputs[i].links]) this._removeLink(lid);
+    }
+    node.outputs = [
+      { name: 'Done', type: 'exec', links: [] },
+      { name: 'Error', type: 'exec', links: [] },
+    ];
+    const DATA_OUTPUTS = {
+      get_today:        [{ name: 'today',        type: 'number' }, { name: 'week',         type: 'number' }, { name: 'month',        type: 'number' }, { name: 'projects',     type: 'array'  }],
+      get_week:         [{ name: 'total',         type: 'number' }, { name: 'days',         type: 'array'  }],
+      get_project:      [{ name: 'today',         type: 'number' }, { name: 'week',         type: 'number' }, { name: 'month',        type: 'number' }, { name: 'total',        type: 'number' }, { name: 'sessionCount', type: 'number' }],
+      get_all_projects: [{ name: 'projects',      type: 'array'  }, { name: 'count',        type: 'number' }],
+      get_sessions:     [{ name: 'sessions',      type: 'array'  }, { name: 'count',        type: 'number' }, { name: 'totalMs',      type: 'number' }],
+    };
+    for (const out of (DATA_OUTPUTS[action] || [])) {
+      node.outputs.push({ name: out.name, type: out.type, links: [] });
+    }
     node.size[1] = computeNodeHeight(node);
   }
 
@@ -2420,6 +2474,9 @@ class WorkflowGraphEngine {
         if (node.type === 'workflow/variable' && widget.key === 'action') {
           this._rebuildVariablePins(node);
         }
+        if (node.type === 'workflow/time' && widget.key === 'action') {
+          this._rebuildTimeOutputs(node);
+        }
         this._markDirty();
         this._notifyChanged();
         this.pushSnapshot();
@@ -2473,6 +2530,9 @@ class WorkflowGraphEngine {
         }
         if (node.type === 'workflow/variable' && widget.key === 'action') {
           this._rebuildVariablePins(node);
+        }
+        if (node.type === 'workflow/time' && widget.key === 'action') {
+          this._rebuildTimeOutputs(node);
         }
         dropdown.remove();
         this._markDirty();
@@ -2530,6 +2590,7 @@ class WorkflowGraphEngine {
         node.widgets[i].value = sn.widgets_values[i];
       }
       if (node.type === 'workflow/switch') this._rebuildSwitchOutputs(node);
+      if (node.type === 'workflow/time') this._rebuildTimeOutputs(node);
       idMap.set(sn.id, node.id);
       newNodes.push(node);
     }
@@ -3054,8 +3115,11 @@ class WorkflowGraphEngine {
       },
       deselectAllNodes() { engine._deselectAll(); },
       setDirty() { engine._markDirty(); },
+      setDirtyCanvas() { engine._markDirty(); },
       resize(w, h) { engine.resize(w, h); },
       get node_dragged() { return engine._dragging?.type === 'node'; },
+      _rebuildSwitchOutputs(node) { engine._rebuildSwitchOutputs(node); },
+      _rebuildTimeOutputs(node) { engine._rebuildTimeOutputs(node); },
     };
   }
 }

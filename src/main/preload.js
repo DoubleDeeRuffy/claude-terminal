@@ -424,6 +424,11 @@ contextBridge.exposeInMainWorld('electron_api', {
     setCredential:   (params)  => ipcRenderer.invoke('database-set-credential', params),
   },
 
+  // ==================== TIME TRACKING ====================
+  time: {
+    getStats: (config) => ipcRenderer.invoke('time:get-stats', config),
+  },
+
   // ==================== WORKFLOW AUTOMATION ====================
   workflow: {
     // CRUD

@@ -165,6 +165,7 @@ const STEP_TYPES = [
   { type: 'project',   label: 'Project',   color: 'pink',     icon: svgProject(),    desc: 'Cibler un projet',        category: 'data' },
   { type: 'file',      label: 'File',      color: 'lime',     icon: svgFile(),       desc: 'Opération fichier',       category: 'data' },
   { type: 'db',        label: 'Database',  color: 'orange',   icon: svgDb(),         desc: 'Requête base de données', category: 'data' },
+  { type: 'time',      label: 'Time',      color: 'teal',     icon: svgClock(),      desc: 'Time tracking',           category: 'data' },
   { type: 'transform',    label: 'Transform',    color: 'teal',    icon: svgTransform(),    desc: 'Transformer des données',     category: 'data' },
   { type: 'variable',    label: 'Variable',     color: 'purple',  icon: svgVariable(),    desc: 'Get/Set une variable',        category: 'data' },
   { type: 'condition',   label: 'Condition',    color: 'success', icon: svgCond(),         desc: 'Branchement conditionnel',    category: 'flow' },

@@ -327,6 +327,44 @@ function assertPathWithinProject(filePath, vars) {
   }
 }
 
+/**
+ * Expand a glob pattern in a base directory and return matching file paths.
+ * Handles simple wildcards (* and **) without requiring a glob library.
+ * Falls back to regex matching if 'glob' npm package is unavailable.
+ */
+function expandGlob(pattern, baseDir) {
+  // Build a regex from the glob pattern
+  const toRegex = (pat) => {
+    // Escape special regex chars except * and ?
+    let reStr = pat
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*/g, '\x00DOUBLESTAR\x00')
+      .replace(/\*/g, '[^/\\\\]*')
+      .replace(/\x00DOUBLESTAR\x00/g, '.*')
+      .replace(/\?/g, '[^/\\\\]');
+    return new RegExp('^' + reStr + '$', process.platform === 'win32' ? 'i' : '');
+  };
+
+  const re = toRegex(pattern);
+  const results = [];
+
+  const walk = (dir, rel) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const relPath = rel ? rel + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), relPath);
+      } else {
+        if (re.test(relPath)) results.push(relPath);
+      }
+    }
+  };
+
+  walk(baseDir, '');
+  return results;
+}
+
 async function runFileStep(config, vars) {
   const action  = config.action || 'read';
   const p       = resolveVars(config.path || '', vars);
@@ -334,7 +372,7 @@ async function runFileStep(config, vars) {
   const content = resolveVars(config.content || '', vars);
 
   // Validate paths stay within the project directory
-  if (p) assertPathWithinProject(p, vars);
+  if (p && action !== 'list') assertPathWithinProject(p, vars);
   if (dest) assertPathWithinProject(dest, vars);
 
   switch (action) {
@@ -355,7 +393,48 @@ async function runFileStep(config, vars) {
       fs.rmSync(p, { force: true, recursive: true });
       return { success: true };
     case 'exists':
-      return { exists: fs.existsSync(p) };
+      return { exists: fs.existsSync(p), path: p };
+    case 'move':
+    case 'rename': {
+      if (!dest) throw new Error('File move/rename requires a destination path');
+      assertPathWithinProject(p, vars);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.renameSync(p, dest);
+      return { success: true, from: p, to: dest };
+    }
+    case 'list': {
+      // p is used as the base directory; config.pattern is the glob pattern
+      const baseDir = p || (() => { const ctx = vars.get('ctx') || {}; return ctx.project || process.cwd(); })();
+      if (baseDir) assertPathWithinProject(baseDir, vars);
+      const pattern = resolveVars(config.pattern || '*', vars);
+      const recursive = config.recursive === true || config.recursive === 'true';
+
+      let files;
+      // Simple non-recursive listing (no wildcards crossing directories)
+      if (!recursive && !pattern.includes('**') && !pattern.includes('/')) {
+        let entries;
+        try { entries = fs.readdirSync(baseDir, { withFileTypes: true }); } catch { entries = []; }
+        const re = new RegExp(
+          '^' + pattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '[^/\\\\]*')
+            .replace(/\?/g, '[^/\\\\]') + '$',
+          process.platform === 'win32' ? 'i' : ''
+        );
+        const type = config.type || 'files'; // 'files' | 'dirs' | 'all'
+        files = entries
+          .filter(e => {
+            if (type === 'files' && !e.isFile()) return false;
+            if (type === 'dirs'  && !e.isDirectory()) return false;
+            return re.test(e.name);
+          })
+          .map(e => e.name);
+      } else {
+        files = expandGlob(pattern, baseDir);
+      }
+
+      return { files, count: files.length, dir: baseDir };
+    }
     default:
       throw new Error(`Unknown file action: ${action}`);
   }
@@ -715,6 +794,26 @@ async function runNotifyStep(config, vars, sendFn) {
 
   await Promise.allSettled(tasks);
   return { sent: true, message };
+}
+
+// ─── Time tracking step ──────────────────────────────────────────────────────
+
+/**
+ * Query time tracking data by reading ~/.claude-terminal/timetracking.json directly.
+ * Uses the shared getTimeStats() from time.ipc — no IPC round-trip needed.
+ * @param {Object} config  { action, projectId?, startDate?, endDate? }
+ * @param {Map}    vars
+ */
+function runTimeStep(config, vars) {
+  const { getTimeStats } = require('../ipc/time.ipc');
+  const result = getTimeStats({
+    action:    config.action    || 'get_today',
+    projectId: resolveVars(config.projectId || '', vars) || undefined,
+    startDate: resolveVars(config.startDate || '', vars) || undefined,
+    endDate:   resolveVars(config.endDate   || '', vars) || undefined,
+  });
+  if (result?.error) throw new Error(result.error);
+  return result;
 }
 
 // ─── Transform step ───────────────────────────────────────────────────────────
@@ -1686,6 +1785,10 @@ class WorkflowRunner {
 
     if (type === 'switch') {
       return runSwitchStep(step, vars);
+    }
+
+    if (type === 'time') {
+      return runTimeStep(step, vars);
     }
 
     if (type === 'get_variable') {

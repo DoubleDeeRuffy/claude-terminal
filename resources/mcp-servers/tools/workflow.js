@@ -417,6 +417,21 @@ function getNodeSlots(type) {
           outSlot('Error',   EXEC,      1),
           outSlot('content', 'string',  2),
           outSlot('exists',  'boolean', 3),
+          outSlot('files',   'array',   4),
+          outSlot('count',   'number',  5),
+        ],
+      };
+
+    case 'workflow/time':
+      return {
+        inputs: execIn(),
+        outputs: [
+          outSlot('Done',     EXEC,     0),
+          outSlot('Error',    EXEC,     1),
+          outSlot('today',    'number', 2),
+          outSlot('week',     'number', 3),
+          outSlot('month',    'number', 4),
+          outSlot('projects', 'array',  5),
         ],
       };
 
@@ -575,7 +590,7 @@ const tools = [
   },
   {
     name: 'workflow_add_node',
-    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch, workflow/project. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. workflow/project with action "list" returns all Claude Terminal projects as an array — connect its Projects output (slot 2) to a Loop node Items input (slot 1) to iterate over projects. Loop node: slot 0 output = Each (body of the loop, connects to first child node), slot 1 output = Done (continues after loop ends). Child nodes inside a loop body are NOT shown as top-level steps in run history — only the loop step itself appears, with an iteration badge. For claude/shell/git nodes, set projectId="__custom__" and cwd="<path>" to use a custom working directory (supports variable interpolation like $item.path). Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
+    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch, workflow/project, workflow/time. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. workflow/project with action "list" returns all Claude Terminal projects as an array — connect its Projects output (slot 2) to a Loop node Items input (slot 1) to iterate over projects. Loop node: slot 0 output = Each (body of the loop, connects to first child node), slot 1 output = Done (continues after loop ends). Child nodes inside a loop body are NOT shown as top-level steps in run history — only the loop step itself appears, with an iteration badge. For claude/shell/git nodes, set projectId="__custom__" and cwd="<path>" to use a custom working directory (supports variable interpolation like $item.path). workflow/file actions: read (content→slot2), write, append, copy, delete, exists (exists→slot3), move/rename (use destination property for new path), list (glob→slot4 files array, slot5 count — use properties: { path: "./src", pattern: "**/*.js", recursive: true, type: "files|dirs|all" }). list output files array is ideal to connect to a Loop node to process each file. workflow/time reads Claude Terminal time tracking data — actions: get_today (today=slot2/week=slot3/month=slot4 ms + projects=slot5 array), get_week (total=slot2 ms + days=slot3 array [{date,dayOfWeek,ms,formatted}]), get_project (today=slot2/week=slot3/month=slot4/total=slot5 ms + sessionCount=slot6 — set projectId property OR connect a string data pin to its projectId input slot1), get_all_projects (projects=slot2 array sorted by today desc + count=slot3 — connect projects to Loop Items slot1), get_sessions (sessions=slot2 array + count=slot3 + totalMs=slot4, filterable via startDate/endDate properties, optional projectId input pin slot1). Divide ms by 3600000 for hours. Pattern: get_all_projects→Loop→get_project builds per-project reports. Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
     inputSchema: {
       type: 'object',
       properties: {

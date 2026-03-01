@@ -26,6 +26,7 @@ const NODE_COLORS = {
   transform:    { bg: '#101012', border: '#1c1c20', accent: '#2dd4bf', accentDim: 'rgba(45,212,191,.06)' },
   subworkflow:  { bg: '#101012', border: '#1c1c20', accent: '#818cf8', accentDim: 'rgba(129,140,248,.06)' },
   switch:       { bg: '#101012', border: '#1c1c20', accent: '#f87171', accentDim: 'rgba(248,113,113,.06)' },
+  time:         { bg: '#101012', border: '#1c1c20', accent: '#34d399', accentDim: 'rgba(52,211,153,.06)' },
 };
 
 // ── Pin type system ──────────────────────────────────────────────────────────
@@ -66,7 +67,9 @@ const NODE_DATA_OUTPUTS = {
                  { name: 'rowCount', type: 'number',  key: 'rowCount' },
                  { name: 'firstRow', type: 'object',  key: 'firstRow' }],
   file:         [{ name: 'content',  type: 'string',  key: 'content' },
-                 { name: 'exists',   type: 'boolean', key: 'exists' }],
+                 { name: 'exists',   type: 'boolean', key: 'exists' },
+                 { name: 'files',    type: 'array',   key: 'files' },
+                 { name: 'count',    type: 'number',  key: 'count' }],
   variable:     [{ name: 'value',    type: 'any',     key: 'value' }],
   get_variable: [{ name: 'value',    type: 'any',     key: 'value' }],
   transform:    [{ name: 'result',   type: 'any',     key: 'result' }],
@@ -74,6 +77,10 @@ const NODE_DATA_OUTPUTS = {
   loop:         [{ name: 'item',     type: 'any',     key: 'item' },
                  { name: 'index',    type: 'number',  key: 'index' }],
   project:      [{ name: 'projects', type: 'array',   key: 'projects' }],
+  time:         [{ name: 'today',    type: 'number',  key: 'today' },
+                 { name: 'week',     type: 'number',  key: 'week' },
+                 { name: 'month',    type: 'number',  key: 'month' },
+                 { name: 'projects', type: 'array',   key: 'projects' }],
 };
 
 // node type → slot index of first data output (after exec slots)
@@ -81,7 +88,7 @@ const NODE_DATA_OUT_OFFSET = {
   trigger: 1, claude: 2, shell: 2, git: 2, http: 2, db: 2, file: 2,
   notify: 1, wait: 1, log: 1, condition: 2, loop: 2, project: 2,
   variable: 1, transform: 2, subworkflow: 2, switch: 0,
-  get_variable: 0,
+  get_variable: 0, time: 2,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
