@@ -96,3 +96,13 @@ Plans:
 - [x] Plan 31B: Pane-aware activation and filtering
 - [ ] Plan 31C: Split triggers, drag-to-split, and pane collapse
 - [ ] Plan 31D: Pane layout persistence and restore
+
+### Phase 32: Close-Warnings
+
+**Goal:** Warn the user before closing the app if any Claude instance is actively working (not idle) in any project, showing which project and tab name is still active.
+**Requirements**: [CLOSE-01] Intercept app close and check Claude activity status; [CLOSE-02] Show confirmation dialog listing affected project(s) and tab name(s); [CLOSE-03] Allow proceed or cancel; [CLOSE-04] Skip dialog if no active work.
+**Depends on:** —
+**Plans:** 1 plan
+
+Plans:
+- [ ] Plan 32A: Close warning dialog when Claude is actively working
