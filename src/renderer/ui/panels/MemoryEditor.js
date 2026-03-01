@@ -212,12 +212,6 @@ function initMemorySidebarResizer() {
     document.addEventListener('mouseup', onMouseUp);
   });
 
-  // Restore saved width
-  const { getSetting } = require('../../state/settings.state');
-  const savedWidth = getSetting('memorySidebarWidth');
-  if (savedWidth) {
-    panel.style.width = savedWidth + 'px';
-  }
 }
 
 function renderMemorySources(filter = '') {

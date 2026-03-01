@@ -169,10 +169,10 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
       if (btnToggle) btnToggle.style.display = 'none';
     }
   }
-  const savedExplorerWidth = settingsState.get().fileExplorerWidth;
-  if (savedExplorerWidth) {
-    const explorerPanel = document.getElementById('file-explorer-panel');
-    if (explorerPanel) explorerPanel.style.width = savedExplorerWidth + 'px';
+  const savedMemoryWidth = settingsState.get().memorySidebarWidth;
+  if (savedMemoryWidth) {
+    const memorySidebar = document.querySelector('.memory-sidebar');
+    if (memorySidebar) memorySidebar.style.width = savedMemoryWidth + 'px';
   }
 
   // Apply body classes for settings that affect global CSS
