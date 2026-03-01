@@ -1012,6 +1012,22 @@ class WorkflowRunner {
     this._waitCallbacks     = waitCallbacks;
     this._projectTypeRegistry = projectTypeRegistry;
     this._databaseService   = databaseService;
+    this._workflowService   = workflowService;
+
+    // Load the node registry once at construction time
+    this._nodeRegistry = require('../workflow-nodes/_registry');
+    this._nodeRegistry.loadRegistry();
+  }
+
+  /**
+   * Build the config object passed to a registry node's run() method.
+   * Returns a shallow copy of the step's own properties (the node may call
+   * resolveVars() itself if it needs variable interpolation).
+   * @param {Object} step
+   * @returns {Object}
+   */
+  _resolveStepConfig(step) {
+    return { ...(step.properties || {}), ...step };
   }
 
   /**
@@ -1705,12 +1721,33 @@ class WorkflowRunner {
 
   /**
    * Dispatch to the correct step handler.
+   * Consults the node registry first; falls back to the legacy inline handlers
+   * if the registry has no entry or the entry has no run() method.
    * @private
    */
   async _dispatchStep(step, vars, runId, signal, workflow) {
     const type = step.type || '';
 
-    // ── Built-in universal steps ──────────────────────────────────────────────
+    // ── Registry-based dispatch (Task 9) ─────────────────────────────────────
+    // Node files store their type as 'workflow/<name>'; the step arrives here
+    // with the prefix already stripped (done in _executeGraph / _runSteps).
+    const fullType = `workflow/${type}`;
+    const nodeDef  = this._nodeRegistry.get(fullType);
+
+    if (nodeDef && typeof nodeDef.run === 'function') {
+      const config = this._resolveStepConfig(step);
+      const ctx = {
+        chatService:     this._chatService,
+        workflowService: this._workflowService,
+        databaseService: this._databaseService,
+        sendFn:          (channel, data) => this._send(channel, data),
+        waitCallbacks:   this._waitCallbacks,
+        runId,
+      };
+      return nodeDef.run(config, vars, signal, ctx);
+    }
+
+    // ── Built-in universal steps (legacy fallback) ────────────────────────────
 
     if (type === 'agent' || type === 'claude') {
       return runAgentStep(step, vars, signal, this._chatService, (msg) => {
