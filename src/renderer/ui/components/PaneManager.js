@@ -300,6 +300,10 @@ function getPaneCount() {
   return paneOrder.length;
 }
 
+function getActivePaneIndex() {
+  return paneOrder.indexOf(activePaneId);
+}
+
 // ─── Drop overlay management ───
 
 /**
@@ -458,4 +462,5 @@ module.exports = {
   clearDragTabId,
   setOnTabMoved,
   hideAllDropOverlays,
+  getActivePaneIndex,
 };

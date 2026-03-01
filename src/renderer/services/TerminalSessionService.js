@@ -131,6 +131,54 @@ function saveTerminalSessionsImmediate() {
       }
     }
 
+    // Add pane layout information per project (multi-pane only)
+    if (paneOrder.length > 1) {
+      for (const [projectId, session] of Object.entries(projectSessions)) {
+        const paneDataArr = [];
+        let globalTabIdx = 0;
+
+        for (const pId of paneOrder) {
+          const tabsEl = PaneManager.getTabsContainer(pId);
+          if (!tabsEl) continue;
+
+          const paneTabIndices = [];
+          let paneActiveTabIndex = null;
+          const paneActiveTab = PaneManager.getPaneActiveTab(pId);
+
+          tabsEl.querySelectorAll('.terminal-tab').forEach(tabEl => {
+            const termId = tabEl.dataset.id;
+            const td = terminals.get(termId) || terminals.get(Number(termId));
+            if (!td || td.project?.id !== projectId) return;
+
+            // NOTE: Do NOT skip tabs with display:none — those are just filter-hidden
+            // and must still be saved. Skipping them would cause data loss on restore.
+
+            paneTabIndices.push(globalTabIdx);
+            if (String(termId) === String(paneActiveTab)) {
+              paneActiveTabIndex = paneTabIndices.length - 1;
+            }
+            globalTabIdx++;
+          });
+
+          if (paneTabIndices.length > 0) {
+            paneDataArr.push({
+              tabIndices: paneTabIndices,
+              activeTabIndex: paneActiveTabIndex ?? 0
+            });
+          }
+        }
+
+        if (paneDataArr.length > 1) {
+          session.paneLayout = {
+            count: paneDataArr.length,
+            activePane: PaneManager.getActivePaneIndex(),
+            panes: paneDataArr
+          };
+        }
+        // If only 1 pane has tabs for this project, omit paneLayout (backward compat)
+      }
+    }
+
     // Merge existing explorer state from disk (preserve state for projects not currently active)
     const existingData = loadSessionData();
     for (const [pid, existing] of Object.entries((existingData && existingData.projects) || {})) {
@@ -162,7 +210,7 @@ function saveTerminalSessionsImmediate() {
     const lastOpenedProjectId = currentProject ? currentProject.id : null;
 
     const sessionData = {
-      version: 1,
+      version: 2,
       savedAt: new Date().toISOString(),
       lastOpenedProjectId,
       projects: projectSessions,
