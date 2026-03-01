@@ -505,51 +505,63 @@ function renderWorkflowList(el) {
     const bRun = state.runs.find(r => r.workflowId === b.id);
     return (bRun?.startedAt || 0) - (aRun?.startedAt || 0);
   });
-  el.innerHTML = `<div class="wf-list">${sorted.map(wf => cardHtml(wf)).join('')}</div>`;
+  const listDiv = document.createElement('div');
+  listDiv.className = 'wf-list';
+  listDiv.innerHTML = sorted.map(wf => cardHtml(wf)).join('');
+  el.replaceChildren(listDiv);
 
-  el.querySelectorAll('.wf-card').forEach(card => {
+  // Single delegated click handler for the whole list
+  listDiv.addEventListener('click', async (e) => {
+    const card = e.target.closest('.wf-card[data-id]');
+    if (!card) return;
     const id = card.dataset.id;
-    card.querySelector('.wf-card-body').addEventListener('click', (e) => {
-      // Don't trigger detail when clicking interactive elements
-      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-stop') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle') || e.target.closest('.wf-card-fav')) return;
-      openDetail(id);
-    });
 
-    // Favorite toggle
-    card.querySelector('.wf-card-fav')?.addEventListener('click', async (e) => {
+    if (e.target.closest('.wf-card-fav')) {
       e.stopPropagation();
       const wf = state.workflows.find(w => w.id === id);
       if (!wf) return;
       wf.favorite = !wf.favorite;
       await api?.save({ ...wf });
       renderContent();
-    });
-    card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
-    card.querySelector('.wf-card-stop')?.addEventListener('click', e => { e.stopPropagation(); const runId = e.currentTarget.dataset.runId; if (runId) api?.cancel(runId); });
-    card.querySelector('.wf-card-edit')?.addEventListener('click', e => { e.stopPropagation(); openEditor(id); });
-    const toggle = card.querySelector('.wf-card-toggle');
-    if (toggle) {
-      toggle.addEventListener('change', e => { e.stopPropagation(); toggleWorkflow(id, e.target.checked); });
-      toggle.closest('.wf-switch')?.addEventListener('click', e => e.stopPropagation());
+      return;
     }
-
-    // Right-click context menu
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
+    if (e.target.closest('.wf-card-run')) { e.stopPropagation(); triggerWorkflow(id); return; }
+    if (e.target.closest('.wf-card-stop')) {
       e.stopPropagation();
-      const wf = state.workflows.find(w => w.id === id);
-      if (!wf) return;
-      showContextMenu({
-        x: e.clientX,
-        y: e.clientY,
-        items: [
-          { label: 'Modifier', icon: svgEdit(), onClick: () => openEditor(id) },
-          { label: 'Lancer maintenant', icon: svgPlay(12), onClick: () => triggerWorkflow(id) },
-          { label: 'Dupliquer', icon: svgCopy(), onClick: () => duplicateWorkflow(id) },
-          { separator: true },
-          { label: 'Supprimer', icon: svgTrash(), danger: true, onClick: () => confirmDeleteWorkflow(id, wf.name) },
-        ],
-      });
+      const runId = e.target.closest('.wf-card-stop').dataset.runId;
+      if (runId) api?.cancel(runId);
+      return;
+    }
+    if (e.target.closest('.wf-card-edit')) { e.stopPropagation(); openEditor(id); return; }
+    if (e.target.closest('.wf-switch')) { e.stopPropagation(); return; }
+    openDetail(id);
+  });
+
+  listDiv.addEventListener('change', (e) => {
+    const toggle = e.target.closest('.wf-card-toggle');
+    if (!toggle) return;
+    e.stopPropagation();
+    const id = toggle.closest('.wf-card[data-id]')?.dataset.id;
+    if (id) toggleWorkflow(id, toggle.checked);
+  });
+
+  listDiv.addEventListener('contextmenu', (e) => {
+    const card = e.target.closest('.wf-card[data-id]');
+    if (!card) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = card.dataset.id;
+    const wf = state.workflows.find(w => w.id === id);
+    if (!wf) return;
+    showContextMenu({
+      x: e.clientX, y: e.clientY,
+      items: [
+        { label: 'Modifier', icon: svgEdit(), onClick: () => openEditor(id) },
+        { label: 'Lancer maintenant', icon: svgPlay(12), onClick: () => triggerWorkflow(id) },
+        { label: 'Dupliquer', icon: svgCopy(), onClick: () => duplicateWorkflow(id) },
+        { separator: true },
+        { label: 'Supprimer', icon: svgTrash(), danger: true, onClick: () => confirmDeleteWorkflow(id, wf.name) },
+      ],
     });
   });
 }
@@ -768,25 +780,23 @@ function renderRunHistory(el) {
     }
   }
 
-  // Click on run card → show detail in right column
-  el.querySelectorAll('.wf-run-card[data-run-id]').forEach(card => {
-    card.addEventListener('click', () => {
+  // Single delegated listener for run cards and stop buttons
+  const scrollEl = el.querySelector('.wf-runs-list-scroll');
+  if (scrollEl) {
+    scrollEl.addEventListener('click', async (e) => {
+      const stopBtn = e.target.closest('.wf-run-stop-btn[data-run-id]');
+      if (stopBtn) { e.stopPropagation(); await api?.cancel(stopBtn.dataset.runId); return; }
+
+      const card = e.target.closest('.wf-run-card[data-run-id]');
+      if (!card) return;
       const run = state.runs.find(r => r.id === card.dataset.runId);
       if (!run) return;
-      el.querySelectorAll('.wf-run-card').forEach(c => c.classList.remove('wf-run-card--selected'));
+      scrollEl.querySelectorAll('.wf-run-card').forEach(c => c.classList.remove('wf-run-card--selected'));
       card.classList.add('wf-run-card--selected');
       const detailCol = el.querySelector('#wf-detail-col');
       if (detailCol) renderRunDetailInCol(detailCol, run);
     });
-  });
-
-  // Stop buttons in run cards
-  el.querySelectorAll('.wf-run-stop-btn[data-run-id]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await api?.cancel(btn.dataset.runId);
-    });
-  });
+  }
 
   // Clear all runs
   el.querySelector('#wf-clear-runs')?.addEventListener('click', async (e) => {
