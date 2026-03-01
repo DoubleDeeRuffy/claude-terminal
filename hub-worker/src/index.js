@@ -74,16 +74,18 @@ export default {
 
 async function listWorkflows(request, env) {
   const url = new URL(request.url);
-  const tab   = url.searchParams.get('tab') || 'featured';
-  const query = (url.searchParams.get('q') || '').toLowerCase().trim();
-  const page  = Math.max(0, parseInt(url.searchParams.get('page') || '0', 10));
+  const tab      = url.searchParams.get('tab') || 'browse';
+  const query    = (url.searchParams.get('q') || '').toLowerCase().trim();
+  const page     = Math.max(0, parseInt(url.searchParams.get('page') || '0', 10));
+  const authorId = url.searchParams.get('authorId') || '';
 
   // Load index (cached array of summaries)
   let all = await getIndex(env);
 
-  // Filter by tab
-  if (tab === 'featured') {
-    all = all.filter(w => w.verified);
+  // Filter by authorId (Mes publications)
+  if (authorId) {
+    all = all.filter(w => w.authorId === authorId);
+    return json({ items: all, total: all.length, page: 0, pageSize: all.length });
   }
 
   // Filter by search query
@@ -95,11 +97,8 @@ async function listWorkflows(request, env) {
     );
   }
 
-  // Sort: verified first, then by imports desc
-  all.sort((a, b) => {
-    if (a.verified !== b.verified) return a.verified ? -1 : 1;
-    return (b.imports || 0) - (a.imports || 0);
-  });
+  // Sort: by imports desc (default)
+  all.sort((a, b) => (b.imports || 0) - (a.imports || 0));
 
   // Paginate
   const total = all.length;
@@ -134,6 +133,7 @@ async function submitWorkflow(request, env) {
   const name = (body.name || '').trim();
   const description = (body.description || '').trim();
   const author = (body.author || 'anonyme').trim().slice(0, 50);
+  const authorId = (body.authorId || '').trim().slice(0, 64); // UUID from client
   const tags = (body.tags || []).slice(0, 5).map(t => String(t).trim().toLowerCase()).filter(Boolean);
   const workflowJson = body.workflowJson || null;
 
@@ -150,6 +150,7 @@ async function submitWorkflow(request, env) {
     name,
     description,
     author,
+    authorId,
     tags,
     workflowJson,
     verified: false,
@@ -225,6 +226,7 @@ async function getIndex(env) {
       name:        wf.name,
       description: wf.description,
       author:      wf.author,
+      authorId:    wf.authorId || '',
       tags:        wf.tags,
       verified:    wf.verified,
       imports:     wf.imports,
