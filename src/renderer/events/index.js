@@ -158,7 +158,6 @@ function resolveTerminalId(projectId) {
  * Find the most recently created Claude terminal for a project.
  * Uses latest-terminal-ID heuristic (IDs are monotonically incrementing integers).
  * When a project has only one Claude terminal, this is unambiguous.
- * TODO: improve correlation for multi-terminal same-project edge case
  * @param {string} projectId
  * @returns {number|null} terminal ID or null
  */
@@ -175,6 +174,50 @@ function findClaudeTerminalForProject(projectId) {
       if (id > bestNumericId) { bestNumericId = id; bestId = id; }
     }
     return bestId;
+  } catch (e) { return null; }
+}
+
+/**
+ * Find the correct terminal to assign a session ID to.
+ * Uses a multi-step correlation strategy to avoid cross-tab contamination
+ * when multiple Claude terminals exist for the same project (e.g. split-view).
+ *
+ * Priority:
+ * 1. Terminal that was resumed with this exact session ID (already has it set)
+ * 2. Terminal that has no claudeSessionId yet (fresh session awaiting capture)
+ * 3. lastActiveClaudeTab fallback (single-terminal case)
+ *
+ * @param {string} projectId
+ * @param {string} sessionId - The session ID from the hook event
+ * @returns {number|null} terminal ID or null
+ */
+function findTerminalForSessionId(projectId, sessionId) {
+  try {
+    const { terminalsState } = require('../state/terminals.state');
+    const terminals = terminalsState.get().terminals;
+
+    let uncapturedTerminalId = null;
+    let projectTerminalCount = 0;
+
+    for (const [id, td] of terminals) {
+      if (td.project?.id !== projectId) continue;
+      if (td.mode !== 'terminal' || td.isBasic) continue;
+      projectTerminalCount++;
+
+      // Priority 1: terminal already has this session ID (resume case)
+      if (td.claudeSessionId === sessionId) return id;
+
+      // Track the most recent terminal that has no session ID yet
+      if (!td.claudeSessionId && (uncapturedTerminalId === null || id > uncapturedTerminalId)) {
+        uncapturedTerminalId = id;
+      }
+    }
+
+    // Priority 2: assign to terminal awaiting capture (only if multiple terminals exist)
+    if (uncapturedTerminalId !== null && projectTerminalCount > 1) return uncapturedTerminalId;
+
+    // Priority 3: single terminal or fallback to last-active
+    return lastActiveClaudeTab.get(projectId) ?? findClaudeTerminalForProject(projectId);
   } catch (e) { return null; }
 }
 
@@ -254,6 +297,20 @@ function wireAttentionConsumer() {
   );
 }
 
+/**
+ * Resolve the terminal ID for a hooks event, using session_id for precise
+ * multi-tab routing when available. Falls back to lastActiveClaudeTab then
+ * findClaudeTerminalForProject (highest ID heuristic).
+ */
+function resolveTerminalIdForEvent(e) {
+  const sessionId = e.data?.sessionId;
+  if (sessionId && e.projectId) {
+    const match = findTerminalForSessionId(e.projectId, sessionId);
+    if (match != null) return match;
+  }
+  return lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+}
+
 // ── Consumer: Terminal Tab Status (hooks-only — forces tab status from hook events) ──
 // When hooks are active, the scraping-based status detection may be slow (debounce).
 // This consumer provides instant tab status updates from hooks.
@@ -262,7 +319,7 @@ function wireTerminalStatusConsumer() {
     // Claude working → set tab to 'working'
     eventBus.on(EVENT_TYPES.CLAUDE_WORKING, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+      const terminalId = resolveTerminalIdForEvent(e);
       if (!terminalId) return;
       try {
         const TerminalManager = require('../ui/components/TerminalManager');
@@ -273,7 +330,7 @@ function wireTerminalStatusConsumer() {
     // Session end (Stop/SessionEnd) → set tab to 'ready'
     eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+      const terminalId = resolveTerminalIdForEvent(e);
       if (!terminalId) return;
       try {
         const TerminalManager = require('../ui/components/TerminalManager');
@@ -318,7 +375,7 @@ function wireTabRenameConsumer() {
       if (!prompt || !prompt.trimStart().startsWith('/')) return;
       const { getSetting } = require('../state/settings.state');
       if (!getSetting('tabRenameOnSlashCommand')) return;
-      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+      const terminalId = resolveTerminalIdForEvent(e);
       if (!terminalId) return;
       const name = prompt.length > MAX_TAB_NAME_LEN
         ? prompt.slice(0, MAX_TAB_NAME_LEN - 1) + '\u2026'
@@ -374,13 +431,19 @@ function wireSessionIdCapture() {
       if (e.source !== 'hooks') return;
       if (!e.data?.sessionId) return;
       if (!e.projectId) return;
-      const terminalId = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+      const terminalId = findTerminalForSessionId(e.projectId, e.data.sessionId);
       if (!terminalId) return;
-      const { updateTerminal } = require('../state/terminals.state');
+      const { terminalsState, updateTerminal } = require('../state/terminals.state');
+      const td = terminalsState.get().terminals.get(terminalId) || terminalsState.get().terminals.get(Number(terminalId));
+      // Skip if this terminal already has a different session ID (don't overwrite)
+      if (td && td.claudeSessionId && td.claudeSessionId !== e.data.sessionId) {
+        console.debug(`[Events] Skipped session ID ${e.data.sessionId.slice(0, 8)} — terminal ${terminalId} already has ${td.claudeSessionId.slice(0, 8)}`);
+        return;
+      }
       updateTerminal(terminalId, { claudeSessionId: e.data.sessionId });
       const TerminalSessionService = require('../services/TerminalSessionService');
       TerminalSessionService.saveTerminalSessionsImmediate();
-      console.debug(`[Events] Captured session ID ${e.data.sessionId} for terminal ${terminalId} (last-active)`);
+      console.debug(`[Events] Captured session ID ${e.data.sessionId.slice(0, 8)} for terminal ${terminalId}`);
     })
   );
 }

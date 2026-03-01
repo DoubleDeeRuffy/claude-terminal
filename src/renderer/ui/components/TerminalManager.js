@@ -1032,7 +1032,29 @@ function setupTabDragDrop(tab) {
       const sourcePane = PaneManager.getPanes().get(sourcePaneId);
       const targetPane = PaneManager.getPanes().get(targetPaneId);
 
-      if (sourcePane) sourcePane.tabs.delete(draggedId);
+      if (sourcePane) {
+        sourcePane.tabs.delete(draggedId);
+        // Update source pane's active tab if the moved tab was active
+        if (sourcePane.activeTab === draggedId) {
+          const remaining = Array.from(sourcePane.tabs);
+          const visibleRemaining = remaining.filter(tid => {
+            const tabEl = sourcePane.tabsEl.querySelector(`.terminal-tab[data-id="${tid}"]`);
+            return tabEl && tabEl.style.display !== 'none';
+          });
+          sourcePane.activeTab = visibleRemaining.length > 0 ? visibleRemaining[0]
+            : remaining.length > 0 ? remaining[0] : null;
+
+          // Update source pane's DOM to reflect the new active tab
+          if (sourcePane.activeTab) {
+            sourcePane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
+              t.classList.toggle('active', t.dataset.id === sourcePane.activeTab));
+            sourcePane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
+              w.classList.toggle('active', w.dataset.id === sourcePane.activeTab);
+              w.style.removeProperty('display');
+            });
+          }
+        }
+      }
       if (targetPane) targetPane.tabs.add(draggedId);
 
       // Activate the moved tab
@@ -2971,10 +2993,11 @@ function buildSessionCardHtml(s, index) {
   const pinTitle = s.pinned ? (t('sessions.unpin') || 'Unpin') : (t('sessions.pin') || 'Pin');
   const renameTitle = t('sessions.rename') || 'Rename';
 
+  const devIdPrefix = api.lifecycle.isDev ? `${s.sessionId.slice(0, 8)} ` : '';
   return `<div class="session-card${freshClass}${pinnedClass}${renamedClass}${animClass}" data-sid="${s.sessionId}" style="--ci:${index < MAX_ANIMATED ? index : 0}">
 <div class="session-card-icon${skillClass}"><svg width="16" height="16"><use href="#${iconId}"/></svg></div>
 <div class="session-card-body">
-<span class="session-card-title${titleSkillClass}">${escapeHtml(truncateText(s.displayTitle, 80))}</span>
+<span class="session-card-title${titleSkillClass}">${devIdPrefix ? `<span class="session-card-devid">${devIdPrefix}</span>` : ''}${escapeHtml(truncateText(s.displayTitle, 80))}</span>
 ${s.displaySubtitle ? `<span class="session-card-subtitle">${escapeHtml(truncateText(s.displaySubtitle, 120))}</span>` : ''}
 </div>
 <div class="session-card-meta">
