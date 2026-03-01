@@ -462,7 +462,7 @@ const tools = [
   },
   {
     name: 'workflow_runs',
-    description: 'Get run history for a workflow (or all workflows). Shows status, duration, trigger, and step results.',
+    description: 'Get run history for a workflow (or all workflows). Shows status, duration, trigger, and step results. Loop steps show iteration count (×N). Child nodes inside loops are not shown as separate steps — they are embedded in the loop step output.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -495,7 +495,7 @@ const tools = [
   },
   {
     name: 'workflow_add_node',
-    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch, workflow/project. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. workflow/project with action "list" returns all Claude Terminal projects as an array — connect its Projects output (slot 2) to a Loop node Items input (slot 1) to iterate over projects. Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
+    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch, workflow/project. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. workflow/project with action "list" returns all Claude Terminal projects as an array — connect its Projects output (slot 2) to a Loop node Items input (slot 1) to iterate over projects. Loop node: slot 0 output = Each (body of the loop, connects to first child node), slot 1 output = Done (continues after loop ends). Child nodes inside a loop body are NOT shown as top-level steps in run history — only the loop step itself appears, with an iteration badge. For claude/shell/git nodes, set projectId="__custom__" and cwd="<path>" to use a custom working directory (supports variable interpolation like $item.path). Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -514,7 +514,7 @@ const tools = [
   },
   {
     name: 'workflow_connect_nodes',
-    description: 'Connect an output slot of one node to an input slot of another. Slot conventions: most nodes have 1 input (slot 0) and outputs slot0=Done/True, slot1=Error/False. Condition: slot0=TRUE path, slot1=FALSE path. Loop: slot0=Each body, slot1=Done.',
+    description: 'Connect an output slot of one node to an input slot of another. Slot conventions: most nodes have 1 input (slot 0) and outputs slot0=Done/True, slot1=Error/False. Condition: slot0=TRUE path, slot1=FALSE path. Loop: slot0=Each body (connects to first child node inside the loop), slot1=Done (connects to first node after the loop). IMPORTANT: child nodes inside a loop body must be connected to the Loop\'s slot0 (Each) — they will not appear as top-level steps, only the Loop node does.',
     inputSchema: {
       type: 'object',
       properties: {
