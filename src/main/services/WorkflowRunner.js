@@ -1115,18 +1115,27 @@ class WorkflowRunner {
           const isParallel = step.mode === 'parallel';
 
           if (isParallel && eachTargets.length) {
-            // Parallel execution: run all iterations concurrently
+            // Parallel execution: each iteration gets its own AbortController child
+            // to avoid stacking N×M listeners on the shared parent signal.
             const promises = items.map(async (item, idx) => {
               if (signal.aborted) throw new Error('Cancelled');
-              const iterVars = new Map(vars);
-              iterVars.set('loop', { item, index: idx, total: items.length });
-              iterVars.set('item', item);
-              iterVars.set('index', idx);
-              const { outputs, visitedNodes } = await this._executeSubGraph(
-                eachTargets, nodeById, outgoing, incoming, iterVars, runId, signal, stepOutputs, workflow
-              );
-              for (const nid of visitedNodes) allBodyVisited.add(nid);
-              return { ...outputs, _item: item };
+              // Child controller: one listener on parent signal instead of many
+              const iterAbort = new AbortController();
+              const onParentAbort = () => iterAbort.abort();
+              signal.addEventListener('abort', onParentAbort, { once: true });
+              try {
+                const iterVars = new Map(vars);
+                iterVars.set('loop', { item, index: idx, total: items.length });
+                iterVars.set('item', item);
+                iterVars.set('index', idx);
+                const { outputs, visitedNodes } = await this._executeSubGraph(
+                  eachTargets, nodeById, outgoing, incoming, iterVars, runId, iterAbort.signal, stepOutputs, workflow
+                );
+                for (const nid of visitedNodes) allBodyVisited.add(nid);
+                return { ...outputs, _item: item };
+              } finally {
+                signal.removeEventListener('abort', onParentAbort);
+              }
             });
             iterationResults.push(...await Promise.all(promises));
           } else {
