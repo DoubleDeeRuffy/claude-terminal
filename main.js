@@ -195,7 +195,7 @@ function bootstrapApp() {
             "style-src 'self' 'unsafe-inline' file: data:; " +
             "img-src 'self' file: data: blob: https:; " +
             "font-src 'self' file: data:; " +
-            "connect-src 'self' file: ws://localhost:* http://localhost:* http://127.0.0.1:*; " +
+            "connect-src 'self' file: ws://localhost:* http://localhost:* http://127.0.0.1:* https://claude-terminal-hub.claudeterminal.workers.dev; " +
             "frame-src 'none'; " +
             "object-src 'none'"
           ]
