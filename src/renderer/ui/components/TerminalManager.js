@@ -1163,7 +1163,7 @@ function showTabContextMenu(e, id) {
         onClick: () => {
           allTabs.forEach(tab => {
             const tabId = tab.dataset.id;
-            if (tabId != id) closeTerminal(tabId);
+            if (tabId !== id) closeTerminal(tabId);
           });
         }
       },
