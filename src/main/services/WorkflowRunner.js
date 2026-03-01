@@ -46,7 +46,10 @@ function resolveVars(value, vars) {
     const parts = singleVarMatch[1].split('.');
     let cur = vars.get(parts[0]);
     for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
-    if (cur != null) return cur;
+    if (cur != null) {
+      // Trim trailing CR/LF from shell command outputs (e.g. `date` on Windows)
+      return typeof cur === 'string' ? cur.replace(/[\r\n]+$/, '') : cur;
+    }
   }
 
   // Mixed text with variables: interpolate as strings
@@ -58,7 +61,8 @@ function resolveVars(value, vars) {
       let cur = vars.get(parts[0]);
       for (let i = 1; i < take && cur != null; i++) cur = cur[parts[i]];
       if (cur != null && (take === parts.length || typeof cur !== 'object')) {
-        const resolved = typeof cur === 'object' ? JSON.stringify(cur) : String(cur);
+        // Trim CR/LF that shell commands often append (e.g. `date` output on Windows)
+        const resolved = typeof cur === 'object' ? JSON.stringify(cur) : String(cur).replace(/[\r\n]+$/, '');
         const suffix = take < parts.length ? '.' + parts.slice(take).join('.') : '';
         return resolved + suffix;
       }
