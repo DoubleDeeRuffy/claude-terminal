@@ -147,7 +147,10 @@ function evalCondition(condition, vars) {
     case 'starts_with': return left.startsWith(right);
     case 'ends_with':   return left.endsWith(right);
     case 'matches': {
-      try { return new RegExp(right).test(left); } catch { return false; }
+      try {
+        if (left.length > 10_000) return false; // ReDoS protection: skip huge strings
+        return new RegExp(right).test(left);
+      } catch { return false; }
     }
     default:   return false;
   }
