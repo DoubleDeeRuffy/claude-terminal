@@ -913,9 +913,12 @@ class ChatService {
     const prevClaudeCode = process.env.CLAUDECODE;
     delete process.env.CLAUDECODE;
 
+    const resolvedCwd = cwd || require('os').homedir();
+    let workflowSessionId = null;
+
     try {
       const options = {
-        cwd: cwd || require('os').homedir(),
+        cwd: resolvedCwd,
         abortController,
         maxTurns: maxTurns || 30,
         permissionMode: permissionMode || 'bypassPermissions',
@@ -938,6 +941,10 @@ class ChatService {
 
       for await (const message of queryStream) {
         if (onMessage) onMessage(message);
+        // Capture the SDK session_id from the init message to delete it after
+        if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
+          workflowSessionId = message.session_id;
+        }
         if (message.type === 'assistant') {
           const content = message.message?.content;
           if (Array.isArray(content)) {
@@ -958,6 +965,11 @@ class ChatService {
       return result;
     } finally {
       if (prevClaudeCode) process.env.CLAUDECODE = prevClaudeCode;
+      // Delete the session file created by this workflow step to avoid polluting
+      // the "Resume conversation" list — workflow runs are fire-and-forget
+      if (workflowSessionId) {
+        _deleteWorkflowSession(resolvedCwd, workflowSessionId);
+      }
     }
   }
 
@@ -1030,6 +1042,26 @@ class ChatService {
     if (this._uncaughtExceptionHandler) {
       process.removeListener('uncaughtException', this._uncaughtExceptionHandler);
     }
+  }
+}
+
+/**
+ * Delete the .jsonl session file created by a workflow agent step.
+ * Claude stores sessions at ~/.claude/projects/{encoded_cwd}/{session_id}.jsonl
+ * We capture the session_id from the SDK's system:init message and clean up
+ * after the step completes so workflow runs don't pollute "Resume conversation".
+ */
+function _deleteWorkflowSession(cwd, sessionId) {
+  try {
+    const os = require('os');
+    const encoded = cwd.replace(/:/g, '-').replace(/\\/g, '-').replace(/\//g, '-');
+    const sessionFile = require('path').join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`);
+    if (require('fs').existsSync(sessionFile)) {
+      require('fs').unlinkSync(sessionFile);
+      console.log(`[ChatService] Deleted workflow session file: ${sessionId}.jsonl`);
+    }
+  } catch (e) {
+    console.warn(`[ChatService] Could not delete workflow session file: ${e.message}`);
   }
 }
 
