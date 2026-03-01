@@ -28,6 +28,23 @@ async function loadNodeRegistry() {
             console.warn('[NodeRegistry] Failed to parse showIf for', f.key, e);
           }
         }
+        // Re-hydrater les fonctions render/bind des custom fields
+        if (f.render && typeof f.render === 'string') {
+          try {
+            // eslint-disable-next-line no-new-func
+            f = { ...f, render: new Function('return (' + f.render + ')')() };
+          } catch (e) {
+            console.warn('[NodeRegistry] Failed to parse render for', f.key, e);
+          }
+        }
+        if (f.bind && typeof f.bind === 'string') {
+          try {
+            // eslint-disable-next-line no-new-func
+            f = { ...f, bind: new Function('return (' + f.bind + ')')() };
+          } catch (e) {
+            console.warn('[NodeRegistry] Failed to parse bind for', f.key, e);
+          }
+        }
         return f;
       });
     }

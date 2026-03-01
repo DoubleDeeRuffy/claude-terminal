@@ -1,5 +1,26 @@
 'use strict';
 
+const CONDITION_OPS = [
+  { value: '==',           group: 'compare', label: '==' },
+  { value: '!=',           group: 'compare', label: '!=' },
+  { value: '>',            group: 'compare', label: '>' },
+  { value: '>=',           group: 'compare', label: '>=' },
+  { value: '<',            group: 'compare', label: '<' },
+  { value: '<=',           group: 'compare', label: '<=' },
+  { value: 'contains',     group: 'text',    label: 'contains' },
+  { value: 'startsWith',   group: 'text',    label: 'startsWith' },
+  { value: 'endsWith',     group: 'text',    label: 'endsWith' },
+  { value: 'matches',      group: 'text',    label: 'matches' },
+  { value: 'is_empty',     group: 'unary',   label: 'is empty' },
+  { value: 'is_not_empty', group: 'unary',   label: 'not empty' },
+];
+
+function buildConditionPreview(variable, op, value, isUnary) {
+  if (!variable) return 'variable operator valeur';
+  if (isUnary) return `${variable} ${op}`;
+  return `${variable} ${op} "${value || '...'}"`;
+}
+
 module.exports = {
   type:     'workflow/condition',
   title:    'Condition',
@@ -15,21 +36,138 @@ module.exports = {
     { name: 'FALSE', type: 'exec' },
   ],
 
-  props: { conditionMode: 'builder', variable: '', operator: '==', value: '', expression: '' },
+  props: { _condMode: 'builder', variable: '', operator: '==', value: '', expression: '' },
 
   fields: [
-    { type: 'select',   key: 'conditionMode', label: 'Mode',      options: ['builder', 'expression'] },
-    { type: 'text',     key: 'variable',      label: 'Variable',  placeholder: '$myVar',
-      showIf: (p) => !p.conditionMode || p.conditionMode === 'builder' },
-    { type: 'select',   key: 'operator',      label: 'Opérateur',
-      options: ['==', '!=', '>', '<', '>=', '<=', 'contains', 'starts_with', 'matches', 'is_empty', 'is_not_empty'],
-      showIf: (p) => !p.conditionMode || p.conditionMode === 'builder' },
-    { type: 'text',     key: 'value',         label: 'Valeur',    placeholder: 'expected',
-      showIf: (p) => (!p.conditionMode || p.conditionMode === 'builder') &&
-                     p.operator !== 'is_empty' && p.operator !== 'is_not_empty' },
-    { type: 'textarea', key: 'expression',    label: 'Expression',
-      placeholder: '$count > 0',
-      showIf: (p) => p.conditionMode === 'expression' },
+    {
+      type: 'custom',
+      key:  'condition_ui',
+      render(field, props, node) {
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        const CONDITION_OPS = [
+          { value: '==',           group: 'compare', label: '==' },
+          { value: '!=',           group: 'compare', label: '!=' },
+          { value: '>',            group: 'compare', label: '>' },
+          { value: '>=',           group: 'compare', label: '>=' },
+          { value: '<',            group: 'compare', label: '<' },
+          { value: '<=',           group: 'compare', label: '<=' },
+          { value: 'contains',     group: 'text',    label: 'contains' },
+          { value: 'startsWith',   group: 'text',    label: 'startsWith' },
+          { value: 'endsWith',     group: 'text',    label: 'endsWith' },
+          { value: 'matches',      group: 'text',    label: 'matches' },
+          { value: 'is_empty',     group: 'unary',   label: 'is empty' },
+          { value: 'is_not_empty', group: 'unary',   label: 'not empty' },
+        ];
+        const p = props || {};
+        const condMode  = p._condMode || 'builder';
+        const currentOp = p.operator  || '==';
+        const isUnary   = currentOp === 'is_empty' || currentOp === 'is_not_empty';
+        const compareOps = CONDITION_OPS.filter(o => o.group === 'compare');
+        const textOps    = CONDITION_OPS.filter(o => o.group === 'text');
+        const unaryOps   = CONDITION_OPS.filter(o => o.group === 'unary');
+
+        function buildPreview(variable, op, value, isUnary) {
+          if (!variable) return 'variable operator valeur';
+          if (isUnary) return `${variable} ${op}`;
+          return `${variable} ${op} "${value || '...'}"`;
+        }
+
+        return `
+          <div class="wf-cond-mode-toggle">
+            <button class="wf-cond-mode-btn ${condMode === 'builder' ? 'active' : ''}" data-cond-mode="builder">Builder</button>
+            <button class="wf-cond-mode-btn ${condMode === 'expression' ? 'active' : ''}" data-cond-mode="expression">Expression</button>
+          </div>
+          <div class="wf-cond-builder" ${condMode === 'expression' ? 'style="display:none"' : ''}>
+            <div class="wf-step-edit-field">
+              <label class="wf-step-edit-label">Variable</label>
+              <span class="wf-field-hint">$variable ou valeur libre — Autocomplete avec $</span>
+              <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="variable" value="${esc(p.variable || '')}" placeholder="$ctx.branch" />
+            </div>
+            <div class="wf-step-edit-field">
+              <label class="wf-step-edit-label">Opérateur</label>
+              <div class="wf-cond-ops">
+                <div class="wf-cond-ops-group">
+                  ${compareOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${esc(o.value)}" title="${esc(o.label)}">${esc(o.value)}</button>`).join('')}
+                </div>
+                <div class="wf-cond-ops-group">
+                  ${textOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${esc(o.value)}" title="${esc(o.label)}">${esc(o.label)}</button>`).join('')}
+                </div>
+                <div class="wf-cond-ops-group">
+                  ${unaryOps.map(o => `<button class="wf-cond-op-btn wf-cond-op-unary ${currentOp === o.value ? 'active' : ''}" data-op="${esc(o.value)}" title="${esc(o.label)}">${esc(o.label)}</button>`).join('')}
+                </div>
+              </div>
+            </div>
+            <div class="wf-step-edit-field wf-cond-value-field" ${isUnary ? 'style="display:none"' : ''}>
+              <label class="wf-step-edit-label">Valeur</label>
+              <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="value" value="${esc(p.value || '')}" placeholder="main" />
+            </div>
+            <div class="wf-cond-preview">
+              <code class="wf-cond-preview-code">${esc(buildPreview(p.variable, currentOp, p.value, isUnary))}</code>
+            </div>
+          </div>
+          <div class="wf-cond-expression" ${condMode === 'builder' ? 'style="display:none"' : ''}>
+            <div class="wf-step-edit-field">
+              <label class="wf-step-edit-label">Expression</label>
+              <span class="wf-field-hint">Expression libre — ex: $node_1.rows.length > 0</span>
+              <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-cond-expr-input" data-key="expression" rows="2" placeholder="$node_1.exitCode == 0">${esc(p.expression || '')}</textarea>
+            </div>
+          </div>
+        `;
+      },
+      bind(container, field, node, onChange) {
+        // Mode toggle
+        container.querySelectorAll('.wf-cond-mode-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const mode = btn.dataset.condMode;
+            node.properties._condMode = mode;
+            const builder    = container.querySelector('.wf-cond-builder');
+            const expression = container.querySelector('.wf-cond-expression');
+            container.querySelectorAll('.wf-cond-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.condMode === mode));
+            if (builder)    builder.style.display    = mode === 'builder'    ? '' : 'none';
+            if (expression) expression.style.display = mode === 'expression' ? '' : 'none';
+            onChange(mode);
+          });
+        });
+
+        // Operator buttons
+        container.querySelectorAll('.wf-cond-op-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const op = btn.dataset.op;
+            node.properties.operator = op;
+            container.querySelectorAll('.wf-cond-op-btn').forEach(b => b.classList.toggle('active', b.dataset.op === op));
+            // Show/hide value field
+            const isUnary    = op === 'is_empty' || op === 'is_not_empty';
+            const valueField = container.querySelector('.wf-cond-value-field');
+            if (valueField) valueField.style.display = isUnary ? 'none' : '';
+            // Update preview
+            const varInput = container.querySelector('[data-key="variable"]');
+            const valInput = container.querySelector('[data-key="value"]');
+            const preview  = container.querySelector('.wf-cond-preview-code');
+            if (preview) {
+              const v = varInput?.value || '';
+              const val = valInput?.value || '';
+              preview.textContent = isUnary ? `${v} ${op}` : `${v} ${op} "${val || '...'}"`;
+            }
+            onChange(op);
+          });
+        });
+
+        // Live preview on variable/value input
+        const updatePreview = () => {
+          const preview  = container.querySelector('.wf-cond-preview-code');
+          if (!preview) return;
+          const varInput = container.querySelector('[data-key="variable"]');
+          const valInput = container.querySelector('[data-key="value"]');
+          const op       = node.properties.operator || '==';
+          const isUnary  = op === 'is_empty' || op === 'is_not_empty';
+          const v        = varInput?.value || '';
+          const val      = valInput?.value || '';
+          preview.textContent = !v ? 'variable operator valeur' : isUnary ? `${v} ${op}` : `${v} ${op} "${val || '...'}"`;
+        };
+        container.querySelector('[data-key="variable"]')?.addEventListener('input', updatePreview);
+        container.querySelector('[data-key="value"]')?.addEventListener('input', updatePreview);
+      },
+    },
   ],
 
   drawExtra: (ctx, n) => {

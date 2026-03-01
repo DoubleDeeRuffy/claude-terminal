@@ -1,5 +1,14 @@
 'use strict';
 
+const VAR_COLORS = {
+  string:  '#c8c8c8',
+  number:  '#60a5fa',
+  boolean: '#4ade80',
+  array:   '#fb923c',
+  object:  '#a78bfa',
+  any:     '#6b7280',
+};
+
 module.exports = {
   type:     'workflow/variable',
   title:    'Set Variable',
@@ -12,13 +21,145 @@ module.exports = {
   inputs:  [{ name: 'In', type: 'exec' }, { name: 'value', type: 'any' }],
   outputs: [{ name: 'Done', type: 'exec' }, { name: 'value', type: 'any' }],
 
-  props: { action: 'set', name: '', value: '' },
+  props: { action: 'set', name: '', varType: 'any', value: '' },
 
   fields: [
-    { type: 'select', key: 'action', label: 'Action', options: ['set', 'get', 'increment', 'append'] },
-    { type: 'text',   key: 'name',   label: 'Nom',    placeholder: 'myVar', mono: true },
-    { type: 'text',   key: 'value',  label: 'Valeur', placeholder: 'hello or $other',
-      showIf: (p) => p.action === 'set' || p.action === 'append' },
+    {
+      type: 'custom',
+      key:  'variable_ui',
+      render(field, props, node) {
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        const VAR_COLORS = {
+          string:  '#c8c8c8',
+          number:  '#60a5fa',
+          boolean: '#4ade80',
+          array:   '#fb923c',
+          object:  '#a78bfa',
+          any:     '#6b7280',
+        };
+        const VAR_TYPE_OPTIONS = ['string', 'number', 'boolean', 'array', 'object', 'any'];
+        const p       = props || {};
+        const varType = p.varType || 'any';
+
+        // Collect variable names from other nodes in this workflow
+        // graphService/_nodes is not available here, so we skip browser rendering at static time
+        // The bind() will populate the browser dynamically
+        const action = p.action || 'set';
+        const showValue = action !== 'get';
+
+        const incrementHint = action === 'increment' ? 'Incrément (nombre)' : 'Valeur à assigner';
+        const valuePlaceholder = action === 'increment' ? '1' : 'production';
+
+        return `
+          <div class="wf-var-browser" id="wf-var-browser" style="display:none">
+            <div class="wf-var-browser-title">Variables du workflow</div>
+            <div class="wf-var-browser-list" id="wf-var-browser-list"></div>
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Action</label>
+            <select class="wf-step-edit-input wf-node-prop" data-key="action">
+              <option value="set"       ${action === 'set'       ? 'selected' : ''}>Définir une valeur</option>
+              <option value="get"       ${action === 'get'       ? 'selected' : ''}>Lire la valeur</option>
+              <option value="increment" ${action === 'increment' ? 'selected' : ''}>Incrémenter (+n)</option>
+              <option value="append"    ${action === 'append'    ? 'selected' : ''}>Ajouter à la liste</option>
+            </select>
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Nom</label>
+            <span class="wf-field-hint">Identifiant unique de la variable</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="name" value="${esc(p.name || '')}" placeholder="buildCount" />
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Type</label>
+            <span class="wf-field-hint">Type de la variable (pour les connexions data pins)</span>
+            <select class="wf-step-edit-input wf-node-prop" data-key="varType">
+              ${VAR_TYPE_OPTIONS.map(t => `<option value="${t}" ${varType === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+          <div class="wf-step-edit-field wf-var-value-field" ${showValue ? '' : 'style="display:none"'}>
+            <label class="wf-step-edit-label">Valeur</label>
+            <span class="wf-field-hint wf-var-value-hint">${esc(incrementHint)}</span>
+            <input class="wf-step-edit-input wf-node-prop ${action === 'increment' ? 'wf-field-mono' : ''}" data-key="value" value="${esc(p.value || '')}" placeholder="${esc(valuePlaceholder)}" ${action === 'increment' ? 'type="number"' : ''} />
+          </div>
+        `;
+      },
+      bind(container, field, node, onChange) {
+        const VAR_COLORS = {
+          string:  '#c8c8c8',
+          number:  '#60a5fa',
+          boolean: '#4ade80',
+          array:   '#fb923c',
+          object:  '#a78bfa',
+          any:     '#6b7280',
+        };
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        // Populate the variable browser from sibling variable nodes in DOM context
+        // We attempt to get node list from the graph service if available via window
+        const tryPopulateBrowser = () => {
+          const browserEl  = container.querySelector('#wf-var-browser');
+          const browserList = container.querySelector('#wf-var-browser-list');
+          if (!browserEl || !browserList) return;
+
+          // Try to find graphService via global
+          const graphService = window._workflowGraphService;
+          if (!graphService || !graphService._nodes) {
+            browserEl.style.display = 'none';
+            return;
+          }
+
+          const allVarNodes = (graphService._nodes || []).filter(n =>
+            (n.type === 'workflow/variable' || n.type === 'workflow/get_variable') && n.id !== node.id
+          );
+          const varNames = [...new Set(allVarNodes.map(n => n.properties.name).filter(Boolean))];
+
+          if (!varNames.length) {
+            browserEl.style.display = 'none';
+            return;
+          }
+
+          browserEl.style.display = '';
+          browserList.innerHTML = varNames.map(v => {
+            const vNode  = allVarNodes.find(n => n.properties.name === v);
+            const vType  = vNode?.properties.varType || 'any';
+            const color  = VAR_COLORS[vType] || '#6b7280';
+            return `<button class="wf-var-browser-item" data-varname="${esc(v)}" title="Cliquer pour utiliser"><code style="color:${color}">$${esc(v)}</code><span class="wf-var-browser-type" style="color:${color}">${esc(vType)}</span></button>`;
+          }).join('');
+
+          // Click on variable in browser → fill name input
+          browserList.querySelectorAll('.wf-var-browser-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const nameInput = container.querySelector('[data-key="name"]');
+              if (nameInput) {
+                nameInput.value = btn.dataset.varname;
+                node.properties.name = btn.dataset.varname;
+                nameInput.dispatchEvent(new Event('input'));
+              }
+            });
+          });
+        };
+
+        tryPopulateBrowser();
+
+        // Action select change → show/hide value field
+        const actionSelect = container.querySelector('[data-key="action"]');
+        if (actionSelect) {
+          actionSelect.addEventListener('change', () => {
+            const action     = actionSelect.value;
+            const valueField = container.querySelector('.wf-var-value-field');
+            const hintEl     = container.querySelector('.wf-var-value-hint');
+            const valueInput = container.querySelector('[data-key="value"]');
+
+            if (valueField) valueField.style.display = action !== 'get' ? '' : 'none';
+            if (hintEl) hintEl.textContent = action === 'increment' ? 'Incrément (nombre)' : 'Valeur à assigner';
+            if (valueInput) {
+              valueInput.type        = action === 'increment' ? 'number' : 'text';
+              valueInput.placeholder = action === 'increment' ? '1' : 'production';
+            }
+          });
+        }
+      },
+    },
   ],
 
   badge: (n) => (n.properties.action || 'set').toUpperCase(),

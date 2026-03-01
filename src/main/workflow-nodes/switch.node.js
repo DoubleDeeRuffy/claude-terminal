@@ -16,8 +16,132 @@ module.exports = {
   props: { variable: '', cases: 'case1,case2,case3' },
 
   fields: [
-    { type: 'text', key: 'variable', label: 'Variable', placeholder: '$myVar', mono: true },
-    { type: 'text', key: 'cases',    label: 'Cases',    placeholder: 'case1,case2,case3', mono: true },
+    {
+      type: 'custom',
+      key:  'switch_ui',
+      render(field, props, node) {
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        const p     = props || {};
+        const cases = (p.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+
+        return `
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Variable à tester</label>
+            <span class="wf-field-hint">Variable dont la valeur détermine la branche</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="variable" value="${esc(p.variable || '')}" placeholder="$ctx.branch" />
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Cases</label>
+            <span class="wf-field-hint">Chaque case crée un port de sortie. Le port "default" est automatique.</span>
+            <div class="wf-switch-cases" id="wf-switch-case-list">
+              ${cases.map((c, i) => `
+                <div class="wf-switch-case-row" data-idx="${i}">
+                  <span class="wf-switch-case-idx">${i + 1}</span>
+                  <input class="wf-switch-case-input wf-field-mono" value="${esc(c)}" placeholder="valeur" />
+                  <button class="wf-switch-case-del" title="Supprimer ce case"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                </div>
+              `).join('')}
+            </div>
+            <button class="wf-switch-case-add" id="wf-switch-add-case">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+              Ajouter un case
+            </button>
+          </div>
+          <div class="wf-switch-preview">
+            <div class="wf-switch-preview-title">Ports de sortie</div>
+            <div class="wf-switch-preview-ports" id="wf-switch-preview-ports">
+              ${cases.map(c => `<span class="wf-switch-preview-port">${esc(c)}</span>`).join('')}
+              <span class="wf-switch-preview-port wf-switch-preview-port--default">default</span>
+            </div>
+          </div>
+        `;
+      },
+      bind(container, field, node, onChange) {
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        function getCases() {
+          const inputs = container.querySelectorAll('.wf-switch-case-input');
+          return Array.from(inputs).map(i => i.value.trim()).filter(Boolean);
+        }
+
+        function updateCasesProperty() {
+          const cases = getCases();
+          node.properties.cases = cases.join(',');
+          // Update preview ports
+          const portsEl = container.querySelector('#wf-switch-preview-ports');
+          if (portsEl) {
+            portsEl.innerHTML = cases.map(c => `<span class="wf-switch-preview-port">${esc(c)}</span>`).join('') +
+              '<span class="wf-switch-preview-port wf-switch-preview-port--default">default</span>';
+          }
+          // Rebuild node outputs via rebuildOutputs if available
+          if (typeof node.rebuildOutputs === 'function') {
+            // Will be called by the workflow engine
+          }
+          onChange(node.properties.cases);
+        }
+
+        function rebuildRows() {
+          const cases = getCases();
+          const listEl = container.querySelector('#wf-switch-case-list');
+          if (!listEl) return;
+          listEl.innerHTML = cases.map((c, i) => `
+            <div class="wf-switch-case-row" data-idx="${i}">
+              <span class="wf-switch-case-idx">${i + 1}</span>
+              <input class="wf-switch-case-input wf-field-mono" value="${esc(c)}" placeholder="valeur" />
+              <button class="wf-switch-case-del" title="Supprimer ce case"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+          `).join('');
+          bindRows();
+        }
+
+        function bindRows() {
+          // Case input changes
+          container.querySelectorAll('.wf-switch-case-input').forEach(input => {
+            input.addEventListener('input', updateCasesProperty);
+          });
+          // Delete buttons
+          container.querySelectorAll('.wf-switch-case-del').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const row = btn.closest('.wf-switch-case-row');
+              if (row) row.remove();
+              updateCasesProperty();
+              // Re-number
+              const listEl = container.querySelector('#wf-switch-case-list');
+              if (listEl) {
+                listEl.querySelectorAll('.wf-switch-case-row').forEach((r, i) => {
+                  const idx = r.querySelector('.wf-switch-case-idx');
+                  if (idx) idx.textContent = i + 1;
+                  r.dataset.idx = i;
+                });
+              }
+            });
+          });
+        }
+
+        // Add case button
+        const addBtn = container.querySelector('#wf-switch-add-case');
+        if (addBtn) {
+          addBtn.addEventListener('click', () => {
+            const listEl = container.querySelector('#wf-switch-case-list');
+            if (!listEl) return;
+            const count = listEl.querySelectorAll('.wf-switch-case-row').length;
+            const row = document.createElement('div');
+            row.className = 'wf-switch-case-row';
+            row.dataset.idx = count;
+            row.innerHTML = `
+              <span class="wf-switch-case-idx">${count + 1}</span>
+              <input class="wf-switch-case-input wf-field-mono" value="" placeholder="valeur" />
+              <button class="wf-switch-case-del" title="Supprimer ce case"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            `;
+            listEl.appendChild(row);
+            bindRows();
+            row.querySelector('.wf-switch-case-input')?.focus();
+          });
+        }
+
+        bindRows();
+      },
+    },
   ],
 
   badge: (n) => (n.properties.variable || '$var').slice(0, 14),

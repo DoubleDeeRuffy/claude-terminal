@@ -1255,6 +1255,16 @@ function openEditor(workflowId = null) {
         } catch { /* show anyway */ }
       }
 
+      // Inline custom field (render/bind définis directement dans le field)
+      if (field.type === 'custom' && typeof field.render === 'function') {
+        try {
+          return field.render(field, props, node);
+        } catch (e) {
+          console.warn('[WorkflowPanel] custom field render error', field.key, e);
+          return '';
+        }
+      }
+
       // Essayer le field renderer custom d'abord
       const customRenderer = fieldRegistry.get(field.type);
       if (customRenderer) {
@@ -2308,16 +2318,26 @@ function openEditor(workflowId = null) {
 
     // ── Bind custom field renderers ──────────────────────────────────────────
     if (nodeDef && nodeDef.fields) {
+      const onChange = (key, newValue) => {
+        node.properties[key] = newValue;
+        editorDraft.dirty = true;
+        graphService.canvas?.setDirty?.(true, true);
+      };
       nodeDef.fields.forEach(field => {
+        // Inline custom field — bind directement depuis le field
+        if (field.type === 'custom' && typeof field.bind === 'function') {
+          try {
+            field.bind(propsEl, field, node, (newValue) => onChange(field.key, newValue));
+          } catch (e) {
+            console.warn('[WorkflowPanel] custom field bind error', field.key, e);
+          }
+          return;
+        }
         const customRenderer = fieldRegistry.get(field.type);
         if (!customRenderer?.bind) return;
         const container = propsEl.querySelector(`[data-key="${field.key}"]`)?.closest('.wf-field-group');
         if (!container) return;
-        customRenderer.bind(container, field, node, (newValue) => {
-          node.properties[field.key] = newValue;
-          editorDraft.dirty = true;
-          graphService.canvas?.setDirty?.(true, true);
-        });
+        customRenderer.bind(container, field, node, (newValue) => onChange(field.key, newValue));
       });
     }
 

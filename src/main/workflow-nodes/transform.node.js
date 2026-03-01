@@ -1,5 +1,19 @@
 'use strict';
 
+const TRANSFORM_OPS = [
+  { value: 'map',           label: 'Map',           desc: 'Transformer chaque élément',       tpl: 'item.fieldName' },
+  { value: 'filter',        label: 'Filter',         desc: 'Garder les éléments qui matchent', tpl: 'item.status === "active"' },
+  { value: 'reduce',        label: 'Reduce',         desc: 'Agréger en une seule valeur',      tpl: 'acc + item.value' },
+  { value: 'find',          label: 'Find',           desc: 'Trouver le premier élément',       tpl: 'item.id === $targetId' },
+  { value: 'pluck',         label: 'Pluck',          desc: 'Extraire un seul champ',           tpl: 'name' },
+  { value: 'count',         label: 'Count',          desc: 'Compter les éléments',             tpl: '' },
+  { value: 'sort',          label: 'Sort',           desc: 'Trier les éléments',               tpl: 'name' },
+  { value: 'unique',        label: 'Unique',         desc: 'Supprimer les doublons',           tpl: '' },
+  { value: 'flatten',       label: 'Flatten',        desc: 'Aplatir les tableaux imbriqués',   tpl: '' },
+  { value: 'json_parse',    label: 'JSON Parse',     desc: 'Convertir string → objet',         tpl: '' },
+  { value: 'json_stringify', label: 'JSON Stringify', desc: 'Convertir objet → string',        tpl: '' },
+];
+
 module.exports = {
   type:     'workflow/transform',
   title:    'Transform',
@@ -20,11 +34,121 @@ module.exports = {
   props: { operation: 'map', input: '', expression: '', outputVar: '' },
 
   fields: [
-    { type: 'select', key: 'operation', label: 'Opération',
-      options: ['map', 'filter', 'reduce', 'find', 'pluck', 'count', 'sort', 'unique', 'flatten', 'json_parse', 'json_stringify'] },
-    { type: 'text',   key: 'input',     label: 'Input',      placeholder: '$myArray', mono: true },
-    { type: 'text',   key: 'expression',label: 'Expression', placeholder: 'item.name', mono: true },
-    { type: 'text',   key: 'outputVar', label: 'Output var', placeholder: 'result', mono: true },
+    {
+      type: 'custom',
+      key:  'transform_ui',
+      render(field, props, node) {
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        const TRANSFORM_OPS = [
+          { value: 'map',           label: 'Map',           desc: 'Transformer chaque élément',       tpl: 'item.fieldName' },
+          { value: 'filter',        label: 'Filter',         desc: 'Garder les éléments qui matchent', tpl: 'item.status === "active"' },
+          { value: 'reduce',        label: 'Reduce',         desc: 'Agréger en une seule valeur',      tpl: 'acc + item.value' },
+          { value: 'find',          label: 'Find',           desc: 'Trouver le premier élément',       tpl: 'item.id === $targetId' },
+          { value: 'pluck',         label: 'Pluck',          desc: 'Extraire un seul champ',           tpl: 'name' },
+          { value: 'count',         label: 'Count',          desc: 'Compter les éléments',             tpl: '' },
+          { value: 'sort',          label: 'Sort',           desc: 'Trier les éléments',               tpl: 'name' },
+          { value: 'unique',        label: 'Unique',         desc: 'Supprimer les doublons',           tpl: '' },
+          { value: 'flatten',       label: 'Flatten',        desc: 'Aplatir les tableaux imbriqués',   tpl: '' },
+          { value: 'json_parse',    label: 'JSON Parse',     desc: 'Convertir string → objet',         tpl: '' },
+          { value: 'json_stringify', label: 'JSON Stringify', desc: 'Convertir objet → string',        tpl: '' },
+        ];
+        const p          = props || {};
+        const currentOp  = p.operation || 'map';
+        const opInfo     = TRANSFORM_OPS.find(o => o.value === currentOp) || TRANSFORM_OPS[0];
+        const needsExpr  = !['count', 'unique', 'flatten', 'json_parse', 'json_stringify'].includes(currentOp);
+
+        const exprHint = currentOp === 'pluck' || currentOp === 'sort'
+          ? 'Nom du champ'
+          : currentOp === 'reduce'
+            ? 'acc = accumulateur, item = élément'
+            : 'item = élément courant';
+
+        return `
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Opération</label>
+            <div class="wf-transform-ops">
+              ${TRANSFORM_OPS.map(o => `
+                <button class="wf-transform-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${esc(o.value)}" title="${esc(o.desc)}">
+                  <span class="wf-transform-op-name">${esc(o.label)}</span>
+                  <span class="wf-transform-op-desc">${esc(o.desc)}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Input</label>
+            <span class="wf-field-hint">Source des données — variable ou node output</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="input" value="${esc(p.input || '')}" placeholder="$node_1.rows" />
+          </div>
+          <div class="wf-step-edit-field wf-transform-expr-field" ${needsExpr ? '' : 'style="display:none"'}>
+            <label class="wf-step-edit-label">Expression</label>
+            <span class="wf-field-hint wf-transform-expr-hint">${esc(exprHint)}</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="expression" value="${esc(p.expression || '')}" placeholder="${esc(opInfo.tpl)}" />
+          </div>
+          <div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">Variable de sortie</label>
+            <span class="wf-field-hint">Stocker le résultat dans une variable (optionnel)</span>
+            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar" value="${esc(p.outputVar || '')}" placeholder="transformedData" />
+          </div>
+          <div class="wf-transform-preview">
+            <code class="wf-transform-preview-code">${esc(currentOp)}(${esc(p.input || 'input')}${needsExpr && p.expression ? ', ' + esc(p.expression) : ''})${p.outputVar ? ' → $' + esc(p.outputVar) : ''}</code>
+          </div>
+        `;
+      },
+      bind(container, field, node, onChange) {
+        const NO_EXPR_OPS = new Set(['count', 'unique', 'flatten', 'json_parse', 'json_stringify']);
+        const EXPR_HINTS = {
+          pluck: 'Nom du champ',
+          sort:  'Nom du champ',
+          reduce: 'acc = accumulateur, item = élément',
+        };
+        const OP_TPLS = {
+          map:    'item.fieldName',
+          filter: 'item.status === "active"',
+          reduce: 'acc + item.value',
+          find:   'item.id === $targetId',
+          pluck:  'name',
+          sort:   'name',
+        };
+
+        function updatePreview() {
+          const preview = container.querySelector('.wf-transform-preview-code');
+          if (!preview) return;
+          const op        = node.properties.operation || 'map';
+          const input     = node.properties.input || 'input';
+          const expr      = node.properties.expression || '';
+          const outputVar = node.properties.outputVar || '';
+          const needsExpr = !NO_EXPR_OPS.has(op);
+          preview.textContent = `${op}(${input}${needsExpr && expr ? ', ' + expr : ''})${outputVar ? ' → $' + outputVar : ''}`;
+        }
+
+        // Operation buttons
+        container.querySelectorAll('.wf-transform-op-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const op = btn.dataset.op;
+            node.properties.operation = op;
+            container.querySelectorAll('.wf-transform-op-btn').forEach(b => b.classList.toggle('active', b.dataset.op === op));
+
+            const needsExpr   = !NO_EXPR_OPS.has(op);
+            const exprField   = container.querySelector('.wf-transform-expr-field');
+            const exprHintEl  = container.querySelector('.wf-transform-expr-hint');
+            const exprInput   = container.querySelector('[data-key="expression"]');
+
+            if (exprField)  exprField.style.display  = needsExpr ? '' : 'none';
+            if (exprHintEl) exprHintEl.textContent    = EXPR_HINTS[op] || 'item = élément courant';
+            if (exprInput)  exprInput.placeholder     = OP_TPLS[op]   || '';
+
+            updatePreview();
+            onChange(op);
+          });
+        });
+
+        // Live preview on expression/input/outputVar changes
+        ['expression', 'input', 'outputVar'].forEach(key => {
+          container.querySelector(`[data-key="${key}"]`)?.addEventListener('input', updatePreview);
+        });
+      },
+    },
   ],
 
   badge: (n) => (n.properties.operation || 'map').toUpperCase(),

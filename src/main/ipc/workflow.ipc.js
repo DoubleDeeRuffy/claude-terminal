@@ -236,8 +236,10 @@ function registerWorkflowHandlers(mainWindow) {
       props:     def.props      || {},
       fields:    (def.fields || []).map(f => ({
         ...f,
-        // showIf est une fonction → sérialiser en string pour re-eval côté renderer
+        // showIf, render, bind sont des fonctions → sérialiser en string pour re-eval côté renderer
         showIf: f.showIf ? f.showIf.toString() : undefined,
+        render: f.render ? f.render.toString() : undefined,
+        bind:   f.bind   ? f.bind.toString()   : undefined,
       })),
       dynamic:   def.dynamic   || null,
       removable: def.removable !== false,
