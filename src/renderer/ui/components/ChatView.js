@@ -1375,6 +1375,12 @@ function createChatView(wrapperEl, project, options = {}) {
         card.querySelectorAll('.chat-question-option').forEach(b => b.classList.remove('selected'));
         optionBtn.classList.add('selected');
       }
+      // Update markdown preview if present
+      const group = optionBtn.closest('.chat-question-group');
+      const preview = group?.querySelector('.chat-question-preview');
+      if (preview && optionBtn.dataset.markdown) {
+        preview.innerHTML = renderMarkdown(optionBtn.dataset.markdown);
+      }
       return;
     }
 
@@ -2445,17 +2451,26 @@ function createChatView(wrapperEl, project, options = {}) {
 
     let questionsHtml = '';
     questions.forEach((q, i) => {
+      const hasMarkdown = (q.options || []).some(opt => opt.markdown);
       const optionsHtml = (q.options || []).map(opt =>
-        `<button class="chat-question-option" data-label="${escapeHtml(opt.label)}">
+        `<button class="chat-question-option" data-label="${escapeHtml(opt.label)}"${opt.markdown ? ` data-markdown="${escapeHtml(opt.markdown)}"` : ''}>
           <span class="chat-qo-label">${escapeHtml(opt.label)}</span>
           <span class="chat-qo-desc">${escapeHtml(opt.description || '')}</span>
         </button>`
       ).join('');
 
+      const firstMarkdown = q.options?.find(o => o.markdown)?.markdown || '';
+      const previewHtml = hasMarkdown
+        ? `<div class="chat-question-preview">${renderMarkdown(firstMarkdown)}</div>`
+        : '';
+
       questionsHtml += `
-        <div class="chat-question-group${i === 0 ? ' active' : ''}" data-step="${i}">
+        <div class="chat-question-group${i === 0 ? ' active' : ''}${hasMarkdown ? ' has-preview' : ''}" data-step="${i}">
           <p class="chat-question-text">${escapeHtml(q.question)}</p>
-          <div class="chat-question-options">${optionsHtml}</div>
+          <div class="chat-question-split">
+            <div class="chat-question-options">${optionsHtml}</div>
+            ${previewHtml}
+          </div>
           <div class="chat-question-custom">
             <input type="text" class="chat-question-custom-input" placeholder="${escapeHtml(t('chat.otherPlaceholder') || 'Or type your own answer...')}" />
           </div>
