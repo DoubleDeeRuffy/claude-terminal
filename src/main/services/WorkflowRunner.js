@@ -1747,6 +1747,7 @@ class WorkflowRunner {
       return nodeDef.run(config, vars, signal, ctx);
     }
 
+    // TODO(registry): remove when all node runs are in .node.js
     // ── Built-in universal steps (legacy fallback) ────────────────────────────
 
     if (type === 'agent' || type === 'claude') {
