@@ -468,6 +468,28 @@
   box-shadow: 0 2px 8px rgba(217,119,6,.15);
 }
 .wf-card-run span { line-height: 1; }
+.wf-card-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(239,68,68,.08);
+  border: 1px solid rgba(239,68,68,.25);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .2s var(--wf-ease);
+  flex-shrink: 0;
+  letter-spacing: .01em;
+}
+.wf-card-stop:hover {
+  background: rgba(239,68,68,.15);
+  border-color: rgba(239,68,68,.4);
+  color: #fca5a5;
+}
+.wf-card-stop span { line-height: 1; }
 .wf-card-edit {
   display: inline-flex;
   align-items: center;
@@ -2731,6 +2753,40 @@ select.wf-step-edit-input {
   background: rgba(110,231,183,.11);
   border-color: rgba(110,231,183,.3);
   color: #a7f3d0;
+}
+
+/* Stop state for the editor run button */
+.wf-editor-btn--stop {
+  color: #f87171;
+  border-color: rgba(239,68,68,.25);
+  background: rgba(239,68,68,.08);
+  font-weight: 500;
+}
+.wf-editor-btn--stop svg { color: #ef4444; }
+.wf-editor-btn--stop:hover {
+  background: rgba(239,68,68,.15);
+  border-color: rgba(239,68,68,.4);
+  color: #fca5a5;
+}
+
+/* Danger button variant (used in overlay detail) */
+.wf-btn-danger {
+  background: rgba(239,68,68,.08);
+  border: 1px solid rgba(239,68,68,.25);
+  color: #f87171;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  transition: background .15s, border-color .15s;
+}
+.wf-btn-danger:hover {
+  background: rgba(239,68,68,.15);
+  border-color: rgba(239,68,68,.4);
+  color: #fca5a5;
 }
 
 /* Save — blanc solide, neutre, action primaire claire */

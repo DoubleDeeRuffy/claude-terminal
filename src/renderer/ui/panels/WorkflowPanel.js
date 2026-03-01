@@ -381,7 +381,7 @@ function renderWorkflowList(el) {
     const id = card.dataset.id;
     card.querySelector('.wf-card-body').addEventListener('click', (e) => {
       // Don't trigger detail when clicking interactive elements
-      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle') || e.target.closest('.wf-card-fav')) return;
+      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-stop') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle') || e.target.closest('.wf-card-fav')) return;
       openDetail(id);
     });
 
@@ -395,6 +395,7 @@ function renderWorkflowList(el) {
       renderContent();
     });
     card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
+    card.querySelector('.wf-card-stop')?.addEventListener('click', e => { e.stopPropagation(); const runId = e.currentTarget.dataset.runId; if (runId) api?.cancel(runId); });
     card.querySelector('.wf-card-edit')?.addEventListener('click', e => { e.stopPropagation(); openEditor(id); });
     const toggle = card.querySelector('.wf-card-toggle');
     if (toggle) {
@@ -469,7 +470,10 @@ function cardHtml(wf) {
             ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
           <button class="wf-card-edit" title="Modifier"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>
+          ${lastRun?.status === 'running'
+            ? `<button class="wf-card-stop" data-run-id="${lastRun.id}" title="Arrêter le run"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> <span>Stop</span></button>`
+            : `<button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>`
+          }
         </div>
       </div>
     </div>
@@ -2691,25 +2695,72 @@ function openEditor(workflowId = null) {
   panel.querySelector('#wf-ed-save').addEventListener('click', saveWorkflow);
 
   // Run — always save before triggering to persist graph changes
+  // Once the run starts, button becomes a Stop button until the run ends.
+  let _edRunId = null; // track running run launched from editor
+
+  function _setEdRunBtn(running, runId) {
+    const btn = panel.querySelector('#wf-ed-run');
+    if (!btn) return;
+    if (running) {
+      _edRunId = runId || null;
+      btn.classList.add('wf-editor-btn--stop');
+      btn.classList.remove('wf-editor-btn--run');
+      btn.disabled = false;
+      btn.title = 'Arrêter le run';
+      btn.innerHTML = '<span class="wf-btn-icon"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>Stop';
+    } else {
+      _edRunId = null;
+      btn.classList.remove('wf-editor-btn--stop');
+      btn.classList.add('wf-editor-btn--run');
+      btn.disabled = false;
+      btn.title = 'Lancer le workflow';
+      btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
+    }
+  }
+
+  // Check if a run for this workflow is already in progress when editor opens
+  if (workflowId) {
+    const existingRun = state.runs.find(r => r.workflowId === workflowId && r.status === 'running');
+    if (existingRun) _setEdRunBtn(true, existingRun.id);
+  }
+
   panel.querySelector('#wf-ed-run').addEventListener('click', async () => {
     const btn = panel.querySelector('#wf-ed-run');
+    // If already running, act as Stop
+    if (_edRunId) {
+      api?.cancel(_edRunId);
+      return;
+    }
     btn.disabled = true;
     btn.textContent = 'Saving...';
     try {
       const ok = await saveWorkflow();
       if (!ok) {
         console.warn('[Workflow] Save failed, cannot run');
+        btn.disabled = false;
+        btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
         return;
       }
       if (workflowId) {
-        btn.textContent = 'Running...';
+        btn.textContent = 'Starting...';
         await triggerWorkflow(workflowId);
+        // Button will be updated by onRunStart listener below
       }
-    } finally {
+    } catch (e) {
       btn.disabled = false;
       btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
     }
   });
+
+  // Listen to run lifecycle to update editor run/stop button
+  if (api && workflowId) {
+    api.onRunStart(({ run }) => {
+      if (run?.workflowId === workflowId) _setEdRunBtn(true, run.id);
+    });
+    api.onRunEnd(({ runId, status }) => {
+      if (runId === _edRunId) _setEdRunBtn(false);
+    });
+  }
 
   // ── AI Workflow Builder ──
   const aiPanel = panel.querySelector('#wf-ai-panel');
@@ -3067,6 +3118,7 @@ function openDetail(id) {
   if (!wf) return;
   const runs = state.runs.filter(r => r.workflowId === id);
   const cfg = TRIGGER_CONFIG[wf.trigger?.type] || TRIGGER_CONFIG.manual;
+  const runningRun = runs.find(r => r.status === 'running');
 
   const overlay = document.createElement('div');
   overlay.className = 'wf-overlay';
@@ -3078,7 +3130,10 @@ function openDetail(id) {
           <span class="wf-modal-title">${escapeHtml(wf.name)}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
-          <button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} Lancer</button>
+          ${runningRun
+            ? `<button class="wf-btn-danger wf-btn-sm" id="wf-run-now-stop" data-run-id="${runningRun.id}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Stop</button>`
+            : `<button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} Lancer</button>`
+          }
           <button class="wf-btn-ghost wf-btn-sm" id="wf-edit">Modifier</button>
           <button class="wf-modal-x" id="wf-det-close">${svgX(12)}</button>
         </div>
@@ -3150,7 +3205,8 @@ function openDetail(id) {
   document.body.appendChild(overlay);
   overlay.querySelector('#wf-det-close').addEventListener('click', () => overlay.remove());
   overlay.querySelector('#wf-edit').addEventListener('click', () => { overlay.remove(); openEditor(id); });
-  overlay.querySelector('#wf-run-now').addEventListener('click', () => { triggerWorkflow(id); overlay.remove(); });
+  overlay.querySelector('#wf-run-now')?.addEventListener('click', () => { triggerWorkflow(id); overlay.remove(); });
+  overlay.querySelector('#wf-run-now-stop')?.addEventListener('click', e => { const runId = e.currentTarget.dataset.runId; if (runId) api?.cancel(runId); overlay.remove(); });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
