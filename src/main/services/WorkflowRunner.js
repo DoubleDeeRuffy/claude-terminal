@@ -1542,11 +1542,13 @@ class WorkflowRunner {
       // Per-step timeout: chain into a child abort
       let stepAbort = signal;
       let stepTimer;
+      let _stepAbortOnParent;
       if (stepTimeout) {
         const controller = new AbortController();
         stepTimer = setTimeout(() => controller.abort(), stepTimeout);
-        // Propagate parent cancellation
-        signal.addEventListener('abort', () => controller.abort(), { once: true });
+        // Propagate parent cancellation — stored so we can remove it in finally
+        _stepAbortOnParent = () => controller.abort();
+        signal.addEventListener('abort', _stepAbortOnParent, { once: true });
         stepAbort = controller.signal;
       }
 
@@ -1554,6 +1556,7 @@ class WorkflowRunner {
         const output = await this._dispatchStep(step, vars, runId, stepAbort, workflow);
 
         if (stepTimer) clearTimeout(stepTimer);
+        if (_stepAbortOnParent) signal.removeEventListener('abort', _stepAbortOnParent);
 
         // Store output under step.id for downstream variable access
         if (step.id) {
@@ -1566,6 +1569,7 @@ class WorkflowRunner {
 
       } catch (err) {
         if (stepTimer) clearTimeout(stepTimer);
+        if (_stepAbortOnParent) signal.removeEventListener('abort', _stepAbortOnParent);
         lastErr = err;
 
         if (signal.aborted) throw err; // propagate cancellation immediately
@@ -1752,8 +1756,14 @@ class WorkflowRunner {
     const settled  = await Promise.allSettled(
       substeps.map(sub => {
         const outputs = {};
-        return this._runOneStep(sub, vars, runId, signal, outputs, workflow)
-          .then(() => outputs[sub.id]);
+        // Each substep gets its own child AbortController so that N parallel
+        // substeps don't stack N listeners on the shared parent signal.
+        const subAbort = new AbortController();
+        const onParentAbort = () => subAbort.abort();
+        signal.addEventListener('abort', onParentAbort, { once: true });
+        return this._runOneStep(sub, vars, runId, subAbort.signal, outputs, workflow)
+          .then(() => outputs[sub.id])
+          .finally(() => signal.removeEventListener('abort', onParentAbort));
       })
     );
 
@@ -1805,11 +1815,15 @@ class WorkflowRunner {
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(new Error('Cancelled'));
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
