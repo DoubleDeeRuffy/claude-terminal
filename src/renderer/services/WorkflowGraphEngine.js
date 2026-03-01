@@ -15,6 +15,7 @@ const {
   NODE_DATA_OUTPUTS, NODE_DATA_OUT_OFFSET,
   getNodeColors, isValidConnection,
 } = require('../../shared/workflow-schema');
+const nodeRegistry = require('./NodeRegistry');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -435,6 +436,11 @@ class WorkflowGraphEngine {
     // ── Compatibility shims ──
     this.graph = this._createGraphShim();
     this.canvas = this._createCanvasShim();
+
+    // Précharger la registry async (non-bloquant, pour que addNode() ait les defs)
+    nodeRegistry.loadNodeRegistry().catch(e =>
+      console.warn('[GraphEngine] NodeRegistry load failed:', e.message)
+    );
   }
 
   // ═══ LIFECYCLE ═══════════════════════════════════════════════════════════════
@@ -511,7 +517,7 @@ class WorkflowGraphEngine {
   // ═══ NODE MANAGEMENT ════════════════════════════════════════════════════════
 
   addNode(typeName, pos) {
-    const def = NODE_TYPES[typeName];
+    const def = NODE_TYPES[typeName] || nodeRegistry.get(typeName);
     if (!def) return null;
 
     const id = this._nextNodeId++;
@@ -542,13 +548,17 @@ class WorkflowGraphEngine {
       _outputSchema: null,
     };
 
-    // Handle Switch dynamic outputs
-    if (def.dynamic === 'switch') {
-      this._rebuildSwitchOutputs(node);
-    }
-    // Handle Time dynamic outputs
-    if (def.dynamic === 'time') {
-      this._rebuildTimeOutputs(node);
+    // Dynamic rebuild : use node def's rebuildOutputs if available, else fallback
+    if (def.dynamic) {
+      if (def.rebuildOutputs) {
+        def.rebuildOutputs(this, node);
+      } else if (def.dynamic === 'switch') {
+        this._rebuildSwitchOutputs(node);
+      } else if (def.dynamic === 'time') {
+        this._rebuildTimeOutputs(node);
+      } else if (def.dynamic === 'variable') {
+        this._rebuildVariablePins(node);
+      }
     }
 
     node.size[1] = computeNodeHeight(node);
