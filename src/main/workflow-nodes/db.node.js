@@ -22,11 +22,7 @@ module.exports = {
   props: { connection: '', query: '', action: 'query' },
 
   fields: [
-    { type: 'text',     key: 'connection', label: 'Connexion', placeholder: 'my-db' },
-    { type: 'select',   key: 'action',     label: 'Action',    options: ['query', 'schema', 'tables'] },
-    { type: 'textarea', key: 'query',      label: 'Requête SQL', mono: true,
-      placeholder: 'SELECT * FROM users LIMIT 10',
-      showIf: (p) => p.action === 'query' },
+    { type: 'db-config', key: 'connection', label: 'Configuration base de données' },
   ],
 
   badge: (n) => (n.properties.action || 'query').toUpperCase(),

@@ -20,19 +20,7 @@ module.exports = {
   props: { mode: 'prompt', prompt: '', agentId: '', skillId: '', model: 'sonnet', effort: 'medium', outputSchema: null },
 
   fields: [
-    { type: 'claude-mode-tabs', key: 'mode',   label: 'Mode' },
-    { type: 'variable-textarea', key: 'prompt', label: 'Prompt',
-      showIf: (p) => !p.mode || p.mode === 'prompt' },
-    { type: 'agent-picker',  key: 'agentId', label: 'Agent',
-      showIf: (p) => p.mode === 'agent' },
-    { type: 'skill-picker',  key: 'skillId', label: 'Skill',
-      showIf: (p) => p.mode === 'skill' },
-    { type: 'textarea', key: 'prompt', label: 'Instructions additionnelles',
-      placeholder: 'Contexte supplémentaire (optionnel)',
-      showIf: (p) => p.mode === 'agent' || p.mode === 'skill' },
-    { type: 'model-select',  key: 'model',         label: 'Modèle' },
-    { type: 'effort-select', key: 'effort',         label: 'Effort' },
-    { type: 'structured-output', key: 'outputSchema', label: 'Sortie structurée' },
+    { type: 'claude-config', key: 'mode', label: 'Configuration Claude' },
   ],
 
   badge: (n) => ({ prompt: 'PROMPT', agent: 'AGENT', skill: 'SKILL' }[n.properties.mode] || 'PROMPT'),

@@ -24,11 +24,7 @@ module.exports = {
   props: { source: 'auto', items: '', mode: 'sequential', maxIterations: '', _itemSchema: [] },
 
   fields: [
-    { type: 'select', key: 'source',        label: 'Source', options: ['auto', 'projects', 'files', 'custom'] },
-    { type: 'text',   key: 'items',         label: 'Items',  placeholder: '$myArray', mono: true,
-      showIf: (p) => p.source === 'custom' },
-    { type: 'select', key: 'mode',          label: 'Mode',   options: ['sequential', 'parallel'] },
-    { type: 'text',   key: 'maxIterations', label: 'Max items', placeholder: '100' },
+    { type: 'loop-config', key: 'source', label: 'Configuration boucle' },
   ],
 
   badge: (n) => n.properties.mode === 'parallel' ? 'PARALLEL' : (n.properties.source || 'auto').toUpperCase(),

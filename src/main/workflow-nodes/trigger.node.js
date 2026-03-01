@@ -16,13 +16,7 @@ module.exports = {
   props: { triggerType: 'manual', triggerValue: '', hookType: 'PostToolUse' },
 
   fields: [
-    { type: 'select', key: 'triggerType', label: 'Type',
-      options: ['manual', 'cron', 'hook', 'on_workflow'] },
-    { type: 'text',   key: 'triggerValue', label: 'Valeur', placeholder: '0 9 * * 1-5',
-      showIf: (p) => p.triggerType === 'cron' || p.triggerType === 'on_workflow' },
-    { type: 'select', key: 'hookType', label: 'Hook type',
-      options: ['PostToolUse', 'PreToolUse', 'Stop', 'SubagentStop', 'PreCompact', 'Notification'],
-      showIf: (p) => p.triggerType === 'hook' },
+    { type: 'trigger-config', key: 'triggerType', label: 'Déclencheur' },
   ],
 
   badge: (n) => (n.properties.triggerType || 'manual').toUpperCase(),

@@ -20,9 +20,7 @@ module.exports = {
   props: { workflow: '', inputVars: '', waitForCompletion: true },
 
   fields: [
-    { type: 'text',   key: 'workflow',           label: 'Workflow',   placeholder: 'my-workflow' },
-    { type: 'text',   key: 'inputVars',          label: 'Input vars', placeholder: 'key=value,key2=value2', mono: true },
-    { type: 'select', key: 'waitForCompletion',  label: 'Attendre',   options: ['true', 'false'] },
+    { type: 'subworkflow-picker', key: 'workflow', label: 'Configuration sous-workflow' },
   ],
 
   badge: (n) => n.properties.workflow ? n.properties.workflow.slice(0, 12).toUpperCase() : 'WORKFLOW',

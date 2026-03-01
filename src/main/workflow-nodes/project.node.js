@@ -23,10 +23,7 @@ module.exports = {
   props: { projectId: '', projectName: '', action: 'set_context' },
 
   fields: [
-    { type: 'select', key: 'action',      label: 'Action',
-      options: ['list', 'set_context', 'open', 'build', 'install', 'test'] },
-    { type: 'text',   key: 'projectName', label: 'Projet', placeholder: 'my-project',
-      showIf: (p) => p.action !== 'list' },
+    { type: 'project-config', key: 'action', label: 'Configuration projet' },
   ],
 
   badge: (n) => (n.properties.action || 'set_context').toUpperCase().replace('_', ' '),

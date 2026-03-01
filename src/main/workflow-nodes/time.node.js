@@ -19,10 +19,7 @@ module.exports = {
   props: { action: 'get_today', projectId: '' },
 
   fields: [
-    { type: 'select', key: 'action', label: 'Action',
-      options: ['get_today', 'get_week', 'get_project', 'get_all_projects', 'get_sessions'] },
-    { type: 'text',   key: 'projectId', label: 'Project ID', placeholder: 'proj-xxx',
-      showIf: (p) => p.action === 'get_project' || p.action === 'get_sessions' },
+    { type: 'time-config', key: 'action', label: 'Configuration time tracking' },
   ],
 
   badge: (n) => (n.properties.action || 'get_today').replace('get_', '').toUpperCase(),

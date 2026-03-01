@@ -16,7 +16,9 @@ module.exports = {
 
   fields: [
     { type: 'text',     key: 'title',   label: 'Titre',   placeholder: 'Build terminé' },
-    { type: 'textarea', key: 'message', label: 'Message', placeholder: 'Le build $project est OK' },
+    { type: 'textarea', key: 'message', label: 'Message',
+      hint: 'Variables : $ctx.project, $ctx.branch, $node_X.output',
+      placeholder: 'Le build de $ctx.project est terminé avec succès.' },
   ],
 
   async run(config, vars, signal, ctx) {

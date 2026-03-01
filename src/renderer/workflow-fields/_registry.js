@@ -30,6 +30,15 @@ function loadAll() {
     require('./cron-picker.field'),
     require('./variable-autocomplete.field'),
     require('./sql-editor.field'),
+    // Batch 2 field renderers
+    require('./cwd-picker.field'),
+    require('./trigger-config.field'),
+    require('./claude-config.field'),
+    require('./db-config.field'),
+    require('./loop-config.field'),
+    require('./time-config.field'),
+    require('./project-config.field'),
+    require('./subworkflow-picker.field'),
   ];
   for (const def of files) {
     if (def && def.type) {
