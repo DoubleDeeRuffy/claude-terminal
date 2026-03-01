@@ -436,7 +436,7 @@ function renderPanel() {
           <button class="wf-tab" data-wftab="runs">
             Historique <span class="wf-badge">4</span>
           </button>
-          <button class="wf-tab" data-wftab="hub">
+          <button class="wf-tab wf-tab--hub" id="wf-tab-hub">
             <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             Hub
           </button>
@@ -451,9 +451,15 @@ function renderPanel() {
   `;
 
   el.querySelector('#wf-btn-new').addEventListener('click', () => openEditor());
-  el.querySelectorAll('.wf-tab').forEach(tab => {
+
+  // Hub tab opens modal instead of switching content
+  el.querySelector('#wf-tab-hub').addEventListener('click', () => {
+    WorkflowMarketplace.open();
+  });
+
+  el.querySelectorAll('.wf-tab:not(.wf-tab--hub)').forEach(tab => {
     tab.addEventListener('click', () => {
-      el.querySelectorAll('.wf-tab').forEach(t => t.classList.remove('active'));
+      el.querySelectorAll('.wf-tab:not(.wf-tab--hub)').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       state.activeTab = tab.dataset.wftab;
       renderContent();
@@ -474,7 +480,6 @@ function renderContent() {
   }
   if (state.activeTab === 'workflows') renderWorkflowList(el);
   else if (state.activeTab === 'runs') renderRunHistory(el);
-  else if (state.activeTab === 'hub') WorkflowMarketplace.render(el);
 }
 
 /* ─── Workflow list ────────────────────────────────────────────────────────── */
