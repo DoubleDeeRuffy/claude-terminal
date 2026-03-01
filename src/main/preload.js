@@ -452,6 +452,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     // Graph & utilities
     getDependencyGraph: ()           => ipcRenderer.invoke('workflow-dependency-graph'),
     validateCron:     (expr)         => ipcRenderer.invoke('workflow-validate-cron', { expr }),
+    getNodeRegistry:  ()             => ipcRenderer.invoke('workflow:get-node-registry'),
     // Real-time event listeners
     onRunStart:       createListener('workflow-run-start'),
     onRunEnd:         createListener('workflow-run-end'),

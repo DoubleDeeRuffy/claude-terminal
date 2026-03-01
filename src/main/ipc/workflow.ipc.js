@@ -218,6 +218,33 @@ function registerWorkflowHandlers(mainWindow) {
     }
   });
 
+  // ── Node Registry ─────────────────────────────────────────────────────────
+
+  ipcMain.handle('workflow:get-node-registry', () => {
+    const registry = require('../workflow-nodes/_registry');
+    registry.loadRegistry();
+    return registry.getAll().map(def => ({
+      type:      def.type,
+      title:     def.title,
+      desc:      def.desc,
+      color:     def.color,
+      width:     def.width      || 200,
+      category:  def.category   || 'actions',
+      icon:      def.icon       || '',
+      inputs:    def.inputs     || [],
+      outputs:   def.outputs    || [],
+      props:     def.props      || {},
+      fields:    (def.fields || []).map(f => ({
+        ...f,
+        // showIf est une fonction → sérialiser en string pour re-eval côté renderer
+        showIf: f.showIf ? f.showIf.toString() : undefined,
+      })),
+      dynamic:   def.dynamic   || null,
+      removable: def.removable !== false,
+      resizable: def.resizable !== false,
+    }));
+  });
+
   console.log('[WorkflowIPC] Handlers registered');
 }
 
