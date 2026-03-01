@@ -570,13 +570,19 @@ function buildRunCardHtml(run) {
     </div>${connector}`;
   }).join('');
 
+  const isRunning = run.status === 'running';
   return `
     <div class="wf-run-card wf-run-card--${run.status}" data-run-id="${run.id}">
       <div class="wf-run-card-accent"></div>
       <div class="wf-run-card-body">
         <div class="wf-run-card-top">
           <span class="wf-run-card-name">${escapeHtml(wf?.name || 'Supprim\xE9')}</span>
-          <span class="wf-run-card-status">${statusLabel_}</span>
+          <div class="wf-run-card-top-right">
+            <span class="wf-run-card-status">${statusLabel_}</span>
+            ${isRunning ? `<button class="wf-run-stop-btn" data-run-id="${run.id}" title="Arr\xEAter le run">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            </button>` : ''}
+          </div>
         </div>
         <div class="wf-run-card-meta">${fmtTime(run.startedAt)} \xB7 ${fmtDuration(run.duration)} \xB7 ${escapeHtml(run.trigger)}</div>
         <div class="wf-run-card-pipeline">${pipelineHtml}</div>
@@ -637,6 +643,14 @@ function renderRunHistory(el) {
       card.classList.add('wf-run-card--selected');
       const detailCol = el.querySelector('#wf-detail-col');
       if (detailCol) renderRunDetailInCol(detailCol, run);
+    });
+  });
+
+  // Stop buttons in run cards
+  el.querySelectorAll('.wf-run-stop-btn[data-run-id]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await api?.cancel(btn.dataset.runId);
     });
   });
 
@@ -715,7 +729,13 @@ function renderRunDetailInCol(col, run) {
         <div class="wf-run-detail-title-row">
           <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprim\xE9')}</span>
           <div class="wf-run-detail-actions">
-            ${wf ? `<button class="wf-run-detail-rerun" id="wf-run-rerun">${svgPlay(10)} Re-run</button>` : ''}
+            ${run.status === 'running'
+              ? `<button class="wf-run-stop-btn wf-run-stop-btn--detail" id="wf-run-stop">
+                   <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                   Stop
+                 </button>`
+              : (wf ? `<button class="wf-run-detail-rerun" id="wf-run-rerun">${svgPlay(10)} Re-run</button>` : '')
+            }
             <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
           </div>
         </div>
@@ -735,6 +755,12 @@ function renderRunDetailInCol(col, run) {
   // Re-run button
   col.querySelector('#wf-run-rerun')?.addEventListener('click', async () => {
     if (run.workflowId) await triggerWorkflow(run.workflowId);
+  });
+
+  // Stop button (detail header)
+  col.querySelector('#wf-run-stop')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await api?.cancel(run.id);
   });
 
   // Toggle step outputs / loop accordion

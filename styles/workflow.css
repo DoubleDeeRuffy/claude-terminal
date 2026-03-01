@@ -5908,6 +5908,43 @@ select.wf-step-edit-input {
   padding: 4px 10px 6px 32px;
 }
 
+/* ── Stop button ────────────────────────────────────────────────────────── */
+
+.wf-run-card-top-right {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.wf-run-stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(239,68,68,.35);
+  background: rgba(239,68,68,.08);
+  color: #ef4444;
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.wf-run-stop-btn:hover {
+  background: rgba(239,68,68,.18);
+  border-color: rgba(239,68,68,.6);
+}
+
+.wf-run-stop-btn--detail {
+  padding: 3px 8px;
+  font-size: 10px;
+  border-radius: 5px;
+}
+
 /* Show-more button */
 .wf-runs-show-more {
   text-align: center;
