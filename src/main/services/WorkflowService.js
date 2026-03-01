@@ -16,6 +16,7 @@
 'use strict';
 
 const crypto    = require('crypto');
+const events    = require('events');
 const fs        = require('fs');
 const path      = require('path');
 
@@ -444,6 +445,8 @@ class WorkflowService {
     this._send('workflow-run-start', { run });
 
     const abortController = new AbortController();
+    // Allow many parallel listeners (loop iterations, per-step timeouts, SDK internals…)
+    events.setMaxListeners(200, abortController.signal);
 
     let resolveExec, rejectExec;
     const promise = new Promise((res, rej) => { resolveExec = res; rejectExec = rej; });
