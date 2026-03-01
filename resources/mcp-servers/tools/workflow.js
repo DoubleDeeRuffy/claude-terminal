@@ -146,6 +146,103 @@ function repairSlotRefs(graph) {
   }
 }
 
+// ── Auto-layout: topological sort → vertical/horizontal placement ─────────
+
+const LAYOUT_TITLE_H   = 30;
+const LAYOUT_SLOT_H    = 22;
+const LAYOUT_WIDGET_H  = 28;  // slightly padded for MCP estimation
+const LAYOUT_NODE_W    = 200;
+const LAYOUT_GAP_X     = 80;  // horizontal gap between columns
+const LAYOUT_GAP_Y     = 40;  // vertical gap between nodes in same column
+const LAYOUT_ORIGIN_X  = 80;
+const LAYOUT_ORIGIN_Y  = 80;
+
+function estimateNodeHeight(node) {
+  const inputs  = node.inputs  ? node.inputs.length  : 0;
+  const outputs = node.outputs ? node.outputs.length  : 0;
+  const slots   = Math.max(inputs, outputs);
+  const widgets = node.widgets ? node.widgets.length : 0;
+  return LAYOUT_TITLE_H + Math.max(slots * LAYOUT_SLOT_H + widgets * LAYOUT_WIDGET_H + 10, 50);
+}
+
+function autoLayoutGraph(graph) {
+  const nodes = graph.nodes || [];
+  const links = graph.links || [];
+  if (!nodes.length) return;
+
+  // Build adjacency: exec links only (type -1 or slot 0/1 for most nodes)
+  const children = new Map();  // nodeId → [nodeId]
+  const parents  = new Map();  // nodeId → [nodeId]
+  for (const n of nodes) { children.set(n.id, []); parents.set(n.id, []); }
+
+  for (const link of links) {
+    const [, fromId, , toId] = link;
+    if (children.has(fromId) && parents.has(toId)) {
+      children.get(fromId).push(toId);
+      parents.get(toId).push(fromId);
+    }
+  }
+
+  // Assign depth via BFS from roots (nodes with no parents)
+  const depth = new Map();
+  const roots = nodes.filter(n => !parents.get(n.id)?.length);
+  // If no clear root, use trigger node or first node
+  if (!roots.length) {
+    const trigger = nodes.find(n => (n.type || '').includes('trigger'));
+    roots.push(trigger || nodes[0]);
+  }
+
+  const queue = roots.map(n => ({ id: n.id, d: 0 }));
+  const visited = new Set();
+  for (const r of queue) { depth.set(r.id, 0); visited.add(r.id); }
+
+  while (queue.length) {
+    const { id, d } = queue.shift();
+    for (const child of (children.get(id) || [])) {
+      const newDepth = d + 1;
+      if (!visited.has(child) || (depth.get(child) || 0) < newDepth) {
+        depth.set(child, newDepth);
+        if (!visited.has(child)) {
+          visited.add(child);
+          queue.push({ id: child, d: newDepth });
+        }
+      }
+    }
+  }
+
+  // Assign disconnected nodes to depth 0
+  for (const n of nodes) {
+    if (!depth.has(n.id)) depth.set(n.id, 0);
+  }
+
+  // Group by depth
+  const columns = new Map(); // depth → [node]
+  for (const n of nodes) {
+    const d = depth.get(n.id);
+    if (!columns.has(d)) columns.set(d, []);
+    columns.get(d).push(n);
+  }
+
+  // Sort depths and place nodes
+  const sortedDepths = [...columns.keys()].sort((a, b) => a - b);
+
+  for (const d of sortedDepths) {
+    const col = columns.get(d);
+    // Sort nodes within column by their original order for stability
+    col.sort((a, b) => (a.order || a.id) - (b.order || b.id));
+
+    let y = LAYOUT_ORIGIN_Y;
+    const x = LAYOUT_ORIGIN_X + d * (LAYOUT_NODE_W + LAYOUT_GAP_X);
+
+    for (const node of col) {
+      const h = estimateNodeHeight(node);
+      node.pos = [x, y];
+      node.size = [LAYOUT_NODE_W, h - LAYOUT_TITLE_H];
+      y += h + LAYOUT_GAP_Y;
+    }
+  }
+}
+
 function nextNodeId(graph) {
   const nodes = (graph && graph.nodes) || [];
   return nodes.length ? Math.max(...nodes.map(n => n.id)) + 1 : 1;
@@ -398,7 +495,7 @@ const tools = [
   },
   {
     name: 'workflow_add_node',
-    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value.',
+    description: 'Add a node to an existing workflow graph. Returns the new node ID. Available types: workflow/trigger, workflow/shell, workflow/claude, workflow/git, workflow/http, workflow/db, workflow/file, workflow/notify, workflow/wait, workflow/log, workflow/condition, workflow/loop, workflow/variable, workflow/get_variable, workflow/transform, workflow/subworkflow, workflow/switch. workflow/get_variable is a pure data node (no exec pins) — connect it directly to any data input pin to supply a variable value. Tip: you can skip pos and call workflow_auto_layout after adding all nodes to arrange them cleanly.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -407,7 +504,7 @@ const tools = [
         pos: {
           type: 'array',
           items: { type: 'number' },
-          description: 'Position [x, y] on the canvas. Layout tip: trigger at [100,100], chain downward +160px each step',
+          description: 'Position [x, y] on the canvas. Optional — use workflow_auto_layout after building to arrange all nodes cleanly.',
         },
         properties: { type: 'object', description: 'Node properties (command, prompt, variable, operator, value, etc.)' },
         title: { type: 'string', description: 'Optional custom display title for the node' },
@@ -488,6 +585,17 @@ const tools = [
         new_name: { type: 'string', description: 'New name for the workflow' },
       },
       required: ['workflow', 'new_name'],
+    },
+  },
+  {
+    name: 'workflow_auto_layout',
+    description: 'Auto-arrange all nodes in a workflow graph for clean visual layout. Uses topological sort to place nodes in columns left-to-right following execution flow. Call this after building a workflow to clean up node positions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+      },
+      required: ['workflow'],
     },
   },
 ];
@@ -863,6 +971,25 @@ async function handle(name, args) {
       return ok(`Workflow renamed from "${oldName}" to "${wf.name}" (ID: ${wf.id}).`);
     }
 
+    // ── workflow_auto_layout ────────────────────────────────────────────────
+
+    if (name === 'workflow_auto_layout') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
+      if (!wf.graph?.nodes?.length) return fail('Workflow has no nodes to layout.');
+
+      autoLayoutGraph(wf.graph);
+      wf.updatedAt = new Date().toISOString();
+      saveWorkflowDef(wf);
+      signalReload();
+
+      const nodeCount = wf.graph.nodes.length;
+      log(`Auto-layout applied to "${wf.name}" (${nodeCount} nodes)`);
+      return ok(`Auto-layout applied to "${wf.name}" (${nodeCount} nodes).\nNodes have been arranged left-to-right following execution flow.`);
+    }
+
     // ── workflow_add_node ────────────────────────────────────────────────────
 
     if (name === 'workflow_add_node') {
@@ -897,7 +1024,7 @@ async function handle(name, args) {
       signalReload();
 
       log(`Added node ${nodeId} (${args.type}) to workflow ${wf.id}`);
-      return ok(`Node added successfully.\nNode ID: ${nodeId}\nType: ${args.type}\nPosition: [${node.pos.join(',')}]\n\nUse this ID (${nodeId}) when connecting nodes with workflow_connect_nodes.`);
+      return ok(`Node added successfully.\nNode ID: ${nodeId}\nType: ${args.type}\n\nUse this ID (${nodeId}) when connecting nodes with workflow_connect_nodes.\nCall workflow_auto_layout after adding all nodes to arrange them cleanly.`);
     }
 
     // ── workflow_connect_nodes ───────────────────────────────────────────────
