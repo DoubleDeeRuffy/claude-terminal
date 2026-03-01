@@ -8,8 +8,8 @@ const CONDITION_OPS = [
   { value: '<',            group: 'compare', label: '<' },
   { value: '<=',           group: 'compare', label: '<=' },
   { value: 'contains',     group: 'text',    label: 'contains' },
-  { value: 'startsWith',   group: 'text',    label: 'startsWith' },
-  { value: 'endsWith',     group: 'text',    label: 'endsWith' },
+  { value: 'starts_with',  group: 'text',    label: 'startsWith' },
+  { value: 'ends_with',    group: 'text',    label: 'endsWith' },
   { value: 'matches',      group: 'text',    label: 'matches' },
   { value: 'is_empty',     group: 'unary',   label: 'is empty' },
   { value: 'is_not_empty', group: 'unary',   label: 'not empty' },
@@ -52,8 +52,8 @@ module.exports = {
           { value: '<',            group: 'compare', label: '<' },
           { value: '<=',           group: 'compare', label: '<=' },
           { value: 'contains',     group: 'text',    label: 'contains' },
-          { value: 'startsWith',   group: 'text',    label: 'startsWith' },
-          { value: 'endsWith',     group: 'text',    label: 'endsWith' },
+          { value: 'starts_with',  group: 'text',    label: 'startsWith' },
+          { value: 'ends_with',    group: 'text',    label: 'endsWith' },
           { value: 'matches',      group: 'text',    label: 'matches' },
           { value: 'is_empty',     group: 'unary',   label: 'is empty' },
           { value: 'is_not_empty', group: 'unary',   label: 'not empty' },
@@ -230,7 +230,7 @@ module.exports = {
         return unaryMatch[2] === 'is_empty' ? isEmpty : !isEmpty;
       }
 
-      const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|matches)\s+(.+)$/);
+      const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|ends_with|matches)\s+(.+)$/);
       if (!match) {
         const val = resolved.trim();
         if (val === '' || val === '0' || val === 'null' || val === 'undefined') return false;
@@ -253,6 +253,7 @@ module.exports = {
         case '<=': return numeric && ln <= rn;
         case 'contains':    return left.includes(right);
         case 'starts_with': return left.startsWith(right);
+        case 'ends_with':   return left.endsWith(right);
         case 'matches': {
           try { return new RegExp(right).test(left); } catch { return false; }
         }

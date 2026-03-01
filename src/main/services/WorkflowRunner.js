@@ -119,7 +119,7 @@ function evalCondition(condition, vars) {
   }
 
   // Binary operators (left OP right)
-  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|matches)\s+(.+)$/);
+  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|ends_with|matches)\s+(.+)$/);
   if (!match) {
     // Truthy check (non-empty string / non-zero number)
     const val = resolved.trim();
@@ -145,6 +145,7 @@ function evalCondition(condition, vars) {
     case '<=': return numeric && ln <= rn;
     case 'contains':    return left.includes(right);
     case 'starts_with': return left.startsWith(right);
+    case 'ends_with':   return left.endsWith(right);
     case 'matches': {
       try { return new RegExp(right).test(left); } catch { return false; }
     }
@@ -1263,12 +1264,17 @@ class WorkflowRunner {
                 const iterResult = { ...outputs, _item: item };
                 doneResults[idx] = iterResult;
                 _emitLoopProgress(doneResults.filter(Boolean));
-                return iterResult;
+                return { success: true, result: iterResult };
+              } catch (iterErr) {
+                return { success: false, error: iterErr.message, _item: item };
               } finally {
                 signal.removeEventListener('abort', onParentAbort);
               }
             });
-            iterationResults.push(...await Promise.all(promises));
+            const settled = await Promise.all(promises);
+            for (const s of settled) {
+              iterationResults.push(s.success ? s.result : { _error: s.error, _item: s._item });
+            }
           } else {
             // Sequential execution (default)
             for (let idx = 0; idx < items.length; idx++) {
@@ -1290,11 +1296,13 @@ class WorkflowRunner {
             }
           }
 
-          // 4. Store loop result and emit success
-          const loopOutput = { items: iterationResults, count: items.length };
+          // 4. Store loop result and emit status (failed if any iteration errored)
+          const failedCount = iterationResults.filter(r => r && r._error).length;
+          const loopOutput = { items: iterationResults, count: items.length, failedCount };
           vars.set(step.id, loopOutput);
           stepOutputs[step.id] = loopOutput;
-          this._emitStep(runId, step, 'success', loopOutput);
+          const loopStatus = failedCount > 0 ? 'failed' : 'success';
+          this._emitStep(runId, step, loopStatus, loopOutput);
 
           // 5. Clean up loop context
           vars.delete('loop');
