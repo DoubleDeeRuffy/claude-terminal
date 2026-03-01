@@ -8,6 +8,8 @@ const { schemaCache } = require('../../services/WorkflowSchemaCache');
 const { showContextMenu } = require('../components/ContextMenu');
 const { showConfirm } = require('../components/Modal');
 const { createChatView } = require('../components/ChatView');
+const nodeRegistry = require('../../services/NodeRegistry');
+const fieldRegistry = require('../../workflow-fields/_registry');
 
 const {
   // Constants
@@ -1014,6 +1016,12 @@ function openEditor(workflowId = null) {
   // Pre-load DB connections from disk (async, used by DB node properties)
   loadDbConnections();
 
+  // Pre-load node registry (async, used by generic field renderer)
+  nodeRegistry.loadNodeRegistry().catch(e => console.warn('[WorkflowPanel] nodeRegistry load error:', e));
+
+  // Load all custom field renderers (synchronous, idempotent)
+  fieldRegistry.loadAll();
+
   const graphService = getGraphService();
 
   // Store previous panel content for restore
@@ -1225,6 +1233,93 @@ function openEditor(workflowId = null) {
   });
   resizeObs.observe(canvasWrap);
 
+  // ── Generic field renderer (registry-driven) ──────────────────────────────
+  /**
+   * Génère le HTML des champs depuis la définition de node registry.
+   * @param {Array} fields - Tableau de définitions de champs
+   * @param {Object} props - Propriétés actuelles du node
+   * @param {Object} node - Le node LiteGraph courant
+   * @returns {string} HTML généré
+   */
+  function _renderFieldsFromDef(fields, props, node) {
+    return fields.map(field => {
+      // Gérer conditional fields (showIf déjà hydraté en fonction par NodeRegistry)
+      if (field.showIf && typeof field.showIf === 'function') {
+        if (!field.showIf(props)) return '';
+      }
+      if (field.showIf && typeof field.showIf === 'string') {
+        try {
+          // eslint-disable-next-line no-new-func
+          const fn = new Function('props', 'return (' + field.showIf + ')(props)');
+          if (!fn(props)) return '';
+        } catch { /* show anyway */ }
+      }
+
+      // Essayer le field renderer custom d'abord
+      const customRenderer = fieldRegistry.get(field.type);
+      if (customRenderer) {
+        return customRenderer.render(field, props[field.key] ?? '', node);
+      }
+
+      // Renderers built-in
+      const value = props[field.key] ?? (field.default ?? '');
+      const label = field.label || field.key;
+      const key = field.key;
+
+      switch (field.type) {
+        case 'text':
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            <input class="wf-step-edit-input wf-node-prop${field.mono ? ' wf-field-mono' : ''}"
+              data-key="${key}" value="${escapeHtml(String(value))}"
+              placeholder="${escapeHtml(field.placeholder || '')}" />
+          </div>`;
+
+        case 'textarea':
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            <textarea class="wf-step-edit-input wf-node-prop${field.mono ? ' wf-field-mono' : ''}"
+              data-key="${key}" rows="${field.rows || 3}"
+              placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(String(value))}</textarea>
+          </div>`;
+
+        case 'select': {
+          const options = (field.options || []).map(opt => {
+            const optVal = typeof opt === 'object' ? opt.value : opt;
+            const optLabel = typeof opt === 'object' ? opt.label : opt;
+            return `<option value="${escapeHtml(String(optVal))}" ${String(value) === String(optVal) ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+          }).join('');
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            <select class="wf-step-edit-input wf-node-prop" data-key="${key}">${options}</select>
+          </div>`;
+        }
+
+        case 'toggle':
+          return `<div class="wf-step-edit-field" style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" class="wf-node-prop" data-key="${key}"
+              id="wf-toggle-${key}" ${value ? 'checked' : ''} style="width:auto;margin:0" />
+            <label for="wf-toggle-${key}" style="margin:0;cursor:pointer;font-size:var(--font-xs)">${escapeHtml(label)}</label>
+          </div>`;
+
+        case 'hint':
+          return `<div class="wf-step-edit-field">
+            <span class="wf-field-hint">${escapeHtml(field.text || label)}</span>
+          </div>`;
+
+        default:
+          // Type inconnu, render comme text
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            <input class="wf-step-edit-input wf-node-prop" data-key="${key}" value="${escapeHtml(String(value))}" />
+          </div>`;
+      }
+    }).join('');
+  }
+
   // ── Properties panel rendering ──
   const renderProperties = (node) => {
     const propsEl = panel.querySelector('#wf-ed-properties');
@@ -1306,6 +1401,15 @@ function openEditor(workflowId = null) {
     };
 
     let fieldsHtml = '';
+
+    // ── Moteur générique (registry-driven) ──────────────────────────────────
+    const nodeDef = nodeRegistry.get(node.type);
+    if (nodeDef && nodeDef.fields && nodeDef.fields.length > 0) {
+      fieldsHtml = _renderFieldsFromDef(nodeDef.fields, props, node);
+    }
+
+    // Si le moteur générique n'a pas produit de HTML, utiliser le code legacy.
+    if (fieldsHtml === '') {
 
     // Trigger node properties
     if (nodeType === 'trigger') {
@@ -2109,6 +2213,8 @@ function openEditor(workflowId = null) {
       `;
     }
 
+    } // end if (fieldsHtml === '') — legacy fallback
+
     const customTitle = node.properties._customTitle || '';
     const nodeStepId = `node_${node.id}`;
 
@@ -2200,12 +2306,28 @@ function openEditor(workflowId = null) {
     // Upgrade native selects to custom dropdowns
     upgradeSelectsToDropdowns(propsEl);
 
+    // ── Bind custom field renderers ──────────────────────────────────────────
+    if (nodeDef && nodeDef.fields) {
+      nodeDef.fields.forEach(field => {
+        const customRenderer = fieldRegistry.get(field.type);
+        if (!customRenderer?.bind) return;
+        const container = propsEl.querySelector(`[data-key="${field.key}"]`)?.closest('.wf-field-group');
+        if (!container) return;
+        customRenderer.bind(container, field, node, (newValue) => {
+          node.properties[field.key] = newValue;
+          editorDraft.dirty = true;
+          graphService.canvas?.setDirty?.(true, true);
+        });
+      });
+    }
+
     // ── Bind property inputs ──
     let _propSnapshotTimer = null;
     propsEl.querySelectorAll('.wf-node-prop').forEach(input => {
       const handler = () => {
         const key = input.dataset.key;
-        const val = input.value;
+        // Support toggle (checkbox) fields from the generic renderer
+        const val = input.type === 'checkbox' ? input.checked : input.value;
         node.properties[key] = val;
         editorDraft.dirty = true;
         // Update widget display in node
