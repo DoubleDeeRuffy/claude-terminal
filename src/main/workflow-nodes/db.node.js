@@ -51,11 +51,15 @@ module.exports = {
     if (!connConfig) throw new Error(`Database connection "${connId}" not found`);
 
     const cred = await databaseService.getCredential(connId);
+    // Use a shallow copy to avoid mutating the cached config object
+    const connWithCred = { ...connConfig };
     if (cred?.success && cred.password) {
-      connConfig.password = cred.password;
+      connWithCred.password = cred.password;
     }
 
-    const connResult = await databaseService.connect(connId, connConfig);
+    const connResult = await databaseService.connect(connId, connWithCred);
+    // Wipe password from memory as soon as the connection is established
+    if (connWithCred.password) connWithCred.password = '';
     if (!connResult?.success) {
       throw new Error(`Database connection failed: ${connResult?.error || 'Unknown error'}`);
     }
