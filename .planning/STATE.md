@@ -3,22 +3,22 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Consolidations
 status: active
-last_updated: "2026-02-28T00:00:00.000Z"
+last_updated: "2026-03-01T00:00:00.000Z"
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 0
-  total_plans: 1
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 29 (Adjust-Idle-Recognization) — PLANNED
-Plan: 29A — READY
-Status: Phase 29 planned
-Last activity: 2026-02-28 — Phase 29 planned (split heartbeat into user time-tracking and Claude activity)
+Phase: 31 (Tab-Splitview) — PLANNED
+Plan: 31A-31D — 4 plans in 4 waves
+Status: Phase 31 planned, ready for execution
+Last activity: 2026-03-01 — Phase 31 planned (4 plans: PaneManager infrastructure, pane-aware activation, split triggers, persistence)
 
 ## Accumulated Context
 
@@ -34,3 +34,5 @@ Last activity: 2026-02-28 — Phase 29 planned (split heartbeat into user time-t
 - Phase 27 added: Rename-Tabs-Manually
 - Phase 28 added: Paste-Doubles-Linebreaks
 - Phase 29 added: Adjust-Idle-Recognization
+- Phase 30 added: Support-NSIS-Silent
+- Phase 31 added: Tab-Splitview (4 plans: infra, activation, triggers, persistence)
