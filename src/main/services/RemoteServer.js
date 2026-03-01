@@ -137,7 +137,7 @@ function _getNetworkInterfaces() {
 // ─── PIN Management ───────────────────────────────────────────────────────────
 
 function generatePin() {
-  _pin = String(crypto.randomInt(0, 10000)).padStart(4, '0');
+  _pin = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   _pinExpiry = Date.now() + PIN_TTL_MS;
   _pinUsed = false;
   console.log(`[Remote] New PIN generated (valid 2 min)`);

@@ -16,7 +16,7 @@ const _debugLog = console.log.bind(console);
 const _isFr = navigator.language.toLowerCase().startsWith('fr');
 
 const STRINGS = {
-  pinMessage: _isFr ? 'Entrez le code affiché dans\nParamètres → Télécommande' : 'Enter the 4-digit PIN shown in\nSettings → Remote Control',
+  pinMessage: _isFr ? 'Entrez le code affiché dans\nParamètres → Télécommande' : 'Enter the 6-digit PIN shown in\nSettings → Remote Control',
   pinError: _isFr ? 'Code invalide ou expiré. Réessayez.' : 'Invalid or expired PIN. Try again.',
   pinConnFail: _isFr ? 'Connexion impossible. Le serveur est-il démarré ?' : 'Connection failed. Is the server running?',
   noSession: _isFr ? 'Nouveau chat' : 'New chat',
@@ -323,9 +323,9 @@ function setupPinEntry() {
   if (!pinInput || !submitBtn) return;
 
   pinInput.addEventListener('input', () => {
-    const val = pinInput.value.replace(/\D/g, '').slice(0, 4);
+    const val = pinInput.value.replace(/\D/g, '').slice(0, 6);
     pinInput.value = val;
-    if (val.length === 4) submitPin(val);
+    if (val.length === 6) submitPin(val);
   });
   submitBtn.addEventListener('click', () => submitPin(pinInput.value.trim()));
   pinInput.addEventListener('keydown', (e) => {
@@ -334,7 +334,7 @@ function setupPinEntry() {
 }
 
 async function submitPin(pin) {
-  if (!pin || pin.length < 4) return;
+  if (!pin || pin.length < 6) return;
 
   const pinInput = $('pin-input');
   const submitBtn = $('pin-submit-btn');
