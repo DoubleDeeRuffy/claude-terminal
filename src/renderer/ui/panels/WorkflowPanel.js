@@ -240,7 +240,11 @@ function _updateStepInDetail(runId, stepId, status, output) {
   if (stepIdx === -1) return;
 
   const stepEl = document.querySelector(`.wf-run-step[data-step-id="${stepId}"]`);
-  if (!stepEl) { renderRunDetail(document.getElementById('wf-content'), run); return; }
+  if (!stepEl) {
+    const detailCol = document.getElementById('wf-detail-col');
+    if (detailCol) renderRunDetailInCol(detailCol, run);
+    return;
+  }
 
   // Update status class
   stepEl.className = stepEl.className.replace(/wf-run-step--\w+/g, '');
@@ -472,196 +476,332 @@ function cardHtml(wf) {
   `;
 }
 
+/* ─── Run history helpers ──────────────────────────────────────────────────── */
+
+function buildTimelineHtml(steps) {
+  const total = steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
+  return steps
+    .filter(s => s.duration > 0 || s.status === 'running')
+    .map(s => {
+      const sType = (s.type || '').split('.')[0];
+      const pct = Math.max(1, Math.round(((s.duration || 0) / total) * 100));
+      return `<div class="wf-run-timeline-seg wf-run-timeline-seg--${sType}" style="width:${pct}%" title="${sType}"></div>`;
+    })
+    .join('');
+}
+
+function buildLoopIterationsHtml(step, totalRunDuration) {
+  const loopOutput = step.output;
+  if (!loopOutput || !Array.isArray(loopOutput.items)) return '';
+
+  const chevronSvg = `<svg class="wf-loop-iter-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+
+  const itersHtml = loopOutput.items.map((iterOutputs, idx) => {
+    const item = iterOutputs?._item;
+    let itemLabel = `Itération ${idx + 1}`;
+    if (item && typeof item === 'object') {
+      if (item.name && item.path) itemLabel = `\uD83D\uDCC1 ${escapeHtml(item.name)} \xB7 ${escapeHtml(item.path)}`;
+      else if (item.name) itemLabel = `\uD83D\uDCC1 ${escapeHtml(item.name)}`;
+      else itemLabel = `${idx + 1} \xB7 ${escapeHtml(JSON.stringify(item).slice(0, 40))}`;
+    } else if (typeof item === 'string') {
+      itemLabel = `${idx + 1} \xB7 ${escapeHtml(item.slice(0, 50))}`;
+    }
+
+    const childEntries = Object.entries(iterOutputs || {}).filter(([k]) => k !== '_item');
+    const hasFailed = childEntries.some(([, v]) => v?._status === 'failed');
+    const hasRunning = childEntries.some(([, v]) => v?._status === 'running');
+    const iterStatus = hasFailed ? 'failed' : hasRunning ? 'running' : 'success';
+    const iterStatusIcon = iterStatus === 'success' ? '\u2713' : iterStatus === 'failed' ? '\u2717' : '\u2026';
+
+    const childStepsHtml = childEntries.map(([nodeId, nodeOutput]) => {
+      const childStatus = nodeOutput?._status || 'success';
+      const childType = (nodeOutput?._type || nodeId.replace('node_', '')).split('.')[0];
+      const childInfo = findStepType(childType);
+      const childDur = nodeOutput?._duration || 0;
+      const childPct = totalRunDuration > 0 ? Math.max(1, Math.round((childDur / totalRunDuration) * 100)) : 2;
+      const hasOut = nodeOutput != null && Object.keys(nodeOutput).filter(k => !k.startsWith('_')).length > 0;
+      const childChevron = hasOut ? `<svg class="wf-loop-child-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>` : '';
+      return `
+        <div class="wf-loop-child-step wf-loop-child-step--${childStatus}${hasOut ? ' has-output' : ''}" data-node-id="${escapeHtml(nodeId)}" data-iter="${idx}">
+          <span class="wf-chip wf-chip--${childInfo.color}">${childInfo.icon}</span>
+          <span class="wf-loop-child-type">${escapeHtml(childInfo.label || childType)}</span>
+          <div class="wf-loop-child-timing"><div class="wf-loop-child-timing-bar" style="width:${childPct}%"></div></div>
+          <span class="wf-loop-child-dur">${fmtDuration(childDur)}</span>
+          <span class="wf-loop-child-status">${childStatus === 'success' ? '\u2713' : childStatus === 'failed' ? '\u2717' : childStatus === 'skipped' ? '\u2013' : '\u2026'}</span>
+          ${childChevron}
+        </div>
+        ${hasOut ? `<div class="wf-loop-child-output" style="display:none"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(nodeOutput))}</pre></div>` : ''}
+      `;
+    }).join('');
+
+    return `
+      <div class="wf-loop-iter wf-loop-iter--${iterStatus}" data-iter-idx="${idx}">
+        <div class="wf-loop-iter-header">
+          <span class="wf-loop-iter-num">${idx + 1}</span>
+          <span class="wf-loop-iter-item">${itemLabel}</span>
+          <span class="wf-loop-iter-status">${iterStatusIcon}</span>
+          ${chevronSvg}
+        </div>
+        <div class="wf-loop-iter-steps" style="display:none">${childStepsHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  return `<div class="wf-loop-iterations" style="display:none">${itersHtml}</div>`;
+}
+
+function buildRunCardHtml(run) {
+  const wf = state.workflows.find(w => w.id === run.workflowId);
+  const statusLabels = { success: '\u25CF Succ\xE8s', failed: '\u2717 \xC9chec', running: '\u27F3 En cours', cancelled: '\u2013 Annul\xE9', pending: '\u2026 En attente' };
+  const statusLabel_ = statusLabels[run.status] || run.status;
+
+  const pipelineHtml = (run.steps || []).map((s, i) => {
+    const sType = (s.type || s.name || '').split('.')[0];
+    const info = findStepType(sType);
+    const statusIcon = s.status === 'success' ? '\u2713' : s.status === 'failed' ? '\u2717' : s.status === 'skipped' ? '\u2013' : s.status === 'running' ? '\u2026' : '';
+    const isLoop = sType === 'loop';
+    const loopCount = isLoop && s.output?.count ? `<span class="wf-run-pipe-loop-count">\xD7${s.output.count}</span>` : '';
+    const connector = i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : '';
+    return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
+      <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+      <span class="wf-run-pipe-name">${escapeHtml(info.label || sType)}</span>
+      ${loopCount}
+      ${statusIcon ? `<span class="wf-run-pipe-status">${statusIcon}</span>` : ''}
+    </div>${connector}`;
+  }).join('');
+
+  return `
+    <div class="wf-run-card wf-run-card--${run.status}" data-run-id="${run.id}">
+      <div class="wf-run-card-accent"></div>
+      <div class="wf-run-card-body">
+        <div class="wf-run-card-top">
+          <span class="wf-run-card-name">${escapeHtml(wf?.name || 'Supprim\xE9')}</span>
+          <span class="wf-run-card-status">${statusLabel_}</span>
+        </div>
+        <div class="wf-run-card-meta">${fmtTime(run.startedAt)} \xB7 ${fmtDuration(run.duration)} \xB7 ${escapeHtml(run.trigger)}</div>
+        <div class="wf-run-card-pipeline">${pipelineHtml}</div>
+      </div>
+    </div>
+  `;
+}
+
 /* ─── Run history ──────────────────────────────────────────────────────────── */
 
 function renderRunHistory(el) {
-  if (!state.runs.length) {
-    el.innerHTML = `<div class="wf-empty"><p class="wf-empty-title">Aucun run</p><p class="wf-empty-sub">Les exécutions s'afficheront ici</p></div>`;
-    return;
-  }
-
-  const INITIAL_LIMIT = 15;
+  const INITIAL_LIMIT = 20;
   const showAll = el._showAllRuns || false;
   const runs = showAll ? state.runs : state.runs.slice(0, INITIAL_LIMIT);
   const hasMore = state.runs.length > INITIAL_LIMIT && !showAll;
 
-  function buildRunRow(run) {
-    const wf = state.workflows.find(w => w.id === run.workflowId);
-    return `
-      <div class="wf-run wf-run--${run.status}" data-run-id="${run.id}">
-        <div class="wf-run-bar wf-run-bar--${run.status}"></div>
-        <div class="wf-run-body">
-          <div class="wf-run-header">
-            <div class="wf-run-header-left">
-              <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
-              <div class="wf-run-meta">
-                <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
-                <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
-              </div>
-            </div>
-            <div class="wf-run-header-right">
-              <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
-              <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
-            </div>
-          </div>
-          <div class="wf-run-pipeline">
-            ${(run.steps || []).map((s, i) => {
-              const sType = (s.type || s.name || '').split('.')[0];
-              const info = findStepType(sType);
-              const statusIcon = s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : s.status === 'running' ? '…' : '';
-              return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
-                <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                <span class="wf-run-pipe-name">${escapeHtml(info.label || sType)}</span>
-                ${statusIcon ? `<span class="wf-run-pipe-status">${statusIcon}</span>` : ''}
-              </div>${i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
-            }).join('')}
-          </div>
-        </div>
-      </div>`;
-  }
-
   el.innerHTML = `
-    <div class="wf-runs-header">
-      <span class="wf-runs-count">${state.runs.length} run${state.runs.length > 1 ? 's' : ''}</span>
-      <button class="wf-runs-clear" id="wf-clear-runs" title="Effacer l'historique">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-        Effacer
-      </button>
-    </div>
-    <div class="wf-runs">
-      ${runs.map(buildRunRow).join('')}
-      ${hasMore ? `<div class="wf-runs-show-more" id="wf-show-more-runs">Afficher ${state.runs.length - INITIAL_LIMIT} runs de plus</div>` : ''}
+    <div class="wf-history-layout">
+      <div class="wf-runs-list">
+        <div class="wf-runs-list-header">
+          <span class="wf-runs-list-count">${state.runs.length} run${state.runs.length !== 1 ? 's' : ''}</span>
+          <button class="wf-runs-clear" id="wf-clear-runs" title="Effacer l'historique">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            Effacer
+          </button>
+        </div>
+        <div class="wf-runs-list-scroll">
+          ${!state.runs.length ? `<div class="wf-empty"><p class="wf-empty-title">Aucun run</p><p class="wf-empty-sub">Les ex\xE9cutions s'afficheront ici</p></div>` : ''}
+          ${runs.map(buildRunCardHtml).join('')}
+          ${hasMore ? `<div class="wf-runs-show-more" id="wf-show-more-runs">Afficher ${state.runs.length - INITIAL_LIMIT} runs de plus</div>` : ''}
+        </div>
+      </div>
+      <div class="wf-run-detail-col" id="wf-detail-col">
+        <div class="wf-run-detail-empty">
+          <span class="wf-run-detail-empty-icon">\u27F3</span>
+          <span class="wf-run-detail-empty-text">S\xE9lectionne un run pour voir le d\xE9tail</span>
+        </div>
+      </div>
     </div>
   `;
 
-  // Clear all runs
-  const clearBtn = el.querySelector('#wf-clear-runs');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const confirmed = await showConfirm({
-        title: 'Effacer l\'historique',
-        message: `Supprimer les ${state.runs.length} runs de l'historique ? Cette action est irréversible.`,
-        confirmLabel: 'Effacer',
-        danger: true,
-      });
-      if (!confirmed) return;
-      await api?.clearAllRuns();
-      state.runs = [];
-      renderContent();
-    });
+  // Restore previously selected run detail
+  if (state.viewingRunId) {
+    const run = state.runs.find(r => r.id === state.viewingRunId);
+    if (run) {
+      const detailCol = el.querySelector('#wf-detail-col');
+      renderRunDetailInCol(detailCol, run);
+      el.querySelector(`.wf-run-card[data-run-id="${run.id}"]`)?.classList.add('wf-run-card--selected');
+    }
   }
 
-  // Bind click to open run detail
-  el.querySelectorAll('.wf-run[data-run-id]').forEach(runEl => {
-    runEl.addEventListener('click', () => {
-      const run = state.runs.find(r => r.id === runEl.dataset.runId);
-      if (run) renderRunDetail(el, run);
+  // Click on run card → show detail in right column
+  el.querySelectorAll('.wf-run-card[data-run-id]').forEach(card => {
+    card.addEventListener('click', () => {
+      const run = state.runs.find(r => r.id === card.dataset.runId);
+      if (!run) return;
+      el.querySelectorAll('.wf-run-card').forEach(c => c.classList.remove('wf-run-card--selected'));
+      card.classList.add('wf-run-card--selected');
+      const detailCol = el.querySelector('#wf-detail-col');
+      if (detailCol) renderRunDetailInCol(detailCol, run);
     });
   });
 
-  // Show more button
-  const showMoreBtn = el.querySelector('#wf-show-more-runs');
-  if (showMoreBtn) {
-    showMoreBtn.addEventListener('click', () => {
-      el._showAllRuns = true;
-      renderRunHistory(el);
+  // Clear all runs
+  el.querySelector('#wf-clear-runs')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const confirmed = await showConfirm({
+      title: 'Effacer l\'historique',
+      message: `Supprimer les ${state.runs.length} runs de l'historique ? Cette action est irr\xE9versible.`,
+      confirmLabel: 'Effacer',
+      danger: true,
     });
-  }
-}
-
-/* ─── Run Detail View ──────────────────────────────────────────────────── */
-
-function renderRunDetail(el, run) {
-  state.viewingRunId = run.id;
-  const wf = state.workflows.find(w => w.id === run.workflowId);
-  const steps = run.steps || [];
-  const totalDuration = run.duration || steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
-
-  el.innerHTML = `
-    <div class="wf-run-detail">
-      <div class="wf-run-detail-header">
-        <button class="wf-run-detail-back" id="wf-run-back">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <div class="wf-run-detail-info">
-          <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprimé')}</span>
-          <div class="wf-run-detail-meta">
-            ${svgClock(9)} ${fmtTime(run.startedAt)}
-            <span style="margin:0 6px;opacity:.3">·</span>
-            ${svgTimer()} ${fmtDuration(run.duration)}
-            <span style="margin:0 6px;opacity:.3">·</span>
-            <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
-          </div>
-        </div>
-        <div class="wf-run-detail-actions">
-          ${wf ? `<button class="wf-run-detail-rerun" id="wf-run-rerun" title="Relancer ce workflow">
-            ${svgPlay(10)} Re-run
-          </button>` : ''}
-          <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
-        </div>
-      </div>
-      <div class="wf-run-detail-steps">
-        ${steps.map((step, i) => {
-          const sType = (step.type || step.name || '').split('.')[0];
-          const info = findStepType(sType);
-          const hasOutput = step.output != null;
-          const isFailed = step.status === 'failed';
-          const isRunningAgent = step.status === 'running' && (sType === 'claude' || sType === 'agent');
-          const errorMsg = isFailed && step.error ? step.error : (isFailed && typeof step.output === 'string' && step.output.length < 500 ? step.output : null);
-          const pct = Math.max(2, Math.round(((step.duration || 0) / totalDuration) * 100));
-          return `
-            <div class="wf-run-step wf-run-step--${step.status} ${isFailed ? 'wf-run-step--error-highlight' : ''}" data-step-idx="${i}" data-step-id="${step.id}">
-              <div class="wf-run-step-header">
-                <span class="wf-run-step-num">${i + 1}</span>
-                <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
-                <span class="wf-run-step-type">${escapeHtml(info.label || sType).toUpperCase()}</span>
-                <div class="wf-run-step-timing">
-                  <div class="wf-run-step-timing-bar" style="width:${pct}%"></div>
-                </div>
-                <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
-                <span class="wf-run-step-status-icon">${step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…'}</span>
-                ${hasOutput ? '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' : ''}
-              </div>
-              ${isRunningAgent ? `<div class="wf-live-log" data-step-id="${step.id}"></div>` : ''}
-              ${errorMsg ? `<div class="wf-run-step-error"><span class="wf-run-step-error-label">Error</span> ${escapeHtml(errorMsg)}</div>` : ''}
-              ${hasOutput ? `<div class="wf-run-step-output" style="display:${isFailed ? 'block' : 'none'}"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  `;
-
-  // Back button
-  el.querySelector('#wf-run-back').addEventListener('click', () => {
+    if (!confirmed) return;
+    await api?.clearAllRuns();
+    state.runs = [];
     state.viewingRunId = null;
     renderContent();
   });
 
+  // Show more
+  el.querySelector('#wf-show-more-runs')?.addEventListener('click', () => {
+    el._showAllRuns = true;
+    renderRunHistory(el);
+  });
+}
+
+/* ─── Run Detail View ──────────────────────────────────────────────────── */
+
+function renderRunDetailInCol(col, run) {
+  state.viewingRunId = run.id;
+  const wf = state.workflows.find(w => w.id === run.workflowId);
+  const steps = run.steps || [];
+  const totalDuration = steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
+  const chevronSvg = `<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+
+  const stepsHtml = steps.map((step, i) => {
+    const sType = (step.type || step.name || '').split('.')[0];
+    const info = findStepType(sType);
+    const isLoop = sType === 'loop';
+    const hasOutput = step.output != null;
+    const isFailed = step.status === 'failed';
+    const isRunningAgent = step.status === 'running' && (sType === 'claude' || sType === 'agent');
+    const errorMsg = isFailed && step.error ? step.error : (isFailed && typeof step.output === 'string' && step.output.length < 500 ? step.output : null);
+    const pct = Math.max(2, Math.round(((step.duration || 0) / totalDuration) * 100));
+    const loopCount = isLoop && step.output?.count ? step.output.count : 0;
+    const loopBadge = isLoop && loopCount ? `<span class="wf-loop-iter-badge">\xD7${loopCount}</span>` : '';
+    const loopAccordion = isLoop ? buildLoopIterationsHtml(step, totalDuration) : '';
+    const outputSection = isLoop
+      ? loopAccordion
+      : (hasOutput ? `<div class="wf-run-step-output" style="display:${isFailed ? 'block' : 'none'}"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : '');
+    const canExpand = isLoop ? loopCount > 0 : hasOutput;
+
+    return `
+      <div class="wf-run-step wf-run-step--${step.status}${isFailed ? ' wf-run-step--error-highlight' : ''}" data-step-idx="${i}" data-step-id="${step.id}">
+        <div class="wf-run-step-header">
+          <span class="wf-run-step-num">${i + 1}</span>
+          <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+          <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
+          <span class="wf-run-step-type">${escapeHtml(info.label || sType).toUpperCase()}</span>
+          <div class="wf-run-step-timing"><div class="wf-run-step-timing-bar" style="width:${pct}%"></div></div>
+          <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
+          ${loopBadge}
+          <span class="wf-run-step-status-icon">${step.status === 'success' ? '\u2713' : step.status === 'failed' ? '\u2717' : step.status === 'skipped' ? '\u2013' : '\u2026'}</span>
+          ${canExpand ? chevronSvg : ''}
+        </div>
+        ${isRunningAgent ? `<div class="wf-live-log" data-step-id="${step.id}"></div>` : ''}
+        ${errorMsg ? `<div class="wf-run-step-error"><span class="wf-run-step-error-label">Error</span> ${escapeHtml(errorMsg)}</div>` : ''}
+        ${outputSection}
+      </div>
+    `;
+  }).join('');
+
+  col.innerHTML = `
+    <div class="wf-run-detail">
+      <div class="wf-run-detail-header-new">
+        <div class="wf-run-detail-title-row">
+          <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprim\xE9')}</span>
+          <div class="wf-run-detail-actions">
+            ${wf ? `<button class="wf-run-detail-rerun" id="wf-run-rerun">${svgPlay(10)} Re-run</button>` : ''}
+            <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+          </div>
+        </div>
+        <div class="wf-run-detail-meta">
+          ${svgClock(9)} ${fmtTime(run.startedAt)}
+          <span style="margin:0 5px;opacity:.25">\xB7</span>
+          ${svgTimer()} ${fmtDuration(run.duration)}
+          <span style="margin:0 5px;opacity:.25">\xB7</span>
+          <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
+        </div>
+        <div class="wf-run-detail-timeline">${buildTimelineHtml(steps)}</div>
+      </div>
+      <div class="wf-run-detail-steps">${stepsHtml}</div>
+    </div>
+  `;
+
   // Re-run button
-  el.querySelector('#wf-run-rerun')?.addEventListener('click', async () => {
+  col.querySelector('#wf-run-rerun')?.addEventListener('click', async () => {
     if (run.workflowId) await triggerWorkflow(run.workflowId);
   });
 
-  // Toggle step outputs
-  el.querySelectorAll('.wf-run-step').forEach(stepEl => {
+  // Toggle step outputs / loop accordion
+  col.querySelectorAll('.wf-run-step').forEach(stepEl => {
     const header = stepEl.querySelector('.wf-run-step-header');
-    const output = stepEl.querySelector('.wf-run-step-output');
-    if (!output) return;
-    header.style.cursor = 'pointer';
-    header.addEventListener('click', () => {
-      const visible = output.style.display !== 'none';
-      output.style.display = visible ? 'none' : 'block';
-      stepEl.classList.toggle('expanded', !visible);
-    });
+    const isLoop = stepEl.querySelector('.wf-loop-iterations') != null;
+
+    if (isLoop) {
+      const iterationsEl = stepEl.querySelector('.wf-loop-iterations');
+      if (!iterationsEl) return;
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', () => {
+        const visible = iterationsEl.style.display !== 'none';
+        iterationsEl.style.display = visible ? 'none' : 'block';
+        stepEl.classList.toggle('expanded', !visible);
+      });
+
+      iterationsEl.querySelectorAll('.wf-loop-iter-header').forEach(iterHeader => {
+        iterHeader.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const iter = iterHeader.closest('.wf-loop-iter');
+          const iterSteps = iter.querySelector('.wf-loop-iter-steps');
+          if (!iterSteps) return;
+          const visible = iterSteps.style.display !== 'none';
+          iterSteps.style.display = visible ? 'none' : 'block';
+          iter.classList.toggle('expanded', !visible);
+        });
+      });
+
+      iterationsEl.querySelectorAll('.wf-loop-child-step.has-output').forEach(childStep => {
+        const output = childStep.nextElementSibling;
+        if (!output?.classList.contains('wf-loop-child-output')) return;
+        childStep.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const visible = output.style.display !== 'none';
+          output.style.display = visible ? 'none' : 'block';
+          childStep.classList.toggle('expanded', !visible);
+        });
+      });
+    } else {
+      const output = stepEl.querySelector('.wf-run-step-output');
+      if (!output) return;
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', () => {
+        const visible = output.style.display !== 'none';
+        output.style.display = visible ? 'none' : 'block';
+        stepEl.classList.toggle('expanded', !visible);
+      });
+    }
   });
 
-  // Populate existing live logs (e.g. when navigating back into detail)
+  // Populate existing live logs
   for (const [stepId, entries] of _agentLogs) {
     if (entries.length > 0) _updateLiveLogDOM(stepId);
   }
+}
+
+/** Legacy alias — called by onRunEnd when viewing a run, forwards to new col-based renderer */
+function renderRunDetail(el, run) {
+  // If the 2-col layout is active, render in the detail column
+  const detailCol = document.getElementById('wf-detail-col');
+  if (detailCol) {
+    renderRunDetailInCol(detailCol, run);
+    return;
+  }
+  // Fallback: re-render full history (handles edge cases)
+  renderContent();
 }
 
 function formatStepOutput(output) {

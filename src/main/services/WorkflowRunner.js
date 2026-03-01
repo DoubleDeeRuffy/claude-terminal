@@ -1126,7 +1126,7 @@ class WorkflowRunner {
                 eachTargets, nodeById, outgoing, incoming, iterVars, runId, signal, stepOutputs, workflow
               );
               for (const nid of visitedNodes) allBodyVisited.add(nid);
-              return outputs;
+              return { ...outputs, _item: item };
             });
             iterationResults.push(...await Promise.all(promises));
           } else {
@@ -1143,7 +1143,7 @@ class WorkflowRunner {
               const { outputs, visitedNodes } = await this._executeSubGraph(
                 eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
               );
-              iterationResults.push(outputs);
+              iterationResults.push({ ...outputs, _item: items[idx] });
               for (const nid of visitedNodes) allBodyVisited.add(nid);
             }
           }
