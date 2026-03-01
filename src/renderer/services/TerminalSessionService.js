@@ -81,8 +81,17 @@ function saveTerminalSessionsImmediate() {
 
     // Group terminals by project, using DOM tab order (reflects drag-and-drop reordering)
     const projectSessions = {};
-    const tabElements = document.querySelectorAll('#terminals-tabs .terminal-tab');
-    const orderedIds = Array.from(tabElements).map(el => el.dataset.id);
+    // Iterate all panes in order to capture full tab sequence
+    const PaneManager = require('../ui/components/PaneManager');
+    const paneOrder = PaneManager.getPaneOrder();
+    const allTabElements = [];
+    for (const paneId of paneOrder) {
+      const tabsEl = PaneManager.getTabsContainer(paneId);
+      if (tabsEl) {
+        allTabElements.push(...tabsEl.querySelectorAll('.terminal-tab'));
+      }
+    }
+    const orderedIds = Array.from(allTabElements).map(el => el.dataset.id);
 
     for (const id of orderedIds) {
       const td = terminals.get(id) || terminals.get(Number(id));

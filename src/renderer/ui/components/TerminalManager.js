@@ -45,6 +45,7 @@ const {
 const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
 const { showContextMenu } = require('./ContextMenu');
+const PaneManager = require('./PaneManager');
 const ContextPromptService = require('../../services/ContextPromptService');
 
 // Lazy require to avoid circular dependency
@@ -994,7 +995,7 @@ function setupTabDragDrop(tab) {
 
     if (!draggedTab || draggedTab === tab) return;
 
-    const tabsContainer = document.getElementById('terminals-tabs');
+    const tabsContainer = draggedTab.closest('.pane-tabs');
     const rect = tab.getBoundingClientRect();
     const midX = rect.left + rect.width / 2;
     const insertBefore = e.clientX < midX;
@@ -1036,12 +1037,16 @@ function updateTerminalTabName(id, name) {
   // Update state
   updateTerminal(id, { name });
 
-  // Phase 19: propagate tab name to session-names.json (resume dialog)
-  console.log(`[DEBUG updateTerminalTabName] id=${id}, name="${name}", claudeSessionId=${termData.claudeSessionId || 'NULL'}, mode=${termData.mode || '?'}`);
-  if (termData.claudeSessionId && name) {
-    setSessionCustomName(termData.claudeSessionId, name);
-  } else if (!termData.claudeSessionId && name) {
-    console.warn(`[DEBUG updateTerminalTabName] SKIPPED session-names.json write — claudeSessionId is missing! Tab name "${name}" will NOT appear in bulb history.`);
+  // Propagate tab name to session-names.json (resume dialog)
+  // Write to both current and original session IDs — Claude may assign a new
+  // session ID on resume, but the lightbulb lists sessions by the original JSONL filename.
+  if (name) {
+    if (termData.claudeSessionId) {
+      setSessionCustomName(termData.claudeSessionId, name);
+    }
+    if (termData.originalSessionId && termData.originalSessionId !== termData.claudeSessionId) {
+      setSessionCustomName(termData.originalSessionId, name);
+    }
   }
 
   // Update DOM
@@ -1180,15 +1185,12 @@ function startRenameTab(id) {
 
   const finishRename = () => {
     const newName = input.value.trim() || currentName;
-    updateTerminal(id, { name: newName });
+    updateTerminalTabName(id, newName);
     const newSpan = document.createElement('span');
     newSpan.className = 'tab-name';
     newSpan.textContent = newName;
     newSpan.ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
     input.replaceWith(newSpan);
-    // Phase 16: persist user rename (debounced)
-    const TerminalSessionService = require('../../services/TerminalSessionService');
-    TerminalSessionService.saveTerminalSessions();
   };
 
   input.onblur = finishRename;
@@ -1205,9 +1207,9 @@ function showTabContextMenu(e, id) {
   e.preventDefault();
   e.stopPropagation();
 
-  const tabsContainer = document.getElementById('terminals-tabs');
-  const allTabs = Array.from(tabsContainer.querySelectorAll('.terminal-tab'));
-  const thisTab = tabsContainer.querySelector(`.terminal-tab[data-id="${id}"]`);
+  const thisTab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
+  const tabsContainer = thisTab?.closest('.pane-tabs');
+  const allTabs = tabsContainer ? Array.from(tabsContainer.querySelectorAll('.terminal-tab')) : [];
   const thisIndex = allTabs.indexOf(thisTab);
   const tabsToRight = allTabs.slice(thisIndex + 1);
 
@@ -1434,6 +1436,7 @@ function closeTerminal(id) {
     cleanupTerminalResources(termData);
     removeTerminal(id);
   }
+  PaneManager.unregisterTab(String(id));
   document.querySelector(`.terminal-tab[data-id="${id}"]`)?.remove();
   document.querySelector(`.terminal-wrapper[data-id="${id}"]`)?.remove();
 
@@ -1561,7 +1564,7 @@ async function createTerminal(project, options = {}) {
     isBasic: isBasicTerminal,
     mode: 'terminal',
     cwd: overrideCwd || project.path,
-    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {}),
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId, originalSessionId: resumeSessionId } : {}),
     ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
@@ -1572,7 +1575,7 @@ async function createTerminal(project, options = {}) {
   heartbeat(project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = document.getElementById('terminals-tabs');
+  const tabsContainer = PaneManager.getTabsContainer();
   const tab = document.createElement('div');
   tab.className = `terminal-tab status-${initialStatus}${isBasicTerminal ? ' basic-terminal' : ''}`;
   tab.dataset.id = id;
@@ -1592,11 +1595,12 @@ async function createTerminal(project, options = {}) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = document.getElementById('terminals-container');
+  const container = PaneManager.getContentContainer();
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
+  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   // Add loading overlay for Claude terminals
   if (!isBasicTerminal) {
@@ -1893,7 +1897,7 @@ function createTypeConsole(project, projectIndex) {
   heartbeat(project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = document.getElementById('terminals-tabs');
+  const tabsContainer = PaneManager.getTabsContainer();
   const tab = document.createElement('div');
   tab.className = `terminal-tab ${tabClass} status-ready`;
   tab.dataset.id = id;
@@ -1906,10 +1910,11 @@ function createTypeConsole(project, projectIndex) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = document.getElementById('terminals-container');
+  const container = PaneManager.getContentContainer();
   const wrapper = document.createElement('div');
   wrapper.className = `terminal-wrapper ${wrapperClass}`;
   wrapper.dataset.id = id;
+  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   // Get panel HTML from type handler
   const panels = typeHandler.getTerminalPanels({ project, projectIndex });
@@ -3080,7 +3085,8 @@ async function resumeSession(project, sessionId, options = {}) {
     status: 'working',
     inputBuffer: '',
     isBasic: false,
-    claudeSessionId: sessionId
+    claudeSessionId: sessionId,
+    originalSessionId: sessionId
   };
 
   addTerminal(id, termData);
@@ -3095,7 +3101,7 @@ async function resumeSession(project, sessionId, options = {}) {
   heartbeat(project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = document.getElementById('terminals-tabs');
+  const tabsContainer = PaneManager.getTabsContainer();
   const tab = document.createElement('div');
   tab.className = 'terminal-tab status-working';
   tab.dataset.id = id;
@@ -3106,11 +3112,12 @@ async function resumeSession(project, sessionId, options = {}) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = document.getElementById('terminals-container');
+  const container = PaneManager.getContentContainer();
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
+  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   document.getElementById('empty-terminals').style.display = 'none';
 
@@ -3254,7 +3261,7 @@ async function createTerminalWithPrompt(project, prompt) {
   addTerminal(id, termData);
 
   // Create tab
-  const tabsContainer = document.getElementById('terminals-tabs');
+  const tabsContainer = PaneManager.getTabsContainer();
   const tab = document.createElement('div');
   tab.className = 'terminal-tab status-working';
   tab.dataset.id = id;
@@ -3265,11 +3272,12 @@ async function createTerminalWithPrompt(project, prompt) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = document.getElementById('terminals-container');
+  const container = PaneManager.getContentContainer();
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
+  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   document.getElementById('empty-terminals').style.display = 'none';
 
@@ -3517,7 +3525,7 @@ function openFileTab(filePath, project) {
   addTerminal(id, termData);
 
   // Create tab
-  const tabsContainer = document.getElementById('terminals-tabs');
+  const tabsContainer = PaneManager.getTabsContainer();
   const tab = document.createElement('div');
   tab.className = 'terminal-tab file-tab status-ready';
   tab.dataset.id = id;
@@ -3529,10 +3537,11 @@ function openFileTab(filePath, project) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = document.getElementById('terminals-container');
+  const container = PaneManager.getContentContainer();
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper file-wrapper';
   wrapper.dataset.id = id;
+  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   // Build content based on file type
   let viewerBody;
@@ -3989,14 +3998,14 @@ async function createChatTerminal(project, options = {}) {
     mode: 'chat',
     chatView: null,
     ...(parentProjectId ? { parentProjectId } : {}),
-    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {})
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId, originalSessionId: resumeSessionId } : {})
   };
 
   addTerminal(id, termData);
   heartbeat(parentProjectId || project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = document.getElementById('terminals-tabs');
+  const tabsContainer = PaneManager.getTabsContainer();
   const tab = document.createElement('div');
   tab.className = 'terminal-tab status-ready chat-mode';
   tab.dataset.id = id;
@@ -4012,11 +4021,12 @@ async function createChatTerminal(project, options = {}) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = document.getElementById('terminals-container');
+  const container = PaneManager.getContentContainer();
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper chat-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
+  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   document.getElementById('empty-terminals').style.display = 'none';
 

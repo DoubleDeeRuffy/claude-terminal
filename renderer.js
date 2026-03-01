@@ -159,11 +159,20 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   ensureDirectories();
   await initializeState(); // Loads settings, projects AND initializes time tracking
 
-  // Restore saved projects panel width (must be after settings are loaded)
+  // Restore saved panel widths (must be after settings are loaded)
   const savedPanelWidth = settingsState.get().projectsPanelWidth;
   if (savedPanelWidth) {
     const panel = document.querySelector('.projects-panel');
     if (panel) panel.style.width = savedPanelWidth + 'px';
+    if (savedPanelWidth < 210) {
+      const btnToggle = document.getElementById('btn-toggle-projects');
+      if (btnToggle) btnToggle.style.display = 'none';
+    }
+  }
+  const savedExplorerWidth = settingsState.get().fileExplorerWidth;
+  if (savedExplorerWidth) {
+    const explorerPanel = document.getElementById('file-explorer-panel');
+    if (explorerPanel) explorerPanel.style.width = savedExplorerWidth + 'px';
   }
 
   // Apply body classes for settings that affect global CSS
@@ -175,6 +184,10 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 
   // Initialize Claude event bus and provider (hooks or scraping)
   initClaudeEvents();
+
+  // Initialize PaneManager (must be before any tab creation/session restore)
+  const PaneManager = require('./src/renderer/ui/components/PaneManager');
+  PaneManager.initPanes();
 
   // Restore terminal sessions from previous run
   try {
@@ -287,7 +300,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   MemoryEditor.init({ showModal, closeModal });
 
   ShortcutsManager.init({
-    settingsState, saveSettings,
+    api, settingsState, saveSettings,
     switchToSettingsTab: (...args) => SettingsPanel.switchToSettingsTab(...args),
     terminalsState, TerminalManager,
     projectsState, setSelectedProjectFilter, ProjectList,
@@ -1180,6 +1193,7 @@ const MODAL_SVG_DEFS = `<svg style="display:none" xmlns="http://www.w3.org/2000/
   <symbol id="sm-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="sm-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
   <symbol id="sm-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 11V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v7"/><path d="M5 17h14"/><path d="M7 11l-2 6h14l-2-6"/></symbol>
+  <symbol id="sm-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
 </svg>`;
 
 function _cleanModalSessionText(text) {
@@ -1220,7 +1234,7 @@ function _truncateModalText(text, max) {
 function _preprocessModalSessions(sessions) {
   const now = Date.now();
   const pins = _loadModalPins();
-  _modalNamesCache = null; // invalidate cache so we always read fresh names
+  _modalNamesCache = null; // invalidate so we always read fresh names
   return sessions.map(session => {
     const customName = _getModalCustomName(session.sessionId);
     const promptResult = _cleanModalSessionText(session.firstPrompt);
@@ -1272,7 +1286,7 @@ function _buildModalCardHtml(s, index) {
   const animClass = index < 10 ? ' session-card--anim' : ' session-card--instant';
   const skillClass = s.isSkill ? ' session-card-icon--skill' : '';
   const titleSkillClass = s.isSkill ? ' session-card-title--skill' : '';
-  const iconId = s.isSkill ? 'sm-bolt' : 'sm-chat';
+  const iconId = s.isSkill ? 'sm-bolt' : 'sm-terminal';
   const pinTitle = s.pinned ? t('sessions.unpin') : t('sessions.pin');
 
   return `<div class="session-card${freshClass}${pinnedClass}${animClass}" data-sid="${s.sessionId}" style="--ci:${index < 10 ? index : 0}">
@@ -2019,6 +2033,10 @@ api.window.onCtrlArrow((dir) => {
 api.window.onCtrlTab((dir) => {
   switchTerminal(dir);
 });
+
+// Sync Ctrl+Tab enabled state from settings to main process
+const ctrlTabSetting = (getSetting('terminalShortcuts') || {}).ctrlTab;
+api.window.setCtrlTabEnabled(ctrlTabSetting?.enabled !== false);
 
 // Setup FileExplorer
 FileExplorer.setCallbacks({
@@ -3770,7 +3788,12 @@ api.tray.onShowSessions(() => {
 (function initProjectsPanelResizer() {
   const resizer = document.getElementById('projects-panel-resizer');
   const panel = document.querySelector('.projects-panel');
+  const btnToggle = document.getElementById('btn-toggle-projects');
   if (!resizer || !panel) return;
+
+  function updateToggleVisibility(width) {
+    if (btnToggle) btnToggle.style.display = width < 210 ? 'none' : '';
+  }
 
   let startX, startWidth;
 
@@ -3783,8 +3806,9 @@ api.tray.onShowSessions(() => {
     document.body.style.userSelect = 'none';
 
     const onMouseMove = (e) => {
-      const newWidth = Math.min(600, Math.max(150, startWidth + (e.clientX - startX)));
+      const newWidth = Math.min(600, Math.max(170, startWidth + (e.clientX - startX)));
       panel.style.width = newWidth + 'px';
+      updateToggleVisibility(newWidth);
     };
 
     const onMouseUp = () => {
@@ -3793,6 +3817,7 @@ api.tray.onShowSessions(() => {
       resizer.classList.remove('active');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      updateToggleVisibility(panel.offsetWidth);
       settingsState.setProp('projectsPanelWidth', panel.offsetWidth);
       saveSettingsImmediate();
     };
