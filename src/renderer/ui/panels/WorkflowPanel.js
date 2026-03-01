@@ -2088,7 +2088,11 @@ function openEditor(workflowId = null) {
     // Loop mode tabs (sequential/parallel)
     propsEl.querySelectorAll('.wf-loop-mode-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        node.properties.mode = tab.dataset.mode;
+        const newMode = tab.dataset.mode;
+        node.properties.mode = newMode;
+        // Sync the LiteGraph widget value so the node display updates
+        const modeWidget = node.widgets?.find(w => w.key === 'mode');
+        if (modeWidget) modeWidget.value = newMode;
         editorDraft.dirty = true;
         graphService.canvas.setDirty(true, true);
         renderProperties(node);
