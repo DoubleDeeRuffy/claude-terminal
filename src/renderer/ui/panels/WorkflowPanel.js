@@ -223,74 +223,70 @@ function registerLiveListeners() {
 
 /** Bind click-to-expand/collapse for a loop's iteration accordion and child steps */
 function _bindLoopAccordion(stepEl) {
-  // Iteration headers → toggle iteration steps visibility
-  stepEl.querySelectorAll('.wf-loop-iter-header').forEach(header => {
-    // Remove previous listener by cloning
-    const fresh = header.cloneNode(true);
-    header.replaceWith(fresh);
-    fresh.addEventListener('click', (e) => {
+  // Single delegated listener on stepEl covers all iter-headers and child-steps
+  if (stepEl._loopAccordionBound) return;
+  stepEl._loopAccordionBound = true;
+
+  stepEl.addEventListener('click', (e) => {
+    // Iteration header → toggle iteration steps visibility
+    const header = e.target.closest('.wf-loop-iter-header');
+    if (header && stepEl.contains(header)) {
       e.stopPropagation();
-      const iter = fresh.closest('.wf-loop-iter');
+      const iter = header.closest('.wf-loop-iter');
       if (!iter) return;
       const stepsEl = iter.querySelector('.wf-loop-iter-steps');
       if (!stepsEl) return;
       const visible = stepsEl.style.display !== 'none';
       stepsEl.style.display = visible ? 'none' : 'block';
       iter.classList.toggle('expanded', !visible);
-    });
-  });
+      return;
+    }
 
-  // Child steps with output → toggle output visibility
-  stepEl.querySelectorAll('.wf-loop-child-step.has-output').forEach(childEl => {
-    const fresh = childEl.cloneNode(true);
-    childEl.replaceWith(fresh);
-    const outputEl = fresh.nextElementSibling;
-    if (!outputEl || !outputEl.classList.contains('wf-loop-child-output')) return;
-    fresh.style.cursor = 'pointer';
-    fresh.addEventListener('click', (e) => {
+    // Child step with output → toggle output visibility
+    const childEl = e.target.closest('.wf-loop-child-step.has-output');
+    if (childEl && stepEl.contains(childEl)) {
       e.stopPropagation();
+      const outputEl = childEl.nextElementSibling;
+      if (!outputEl || !outputEl.classList.contains('wf-loop-child-output')) return;
       const visible = outputEl.style.display !== 'none';
       outputEl.style.display = visible ? 'none' : 'block';
-      fresh.classList.toggle('expanded', !visible);
-    });
+      childEl.classList.toggle('expanded', !visible);
+    }
   });
 }
 
 /** Bind click-to-expand/collapse for a single run step element */
 function _bindStepToggle(stepEl) {
-  const sType = (stepEl.dataset.stepType || '').split('.')[0]
-    || (stepEl.querySelector('.wf-run-step-type')?.textContent || '').toLowerCase();
+  if (stepEl._stepToggleBound) return;
+  stepEl._stepToggleBound = true;
+
   const isLoop = stepEl.querySelector('.wf-loop-iterations') != null;
 
   if (isLoop) {
-    // Loop step: header click toggles the iterations accordion
-    const header = stepEl.querySelector('.wf-run-step-header');
     const iterationsEl = stepEl.querySelector('.wf-loop-iterations');
-    if (header && iterationsEl) {
-      const fresh = header.cloneNode(true);
-      header.replaceWith(fresh);
-      fresh.style.cursor = 'pointer';
-      fresh.addEventListener('click', () => {
-        const visible = iterationsEl.style.display !== 'none';
-        iterationsEl.style.display = visible ? 'none' : 'block';
-        stepEl.classList.toggle('expanded', !visible);
-      });
-    }
+    stepEl.addEventListener('click', (e) => {
+      // Only react to clicks on the direct step header (not on nested iter-headers)
+      const header = e.target.closest('.wf-run-step-header');
+      if (!header) return;
+      if (!stepEl.contains(header)) return;
+      // Ignore if the click came from inside the iterations panel itself
+      if (iterationsEl && iterationsEl.contains(e.target)) return;
+      if (!iterationsEl) return;
+      const visible = iterationsEl.style.display !== 'none';
+      iterationsEl.style.display = visible ? 'none' : 'block';
+      stepEl.classList.toggle('expanded', !visible);
+    });
     _bindLoopAccordion(stepEl);
   } else {
-    // Regular step: header click toggles the output section
-    const header = stepEl.querySelector('.wf-run-step-header');
     const outputEl = stepEl.querySelector('.wf-run-step-output');
-    if (header && outputEl) {
-      const fresh = header.cloneNode(true);
-      header.replaceWith(fresh);
-      fresh.style.cursor = 'pointer';
-      fresh.addEventListener('click', () => {
-        const visible = outputEl.style.display !== 'none';
-        outputEl.style.display = visible ? 'none' : 'block';
-        stepEl.classList.toggle('expanded', !visible);
-      });
-    }
+    stepEl.addEventListener('click', (e) => {
+      const header = e.target.closest('.wf-run-step-header');
+      if (!header || !stepEl.contains(header)) return;
+      if (!outputEl) return;
+      const visible = outputEl.style.display !== 'none';
+      outputEl.style.display = visible ? 'none' : 'block';
+      stepEl.classList.toggle('expanded', !visible);
+    });
   }
 }
 
