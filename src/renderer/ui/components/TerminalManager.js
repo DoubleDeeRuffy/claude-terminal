@@ -1172,7 +1172,11 @@ function setActiveTerminal(id) {
       if (!tabActivationHistory.has(newProjectId)) {
         tabActivationHistory.set(newProjectId, []);
       }
-      tabActivationHistory.get(newProjectId).push(id);
+      const history = tabActivationHistory.get(newProjectId);
+      if (history[history.length - 1] !== id) {
+        history.push(id);
+        if (history.length > 50) history.shift();
+      }
     }
   }
 }
