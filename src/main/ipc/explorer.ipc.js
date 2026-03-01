@@ -11,7 +11,10 @@ const { ipcMain } = require('electron');
 /** @type {import('chokidar')} */
 let chokidar = null;
 async function getChokidar() {
-  if (!chokidar) chokidar = await import('chokidar');
+  if (!chokidar) {
+    const mod = await import('chokidar');
+    chokidar = mod.default ?? mod;
+  }
   return chokidar;
 }
 const path = require('path');
@@ -42,6 +45,9 @@ let debounceTimer = null;
 
 /** Debounce window in milliseconds — within the 300-500ms range per decision */
 const DEBOUNCE_MS = 350;
+
+/** Warn the renderer when this many directories are being watched simultaneously */
+const WATCH_LIMIT_WARN = 50;
 
 // ==================== IGNORE PATTERNS ====================
 
@@ -143,6 +149,10 @@ async function watchDir(dirPath) {
     });
 
   dirWatchers.set(dirPath, { watcher, watchId: myWatchId });
+
+  if (dirWatchers.size >= WATCH_LIMIT_WARN && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('explorer:watchLimitWarning', dirWatchers.size);
+  }
 }
 
 /**
