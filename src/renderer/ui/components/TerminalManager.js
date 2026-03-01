@@ -627,6 +627,10 @@ function eventToNormalizedKey(e) {
 }
 
 function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal-input') {
+  let shiftHeld = false;
+  const _onBlur = () => { shiftHeld = false; };
+  window.addEventListener('blur', _onBlur);
+  terminal.onDispose(() => window.removeEventListener('blur', _onBlur));
   return (e) => {
     // Check rebound terminal shortcuts (ctrlC / ctrlV) at call-time — read from settings
     if (e.ctrlKey && e.type === 'keydown') {
@@ -658,14 +662,21 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
       }
     }
 
+    // Track Shift key state independently to avoid e.shiftKey race condition
+    if (e.key === 'Shift' && e.type === 'keydown') shiftHeld = true;
+    if (e.key === 'Shift' && e.type === 'keyup') shiftHeld = false;
+
     // Shift+Enter — send newline for multiline input (e.g., Claude CLI)
-    if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter' && e.type === 'keydown') {
-      if (inputChannel === 'fivem-input') {
-        api.fivem.input({ projectIndex: terminalId, data: '\n' });
-      } else if (inputChannel === 'webapp-input') {
-        api.webapp.input({ projectIndex: terminalId, data: '\n' });
-      } else {
-        api.terminal.input({ id: terminalId, data: '\n' });
+    // Block both keydown (send \n) and keypress (prevent xterm from also sending \r)
+    if ((shiftHeld || e.shiftKey || e.getModifierState('Shift')) && !e.ctrlKey && !e.altKey && e.key === 'Enter') {
+      if (e.type === 'keydown') {
+        if (inputChannel === 'fivem-input') {
+          api.fivem.input({ projectIndex: terminalId, data: '\n' });
+        } else if (inputChannel === 'webapp-input') {
+          api.webapp.input({ projectIndex: terminalId, data: '\n' });
+        } else {
+          api.terminal.input({ id: terminalId, data: '\n' });
+        }
       }
       return false;
     }
