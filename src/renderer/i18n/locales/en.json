@@ -411,7 +411,7 @@
     "terminalShortcutsTitle": "Terminal shortcuts",
     "terminalCopy": "Copy selection (Ctrl+C)",
     "terminalPaste": "Paste clipboard (Ctrl+V)",
-    "terminalWordJump": "Word jump (Ctrl+Arrow)",
+    "terminalWordJump": "Word jump instead of Tab jump (Ctrl+Arrow)",
     "terminalTabSwitch": "Switch tabs (Ctrl+Tab)",
     "terminalRightClickPaste": "Right-click paste",
     "terminalRightClickCopyPaste": "Right-click copy/paste (Windows Terminal style)"
@@ -1375,6 +1375,10 @@
     "rename": "Rename",
     "close": "Close",
     "closeOthers": "Close Others",
-    "closeToRight": "Close Tabs to Right"
+    "closeToRight": "Close Tabs to Right",
+    "splitRight": "Split Right",
+    "moveRight": "Move Right",
+    "moveLeft": "Move Left",
+    "moveToPane": "Move to Pane {0}"
   }
 }

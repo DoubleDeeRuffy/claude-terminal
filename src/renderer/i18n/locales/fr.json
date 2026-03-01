@@ -478,7 +478,7 @@
     "terminalShortcutsTitle": "Raccourcis terminal",
     "terminalCopy": "Copier la sélection (Ctrl+C)",
     "terminalPaste": "Coller le presse-papiers (Ctrl+V)",
-    "terminalWordJump": "Saut de mot (Ctrl+Flèche)",
+    "terminalWordJump": "Saut de mot au lieu de changement d'onglet (Ctrl+Flèche)",
     "terminalTabSwitch": "Changer d'onglet (Ctrl+Tab)",
     "terminalRightClickPaste": "Coller au clic droit",
     "terminalRightClickCopyPaste": "Copier/coller au clic droit (style Windows Terminal)"
@@ -1375,6 +1375,10 @@
     "rename": "Renommer",
     "close": "Fermer",
     "closeOthers": "Fermer les autres",
-    "closeToRight": "Fermer les onglets à droite"
+    "closeToRight": "Fermer les onglets à droite",
+    "splitRight": "Diviser à droite",
+    "moveRight": "Déplacer à droite",
+    "moveLeft": "Déplacer à gauche",
+    "moveToPane": "Déplacer vers le panneau {0}"
   }
 }

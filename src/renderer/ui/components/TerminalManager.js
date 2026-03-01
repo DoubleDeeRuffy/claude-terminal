@@ -1247,7 +1247,76 @@ function showTabContextMenu(e, id) {
         onClick: () => {
           tabsToRight.forEach(tab => closeTerminal(tab.dataset.id));
         }
-      }
+      },
+      { separator: true },
+      {
+        label: t('tabs.splitRight'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 3h8v18H3V3zm10 0h8v18h-8V3z"/></svg>',
+        disabled: PaneManager.getPaneCount() >= 3,
+        onClick: () => {
+          const currentPaneId = PaneManager.getPaneForTab(String(id));
+          const newPaneId = PaneManager.createPane(currentPaneId);
+          if (newPaneId) {
+            const sourceEmpty = PaneManager.moveTabToPane(String(id), newPaneId);
+            setActiveTerminal(id);
+            if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+          }
+        }
+      },
+      // Move items — only when multiple panes exist
+      ...(PaneManager.getPaneCount() > 1 ? (() => {
+        const order = PaneManager.getPaneOrder();
+        const currentPaneId = PaneManager.getPaneForTab(String(id));
+        const currentIdx = order.indexOf(currentPaneId);
+
+        if (order.length === 2) {
+          // 2 panes: simple Move Right / Move Left
+          return [
+            {
+              label: t('tabs.moveLeft'),
+              icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>',
+              disabled: currentIdx === 0,
+              onClick: () => {
+                if (currentIdx > 0) {
+                  const targetPaneId = order[currentIdx - 1];
+                  const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
+                  setActiveTerminal(id);
+                  if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+                }
+              }
+            },
+            {
+              label: t('tabs.moveRight'),
+              icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>',
+              disabled: currentIdx === order.length - 1,
+              onClick: () => {
+                if (currentIdx < order.length - 1) {
+                  const targetPaneId = order[currentIdx + 1];
+                  const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
+                  setActiveTerminal(id);
+                  if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+                }
+              }
+            }
+          ];
+        } else {
+          // 3 panes: specific pane targets
+          return order
+            .filter(pId => pId !== currentPaneId)
+            .map((pId) => {
+              const paneNum = order.indexOf(pId) + 1;
+              return {
+                label: t('tabs.moveToPane').replace('{0}', paneNum),
+                icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 3h8v18H3V3zm10 0h8v18h-8V3z"/></svg>',
+                onClick: () => {
+                  const sourceEmpty = PaneManager.moveTabToPane(String(id), pId);
+                  setActiveTerminal(id);
+                  if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
+                }
+              };
+            });
+        }
+      })() : [])
     ]
   });
 }
@@ -1456,9 +1525,14 @@ function closeTerminal(id) {
     cleanupTerminalResources(termData);
     removeTerminal(id);
   }
-  PaneManager.unregisterTab(String(id));
+  const emptyPaneId = PaneManager.unregisterTab(String(id));
   document.querySelector(`.terminal-tab[data-id="${id}"]`)?.remove();
   document.querySelector(`.terminal-wrapper[data-id="${id}"]`)?.remove();
+
+  // Collapse pane if it's now empty (but not the last pane)
+  if (emptyPaneId && PaneManager.getPaneCount() > 1) {
+    PaneManager.collapsePane(emptyPaneId);
+  }
 
   // Walk back activation history to find the previously-active tab (Phase 23)
   let sameProjectTerminalId = null;

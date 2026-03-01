@@ -35,6 +35,12 @@ function initPanes() {
   paneOrder = ['pane-0'];
   activePaneId = 'pane-0';
   nextPaneNum = 1;
+
+  // Set up drop overlay for the initial pane
+  setupPaneDropOverlay('pane-0');
+
+  // Set up drag targets for content-area drop-to-split
+  setupPaneDragTargets();
 }
 
 /**
@@ -89,6 +95,9 @@ function createPane(afterPaneId) {
   panes.set(paneId, { el: paneEl, tabsEl, contentEl, tabs: new Set(), activeTab: null });
   paneOrder.splice(afterIdx + 1, 0, paneId);
 
+  // Set up drop overlay for the new pane
+  setupPaneDropOverlay(paneId);
+
   return paneId;
 }
 
@@ -139,19 +148,20 @@ function registerTab(termId, paneId) {
 }
 
 /**
- * Unregister a tab — returns true if pane is now empty.
+ * Unregister a tab — returns the paneId if pane is now empty, null otherwise.
  */
 function unregisterTab(termId) {
   for (const [paneId, pane] of panes) {
     if (pane.tabs.has(termId)) {
       pane.tabs.delete(termId);
       if (pane.activeTab === termId) {
-        pane.activeTab = null;
+        const remaining = Array.from(pane.tabs);
+        pane.activeTab = remaining.length > 0 ? remaining[0] : null;
       }
-      return pane.tabs.size === 0;
+      return pane.tabs.size === 0 ? paneId : null;
     }
   }
-  return false;
+  return null;
 }
 
 /**
@@ -169,13 +179,17 @@ function getPaneForTab(termId) {
 /**
  * Move a tab between panes (DOM + state).
  */
+/**
+ * Move a tab between panes (DOM + state).
+ * Returns true if source pane is now empty.
+ */
 function moveTabToPane(termId, targetPaneId) {
   const sourcePaneId = getPaneForTab(termId);
-  if (!sourcePaneId || sourcePaneId === targetPaneId) return;
+  if (!sourcePaneId || sourcePaneId === targetPaneId) return false;
 
   const sourcePane = panes.get(sourcePaneId);
   const targetPane = panes.get(targetPaneId);
-  if (!sourcePane || !targetPane) return;
+  if (!sourcePane || !targetPane) return false;
 
   // Move tab DOM element
   const tabEl = document.querySelector(`.terminal-tab[data-id="${termId}"]`);
@@ -192,9 +206,12 @@ function moveTabToPane(termId, targetPaneId) {
   // Update state
   sourcePane.tabs.delete(termId);
   if (sourcePane.activeTab === termId) {
-    sourcePane.activeTab = null;
+    const remaining = Array.from(sourcePane.tabs);
+    sourcePane.activeTab = remaining.length > 0 ? remaining[0] : null;
   }
   targetPane.tabs.add(termId);
+
+  return sourcePane.tabs.size === 0;
 }
 
 // ─── Container accessors — THE KEY API for TerminalManager ───
@@ -283,6 +300,138 @@ function getPaneCount() {
   return paneOrder.length;
 }
 
+// ─── Drop overlay management ───
+
+/**
+ * Add a semi-transparent drop overlay to a pane's content area.
+ */
+function setupPaneDropOverlay(paneId) {
+  const pane = panes.get(paneId);
+  if (!pane) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'split-drop-overlay';
+  overlay.dataset.paneId = paneId.replace('pane-', '');
+  pane.contentEl.style.position = 'relative';
+  pane.contentEl.appendChild(overlay);
+}
+
+function showDropOverlay(paneId) {
+  hideAllDropOverlays();
+  const pane = panes.get(paneId);
+  if (!pane) return;
+  const overlay = pane.contentEl.querySelector('.split-drop-overlay');
+  if (overlay) overlay.classList.add('visible');
+}
+
+function hideDropOverlay(paneId) {
+  const pane = panes.get(paneId);
+  if (!pane) return;
+  const overlay = pane.contentEl.querySelector('.split-drop-overlay');
+  if (overlay) overlay.classList.remove('visible');
+}
+
+function hideAllDropOverlays() {
+  document.querySelectorAll('.split-drop-overlay.visible').forEach(el =>
+    el.classList.remove('visible'));
+}
+
+// ─── Drag tab tracking (set by TerminalManager's dragstart) ───
+
+let _currentDragTabId = null;
+function setDragTabId(id) { _currentDragTabId = id; }
+function clearDragTabId() { _currentDragTabId = null; }
+
+// Callback when tab is moved (to trigger setActiveTerminal in TerminalManager)
+let onTabMovedCallback = null;
+function setOnTabMoved(callback) { onTabMovedCallback = callback; }
+
+/**
+ * Set up drag-over/drop handlers on content areas for split-by-drag.
+ * Delegated on split-pane-area for all panes (current and future).
+ */
+function setupPaneDragTargets() {
+  const paneArea = document.getElementById('split-pane-area');
+  if (!paneArea) return;
+
+  paneArea.addEventListener('dragover', (e) => {
+    const contentEl = e.target.closest('.pane-content');
+    if (!contentEl) return;
+
+    const paneEl = contentEl.closest('.split-pane');
+    if (!paneEl) return;
+    const targetPaneId = 'pane-' + paneEl.dataset.paneId;
+
+    const draggedTabId = _currentDragTabId;
+    if (!draggedTabId) return;
+
+    const sourcePaneId = getPaneForTab(draggedTabId);
+
+    if (sourcePaneId === targetPaneId && paneOrder.length < 3) {
+      // Same pane — only show overlay on RIGHT HALF (prevent accidental splits)
+      const contentRect = contentEl.getBoundingClientRect();
+      const isRightHalf = e.clientX > contentRect.left + contentRect.width / 2;
+      if (isRightHalf) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        showDropOverlay(targetPaneId);
+      } else {
+        hideDropOverlay(targetPaneId);
+      }
+    } else if (sourcePaneId !== targetPaneId) {
+      // Different pane — show overlay for "move to this pane"
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      showDropOverlay(targetPaneId);
+    }
+  });
+
+  paneArea.addEventListener('dragleave', (e) => {
+    const contentEl = e.target.closest('.pane-content');
+    if (!contentEl) return;
+    const relatedTarget = e.relatedTarget;
+    if (!contentEl.contains(relatedTarget)) {
+      const paneEl = contentEl.closest('.split-pane');
+      if (paneEl) {
+        hideDropOverlay('pane-' + paneEl.dataset.paneId);
+      }
+    }
+  });
+
+  paneArea.addEventListener('drop', (e) => {
+    const contentEl = e.target.closest('.pane-content');
+    if (!contentEl) return;
+
+    const paneEl = contentEl.closest('.split-pane');
+    if (!paneEl) return;
+    const targetPaneId = 'pane-' + paneEl.dataset.paneId;
+
+    const draggedTabId = _currentDragTabId;
+    if (!draggedTabId) return;
+
+    e.preventDefault();
+    hideAllDropOverlays();
+
+    const sourcePaneId = getPaneForTab(draggedTabId);
+    if (sourcePaneId === targetPaneId) {
+      // Same pane: split right (create new pane and move tab there)
+      if (paneOrder.length < 3) {
+        const newPaneId = createPane(targetPaneId);
+        if (newPaneId) {
+          const sourceEmpty = moveTabToPane(draggedTabId, newPaneId);
+          if (onTabMovedCallback) onTabMovedCallback(draggedTabId);
+          if (sourceEmpty && paneOrder.length > 1) collapsePane(sourcePaneId);
+        }
+      }
+    } else {
+      // Different pane: move tab to target pane
+      const sourceEmpty = moveTabToPane(draggedTabId, targetPaneId);
+      if (onTabMovedCallback) onTabMovedCallback(draggedTabId);
+      if (sourceEmpty && paneOrder.length > 1) collapsePane(sourcePaneId);
+    }
+  });
+}
+
 module.exports = {
   initPanes,
   createPane,
@@ -303,4 +452,10 @@ module.exports = {
   getPaneOrder,
   getPanes,
   getPaneCount,
+  setupPaneDropOverlay,
+  setupPaneDragTargets,
+  setDragTabId,
+  clearDragTabId,
+  setOnTabMoved,
+  hideAllDropOverlays,
 };
