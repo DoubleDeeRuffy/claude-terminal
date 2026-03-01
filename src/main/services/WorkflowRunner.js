@@ -52,13 +52,18 @@ function resolveVars(value, vars) {
   // Mixed text with variables: interpolate as strings
   return value.replace(/\$([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)/g, (match, key) => {
     const parts = key.split('.');
-    let cur = vars.get(parts[0]);
-    for (let i = 1; i < parts.length && cur != null; i++) {
-      cur = cur[parts[i]];
+    // Try resolving from longest path down to root variable
+    // e.g. $today.md → try "today.md" (fails) → try "today" + suffix ".md"
+    for (let take = parts.length; take >= 1; take--) {
+      let cur = vars.get(parts[0]);
+      for (let i = 1; i < take && cur != null; i++) cur = cur[parts[i]];
+      if (cur != null && (take === parts.length || typeof cur !== 'object')) {
+        const resolved = typeof cur === 'object' ? JSON.stringify(cur) : String(cur);
+        const suffix = take < parts.length ? '.' + parts.slice(take).join('.') : '';
+        return resolved + suffix;
+      }
     }
-    if (cur == null) return match;
-    if (typeof cur === 'object') return JSON.stringify(cur);
-    return String(cur);
+    return match; // nothing resolved
   });
 }
 
@@ -425,7 +430,7 @@ async function runDbStep(config, vars, databaseService) {
 // ─── Project step ─────────────────────────────────────────────────────────────
 
 /**
- * Run a project-related operation (set_context, open, build, install, test).
+ * Run a project-related operation (list, set_context, open, build, install, test).
  * @param {Object} config
  * @param {Map}    vars
  * @param {Function} sendFn
@@ -434,6 +439,23 @@ async function runProjectStep(config, vars, sendFn) {
   const action = config.action || 'set_context';
   const projectId = config.projectId || '';
   const ctx = vars.get('ctx') || {};
+
+  if (action === 'list') {
+    // Read all projects from Claude Terminal data file
+    const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+    try {
+      const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+      const projects = (data.projects || []).map(p => ({
+        id:   p.id,
+        name: p.name,
+        path: p.path,
+        type: p.type || 'general',
+      }));
+      return { projects, count: projects.length, success: true };
+    } catch {
+      return { projects: [], count: 0, success: true };
+    }
+  }
 
   if (action === 'set_context') {
     // Update the workflow context to use this project for subsequent steps
@@ -1277,13 +1299,11 @@ class WorkflowRunner {
   _extractArrayFromOutput(output) {
     if (!output) return null;
     if (Array.isArray(output)) return output;
-    if (Array.isArray(output.rows)) return output.rows;
-    if (Array.isArray(output.tables)) return output.tables;
-    if (Array.isArray(output.items)) return output.items;
-    if (Array.isArray(output.content)) return output.content;
-    // Last resort: look for any array property
-    for (const key of Object.keys(output)) {
-      if (Array.isArray(output[key]) && output[key].length > 0) return output[key];
+    // Generic scan: find any non-empty array property — no hardcoded keys needed
+    if (typeof output === 'object') {
+      for (const val of Object.values(output)) {
+        if (Array.isArray(val) && val.length > 0) return val;
+      }
     }
     return null;
   }
@@ -1297,8 +1317,19 @@ class WorkflowRunner {
     const source = step.source || 'projects';
 
     if (source === 'projects') {
+      // Try explicit _projectsList first, then read from Claude Terminal data
+      const cached = vars.get('_projectsList');
+      if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+      try {
+        const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+        const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+        const projects = (data.projects || []).map(p => ({
+          id: p.id, name: p.name, path: p.path, type: p.type || 'general',
+        }));
+        if (projects.length > 0) return projects;
+      } catch { /* fall through */ }
       const ctx = vars.get('ctx') || {};
-      return vars.get('_projectsList') || [ctx.project].filter(Boolean);
+      return [ctx.project].filter(Boolean);
     }
 
     if (source === 'files') {
@@ -1315,6 +1346,12 @@ class WorkflowRunner {
 
     if (source === 'custom') {
       const raw = resolveVars(step.filter || '', vars);
+      // If resolveVars returned an array (e.g. $var pointing to a JS array), use it directly
+      if (Array.isArray(raw)) return raw;
+      // If it's a string that looks like JSON array, try to parse it
+      if (typeof raw === 'string' && raw.trimStart().startsWith('[')) {
+        try { return JSON.parse(raw); } catch { /* fall through to split */ }
+      }
       return raw.split('\n').map(s => s.trim()).filter(Boolean);
     }
 

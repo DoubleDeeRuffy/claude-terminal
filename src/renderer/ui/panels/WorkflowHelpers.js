@@ -834,9 +834,13 @@ module.exports.getLoopPreview = function getLoopPreview(loopNode, graphService) 
   const noPreview = { html: '', itemDesc: 'Valeur de l\'itération courante', schema: null };
   if (!graphService?.graph || !loopNode) return noPreview;
   const graph = graphService.graph;
+
+  // Prefer Items slot (slot 1, data) over In slot (slot 0, exec) for source detection
+  const itemsSlot = loopNode.inputs?.[1];
   const inSlot = loopNode.inputs?.[0];
-  if (!inSlot?.link) return { html: '<div class="wf-loop-preview wf-loop-preview--empty"><span class="wf-loop-preview-icon">⚠</span> Aucun node connecté au port <strong>In</strong></div>', itemDesc: 'Valeur de l\'itération courante' };
-  const linkInfo = graph.links?.[inSlot.link] || graph._links?.get?.(inSlot.link);
+  const activeLink = itemsSlot?.link ?? inSlot?.link;
+  if (!activeLink && !inSlot?.link) return { html: '<div class="wf-loop-preview wf-loop-preview--empty"><span class="wf-loop-preview-icon">⚠</span> Aucun node connecté au port <strong>In</strong></div>', itemDesc: 'Valeur de l\'itération courante' };
+  const linkInfo = graph.links?.[activeLink] || graph._links?.get?.(activeLink);
   if (!linkInfo) return noPreview;
   const sourceNode = graph.getNodeById(linkInfo.origin_id);
   if (!sourceNode) return noPreview;
@@ -849,16 +853,22 @@ module.exports.getLoopPreview = function getLoopPreview(loopNode, graphService) 
     if (action === 'query') { const table = extractTableFromSQL(sourceProps.query); dataType = 'rows[]'; dataDesc = table ? `Lignes de <code>${esc(table)}</code>` : 'Résultats de la requête SQL'; itemDesc = table ? `Ligne de ${table} (objet avec colonnes)` : 'Ligne de résultat (objet)'; }
     else if (action === 'tables') { dataType = 'string[]'; dataDesc = 'Noms des tables de la base'; itemDesc = 'Nom de table (string)'; }
     else if (action === 'schema') { dataType = 'object[]'; dataDesc = 'Tables avec leurs colonnes'; itemDesc = 'Table (objet avec name, columns)'; }
+  } else if (sourceType === 'project') {
+    dataType = 'project[]'; dataDesc = 'Projets Claude Terminal'; itemDesc = 'Projet (id, name, path, type)';
   } else if (sourceType === 'shell') { dataType = 'lines'; dataDesc = 'Sortie du shell (stdout)'; itemDesc = 'Ligne de sortie'; }
   else if (sourceType === 'http') { dataType = 'array'; dataDesc = 'Réponse HTTP (body)'; itemDesc = 'Élément du tableau de réponse'; }
   else if (sourceType === 'file') { dataType = 'lines'; dataDesc = 'Contenu du fichier'; itemDesc = 'Ligne du fichier'; }
   else { dataType = 'auto'; dataDesc = `Sortie de ${esc(sourceName)}`; itemDesc = 'Élément de la sortie'; }
   const lastOutput = graphService.getNodeOutput(sourceNode.id);
   if (lastOutput) {
-    if (Array.isArray(lastOutput)) previewItems = lastOutput;
-    else if (Array.isArray(lastOutput.rows)) previewItems = lastOutput.rows;
-    else if (Array.isArray(lastOutput.tables)) previewItems = lastOutput.tables;
-    else if (Array.isArray(lastOutput.items)) previewItems = lastOutput.items;
+    if (Array.isArray(lastOutput)) {
+      previewItems = lastOutput;
+    } else if (lastOutput && typeof lastOutput === 'object') {
+      // Generic scan: find the first array property — works for any node type
+      for (const val of Object.values(lastOutput)) {
+        if (Array.isArray(val)) { previewItems = val; break; }
+      }
+    }
   }
   const countText = previewItems.length > 0 ? `<span class="wf-loop-preview-count">${previewItems.length} items</span>` : '';
   let previewHtml = '';
