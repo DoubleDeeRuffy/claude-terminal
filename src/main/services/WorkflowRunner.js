@@ -1560,8 +1560,12 @@ class WorkflowRunner {
 
         // Store output under step.id for downstream variable access
         if (step.id) {
-          vars.set(step.id, output);
-          stepOutputs[step.id] = output;
+          // Annotate with _type so the UI can display the correct step icon/label
+          const annotated = output && typeof output === 'object'
+            ? { ...output, _type: step.type || '' }
+            : output;
+          vars.set(step.id, annotated);
+          stepOutputs[step.id] = annotated;
         }
 
         this._emitStep(runId, step, 'success', output);
