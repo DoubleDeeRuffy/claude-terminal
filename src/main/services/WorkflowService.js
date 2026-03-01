@@ -679,23 +679,67 @@ class WorkflowService {
     const queue = [trigger.id];
     visited.add(trigger.id);
 
-    while (queue.length > 0) {
-      const id = queue.shift();
-      const node = nodes.find(n => n.id === id);
-      if (node && node.type !== 'workflow/trigger') {
-        ordered.push(node);
-      }
-      for (const nextId of (outExec.get(id) || [])) {
-        if (!visited.has(nextId)) {
-          visited.add(nextId);
-          queue.push(nextId);
+    // Build the set of nodes that are children of any loop (slot 0 = Each body)
+    // so we can exclude them from the top-level step list.
+    const loopChildNodes = new Set();
+    for (const node of nodes) {
+      if (node.type === 'workflow/loop') {
+        // Collect all nodes reachable via slot 0 (Each body) of this loop
+        const bodyQueue = [...(outExec.get(node.id) || [])];
+        // outExec only covers slot 0 links (the "Each" path) — but we need to
+        // distinguish slot 0 (Each) from slot 1 (Done). Rebuild per-slot map.
+        const outSlot0 = new Map();
+        for (const link of links) {
+          const originId = link[1], targetId = link[3], originSlot = link[2];
+          if (originId === node.id && originSlot === 0) {
+            if (!outSlot0.has(originId)) outSlot0.set(originId, []);
+            outSlot0.get(originId).push(targetId);
+          }
+        }
+        const bodyStart = outSlot0.get(node.id) || [];
+        const bodyVisited = new Set();
+        const bq = [...bodyStart];
+        while (bq.length) {
+          const bid = bq.shift();
+          if (bodyVisited.has(bid)) continue;
+          bodyVisited.add(bid);
+          loopChildNodes.add(bid);
+          for (const nid of (outExec.get(bid) || [])) {
+            if (!bodyVisited.has(nid)) bq.push(nid);
+          }
         }
       }
     }
 
-    // Append any unvisited nodes (disconnected) at the end
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const node = nodes.find(n => n.id === id);
+      if (node && node.type !== 'workflow/trigger' && !loopChildNodes.has(id)) {
+        ordered.push(node);
+      }
+      // Don't traverse into loop body nodes (slot 0 children) — they're not top-level steps
+      if (node?.type === 'workflow/loop') {
+        // Only follow slot 1 (Done) for the BFS continuation — not slot 0 (Each body)
+        for (const link of links) {
+          const originId = link[1], targetId = link[3], originSlot = link[2];
+          if (originId === id && originSlot === 1 && !visited.has(targetId)) {
+            visited.add(targetId);
+            queue.push(targetId);
+          }
+        }
+      } else {
+        for (const nextId of (outExec.get(id) || [])) {
+          if (!visited.has(nextId)) {
+            visited.add(nextId);
+            queue.push(nextId);
+          }
+        }
+      }
+    }
+
+    // Append any unvisited non-child nodes (disconnected) at the end
     for (const n of nodes) {
-      if (n.type !== 'workflow/trigger' && !visited.has(n.id)) {
+      if (n.type !== 'workflow/trigger' && !visited.has(n.id) && !loopChildNodes.has(n.id)) {
         ordered.push(n);
       }
     }
