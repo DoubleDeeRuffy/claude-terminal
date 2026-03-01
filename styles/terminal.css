@@ -30,6 +30,10 @@
   min-width: 0;
 }
 
+.split-pane.focused {
+  /* Subtle focused pane indicator — border highlight visible only in multi-pane */
+}
+
 .split-divider {
   width: 1px;
   background: var(--border-color);

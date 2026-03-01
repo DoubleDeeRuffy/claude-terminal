@@ -227,9 +227,48 @@ function getActivePaneId() {
 }
 
 function setActivePaneId(paneId) {
+  if (activePaneId && panes.has(activePaneId)) {
+    panes.get(activePaneId).el.classList.remove('focused');
+  }
   if (panes.has(paneId)) {
     activePaneId = paneId;
+    panes.get(paneId).el.classList.add('focused');
   }
+}
+
+function setPaneActiveTab(paneId, termId) {
+  const pane = panes.get(paneId);
+  if (pane) pane.activeTab = termId;
+}
+
+function getPaneActiveTab(paneId) {
+  return panes.get(paneId)?.activeTab || null;
+}
+
+// ─── Pane focus handling ───
+
+let onPaneFocusCallback = null;
+
+function setOnPaneFocus(callback) {
+  onPaneFocusCallback = callback;
+}
+
+function setupPaneFocusHandlers() {
+  const paneArea = document.getElementById('split-pane-area');
+  if (!paneArea) return;
+  paneArea.addEventListener('mousedown', (e) => {
+    const paneEl = e.target.closest('.split-pane');
+    if (!paneEl) return;
+    const paneId = 'pane-' + paneEl.dataset.paneId;
+    if (paneId === activePaneId) return; // already focused
+
+    const pane = panes.get(paneId);
+    if (pane && pane.activeTab) {
+      if (onPaneFocusCallback) {
+        onPaneFocusCallback(pane.activeTab);
+      }
+    }
+  }, true); // capture phase to fire before xterm focus
 }
 
 function getPaneOrder() {
@@ -257,6 +296,10 @@ module.exports = {
   getDefaultPaneId,
   getActivePaneId,
   setActivePaneId,
+  setPaneActiveTab,
+  getPaneActiveTab,
+  setupPaneFocusHandlers,
+  setOnPaneFocus,
   getPaneOrder,
   getPanes,
   getPaneCount,

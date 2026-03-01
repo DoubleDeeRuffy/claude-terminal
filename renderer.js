@@ -189,6 +189,12 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   const PaneManager = require('./src/renderer/ui/components/PaneManager');
   PaneManager.initPanes();
 
+  // Wire pane focus to terminal activation (clicking a pane makes its active tab global)
+  PaneManager.setOnPaneFocus((termId) => {
+    TerminalManager.setActiveTerminal(termId);
+  });
+  PaneManager.setupPaneFocusHandlers();
+
   // Restore terminal sessions from previous run
   try {
     const { setSkipExplorerCapture } = require('./src/renderer/services/TerminalSessionService');

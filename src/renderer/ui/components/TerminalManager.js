@@ -1282,13 +1282,33 @@ function setActiveTerminal(id) {
   }
 
   setActiveTerminalState(id);
-  document.querySelectorAll('.terminal-tab').forEach(t => t.classList.toggle('active', t.dataset.id == id));
-  document.querySelectorAll('.terminal-wrapper').forEach(w => {
-    const isActive = w.dataset.id == id;
-    w.classList.toggle('active', isActive);
-    // Always clear inline display so CSS rules control visibility via .active class
-    w.style.removeProperty('display');
-  });
+
+  const paneId = PaneManager.getPaneForTab(String(id));
+  if (paneId) {
+    const pane = PaneManager.getPanes().get(paneId);
+    if (pane) {
+      // Toggle active only within THIS pane's tab bar
+      pane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.id == id));
+      // Toggle active only within THIS pane's content
+      pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
+        w.classList.toggle('active', w.dataset.id == id);
+        w.style.removeProperty('display');
+      });
+      // Update pane's tracked active tab
+      PaneManager.setPaneActiveTab(paneId, String(id));
+    }
+    // Set this pane as the focused pane
+    PaneManager.setActivePaneId(paneId);
+  } else {
+    // Fallback for tabs not yet registered (edge case during init)
+    document.querySelectorAll('.terminal-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.id == id));
+    document.querySelectorAll('.terminal-wrapper').forEach(w => {
+      w.classList.toggle('active', w.dataset.id == id);
+      w.style.removeProperty('display');
+    });
+  }
   const termData = getTerminal(id);
   if (termData) {
     if (termData.mode === 'chat') {
