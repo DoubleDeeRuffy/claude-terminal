@@ -159,6 +159,22 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   ensureDirectories();
   await initializeState(); // Loads settings, projects AND initializes time tracking
 
+  // Restore saved panel widths (must be after settings are loaded)
+  const savedPanelWidth = settingsState.get().projectsPanelWidth;
+  if (savedPanelWidth) {
+    const panel = document.querySelector('.projects-panel');
+    if (panel) panel.style.width = savedPanelWidth + 'px';
+    if (savedPanelWidth < 210) {
+      const btnToggle = document.getElementById('btn-toggle-projects');
+      if (btnToggle) btnToggle.style.display = 'none';
+    }
+  }
+  const savedMemoryWidth = settingsState.get().memorySidebarWidth;
+  if (savedMemoryWidth) {
+    const memorySidebar = document.querySelector('.memory-sidebar');
+    if (memorySidebar) memorySidebar.style.width = savedMemoryWidth + 'px';
+  }
+
   // Apply body classes for settings that affect global CSS
   if (getSetting('showTabModeToggle') === false) {
     document.body.classList.add('hide-tab-mode-toggle');
@@ -3777,7 +3793,12 @@ api.tray.onShowSessions(() => {
 (function initProjectsPanelResizer() {
   const resizer = document.getElementById('projects-panel-resizer');
   const panel = document.querySelector('.projects-panel');
+  const btnToggle = document.getElementById('btn-toggle-projects');
   if (!resizer || !panel) return;
+
+  function updateToggleVisibility(width) {
+    if (btnToggle) btnToggle.style.display = width < 210 ? 'none' : '';
+  }
 
   let startX, startWidth;
 
@@ -3790,8 +3811,9 @@ api.tray.onShowSessions(() => {
     document.body.style.userSelect = 'none';
 
     const onMouseMove = (e) => {
-      const newWidth = Math.min(600, Math.max(200, startWidth + (e.clientX - startX)));
+      const newWidth = Math.min(600, Math.max(170, startWidth + (e.clientX - startX)));
       panel.style.width = newWidth + 'px';
+      updateToggleVisibility(newWidth);
     };
 
     const onMouseUp = () => {
@@ -3800,8 +3822,9 @@ api.tray.onShowSessions(() => {
       resizer.classList.remove('active');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      updateToggleVisibility(panel.offsetWidth);
       settingsState.setProp('projectsPanelWidth', panel.offsetWidth);
-      saveSettings();
+      saveSettingsImmediate();
     };
 
     document.addEventListener('mousemove', onMouseMove);
