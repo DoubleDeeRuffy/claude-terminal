@@ -14,6 +14,9 @@
 const fs = require('fs');
 const path = require('path');
 
+const nodeRegistry = require('../../../src/main/workflow-nodes/_registry');
+nodeRegistry.loadRegistry();
+
 // -- Logging ------------------------------------------------------------------
 
 function log(...args) {
@@ -346,172 +349,27 @@ function outSlot(name, type, i) {
 function execIn()  { return [slot('In', EXEC)]; }
 function execOut(...names) { return names.map((n, i) => outSlot(n, EXEC, i)); }
 
-// Returns the default inputs/outputs slot definitions for a node type
-// Includes typed data pins (string/number/boolean/array/object/any)
+// Returns the default inputs/outputs slot definitions for a node type.
+// Delegates to the node registry; falls back to Done+Error if type is unknown.
 function getNodeSlots(type) {
-  switch (type) {
-    case 'workflow/trigger':
-      return { inputs: [], outputs: execOut('Start') };
-
-    case 'workflow/claude':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',  EXEC,     0),
-          outSlot('Error', EXEC,     1),
-          outSlot('output','string', 2),
-        ],
-      };
-
-    case 'workflow/shell':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',    EXEC,     0),
-          outSlot('Error',   EXEC,     1),
-          outSlot('stdout',  'string', 2),
-          outSlot('stderr',  'string', 3),
-          outSlot('exitCode','number', 4),
-        ],
-      };
-
-    case 'workflow/git':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',   EXEC,     0),
-          outSlot('Error',  EXEC,     1),
-          outSlot('output', 'string', 2),
-        ],
-      };
-
-    case 'workflow/http':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',   EXEC,     0),
-          outSlot('Error',  EXEC,     1),
-          outSlot('body',   'object', 2),
-          outSlot('status', 'number', 3),
-          outSlot('ok',     'boolean',4),
-        ],
-      };
-
-    case 'workflow/db':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',     EXEC,     0),
-          outSlot('Error',    EXEC,     1),
-          outSlot('rows',     'array',  2),
-          outSlot('rowCount', 'number', 3),
-          outSlot('firstRow', 'object', 4),
-        ],
-      };
-
-    case 'workflow/file':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',    EXEC,      0),
-          outSlot('Error',   EXEC,      1),
-          outSlot('content', 'string',  2),
-          outSlot('exists',  'boolean', 3),
-          outSlot('files',   'array',   4),
-          outSlot('count',   'number',  5),
-        ],
-      };
-
-    case 'workflow/time':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',     EXEC,     0),
-          outSlot('Error',    EXEC,     1),
-          outSlot('today',    'number', 2),
-          outSlot('week',     'number', 3),
-          outSlot('month',    'number', 4),
-          outSlot('projects', 'array',  5),
-        ],
-      };
-
-    case 'workflow/condition':
-      return { inputs: execIn(), outputs: execOut('TRUE', 'FALSE') };
-
-    case 'workflow/loop':
-      return {
-        inputs: [
-          slot('In',    EXEC),
-          slot('array', 'array'),
-        ],
-        outputs: [
-          outSlot('Each',  EXEC,    0),
-          outSlot('Done',  EXEC,    1),
-          outSlot('item',  'any',   2),
-          outSlot('index', 'number',3),
-        ],
-      };
-
-    case 'workflow/variable':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',  EXEC,  0),
-          outSlot('value', 'any', 1),
-        ],
-      };
-
-    case 'workflow/get_variable':
-      // Pure node: no exec pins, just a data output
-      return {
-        inputs: [],
-        outputs: [outSlot('value', 'any', 0)],
-      };
-
-    case 'workflow/transform':
-      return {
-        inputs: [
-          slot('In',    EXEC),
-          slot('input', 'any'),
-        ],
-        outputs: [
-          outSlot('Done',   EXEC,  0),
-          outSlot('Error',  EXEC,  1),
-          outSlot('result', 'any', 2),
-        ],
-      };
-
-    case 'workflow/log':
-      return {
-        inputs: [
-          slot('In',      EXEC),
-          slot('message', 'string'),
-        ],
-        outputs: execOut('Done'),
-      };
-
-    case 'workflow/notify':
-    case 'workflow/wait':
-      return { inputs: execIn(), outputs: execOut('Done') };
-
-    case 'workflow/subworkflow':
-      return {
-        inputs: execIn(),
-        outputs: [
-          outSlot('Done',    EXEC,     0),
-          outSlot('Error',   EXEC,     1),
-          outSlot('outputs', 'object', 2),
-        ],
-      };
-
-    case 'workflow/switch':
-      // Switch: default output only (cases are dynamic — use workflow_update_node to set Cases)
-      return { inputs: execIn(), outputs: execOut('Default') };
-
-    default:
-      // Fallback: Done + Error
-      return { inputs: execIn(), outputs: execOut('Done', 'Error') };
+  const def = nodeRegistry.get(type);
+  if (!def) {
+    return { inputs: execIn(), outputs: execOut('Done', 'Error') };
   }
+
+  return {
+    inputs: def.inputs.map((pin, idx) => ({
+      name: pin.name,
+      type: pin.type === 'exec' ? EXEC : (pin.type || 'any'),
+      link: null,
+    })),
+    outputs: def.outputs.map((pin, idx) => ({
+      name: pin.name,
+      type: pin.type === 'exec' ? EXEC : (pin.type || 'any'),
+      links: [],
+      slot_index: idx,
+    })),
+  };
 }
 
 // -- Tool definitions ---------------------------------------------------------
