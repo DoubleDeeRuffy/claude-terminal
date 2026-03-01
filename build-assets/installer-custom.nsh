@@ -32,6 +32,15 @@
   SetSilent normal
 !macroend
 
+!macro customInstall
+  ; Safety-net: recreate the desktop shortcut if it was deleted by the old uninstaller
+  ; during a transition update (old uninstaller had no ${isUpdated} guard).
+  ; This ensures the shortcut always exists after install, regardless of upgrade path.
+  ${ifNot} ${FileExists} "$DESKTOP\Claude Terminal.lnk"
+    CreateShortCut "$DESKTOP\Claude Terminal.lnk" "$INSTDIR\Claude Terminal.exe"
+  ${endIf}
+!macroend
+
 !macro customUnInstall
   ; Only clean up desktop shortcut on actual uninstall, NOT during update runs
   ; During updates, preserving the shortcut prevents taskbar pin loss
