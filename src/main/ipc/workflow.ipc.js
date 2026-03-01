@@ -36,6 +36,23 @@
 const { ipcMain } = require('electron');
 const workflowService = require('../services/WorkflowService');
 
+/**
+ * Serialize a function to a string that can be reconstructed via
+ * new Function('return (' + str + ')')() on the renderer side.
+ * Handles both arrow/regular functions AND shorthand methods.
+ * Shorthand: "render(a, b) { ... }" → "function render(a, b) { ... }"
+ */
+function _serializeFn(fn) {
+  const s = fn.toString();
+  // Shorthand method: starts with an identifier followed by '('
+  // e.g. "render(field, props, node) {" or "bind(container, field) {"
+  // NOT a regular function ("function foo(") or arrow ("(a) =>" / "a =>")
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/.test(s) && !s.startsWith('function') && !s.includes('=>')) {
+    return 'function ' + s;
+  }
+  return s;
+}
+
 function registerWorkflowHandlers(mainWindow) {
   // Inject main window so service can emit events
   workflowService.setMainWindow(mainWindow);
@@ -237,9 +254,11 @@ function registerWorkflowHandlers(mainWindow) {
       fields:    (def.fields || []).map(f => ({
         ...f,
         // showIf, render, bind sont des fonctions → sérialiser en string pour re-eval côté renderer
-        showIf: f.showIf ? f.showIf.toString() : undefined,
-        render: f.render ? f.render.toString() : undefined,
-        bind:   f.bind   ? f.bind.toString()   : undefined,
+        // Les méthodes shorthand (ex: render(a,b){}) ne sont pas des expressions valides —
+        // on les préfixe avec 'function' pour que new Function('return (fn)')() fonctionne.
+        showIf: f.showIf ? _serializeFn(f.showIf) : undefined,
+        render: f.render ? _serializeFn(f.render) : undefined,
+        bind:   f.bind   ? _serializeFn(f.bind)   : undefined,
       })),
       dynamic:   def.dynamic   || null,
       removable: def.removable !== false,
