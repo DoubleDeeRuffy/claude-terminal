@@ -7,7 +7,8 @@
  * from CT_DATA_DIR/workflows/ directory.
  *
  * Tools: workflow_list, workflow_get, workflow_trigger, workflow_cancel,
- *        workflow_runs, workflow_status, workflow_rename
+ *        workflow_runs, workflow_status, workflow_run_logs, workflow_diagnose,
+ *        workflow_rename
  */
 
 const fs = require('fs');
@@ -98,6 +99,85 @@ function formatDuration(ms) {
 function formatStatus(status) {
   const icons = { success: 'OK', failed: 'FAIL', running: 'RUN', cancelled: 'CANCEL', pending: 'WAIT', skipped: 'SKIP', queued: 'QUEUE' };
   return icons[status] || status;
+}
+
+/** Find a run in history by ID */
+function loadRunFromHistory(runId) {
+  const history = loadHistory();
+  return history.find(r => r.id === runId) || null;
+}
+
+/** Format a single step output into readable text */
+function formatStepOutputText(nodeId, stepType, output, indent = '') {
+  if (!output || typeof output !== 'object') {
+    return output != null ? `${indent}${String(output).slice(0, 500)}` : '';
+  }
+
+  const type = stepType || output._type || '';
+  const lines = [];
+
+  if (type === 'shell' || type === 'git') {
+    if (output.stdout && output.stdout.trim()) {
+      lines.push(`${indent}stdout: ${output.stdout.trim().slice(0, 1000)}`);
+    }
+    if (output.stderr && output.stderr.trim()) {
+      lines.push(`${indent}stderr: ${output.stderr.trim().slice(0, 500)}`);
+    }
+    if (output.exitCode !== undefined) {
+      lines.push(`${indent}exit: ${output.exitCode}`);
+    }
+  } else if (type === 'claude' || type === 'agent') {
+    const text = output.text || output.output || output.result || '';
+    if (text) lines.push(`${indent}${text.slice(0, 2000)}`);
+    if (output.toolCalls && output.toolCalls.length) {
+      lines.push(`${indent}tools used: ${output.toolCalls.map(t => t.name || t).join(', ')}`);
+    }
+  } else if (type === 'http') {
+    lines.push(`${indent}status: ${output.status || '?'}`);
+    if (output.body) {
+      const body = typeof output.body === 'string' ? output.body : JSON.stringify(output.body);
+      lines.push(`${indent}body: ${body.slice(0, 500)}`);
+    }
+  } else if (type === 'condition') {
+    lines.push(`${indent}result: ${output.result}`);
+    if (output.expression) lines.push(`${indent}expression: ${output.expression}`);
+  } else if (type === 'variable') {
+    lines.push(`${indent}${output.name} ${output.action || 'set'} = ${JSON.stringify(output.value)}`);
+  } else if (type === 'loop') {
+    const items = output.items || [];
+    const count = output.count || items.length;
+    lines.push(`${indent}iterations: ${items.length}/${count}`);
+    items.slice(0, 5).forEach((iter, i) => {
+      const item = iter._item;
+      const label = item?.name || item?.path || (typeof item === 'string' ? item.slice(0, 40) : `item ${i + 1}`);
+      const childEntries = Object.entries(iter).filter(([k]) => k !== '_item');
+      const failed = childEntries.filter(([, v]) => v?._status === 'failed');
+      const status = failed.length ? 'FAIL' : 'OK';
+      lines.push(`${indent}  [${i + 1}] ${label} → ${status}`);
+      if (failed.length) {
+        for (const [nid, v] of failed) {
+          const errText = v?.stdout || v?.stderr || v?.output || v?.error || '';
+          if (errText) lines.push(`${indent}      ${nid}: ${String(errText).slice(0, 200)}`);
+        }
+      }
+    });
+    if (items.length > 5) lines.push(`${indent}  ... and ${items.length - 5} more`);
+  } else if (type === 'file') {
+    if (output.content) lines.push(`${indent}content: ${String(output.content).slice(0, 300)}`);
+    if (output.exists !== undefined) lines.push(`${indent}exists: ${output.exists}`);
+  } else if (type === 'db') {
+    lines.push(`${indent}rows: ${output.rowCount ?? (output.rows || []).length}`);
+    if (output.firstRow) lines.push(`${indent}first row: ${JSON.stringify(output.firstRow).slice(0, 200)}`);
+  } else {
+    // Generic fallback: print non-private keys
+    const entries = Object.entries(output).filter(([k]) => !k.startsWith('_'));
+    for (const [k, v] of entries.slice(0, 8)) {
+      const val = typeof v === 'string' ? v.slice(0, 300) : JSON.stringify(v).slice(0, 300);
+      lines.push(`${indent}${k}: ${val}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 // -- Graph helpers -------------------------------------------------------------
@@ -598,6 +678,30 @@ const tools = [
       required: ['workflow'],
     },
   },
+
+  {
+    name: 'workflow_run_logs',
+    description: 'Get full step-by-step logs and outputs for a specific run. Shows stdout/stderr for shell nodes, Claude agent output, HTTP responses, error details, and loop iteration results. Use this after workflow_runs to get the detailed output of a specific run (identified by its run ID from the run history).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'Run ID (e.g. run_abc123). Get it from workflow_runs output.' },
+      },
+      required: ['run_id'],
+    },
+  },
+
+  {
+    name: 'workflow_diagnose',
+    description: 'Analyse a workflow run and diagnose what happened: success/failure cause, error messages, which step failed, loop iteration results, and suggested fixes. Use this to understand why a run failed or to verify a run worked correctly. Combines run history + step outputs for a complete picture.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'Run ID to diagnose. Get it from workflow_runs output.' },
+      },
+      required: ['run_id'],
+    },
+  },
 ];
 
 // -- Tool handler -------------------------------------------------------------
@@ -814,6 +918,196 @@ async function handle(name, args) {
       });
 
       return ok(`Active runs (${active.length}):\n\n${lines.join('\n')}`);
+    }
+
+    // ── workflow_run_logs ────────────────────────────────────────────────────
+
+    if (name === 'workflow_run_logs') {
+      if (!args.run_id) return fail('Missing required parameter: run_id');
+
+      const run = loadRunFromHistory(args.run_id);
+      const result = loadRunResult(args.run_id);
+
+      if (!run && !result) return fail(`Run "${args.run_id}" not found. Use workflow_runs to get valid run IDs.`);
+
+      const wfName = run?.workflowName || run?.workflowId || args.run_id;
+      const date = run?.startedAt ? new Date(run.startedAt).toLocaleString() : '?';
+      let out = `# Run logs: ${wfName}\n`;
+      out += `ID: ${args.run_id}\n`;
+      out += `Status: ${formatStatus(run?.status || '?')}\n`;
+      out += `Date: ${date}\n`;
+      out += `Duration: ${run?.duration || '—'}\n`;
+      out += `Trigger: ${run?.trigger || '?'}\n\n`;
+
+      // Steps from history (status + type per step)
+      const steps = run?.steps || [];
+
+      if (steps.length === 0 && !result) {
+        return ok(out + '(No step data available for this run.)');
+      }
+
+      // Merge step metadata from history with detailed outputs from result file
+      const outputs = result?.outputs || {};
+
+      out += `## Steps (${steps.length})\n\n`;
+      for (const step of steps) {
+        const statusIcon = step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…';
+        const dur = step.duration ? ` (${formatDuration(step.duration)})` : '';
+        out += `### [${statusIcon}] ${step.id} (${step.type || '?'})${dur}\n`;
+
+        if (step.error) {
+          out += `Error: ${step.error}\n`;
+        }
+
+        // Try to get detailed output from result file, fallback to history output
+        const detailOutput = outputs[step.id] || step.output;
+        if (detailOutput) {
+          const formatted = formatStepOutputText(step.id, step.type, detailOutput, '  ');
+          if (formatted) out += `${formatted}\n`;
+        }
+
+        out += '\n';
+      }
+
+      // If result has outputs not in steps (e.g. loop child nodes)
+      const extraNodes = Object.keys(outputs).filter(nid => !steps.find(s => s.id === nid));
+      if (extraNodes.length) {
+        out += `## Additional node outputs (loop children, etc.)\n\n`;
+        for (const nid of extraNodes) {
+          const o = outputs[nid];
+          const type = o?._type || '';
+          out += `### ${nid} (${type})\n`;
+          const formatted = formatStepOutputText(nid, type, o, '  ');
+          if (formatted) out += `${formatted}\n`;
+          out += '\n';
+        }
+      }
+
+      return ok(out);
+    }
+
+    // ── workflow_diagnose ────────────────────────────────────────────────────
+
+    if (name === 'workflow_diagnose') {
+      if (!args.run_id) return fail('Missing required parameter: run_id');
+
+      const run = loadRunFromHistory(args.run_id);
+      const result = loadRunResult(args.run_id);
+
+      if (!run && !result) return fail(`Run "${args.run_id}" not found. Use workflow_runs to get valid run IDs.`);
+
+      const wfName = run?.workflowName || run?.workflowId || args.run_id;
+      const outputs = result?.outputs || {};
+      const steps = run?.steps || [];
+      const overallStatus = run?.status || 'unknown';
+
+      let out = `# Diagnosis: ${wfName} — ${formatStatus(overallStatus)}\n\n`;
+
+      // ── Summary
+      if (overallStatus === 'success') {
+        const stepCount = steps.length;
+        const loopSteps = steps.filter(s => s.type === 'loop');
+        const loopInfo = loopSteps.map(ls => {
+          const lo = outputs[ls.id] || ls.output;
+          const n = lo?.items?.length ?? lo?.done ?? '?';
+          return `${ls.id} ran ${n} iteration(s)`;
+        }).join(', ');
+        out += `✓ Run completed successfully in ${run?.duration || '—'} with ${stepCount} step(s).\n`;
+        if (loopInfo) out += `Loops: ${loopInfo}\n`;
+        out += '\n';
+      } else if (overallStatus === 'failed') {
+        const failedSteps = steps.filter(s => s.status === 'failed');
+        out += `✗ Run FAILED after ${run?.duration || '—'}.\n`;
+        out += `Failed steps: ${failedSteps.map(s => s.id).join(', ') || '(none identified)'}\n\n`;
+      } else if (overallStatus === 'cancelled') {
+        const lastRunning = [...steps].reverse().find(s => s.status === 'running' || s.status === 'success');
+        out += `– Run was cancelled. Last active step: ${lastRunning?.id || '?'}\n\n`;
+      }
+
+      // ── Per-step analysis
+      out += `## Step Analysis\n\n`;
+      for (const step of steps) {
+        const statusIcon = step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…';
+        out += `**[${statusIcon}] ${step.id}** (${step.type || '?'})\n`;
+
+        const detail = outputs[step.id] || step.output;
+
+        if (step.status === 'failed') {
+          const errMsg = step.error
+            || (step.type === 'shell' && (detail?.stderr || detail?.stdout))
+            || (typeof detail === 'string' && detail)
+            || '';
+          if (errMsg) out += `  → Error: ${String(errMsg).trim().slice(0, 400)}\n`;
+
+          // Suggest fix based on type
+          if (step.type === 'shell') {
+            const exitCode = detail?.exitCode;
+            if (exitCode !== undefined && exitCode !== 0) {
+              out += `  → Shell exited with code ${exitCode}. Check the command and working directory.\n`;
+            }
+          } else if (step.type === 'claude') {
+            out += `  → Claude agent failed. Check the prompt, model availability, and CWD.\n`;
+          } else if (step.type === 'http') {
+            out += `  → HTTP request failed. Check URL, method, headers, and network access.\n`;
+          } else if (step.type === 'condition') {
+            out += `  → Condition evaluation failed. Check the expression syntax.\n`;
+          }
+        } else if (step.status === 'success' && step.type === 'loop') {
+          const lo = outputs[step.id] || step.output;
+          const items = lo?.items || [];
+          const failed = items.filter(iter =>
+            Object.values(iter).some(v => v?._status === 'failed')
+          );
+          if (failed.length) {
+            out += `  → ${failed.length}/${items.length} iteration(s) had failures inside.\n`;
+            for (const iter of failed.slice(0, 3)) {
+              const label = iter._item?.name || iter._item?.path || JSON.stringify(iter._item).slice(0, 40);
+              const failNodes = Object.entries(iter)
+                .filter(([k, v]) => k !== '_item' && v?._status === 'failed')
+                .map(([k, v]) => `${k}: ${(v?.stderr || v?.stdout || v?.error || '').slice(0, 100)}`);
+              out += `     ${label}: ${failNodes.join('; ')}\n`;
+            }
+          } else {
+            out += `  → All ${items.length} iteration(s) succeeded.\n`;
+          }
+        } else if (step.status === 'skipped') {
+          out += `  → Step was skipped (condition was false or dependency failed).\n`;
+        } else if (step.status === 'success') {
+          // Brief success summary
+          if (step.type === 'shell') {
+            out += `  → exit 0`;
+            if (detail?.stdout?.trim()) out += `, stdout: ${detail.stdout.trim().slice(0, 80)}`;
+            out += '\n';
+          } else if (step.type === 'condition') {
+            out += `  → took ${detail?.result === true || detail?.result === 'true' ? 'TRUE' : 'FALSE'} branch\n`;
+          }
+        }
+      }
+
+      // ── Overall verdict
+      out += `\n## Verdict\n`;
+      if (overallStatus === 'success') {
+        const hasLoopFailures = steps.some(s => {
+          if (s.type !== 'loop') return false;
+          const lo = outputs[s.id] || s.output;
+          return (lo?.items || []).some(iter => Object.values(iter).some(v => v?._status === 'failed'));
+        });
+        if (hasLoopFailures) {
+          out += `Run completed but some loop iterations had internal failures. Review the loop step details above.\n`;
+        } else {
+          out += `Run completed successfully. No issues detected.\n`;
+        }
+      } else if (overallStatus === 'failed') {
+        const failedSteps = steps.filter(s => s.status === 'failed');
+        if (failedSteps.length) {
+          out += `Fix the error in step "${failedSteps[0].id}" (${failedSteps[0].type}) and re-run the workflow.\n`;
+          out += `Use workflow_run_logs with run_id="${args.run_id}" for full output details.\n`;
+        }
+      } else if (overallStatus === 'cancelled') {
+        out += `Run was manually cancelled. Re-trigger when ready.\n`;
+      }
+
+      return ok(out);
     }
 
     // ── workflow_get_variables ───────────────────────────────────────────────
