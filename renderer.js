@@ -215,11 +215,38 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
         if (!fs.existsSync(project.path)) continue;
         if (!saved.tabs || saved.tabs.length === 0) continue;
 
+        // Pre-create pane structure if paneLayout exists
+        if (saved.paneLayout && saved.paneLayout.count > 1) {
+          const paneCount = Math.min(saved.paneLayout.count, 3);
+          for (let p = PaneManager.getPaneOrder().length; p < paneCount; p++) {
+            const lastPaneId = PaneManager.getPaneOrder()[PaneManager.getPaneOrder().length - 1];
+            PaneManager.createPane(lastPaneId);
+          }
+        }
+
+        // Build a reverse map: tab index -> pane index
+        const tabToPaneIndex = new Map();
+        if (saved.paneLayout && saved.paneLayout.panes) {
+          saved.paneLayout.panes.forEach((pane, paneIdx) => {
+            (pane.tabIndices || []).forEach(tabIdx => {
+              tabToPaneIndex.set(tabIdx, paneIdx);
+            });
+          });
+        }
+
         const restoredIds = []; // Sparse array — index matches saved.tabs position
 
         for (let tabIdx = 0; tabIdx < saved.tabs.length; tabIdx++) {
           const tab = saved.tabs[tabIdx];
           let restoredId = null;
+
+          // Determine target pane for this tab
+          const paneIdx = tabToPaneIndex.get(tabIdx) ?? 0;
+          const targetPaneId = PaneManager.getPaneOrder()[paneIdx] || PaneManager.getDefaultPaneId();
+
+          // Temporarily set active pane to target so new tab goes there
+          const prevActivePaneId = PaneManager.getActivePaneId();
+          PaneManager.setActivePaneId(targetPaneId);
 
           if (tab.type === 'file') {
             // File tab: check file exists, then open
@@ -239,23 +266,65 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
             });
           }
 
+          // Restore previous active pane
+          PaneManager.setActivePaneId(prevActivePaneId);
+
           restoredIds[tabIdx] = restoredId || null; // Keep index alignment with saved.tabs
         }
 
-        // Restore active tab using activeTabIndex (works for all tab types)
-        if (saved.activeTabIndex != null && restoredIds[saved.activeTabIndex]) {
-          TerminalManager.setActiveTerminal(restoredIds[saved.activeTabIndex]);
-        } else if (saved.activeCwd) {
-          // Legacy fallback: match by cwd for terminal tabs
-          const terminals = terminalsState.get().terminals;
-          let activeId = null;
-          terminals.forEach((td, id) => {
-            if (td.project?.id === projectId && td.cwd === saved.activeCwd) {
-              activeId = id;
+        // Restore per-pane active tabs and global active pane
+        if (saved.paneLayout && saved.paneLayout.panes) {
+          saved.paneLayout.panes.forEach((paneData, paneIdx) => {
+            const paneId = PaneManager.getPaneOrder()[paneIdx];
+            if (!paneId) return;
+
+            const activeIdx = paneData.activeTabIndex;
+            if (activeIdx != null) {
+              const tabIndices = paneData.tabIndices || [];
+              const globalTabIdx = tabIndices[activeIdx];
+              const activeTermId = globalTabIdx != null ? restoredIds[globalTabIdx] : null;
+              if (activeTermId) {
+                // Set this tab as active in its pane (pane-scoped toggle)
+                PaneManager.setPaneActiveTab(paneId, String(activeTermId));
+                const pane = PaneManager.getPanes().get(paneId);
+                if (pane) {
+                  pane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
+                    t.classList.toggle('active', t.dataset.id == activeTermId));
+                  pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
+                    w.classList.toggle('active', w.dataset.id == activeTermId);
+                    w.style.removeProperty('display');
+                  });
+                }
+              }
             }
           });
-          if (activeId) {
-            TerminalManager.setActiveTerminal(activeId);
+
+          // Set the globally active pane and its active tab
+          const activePaneIdx = saved.paneLayout.activePane ?? 0;
+          const activePaneId = PaneManager.getPaneOrder()[activePaneIdx];
+          if (activePaneId) {
+            PaneManager.setActivePaneId(activePaneId);
+            const paneActiveTab = PaneManager.getPaneActiveTab(activePaneId);
+            if (paneActiveTab) {
+              TerminalManager.setActiveTerminal(paneActiveTab);
+            }
+          }
+        } else {
+          // No paneLayout (v1 data or single pane) — use legacy activeTabIndex
+          if (saved.activeTabIndex != null && restoredIds[saved.activeTabIndex]) {
+            TerminalManager.setActiveTerminal(restoredIds[saved.activeTabIndex]);
+          } else if (saved.activeCwd) {
+            // Legacy fallback: match by cwd for terminal tabs
+            const terminals = terminalsState.get().terminals;
+            let activeId = null;
+            terminals.forEach((td, id) => {
+              if (td.project?.id === projectId && td.cwd === saved.activeCwd) {
+                activeId = id;
+              }
+            });
+            if (activeId) {
+              TerminalManager.setActiveTerminal(activeId);
+            }
           }
         }
       }
