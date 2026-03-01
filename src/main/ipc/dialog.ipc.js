@@ -37,8 +37,10 @@ function registerDialogHandlers() {
   ipcMain.on('window-close', () => mainWindow?.close());
 
   // Force quit application (bypass minimize to tray)
-  ipcMain.on('app-quit', () => {
-    const { setQuitting } = require('../windows/MainWindow');
+  ipcMain.on('app-quit', async () => {
+    const { checkClaudeActivityBeforeQuit, setQuitting } = require('../windows/MainWindow');
+    const canQuit = await checkClaudeActivityBeforeQuit();
+    if (!canQuit) return;
     setQuitting(true);
     app.quit();
   });

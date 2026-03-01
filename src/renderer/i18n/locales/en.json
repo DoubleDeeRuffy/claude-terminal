@@ -28,6 +28,13 @@
     "stop": "Stop",
     "remove": "Remove"
   },
+  "closeWarning": {
+    "title": "Claude is working",
+    "message": "Claude is actively working in:",
+    "confirmQuit": "Are you sure you want to quit?",
+    "quitAnyway": "Quit Anyway",
+    "cancel": "Cancel"
+  },
   "projects": {
     "title": "Projects",
     "noProjects": "No projects",

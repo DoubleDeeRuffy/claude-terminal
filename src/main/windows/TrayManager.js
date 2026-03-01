@@ -71,7 +71,10 @@ function createTray() {
     { type: 'separator' },
     {
       label: 'Quit',
-      click: () => {
+      click: async () => {
+        const { checkClaudeActivityBeforeQuit } = require('./MainWindow');
+        const canQuit = await checkClaudeActivityBeforeQuit();
+        if (!canQuit) return;
         setQuitting(true);
         const { app } = require('electron');
         app.quit();
