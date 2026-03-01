@@ -3409,8 +3409,7 @@ async function createChatTerminal(project, options = {}) {
     onSessionStart: (sid) => {
       _chatSessionId = sid;
       // Persist session ID on termData for TerminalSessionService (fresh sessions)
-      const data = getTerminal(id);
-      if (data) data.claudeSessionId = sid;
+      updateTerminal(id, { claudeSessionId: sid });
       if (onSessionStart) onSessionStart(sid);
     },
     onTabRename: (name) => {

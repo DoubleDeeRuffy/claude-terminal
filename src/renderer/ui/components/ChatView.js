@@ -10,6 +10,8 @@ const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
 const { heartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
+const { updateTerminal } = require('../../state/terminals.state');
+const { saveTerminalSessions } = require('../../services/TerminalSessionService');
 
 const MODEL_OPTIONS = [
   { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable for complex work' },
@@ -3038,10 +3040,8 @@ function createChatView(wrapperEl, project, options = {}) {
       sdkSessionId = msg.session_id;
       // Propagate new session ID to termData for persistence (fixes /clear not saving new ID)
       if (terminalId) {
-        const { updateTerminal } = require('../../state/terminals.state');
         updateTerminal(terminalId, { claudeSessionId: msg.session_id });
-        const TerminalSessionService = require('../../services/TerminalSessionService');
-        TerminalSessionService.saveTerminalSessionsImmediate();
+        saveTerminalSessions();
       }
     }
 
