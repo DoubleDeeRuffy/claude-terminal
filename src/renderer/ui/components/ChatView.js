@@ -10,6 +10,8 @@ const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
 const { heartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
+const { updateTerminal } = require('../../state/terminals.state');
+const { saveTerminalSessions } = require('../../services/TerminalSessionService');
 
 const MODEL_OPTIONS = [
   { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable for complex work' },
@@ -3061,7 +3063,14 @@ function createChatView(wrapperEl, project, options = {}) {
     if (!content) return;
 
     // Capture real SDK session UUID (needed for fork/resume)
-    if (msg.session_id) sdkSessionId = msg.session_id;
+    if (msg.session_id && msg.session_id !== sdkSessionId) {
+      sdkSessionId = msg.session_id;
+      // Propagate new session ID to termData for persistence (fixes /clear not saving new ID)
+      if (terminalId) {
+        updateTerminal(terminalId, { claudeSessionId: msg.session_id });
+        saveTerminalSessions();
+      }
+    }
 
     // Store message UUID on the assistant DOM element (used for fork)
     if (msg.uuid) {

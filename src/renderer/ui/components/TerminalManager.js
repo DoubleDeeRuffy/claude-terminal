@@ -993,6 +993,11 @@ function updateTerminalTabName(id, name) {
   // Update state
   updateTerminal(id, { name });
 
+  // Propagate tab name to session-names.json (resume dialog)
+  if (termData.claudeSessionId && name) {
+    setSessionCustomName(termData.claudeSessionId, name);
+  }
+
   // Update DOM
   const tab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
   if (tab) {
@@ -1001,6 +1006,9 @@ function updateTerminalTabName(id, name) {
       nameSpan.textContent = name;
     }
   }
+  // Persist name change (debounced)
+  const TerminalSessionService = require('../../services/TerminalSessionService');
+  TerminalSessionService.saveTerminalSessions();
 }
 
 /**
@@ -1045,6 +1053,8 @@ function updateTerminalStatus(id, status) {
         clearTimeout(safetyTimeout);
         loadingTimeouts.delete(id);
       }
+      // Schedule silence-based scroll — fires 300ms after PTY data goes quiet
+      scheduleScrollAfterRestore(id);
     }
     if (status === 'ready' && previousStatus === 'working') {
       // Skip scraping notifications when hooks are active (bus consumer handles it with richer data)
@@ -1398,7 +1408,7 @@ async function createTerminal(project, options = {}) {
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
     const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
-    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
+    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
   }
 
   const result = await api.terminal.create({
@@ -1449,6 +1459,8 @@ async function createTerminal(project, options = {}) {
     inputBuffer: '',
     isBasic: isBasicTerminal,
     mode: 'terminal',
+    cwd: overrideCwd || project.path,
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {}),
     ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
@@ -2871,13 +2883,13 @@ async function renderSessionsPanel(project, emptyState) {
  * Resume a Claude session
  */
 async function resumeSession(project, sessionId, options = {}) {
-  const { skipPermissions = false } = options;
+  const { skipPermissions = false, name: sessionName = null } = options;
 
   // If chat mode is active, resume via SDK
   const mode = getSetting('defaultTerminalMode') || 'terminal';
   if (mode === 'chat') {
     console.log(`[TerminalManager] Resuming in chat mode — sessionId: ${sessionId}`);
-    return createChatTerminal(project, { skipPermissions, resumeSessionId: sessionId });
+    return createChatTerminal(project, { skipPermissions, resumeSessionId: sessionId, name: sessionName });
   }
 
   const result = await api.terminal.create({
@@ -2920,13 +2932,19 @@ async function resumeSession(project, sessionId, options = {}) {
     fitAddon,
     project,
     projectIndex,
-    name: t('terminals.resuming'),
+    name: sessionName || t('terminals.resuming'),
     status: 'working',
     inputBuffer: '',
-    isBasic: false
+    isBasic: false,
+    claudeSessionId: sessionId
   };
 
   addTerminal(id, termData);
+
+  // If a saved name was passed, persist it immediately
+  if (sessionName) {
+    setSessionCustomName(sessionId, sessionName);
+  }
 
   // Start time tracking for this project
   heartbeat(project.id, 'terminal');
@@ -2938,7 +2956,7 @@ async function resumeSession(project, sessionId, options = {}) {
   tab.dataset.id = id;
   tab.innerHTML = `
     <span class="status-dot"></span>
-    <span class="tab-name">${escapeHtml(t('terminals.resuming'))}</span>
+    <span class="tab-name">${escapeHtml(sessionName || t('terminals.resuming'))}</span>
     <button class="tab-close"><svg viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></button>`;
   tabsContainer.appendChild(tab);
 
@@ -3813,7 +3831,8 @@ async function createChatTerminal(project, options = {}) {
     isBasic: false,
     mode: 'chat',
     chatView: null,
-    ...(parentProjectId ? { parentProjectId } : {})
+    ...(parentProjectId ? { parentProjectId } : {}),
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {})
   };
 
   addTerminal(id, termData);
@@ -3857,6 +3876,8 @@ async function createChatTerminal(project, options = {}) {
     initialEffort,
     onSessionStart: (sid) => {
       _chatSessionId = sid;
+      // Persist session ID on termData for TerminalSessionService (fresh sessions)
+      updateTerminal(id, { claudeSessionId: sid });
       if (onSessionStart) onSessionStart(sid);
     },
     onTabRename: (name) => {
@@ -3864,6 +3885,10 @@ async function createChatTerminal(project, options = {}) {
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
+      // Propagate tab name to session-names.json (resume dialog)
+      if (_chatSessionId && name) {
+        setSessionCustomName(_chatSessionId, name);
+      }
       // Notify remote PWA of tab rename
       if (_chatSessionId && api.remote?.notifyTabRenamed) {
         api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
@@ -4114,6 +4139,38 @@ function cleanupProjectMaps(projectIndex) {
   }
 }
 
+/**
+ * Schedule a scroll-to-bottom once PTY replay data goes silent.
+ * Uses the lastTerminalData map (already maintained per terminal) and scrolls
+ * once 300ms of silence is observed, or after 8s unconditionally.
+ *
+ * @param {string} id - Terminal ID
+ */
+function scheduleScrollAfterRestore(id) {
+  const SILENCE_MS = 300;   // 300ms no new data = replay done
+  const MAX_WAIT_MS = 8000; // hard fallback — scroll regardless after 8s
+  const POLL_MS = 50;       // polling interval
+
+  const startTime = Date.now();
+
+  const poll = setInterval(() => {
+    const td = getTerminal(id);
+    if (!td || !td.terminal || typeof td.terminal.scrollToBottom !== 'function') {
+      clearInterval(poll);
+      return;
+    }
+
+    const lastData = lastTerminalData.get(id);
+    const silentFor = lastData ? Date.now() - lastData : Date.now() - startTime;
+    const timedOut  = Date.now() - startTime >= MAX_WAIT_MS;
+
+    if (silentFor >= SILENCE_MS || timedOut) {
+      clearInterval(poll);
+      td.terminal.scrollToBottom();
+    }
+  }, POLL_MS);
+}
+
 module.exports = {
   createTerminal,
   closeTerminal,
@@ -4160,5 +4217,7 @@ module.exports = {
   setScrapingCallback,
   updateTerminalTabName,
   // Cleanup when a project is deleted
-  cleanupProjectMaps
+  cleanupProjectMaps,
+  // Silence-based scroll scheduling for session restore
+  scheduleScrollAfterRestore
 };

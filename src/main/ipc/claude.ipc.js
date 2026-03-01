@@ -10,13 +10,26 @@ const os = require('os');
 const readline = require('readline');
 
 /**
- * Encode project path to match Claude's folder naming convention
+ * Encode project path to match Claude's folder naming convention.
+ * Uses a broad [^a-zA-Z0-9] class (instead of the old 3-char class)
+ * so that dots, spaces, and other special characters are replaced.
+ * This fixes session lookup for projects
+ * whose paths contain dots or other special chars (e.g. "ConfigHub.Server").
+ *
  * @param {string} projectPath - The project path
  * @returns {string} - Encoded path for folder name
  */
 function encodeProjectPath(projectPath) {
-  // Claude uses path with : and \ replaced by -
-  return projectPath.replace(/:/g, '-').replace(/\\/g, '-').replace(/\//g, '-');
+  const MAX_LEN = 200;
+  const encoded = projectPath.replace(/[^a-zA-Z0-9]/g, '-');
+  if (encoded.length <= MAX_LEN) return encoded;
+  // For paths exceeding 200 chars: truncate + append a simple hash
+  // (mirrors Claude Code's hMK hash — DJB2-style string hash in base36)
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = ((hash << 5) - hash + projectPath.charCodeAt(i)) | 0;
+  }
+  return `${encoded.slice(0, MAX_LEN)}-${Math.abs(hash).toString(36)}`;
 }
 
 /**
