@@ -8,7 +8,7 @@
  *
  * Tools: workflow_list, workflow_get, workflow_trigger, workflow_cancel,
  *        workflow_runs, workflow_status, workflow_run_logs, workflow_diagnose,
- *        workflow_rename
+ *        workflow_add_variable, workflow_get_variables, workflow_rename
  */
 
 const fs = require('fs');
@@ -634,6 +634,19 @@ const tools = [
     },
   },
   {
+    name: 'workflow_add_variable',
+    description: 'Add an abstract variable definition to a workflow. Variables are named typed values stored in the Variables panel (separate from graph nodes). Once defined, they can be referenced in workflow/variable and workflow/get_variable nodes by name. Types: string, number, boolean, array, object, any.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow: { type: 'string', description: 'Workflow name or ID' },
+        name: { type: 'string', description: 'Variable name (e.g. "today", "projectList")' },
+        varType: { type: 'string', enum: ['string', 'number', 'boolean', 'array', 'object', 'any'], description: 'Variable type (default: any)' },
+      },
+      required: ['workflow', 'name'],
+    },
+  },
+  {
     name: 'workflow_get_variables',
     description: 'List all variables defined in a workflow. Variables are abstract definitions (name + type) stored in the Variables panel, separate from graph nodes. Also shows which graph nodes reference each variable.',
     inputSchema: {
@@ -1111,6 +1124,35 @@ async function handle(name, args) {
     }
 
     // ── workflow_get_variables ───────────────────────────────────────────────
+
+    if (name === 'workflow_add_variable') {
+      if (!args.workflow) return fail('Missing required parameter: workflow');
+      if (!args.name) return fail('Missing required parameter: name');
+
+      const wf = loadWorkflowDef(args.workflow);
+      if (!wf) return fail(`Workflow "${args.workflow}" not found.`);
+
+      const validTypes = ['string', 'number', 'boolean', 'array', 'object', 'any'];
+      const varType = validTypes.includes(args.varType) ? args.varType : 'any';
+
+      if (!wf.variables) wf.variables = [];
+      const existing = wf.variables.find(v => v.name === args.name);
+      if (existing) {
+        existing.varType = varType;
+        wf.updatedAt = new Date().toISOString();
+        saveWorkflowDef(wf);
+        signalReload();
+        return ok(`Variable "${args.name}" updated to type "${varType}" in workflow "${wf.name}".`);
+      }
+
+      wf.variables.push({ name: args.name, varType });
+      wf.updatedAt = new Date().toISOString();
+      saveWorkflowDef(wf);
+      signalReload();
+
+      log(`Added variable "${args.name}" (${varType}) to workflow ${wf.id}`);
+      return ok(`Variable "${args.name}" (${varType}) added to workflow "${wf.name}".\n\nYou can now reference it in workflow/variable nodes (set/get/increment/append) or workflow/get_variable nodes using name="${args.name}".`);
+    }
 
     if (name === 'workflow_get_variables') {
       if (!args.workflow) return fail('Missing required parameter: workflow');
