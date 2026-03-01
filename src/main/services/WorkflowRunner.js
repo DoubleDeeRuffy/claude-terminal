@@ -1241,12 +1241,12 @@ class WorkflowRunner {
           };
 
           if (isParallel && eachTargets.length) {
-            // Parallel execution: each iteration gets its own AbortController child
-            // and its own stepOutputs map to avoid cross-iteration data races.
+            // Parallel execution with concurrency cap to avoid resource exhaustion
+            const concurrencyLimit = Math.max(1, parseInt(step.concurrency, 10) || 10);
             const doneResults = new Array(items.length).fill(null);
-            const promises = items.map(async (item, idx) => {
-              if (signal.aborted) throw new Error('Cancelled');
-              // Child controller: one listener on parent signal instead of many
+
+            const runIteration = async (item, idx) => {
+              if (signal.aborted) return { success: false, error: 'Cancelled', _item: item };
               const iterAbort = new AbortController();
               const onParentAbort = () => iterAbort.abort();
               signal.addEventListener('abort', onParentAbort, { once: true });
@@ -1255,7 +1255,6 @@ class WorkflowRunner {
                 iterVars.set('loop', { item, index: idx, total: items.length });
                 iterVars.set('item', item);
                 iterVars.set('index', idx);
-                // Each iteration gets its own stepOutputs to prevent cross-iteration overwrites
                 const iterStepOutputs = {};
                 const { outputs, visitedNodes } = await this._executeSubGraph(
                   eachTargets, nodeById, outgoing, incoming, iterVars, runId, iterAbort.signal, iterStepOutputs, workflow
@@ -1270,10 +1269,16 @@ class WorkflowRunner {
               } finally {
                 signal.removeEventListener('abort', onParentAbort);
               }
-            });
-            const settled = await Promise.all(promises);
-            for (const s of settled) {
-              iterationResults.push(s.success ? s.result : { _error: s.error, _item: s._item });
+            };
+
+            // Process items in batches of concurrencyLimit
+            for (let batchStart = 0; batchStart < items.length; batchStart += concurrencyLimit) {
+              if (signal.aborted) break;
+              const batch = items.slice(batchStart, batchStart + concurrencyLimit);
+              const settled = await Promise.all(batch.map((item, i) => runIteration(item, batchStart + i)));
+              for (const s of settled) {
+                iterationResults.push(s.success ? s.result : { _error: s.error, _item: s._item });
+              }
             }
           } else {
             // Sequential execution (default)

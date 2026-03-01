@@ -21,7 +21,7 @@ module.exports = {
     { name: 'index', type: 'number' },
   ],
 
-  props: { source: 'auto', items: '', mode: 'sequential', maxIterations: '', _itemSchema: [] },
+  props: { source: 'auto', items: '', mode: 'sequential', maxIterations: '', concurrency: '10', _itemSchema: [] },
 
   fields: [
     { type: 'loop-config', key: 'source', label: 'Configuration boucle' },

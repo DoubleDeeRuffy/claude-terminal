@@ -64,17 +64,14 @@ module.exports = {
     const url   = config.url;
     if (!url) throw new Error('URL du webhook manquante');
 
-    // Résolution basique des variables $xxx
+    // Résolution des variables $xxx — supporte Map et objets
     function resolve(str) {
       if (!str || typeof str !== 'string') return str;
-      return str.replace(/\$(\w+(?:\.\w+)*)/g, (_, path) => {
-        const parts = path.split('.');
-        let val = vars;
-        for (const p of parts) {
-          if (val == null) return _;
-          val = val[p];
-        }
-        return val != null ? String(val) : _;
+      return str.replace(/\$(\w+(?:\.\w+)*)/g, (match, keyPath) => {
+        const parts = keyPath.split('.');
+        let val = vars instanceof Map ? vars.get(parts[0]) : vars[parts[0]];
+        for (let i = 1; i < parts.length && val != null; i++) val = val[parts[i]];
+        return val != null ? String(val) : match;
       });
     }
 
