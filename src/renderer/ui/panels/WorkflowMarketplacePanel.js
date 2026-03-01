@@ -12,14 +12,14 @@
  *   GET  /workflows/:id
  *   POST /workflows  { yaml, name, description, tags[], author }
  *
- * Until the Worker is live, the panel gracefully falls back to mock data.
+ * The Worker is live at https://claude-terminal-hub.claudeterminal.workers.dev
  */
 
 'use strict';
 
 const { escapeHtml } = require('../../utils');
 
-const HUB_URL = null; // not live yet — all requests fall back to mock data
+const HUB_URL = 'https://claude-terminal-hub.claudeterminal.workers.dev';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -400,12 +400,19 @@ function _hubItemToWorkflow(item) {
 
 // ─── Publish drawer ───────────────────────────────────────────────────────────
 
-function _openPublishDrawer() {
+async function _openPublishDrawer() {
   const drawer = document.getElementById('wfm-drawer');
   if (!drawer) return;
 
-  // Get list of current workflows for the picker
-  const workflows = ctx?.api?.workflow ? [] : _mockWorkflowNames();
+  // Load real workflows from the app
+  let workflows = [];
+  try {
+    const result = await ctx?.api?.workflow?.list?.();
+    workflows = result?.workflows || [];
+  } catch { workflows = []; }
+
+  // Store workflows map for use in _submitPublish
+  drawer._workflows = workflows;
 
   drawer.style.display = 'block';
   drawer.innerHTML = `
@@ -427,7 +434,10 @@ function _openPublishDrawer() {
           <label class="wfm-pub-label">Workflow à publier</label>
           <select class="wfm-pub-select" id="wfm-pub-wf">
             <option value="">— Choisir un workflow —</option>
-            ${_mockWorkflowNames().map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+            ${workflows.length
+              ? workflows.map(w => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name || w.id)}</option>`).join('')
+              : `<option disabled>Aucun workflow trouvé</option>`
+            }
           </select>
         </div>
 
@@ -467,12 +477,12 @@ function _openPublishDrawer() {
 }
 
 async function _submitPublish(drawer) {
-  const wfName = drawer.querySelector('#wfm-pub-wf')?.value;
-  const desc = drawer.querySelector('#wfm-pub-desc')?.value?.trim();
-  const tags = (drawer.querySelector('#wfm-pub-tags')?.value || '').split(',').map(t => t.trim()).filter(Boolean);
+  const wfId   = drawer.querySelector('#wfm-pub-wf')?.value;
+  const desc   = drawer.querySelector('#wfm-pub-desc')?.value?.trim();
+  const tags   = (drawer.querySelector('#wfm-pub-tags')?.value || '').split(',').map(t => t.trim()).filter(Boolean);
   const author = drawer.querySelector('#wfm-pub-author')?.value?.trim() || 'anonyme';
 
-  if (!wfName) {
+  if (!wfId) {
     _toast('Choisissez un workflow', 'error');
     return;
   }
@@ -481,11 +491,15 @@ async function _submitPublish(drawer) {
     return;
   }
 
+  // Find the full workflow object
+  const workflows = drawer._workflows || [];
+  const wf = workflows.find(w => w.id === wfId);
+  const wfName = wf?.name || wfId;
+
   const btn = drawer.querySelector('#wfm-pub-submit');
   btn.disabled = true;
   btn.innerHTML = `<span class="wfm-spinner"></span> Envoi…`;
 
-  // Optimistic local save — will be sent when hub is live
   st.mine.push({ id: `pending_${Date.now()}`, name: wfName, description: desc, tags, author, verified: false, imports: 0, pending: true });
   drawer.style.display = 'none';
 
@@ -494,7 +508,7 @@ async function _submitPublish(drawer) {
       await fetch(`${HUB_URL}/workflows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: wfName, description: desc, tags, author }),
+        body: JSON.stringify({ name: wfName, description: desc, tags, author, workflowJson: wf || null }),
         signal: AbortSignal.timeout(8000),
       });
       _toast('Workflow soumis ! Il sera visible après vérification.', 'success');
