@@ -143,6 +143,7 @@ function cleanupServices() {
   remoteServer.stop();
   workflowService.destroy();
   cloudSyncService.stop();
+  databaseService.disconnectAll().catch(() => {});
   if (_mcpPollTimer) clearInterval(_mcpPollTimer);
 }
 
