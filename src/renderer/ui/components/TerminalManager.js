@@ -157,6 +157,9 @@ const postSpinnerExtended = new Set();   // ids where spinner was seen
 const terminalSubstatus = new Map();     // id -> 'thinking' | 'tool_calling'
 const lastTerminalData = new Map();      // id -> timestamp of last PTY data
 const terminalContext = new Map();        // id -> { taskName, lastTool, toolCount, duration }
+// ── Per-project activation history stack (browser-like tab-close behavior) ──
+// Map<projectId, number[]> — most-recently-activated tab ID is the last element
+const tabActivationHistory = new Map();
 
 /**
  * Scan terminal buffer for definitive completion signals.
@@ -1229,6 +1232,18 @@ function setActiveTerminal(id) {
     if (prevProjectId !== newProjectId) {
       if (newProjectId) heartbeat(newProjectId, 'terminal');
     }
+
+    // Append to per-project activation history (browser-like tab-close)
+    if (newProjectId) {
+      if (!tabActivationHistory.has(newProjectId)) {
+        tabActivationHistory.set(newProjectId, []);
+      }
+      const history = tabActivationHistory.get(newProjectId);
+      if (history[history.length - 1] !== id) {
+        history.push(id);
+        if (history.length > 50) history.shift();
+      }
+    }
   }
 }
 
@@ -1314,10 +1329,33 @@ function closeTerminal(id) {
   document.querySelector(`.terminal-tab[data-id="${id}"]`)?.remove();
   document.querySelector(`.terminal-wrapper[data-id="${id}"]`)?.remove();
 
-  // Find another terminal from the same project
+  // Walk back activation history to find the previously-active tab
   let sameProjectTerminalId = null;
-  const terminals = terminalsState.get().terminals;
-  if (closedProjectPath) {
+  if (closedProjectId) {
+    const history = tabActivationHistory.get(closedProjectId);
+    if (history) {
+      // Walk from most-recent backward; skip the closed tab and already-removed tabs
+      for (let i = history.length - 1; i >= 0; i--) {
+        const candidateId = history[i];
+        if (candidateId === id) continue;
+        if (!getTerminal(candidateId)) continue;
+        sameProjectTerminalId = candidateId;
+        break;
+      }
+
+      // Prune closed tab from history to keep the array clean
+      const pruned = history.filter(hId => hId !== id);
+      if (pruned.length === 0) {
+        tabActivationHistory.delete(closedProjectId);
+      } else {
+        tabActivationHistory.set(closedProjectId, pruned);
+      }
+    }
+  }
+
+  // Fallback: nearest neighbor in tab strip (if history exhausted or not yet populated)
+  if (!sameProjectTerminalId && closedProjectPath) {
+    const terminals = terminalsState.get().terminals;
     terminals.forEach((td, termId) => {
       if (!sameProjectTerminalId && td.project?.path === closedProjectPath) {
         sameProjectTerminalId = termId;
