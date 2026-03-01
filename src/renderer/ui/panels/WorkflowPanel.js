@@ -1200,7 +1200,8 @@ function openEditor(workflowId = null) {
     /** Render the CWD select + optional custom path input, shared by claude/shell/git nodes */
     const cwdFieldHtml = (labelText, hintText) => {
       const allProjects = projectsState.get().projects || [];
-      const isCustom = !!props.cwd && !props.projectId;
+      // Custom mode: either projectId is the sentinel '__custom__', or cwd is set without a real projectId
+      const isCustom = props.projectId === '__custom__' || (!!props.cwd && !props.projectId);
       const selectedProjectId = isCustom ? '__custom__' : (props.projectId || '');
       return `
         <div class="wf-step-edit-field">
@@ -2040,10 +2041,6 @@ function openEditor(workflowId = null) {
         }
         // Re-render properties if field affects visibility (trigger type, method, action, mode, connection)
         if (['triggerType', 'method', 'action', 'mode', 'connection', 'projectId'].includes(key)) {
-          // When switching to custom path, clear projectId so cwd takes priority
-          if (key === 'projectId' && val === '__custom__') {
-            node.properties.projectId = '';
-          }
           renderProperties(node);
         }
         // Rebuild Variable pins when action changes (adaptive Get/Set like Unreal)
