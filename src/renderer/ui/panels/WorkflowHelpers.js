@@ -41,6 +41,28 @@ const NODE_OUTPUTS = {
   variable:  ['name', 'value', 'action'],
   log:       ['level', 'message', 'logged'],
   loop:      ['items', 'count'],
+  transform: ['result'],
+  switch:    ['matchedCase'],
+  subworkflow: ['outputs', 'status'],
+};
+// Output field types for richer autocomplete display
+const NODE_OUTPUT_TYPES = {
+  claude:    { output: 'string', success: 'boolean' },
+  shell:     { stdout: 'string', stderr: 'string', exitCode: 'number' },
+  git:       { output: 'string', success: 'boolean', action: 'string' },
+  http:      { status: 'number', ok: 'boolean', body: 'object' },
+  file:      { content: 'string', success: 'boolean', exists: 'boolean' },
+  db:        { rows: 'array', columns: 'array', rowCount: 'number', duration: 'number', firstRow: 'object' },
+  condition: { result: 'boolean', value: 'any' },
+  wait:      { waited: 'boolean', timedOut: 'boolean' },
+  notify:    { sent: 'boolean', message: 'string' },
+  project:   { success: 'boolean', action: 'string' },
+  variable:  { name: 'string', value: 'any', action: 'string' },
+  log:       { level: 'string', message: 'string', logged: 'boolean' },
+  loop:      { items: 'array', count: 'number' },
+  transform: { result: 'any' },
+  switch:    { matchedCase: 'string' },
+  subworkflow: { outputs: 'object', status: 'string' },
 };
 
 // ── SVG icons ───────────────────────────────────────────────────────────────
@@ -144,6 +166,7 @@ const STEP_TYPES = [
   { type: 'file',      label: 'File',      color: 'lime',     icon: svgFile(),       desc: 'Opération fichier',       category: 'data' },
   { type: 'db',        label: 'Database',  color: 'orange',   icon: svgDb(),         desc: 'Requête base de données', category: 'data' },
   { type: 'transform',    label: 'Transform',    color: 'teal',    icon: svgTransform(),    desc: 'Transformer des données',     category: 'data' },
+  { type: 'variable',    label: 'Variable',     color: 'purple',  icon: svgVariable(),    desc: 'Get/Set une variable',        category: 'data' },
   { type: 'condition',   label: 'Condition',    color: 'success', icon: svgCond(),         desc: 'Branchement conditionnel',    category: 'flow' },
   { type: 'loop',        label: 'Loop',         color: 'sky',     icon: svgLoop(),         desc: 'Itérer sur une liste',        category: 'flow' },
   { type: 'switch',      label: 'Switch',       color: 'pink',    icon: svgSwitch(),       desc: 'Aiguillage multi-sorties',    category: 'flow' },
@@ -425,21 +448,22 @@ function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
   const suggestions = [];
   const filter = (filterText || '').toLowerCase();
   const ctxVars = [
-    { value: '$ctx.project', detail: 'Chemin du projet' },
-    { value: '$ctx.branch', detail: 'Branche Git active' },
-    { value: '$ctx.date', detail: 'Date du jour' },
-    { value: '$ctx.trigger', detail: 'Type de déclencheur' },
+    { value: '$ctx.project', detail: 'Chemin du projet', type: 'string' },
+    { value: '$ctx.branch', detail: 'Branche Git active', type: 'string' },
+    { value: '$ctx.date', detail: 'Date du jour', type: 'string' },
+    { value: '$ctx.trigger', detail: 'Type de déclencheur', type: 'string' },
   ];
   for (const v of ctxVars) {
-    if (v.value.toLowerCase().includes(filter)) suggestions.push({ category: 'Contexte', label: v.value, value: v.value, detail: v.detail });
+    if (v.value.toLowerCase().includes(filter)) suggestions.push({ category: 'Contexte', label: v.value, value: v.value, detail: v.detail, type: v.type });
   }
   const loopVars = [
-    { value: '$loop.item', detail: 'Élément courant' },
-    { value: '$loop.index', detail: 'Index (0-based)' },
-    { value: '$loop.total', detail: 'Nombre total d\'items' },
+    { value: '$item', detail: 'Élément courant (alias)', type: 'any' },
+    { value: '$loop.item', detail: 'Élément courant', type: 'any' },
+    { value: '$loop.index', detail: 'Index (0-based)', type: 'number' },
+    { value: '$loop.total', detail: 'Nombre total d\'items', type: 'number' },
   ];
   for (const v of loopVars) {
-    if (v.value.toLowerCase().includes(filter)) suggestions.push({ category: 'Loop', label: v.value, value: v.value, detail: v.detail });
+    if (v.value.toLowerCase().includes(filter)) suggestions.push({ category: 'Loop', label: v.value, value: v.value, detail: v.detail, type: v.type });
   }
   if (graph && graph._nodes) {
     for (const node of graph._nodes) {
@@ -448,12 +472,14 @@ function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
       if (nodeType === 'trigger') continue;
       const outputs = NODE_OUTPUTS[nodeType];
       if (!outputs) continue;
-      const nodeLabel = node.title || nodeType;
+      const typeMap = NODE_OUTPUT_TYPES[nodeType] || {};
+      const nodeLabel = node.properties?._customTitle || node.title || nodeType;
       const prefix = `$node_${node.id}`;
       for (const prop of outputs) {
         const full = `${prefix}.${prop}`;
+        const propType = typeMap[prop] || 'any';
         if (full.toLowerCase().includes(filter) || nodeLabel.toLowerCase().includes(filter)) {
-          suggestions.push({ category: 'Nodes', label: full, value: full, detail: `${nodeLabel} → ${prop}` });
+          suggestions.push({ category: 'Nodes', label: full, value: full, detail: `${nodeLabel} → ${prop}`, type: propType });
         }
       }
     }
@@ -466,7 +492,8 @@ function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
       const varName = node.properties?.name;
       if (!varName) continue;
       const full = `$${varName}`;
-      if (full.toLowerCase().includes(filter)) suggestions.push({ category: 'Variables', label: full, value: full, detail: 'Variable custom' });
+      const varType = node.properties?.varType || 'any';
+      if (full.toLowerCase().includes(filter)) suggestions.push({ category: 'Variables', label: full, value: full, detail: `Variable (${varType})`, type: varType });
     }
   }
   return suggestions;
@@ -621,12 +648,15 @@ function setupAutocomplete(container, node, graphService, schemaCache) {
     activeIndex = 0;
     const groups = {};
     for (const s of suggestions) { if (!groups[s.category]) groups[s.category] = []; groups[s.category].push(s); }
+    const TYPE_COLORS = { string:'#c8c8c8', number:'#60a5fa', boolean:'#4ade80', array:'#fb923c', object:'#a78bfa', any:'#6b7280' };
     let html = '';
     for (const [cat, items] of Object.entries(groups)) {
       html += `<div class="wf-ac-category">${escapeHtml(cat)}</div>`;
       for (const item of items) {
         const idx = suggestions.indexOf(item);
-        html += `<div class="wf-ac-item${idx === 0 ? ' active' : ''}" data-idx="${idx}"><span class="wf-ac-label">${escapeHtml(item.label)}</span><span class="wf-ac-detail">${escapeHtml(item.detail)}</span></div>`;
+        const typeColor = TYPE_COLORS[item.type] || TYPE_COLORS.any;
+        const typeBadge = item.type ? `<span class="wf-ac-type" style="color:${typeColor}">${item.type}</span>` : '';
+        html += `<div class="wf-ac-item${idx === 0 ? ' active' : ''}" data-idx="${idx}"><span class="wf-ac-label">${escapeHtml(item.label)}</span>${typeBadge}<span class="wf-ac-detail">${escapeHtml(item.detail)}</span></div>`;
       }
     }
     popup.innerHTML = html;
@@ -801,7 +831,7 @@ module.exports = {
 // These need the schemaCache injected, so we export factory-style
 module.exports.getLoopPreview = function getLoopPreview(loopNode, graphService) {
   const { escapeHtml: esc } = require('../../utils');
-  const noPreview = { html: '', itemDesc: 'Valeur de l\'itération courante' };
+  const noPreview = { html: '', itemDesc: 'Valeur de l\'itération courante', schema: null };
   if (!graphService?.graph || !loopNode) return noPreview;
   const graph = graphService.graph;
   const inSlot = loopNode.inputs?.[0];
@@ -839,7 +869,12 @@ module.exports.getLoopPreview = function getLoopPreview(loopNode, graphService) 
       return `<div class="wf-loop-preview-item"><span class="wf-loop-preview-idx">${i}</span><code>${esc(String(text).substring(0, 60))}</code></div>`;
     }).join('')}${previewItems.length > 5 ? `<div class="wf-loop-preview-more">… +${previewItems.length - 5} autres</div>` : ''}</div>`;
   }
-  return { html: `<div class="wf-loop-preview"><div class="wf-loop-preview-header"><span class="wf-loop-preview-source">${esc(sourceName)}</span><span class="wf-loop-preview-type">${dataType}</span>${countText}</div><div class="wf-loop-preview-desc">${dataDesc}</div>${previewHtml}</div>`, itemDesc };
+  // Extract schema from preview items (first object's keys)
+  let schema = null;
+  if (previewItems.length > 0 && typeof previewItems[0] === 'object' && previewItems[0] !== null && !Array.isArray(previewItems[0])) {
+    schema = Object.keys(previewItems[0]);
+  }
+  return { html: `<div class="wf-loop-preview"><div class="wf-loop-preview-header"><span class="wf-loop-preview-source">${esc(sourceName)}</span><span class="wf-loop-preview-type">${dataType}</span>${countText}</div><div class="wf-loop-preview-desc">${dataDesc}</div>${previewHtml}</div>`, itemDesc, schema };
 };
 
 module.exports.initSmartSQL = async function initSmartSQL(container, node, graphService, schemaCache, dbConnectionsCache) {

@@ -760,7 +760,7 @@ function ClaudeNode() {
   addDataOutputs(this, 'claude');
   this.properties = {
     mode: 'prompt', prompt: '', agentId: '', skillId: '',
-    model: 'sonnet', effort: 'normal', outputSchema: null
+    model: 'sonnet', effort: 'medium', outputSchema: null
   };
   this.addWidget('combo', 'Mode', 'prompt', (v) => { this.properties.mode = v; }, {
     values: ['prompt', 'agent', 'skill']
@@ -769,8 +769,8 @@ function ClaudeNode() {
   this.addWidget('combo', 'Model', 'sonnet', (v) => { this.properties.model = v; }, {
     values: ['sonnet', 'haiku', 'opus']
   });
-  this.addWidget('combo', 'Effort', 'normal', (v) => { this.properties.effort = v; }, {
-    values: ['low', 'normal', 'high']
+  this.addWidget('combo', 'Effort', 'medium', (v) => { this.properties.effort = v; }, {
+    values: ['low', 'medium', 'high', 'max']
   });
   this.size = [220, this.computeSize()[1]];
 }

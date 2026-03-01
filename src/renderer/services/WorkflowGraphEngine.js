@@ -114,12 +114,12 @@ const NODE_TYPES = {
     title: 'Claude', desc: 'Prompt, Agent ou Skill',
     inputs: [{ name: 'In', type: 'exec' }],
     outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }, { name: 'Error', type: 'exec' }], 'claude'),
-    props: { mode: 'prompt', prompt: '', agentId: '', skillId: '', model: 'sonnet', effort: 'normal', outputSchema: null },
+    props: { mode: 'prompt', prompt: '', agentId: '', skillId: '', model: 'sonnet', effort: 'medium', outputSchema: null },
     widgets: [
       { type: 'combo', name: 'Mode', key: 'mode', values: ['prompt', 'agent', 'skill'] },
       { type: 'text', name: 'Prompt', key: 'prompt' },
       { type: 'combo', name: 'Model', key: 'model', values: ['sonnet', 'haiku', 'opus'] },
-      { type: 'combo', name: 'Effort', key: 'effort', values: ['low', 'normal', 'high'] },
+      { type: 'combo', name: 'Effort', key: 'effort', values: ['low', 'medium', 'high', 'max'] },
     ],
     width: 220,
     badge: (n) => ({ prompt: 'PROMPT', agent: 'AGENT', skill: 'SKILL' }[n.properties.mode] || 'PROMPT'),
@@ -266,16 +266,26 @@ const NODE_TYPES = {
     badgeColor: (n) => n.properties.mode === 'parallel' ? '#f59e0b' : null,
   },
   'workflow/variable': {
-    title: 'Variable', desc: 'Lire/écrire une variable',
-    inputs: [{ name: 'In', type: 'exec' }],
-    outputs: addDataOutputDefs([{ name: 'Done', type: 'exec' }], 'variable'),
+    title: 'Set Variable', desc: 'Lire/écrire une variable',
+    inputs: [{ name: 'In', type: 'exec' }, { name: 'value', type: 'any' }],
+    outputs: [{ name: 'Done', type: 'exec' }, { name: 'value', type: 'any' }],
     props: { action: 'set', name: '', value: '' },
     widgets: [
       { type: 'combo', name: 'Action', key: 'action', values: ['set', 'get', 'increment', 'append'] },
       { type: 'text', name: 'Name', key: 'name' },
     ],
     width: 200,
+    dynamic: 'variable',
     badge: (n) => (n.properties.action || 'set').toUpperCase(),
+    getTitle: (n) => {
+      const a = n.properties.action || 'set';
+      const nm = n.properties.name;
+      if (a === 'get') return nm ? `Get ${nm}` : 'Get Variable';
+      if (a === 'set') return nm ? `Set ${nm}` : 'Set Variable';
+      if (a === 'increment') return nm ? `++ ${nm}` : 'Increment';
+      if (a === 'append') return nm ? `Append ${nm}` : 'Append';
+      return 'Variable';
+    },
     drawExtra: (ctx, n) => {
       if (n.properties.name) {
         ctx.fillStyle = '#555';
@@ -383,6 +393,7 @@ class WorkflowGraphEngine {
     this._dragging = null;            // { type: 'node'|'pan'|'link'|'box'|'comment'|'comment-resize', ... }
     this._hoveredNode = null;
     this._hoveredPin = null;          // { node, slotIndex, isOutput, slot }
+    this._hoveredLink = null;         // link id or null
 
     // ── Clipboard ──
     this._clipboard = null;           // { nodes, links } serialized
@@ -427,7 +438,7 @@ class WorkflowGraphEngine {
     this._onWheel = this._handleWheel.bind(this);
     this._onKeyDown = this._handleKeyDown.bind(this);
     this._onDblClick = this._handleDblClick.bind(this);
-    this._onCtxMenu = (e) => e.preventDefault();
+    this._onCtxMenu = this._handleContextMenu.bind(this);
 
     canvasElement.addEventListener('mousedown', this._onMouseDown);
     canvasElement.addEventListener('mousemove', this._onMouseMove);
@@ -545,6 +556,44 @@ class WorkflowGraphEngine {
     for (const c of cases) node.outputs.push({ name: c, type: 'exec', links: [] });
     node.outputs.push({ name: 'default', type: 'exec', links: [] });
     node.size[1] = computeNodeHeight(node);
+  }
+
+  _rebuildVariablePins(node) {
+    const action = node.properties.action || 'set';
+
+    // Clear all existing links
+    for (const inp of node.inputs) {
+      if (inp.link != null) this._removeLink(inp.link);
+    }
+    for (const out of node.outputs) {
+      for (const lid of [...out.links]) this._removeLink(lid);
+    }
+
+    if (action === 'get') {
+      // Pure node: no exec pins, just data output
+      node.inputs = [];
+      node.outputs = [{ name: 'value', type: 'any', links: [] }];
+    } else if (action === 'set' || action === 'append') {
+      // Exec + data input for the value + data output
+      node.inputs = [
+        { name: 'In', type: 'exec', link: null },
+        { name: 'value', type: 'any', link: null },
+      ];
+      node.outputs = [
+        { name: 'Done', type: 'exec', links: [] },
+        { name: 'value', type: 'any', links: [] },
+      ];
+    } else {
+      // increment: exec only, no data input needed
+      node.inputs = [{ name: 'In', type: 'exec', link: null }];
+      node.outputs = [
+        { name: 'Done', type: 'exec', links: [] },
+        { name: 'value', type: 'any', links: [] },
+      ];
+    }
+
+    node.size[1] = computeNodeHeight(node);
+    this._markDirty();
   }
 
   deleteSelected() {
@@ -865,6 +914,21 @@ class WorkflowGraphEngine {
       };
       this._links.set(id, link);
       if (id >= this._nextLinkId) this._nextLinkId = id + 1;
+    }
+
+    // Migrate old Variable nodes: add missing data pins non-destructively
+    for (const node of this._nodes) {
+      if (node.type !== 'workflow/variable') continue;
+      const action = node.properties.action || 'set';
+      const hasDataIn = node.inputs.some(i => i.name === 'value' && i.type === 'any');
+      const hasDataOut = node.outputs.some(o => o.name === 'value' && o.type === 'any');
+      if ((action === 'set' || action === 'append') && !hasDataIn) {
+        node.inputs.push({ name: 'value', type: 'any', link: null });
+      }
+      if (action !== 'get' && !hasDataOut) {
+        node.outputs.push({ name: 'value', type: 'any', links: [] });
+      }
+      node.size[1] = computeNodeHeight(node);
     }
 
     this._markDirty();
@@ -1229,10 +1293,143 @@ class WorkflowGraphEngine {
 
     ctx.restore();
 
+    // Pin tooltip (drawn in screen space, after ctx.restore)
+    if (this._hoveredPin && !this._dragging) {
+      this._drawPinTooltip(ctx);
+    }
+
     // Minimap (drawn in screen space, after ctx.restore)
     if (this._showMinimap && this._nodes.length > 1) {
       this._drawMinimap(ctx, W, H);
     }
+  }
+
+  _drawPinTooltip(ctx) {
+    const hp = this._hoveredPin;
+    if (!hp) return;
+
+    const { node, slotIndex, isOutput, slot } = hp;
+    const pinType = slot.type === -1 ? 'exec' : (slot.type || 'any');
+    const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
+
+    // Build tooltip lines
+    const lines = [];
+    const pinName = slot.name || (isOutput ? `out ${slotIndex}` : `in ${slotIndex}`);
+
+    if (isOutput) {
+      lines.push({ text: pinName, color: pinColor, bold: true });
+      lines.push({ text: pinType, color: pinColor, dim: true });
+      // Last run value
+      const nodeType = (node.type || '').replace('workflow/', '');
+      const nodeId = `node_${node.id}`;
+      const output = this._lastRunOutputs.get(nodeId);
+      if (output != null) {
+        const offset = NODE_DATA_OUT_OFFSET[nodeType] ?? 0;
+        const dataIdx = slotIndex - offset;
+        const dataDef = NODE_DATA_OUTPUTS[nodeType];
+        if (dataDef && dataIdx >= 0 && dataIdx < dataDef.length) {
+          const key = dataDef[dataIdx].key;
+          const val = output[key] ?? output;
+          lines.push({ text: this._truncateValue(val), color: '#888', mono: true });
+        } else if (pinType === 'exec') {
+          // No value for exec pins
+        } else {
+          lines.push({ text: this._truncateValue(output), color: '#888', mono: true });
+        }
+      } else {
+        if (pinType !== 'exec') lines.push({ text: 'No data yet', color: '#555', dim: true });
+      }
+    } else {
+      // Input pin
+      lines.push({ text: pinName, color: pinColor, bold: true });
+      lines.push({ text: `expects ${pinType}`, color: pinColor, dim: true });
+      // Show connected source
+      if (slot.link != null) {
+        const link = this._links.get(slot.link);
+        if (link) {
+          const srcNode = this._getNodeById(link.origin_id);
+          if (srcNode) {
+            const srcSlot = srcNode.outputs?.[link.origin_slot];
+            const srcName = srcNode._customTitle || srcNode.title || srcNode.type?.replace('workflow/', '') || '?';
+            const srcPin = srcSlot?.name || `out ${link.origin_slot}`;
+            lines.push({ text: `\u2190 ${srcName}.${srcPin}`, color: '#aaa' });
+          }
+        }
+      }
+    }
+
+    if (!lines.length) return;
+
+    // Compute pin position in screen coords
+    const [gpx, gpy] = isOutput
+      ? this._getOutputPinPos(node, slotIndex)
+      : this._getInputPinPos(node, slotIndex);
+    const sx = gpx * this._scale + this._offsetX;
+    const sy = gpy * this._scale + this._offsetY;
+
+    // Measure tooltip
+    ctx.save();
+    const pad = 8;
+    const lineH = 16;
+    ctx.font = `500 11px ${FONT}`;
+    let maxW = 0;
+    for (const line of lines) {
+      const f = line.mono ? `11px ${MONO}` : (line.bold ? `600 11px ${FONT}` : `500 11px ${FONT}`);
+      ctx.font = f;
+      maxW = Math.max(maxW, ctx.measureText(line.text).width);
+    }
+    const tipW = maxW + pad * 2;
+    const tipH = lines.length * lineH + pad * 2 - 4;
+
+    // Position: offset from pin
+    let tipX = isOutput ? sx + 14 : sx - tipW - 14;
+    let tipY = sy - tipH / 2;
+
+    // Clamp to viewport
+    const W = this.canvasElement.width;
+    const H = this.canvasElement.height;
+    if (tipX + tipW > W - 4) tipX = sx - tipW - 14;
+    if (tipX < 4) tipX = sx + 14;
+    if (tipY < 4) tipY = 4;
+    if (tipY + tipH > H - 4) tipY = H - tipH - 4;
+
+    // Draw background
+    roundRect(ctx, tipX, tipY, tipW, tipH, 6);
+    ctx.fillStyle = 'rgba(20,20,22,0.95)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Draw lines
+    let y = tipY + pad + 10;
+    for (const line of lines) {
+      ctx.font = line.mono ? `11px ${MONO}` : (line.bold ? `600 11px ${FONT}` : `500 11px ${FONT}`);
+      ctx.globalAlpha = line.dim ? 0.5 : 0.9;
+      ctx.fillStyle = line.color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(line.text, tipX + pad, y);
+      y += lineH;
+    }
+
+    ctx.restore();
+  }
+
+  _truncateValue(val) {
+    if (val === null || val === undefined) return 'null';
+    if (typeof val === 'string') {
+      const single = val.replace(/\n/g, '\\n');
+      return single.length > 80 ? single.slice(0, 77) + '...' : single;
+    }
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (Array.isArray(val)) return `Array[${val.length}]`;
+    if (typeof val === 'object') {
+      const keys = Object.keys(val);
+      if (keys.length <= 3) return `{ ${keys.join(', ')} }`;
+      return `{ ${keys.slice(0, 3).join(', ')}, +${keys.length - 3} }`;
+    }
+    return String(val).slice(0, 80);
   }
 
   _drawGrid(ctx, vpW, vpH) {
@@ -1273,17 +1470,84 @@ class WorkflowGraphEngine {
       const pinType = link.type === 'exec' ? 'exec' : (link.type || 'any');
       const color = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
 
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.7;
+      // Detect active link: src completed/running → dst running
+      const srcStatus = srcNode._runStatus;
+      const dstStatus = dstNode._runStatus;
+      const isActive = (srcStatus === 'success' || srcStatus === 'running') && dstStatus === 'running';
 
-      // Bezier curve
-      const dx = Math.abs(ex - sx) * 0.5;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.bezierCurveTo(sx + dx, sy, ex - dx, ey, ex, ey);
-      ctx.stroke();
+      const isHovered = this._hoveredLink && this._hoveredLink.id === link.id;
+
+      ctx.save();
+
+      if (isHovered) {
+        // Highlight hovered link
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 3.5;
+        ctx.globalAlpha = 1;
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 10;
+
+        const dx = Math.abs(ex - sx) * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.bezierCurveTo(sx + dx, sy, ex - dx, ey, ex, ey);
+        ctx.stroke();
+
+        // Small X icon at midpoint
+        const mx = (sx + ex) / 2, my = (sy + ey) / 2;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(mx, my, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#ef4444';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(mx - 3, my - 3); ctx.lineTo(mx + 3, my + 3);
+        ctx.moveTo(mx + 3, my - 3); ctx.lineTo(mx - 3, my + 3);
+        ctx.stroke();
+      } else if (isActive) {
+        // Animated flow pulse along bezier
+        const t = (performance.now() % 1500) / 1500;
+        const accentColor = getNodeColors(dstNode).accent;
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.9;
+
+        const dx = Math.abs(ex - sx) * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.bezierCurveTo(sx + dx, sy, ex - dx, ey, ex, ey);
+        ctx.stroke();
+
+        // Animated dot traveling along the bezier
+        const bt = t;
+        const invT = 1 - bt;
+        const p0x = sx, p0y = sy;
+        const p1x = sx + dx, p1y = sy;
+        const p2x = ex - dx, p2y = ey;
+        const p3x = ex, p3y = ey;
+        const dotX = invT*invT*invT*p0x + 3*invT*invT*bt*p1x + 3*invT*bt*bt*p2x + bt*bt*bt*p3x;
+        const dotY = invT*invT*invT*p0y + 3*invT*invT*bt*p1y + 3*invT*bt*bt*p2y + bt*bt*bt*p3y;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = accentColor;
+        ctx.shadowColor = accentColor;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+
+        this._markDirty(); // keep animating
+      } else {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+
+        const dx = Math.abs(ex - sx) * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.bezierCurveTo(sx + dx, sy, ex - dx, ey, ex, ey);
+        ctx.stroke();
+      }
       ctx.restore();
     }
   }
@@ -1295,7 +1559,10 @@ class WorkflowGraphEngine {
     const w = node.size[0];
     const h = node.size[1];
     const r = 8;
-    const ty = y; // title starts at y - TITLE_H visually, but node body at y
+
+    // ── Skipped nodes → dim ──
+    const isSkipped = node._runStatus === 'skipped';
+    if (isSkipped) { ctx.save(); ctx.globalAlpha = 0.35; }
 
     // ── Title bar (accent-tinted) ──
     ctx.fillStyle = '#141416';
@@ -1416,6 +1683,60 @@ class WorkflowGraphEngine {
       this._drawTestButton(ctx, node, x, y, w);
     }
 
+    // ── Running pulse glow ──
+    if (node._runStatus === 'running') {
+      const pulse = (Math.sin(performance.now() / 400) + 1) / 2; // 0..1 oscillation
+      ctx.save();
+      ctx.shadowColor = c.accent;
+      ctx.shadowBlur = 8 + pulse * 12;
+      ctx.strokeStyle = hexToRgba(c.accent, 0.3 + pulse * 0.4);
+      ctx.lineWidth = 2;
+      roundRect(ctx, x - 1, y - 1, w + 2, TITLE_H + h + 2, r + 1);
+      ctx.stroke();
+      ctx.restore();
+      this._markDirty(); // keep animating
+    }
+
+    // ── Status badge (top-right) ──
+    if (node._runStatus === 'success' || node._runStatus === 'failed') {
+      const bx = x + w - 6;
+      const by = y + 6;
+      const br = 7;
+      const isOk = node._runStatus === 'success';
+      const badgeCol = isOk ? '#22c55e' : '#ef4444';
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fillStyle = '#0d0d0d';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fillStyle = hexToRgba(badgeCol, 0.15);
+      ctx.fill();
+      ctx.strokeStyle = badgeCol;
+      ctx.lineWidth = 1.5;
+      if (isOk) {
+        // Checkmark
+        ctx.beginPath();
+        ctx.moveTo(bx - 3, by);
+        ctx.lineTo(bx - 0.5, by + 2.5);
+        ctx.lineTo(bx + 3.5, by - 2.5);
+        ctx.stroke();
+      } else {
+        // X mark
+        ctx.beginPath();
+        ctx.moveTo(bx - 2.5, by - 2.5);
+        ctx.lineTo(bx + 2.5, by + 2.5);
+        ctx.moveTo(bx + 2.5, by - 2.5);
+        ctx.lineTo(bx - 2.5, by + 2.5);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Restore skipped opacity
+    if (isSkipped) ctx.restore();
+
     // Separator line
     ctx.fillStyle = 'rgba(255,255,255,.03)';
     ctx.fillRect(x, y + TITLE_H - 1, w, 1);
@@ -1455,6 +1776,15 @@ class WorkflowGraphEngine {
             ctx.fillStyle = isHovered ? '#fff' : '#ccc'; ctx.fill();
             if (isHovered) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 8; ctx.fill(); }
           } else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
+          // Exec label
+          const eName = slot.name || '';
+          if (eName) {
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#888';
+            ctx.globalAlpha = isHovered ? 0.8 : 0.5;
+            ctx.textAlign = 'right';
+            ctx.fillText(eName, x + w - 12, py);
+          }
         } else {
           const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
           const r = isHovered ? PIN_R + 2 : PIN_R;
@@ -1466,14 +1796,19 @@ class WorkflowGraphEngine {
           } else {
             ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
           }
-          // Label
+          // Label: name + type
           const label = slot.name || '';
           if (label) {
             ctx.shadowBlur = 0;
             ctx.fillStyle = pinColor;
             ctx.globalAlpha = isHovered ? 1 : 0.7;
             ctx.textAlign = 'right';
-            ctx.fillText(label, x + w - 12, py);
+            ctx.fillText(label, x + w - 12, py - 4);
+            // Type badge
+            ctx.globalAlpha = isHovered ? 0.5 : 0.3;
+            ctx.font = `400 9px ${FONT}`;
+            ctx.fillText(pinType, x + w - 12, py + 7);
+            ctx.font = `500 11px ${FONT}`;
           }
         }
         ctx.restore();
@@ -1502,6 +1837,15 @@ class WorkflowGraphEngine {
             ctx.fillStyle = isHovered ? '#fff' : '#ccc'; ctx.fill();
             if (isHovered) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 8; ctx.fill(); }
           } else { ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.stroke(); }
+          // Exec label
+          const eName = slot.name || '';
+          if (eName) {
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#888';
+            ctx.globalAlpha = isHovered ? 0.8 : 0.5;
+            ctx.textAlign = 'left';
+            ctx.fillText(eName, x + 12, py);
+          }
         } else {
           const pinColor = (PIN_TYPES[pinType] || PIN_TYPES.any).color;
           const r = isHovered ? PIN_R + 2 : PIN_R;
@@ -1513,13 +1857,19 @@ class WorkflowGraphEngine {
           } else {
             ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
           }
+          // Label: name + type
           const label = slot.name || '';
           if (label) {
             ctx.shadowBlur = 0;
             ctx.fillStyle = pinColor;
             ctx.globalAlpha = isHovered ? 1 : 0.7;
             ctx.textAlign = 'left';
-            ctx.fillText(label, x + 12, py);
+            ctx.fillText(label, x + 12, py - 4);
+            // Type badge
+            ctx.globalAlpha = isHovered ? 0.5 : 0.3;
+            ctx.font = `400 9px ${FONT}`;
+            ctx.fillText(pinType, x + 12, py + 7);
+            ctx.font = `500 11px ${FONT}`;
           }
         }
         ctx.restore();
@@ -1709,6 +2059,28 @@ class WorkflowGraphEngine {
     return null;
   }
 
+  _hitTestLink(cx, cy) {
+    const threshold = 8;
+    for (const [, link] of this._links) {
+      const srcNode = this._getNodeById(link.origin_id);
+      const dstNode = this._getNodeById(link.target_id);
+      if (!srcNode || !dstNode) continue;
+      const [sx, sy] = this._getOutputPinPos(srcNode, link.origin_slot);
+      const [ex, ey] = this._getInputPinPos(dstNode, link.target_slot);
+      const dx = Math.abs(ex - sx) * 0.5;
+      // Sample ~20 points along the bezier and check distance
+      for (let i = 0; i <= 20; i++) {
+        const t = i / 20;
+        const inv = 1 - t;
+        const bx = inv*inv*inv*sx + 3*inv*inv*t*(sx+dx) + 3*inv*t*t*(ex-dx) + t*t*t*ex;
+        const by = inv*inv*inv*sy + 3*inv*inv*t*sy      + 3*inv*t*t*ey      + t*t*t*ey;
+        const dist = Math.hypot(cx - bx, cy - by);
+        if (dist < threshold) return link;
+      }
+    }
+    return null;
+  }
+
   _handleMouseDown(e) {
     const [sx, sy] = this._getMousePos(e);
     const [cx, cy] = this._screenToCanvas(sx, sy);
@@ -1808,6 +2180,17 @@ class WorkflowGraphEngine {
       return;
     }
 
+    // Click on link → delete it
+    const clickedLink = this._hitTestLink(cx, cy);
+    if (clickedLink) {
+      this._removeLink(clickedLink.id);
+      this._hoveredLink = null;
+      this._markDirty();
+      this._notifyChanged();
+      this.pushSnapshot();
+      return;
+    }
+
     // Empty space → deselect and start box selection
     this._deselectAll();
     this._dragging = {
@@ -1828,10 +2211,14 @@ class WorkflowGraphEngine {
     if (!this._dragging) {
       const oldHover = this._hoveredPin;
       this._hoveredPin = this._hitTestPin(cx, cy);
-      if (oldHover !== this._hoveredPin) this._markDirty();
+      // Link hover
+      const oldLinkHover = this._hoveredLink;
+      this._hoveredLink = !this._hoveredPin ? this._hitTestLink(cx, cy) : null;
+      if (oldHover !== this._hoveredPin || oldLinkHover !== this._hoveredLink) this._markDirty();
       // Cursor hint
       if (this.canvasElement) {
         if (this._hoveredPin) this.canvasElement.style.cursor = 'crosshair';
+        else if (this._hoveredLink) this.canvasElement.style.cursor = 'pointer';
         else if (this._hitTestNode(cx, cy)) this.canvasElement.style.cursor = 'grab';
         else if (this._hitTestCommentEdge(cx, cy)) this.canvasElement.style.cursor = 'nwse-resize';
         else if (this._hitTestCommentHeader(cx, cy)) this.canvasElement.style.cursor = 'move';
@@ -1989,13 +2376,12 @@ class WorkflowGraphEngine {
     // Double-click on comment header → edit title
     const comment = this._hitTestCommentHeader(cx, cy);
     if (comment) {
-      const title = prompt('Comment title:', comment.title || '');
-      if (title !== null) {
-        comment.title = title;
+      this._showInlineInput(comment.title || '', (val) => {
+        comment.title = val;
         this._markDirty();
         this._notifyChanged();
         this.pushSnapshot();
-      }
+      });
       return;
     }
 
@@ -2025,18 +2411,19 @@ class WorkflowGraphEngine {
     if (widget.type === 'combo') {
       this._showComboDropdown(node, widget);
     } else if (widget.type === 'text' || widget.type === 'string') {
-      const val = prompt(widget.name + ':', widget.value || '');
-      if (val !== null) {
+      this._showInlineInput(widget.value || '', (val) => {
         widget.value = val;
         if (widget.key) node.properties[widget.key] = val;
-        // Handle special cases
         if (node.type === 'workflow/switch' && widget.key === 'cases') {
           this._rebuildSwitchOutputs(node);
+        }
+        if (node.type === 'workflow/variable' && widget.key === 'action') {
+          this._rebuildVariablePins(node);
         }
         this._markDirty();
         this._notifyChanged();
         this.pushSnapshot();
-      }
+      }, widget.name);
     } else if (widget.type === 'toggle') {
       widget.value = !widget.value;
       if (widget.key) node.properties[widget.key] = widget.value;
@@ -2083,6 +2470,9 @@ class WorkflowGraphEngine {
         if (widget.key) node.properties[widget.key] = val;
         if (node.type === 'workflow/switch' && widget.key === 'cases') {
           this._rebuildSwitchOutputs(node);
+        }
+        if (node.type === 'workflow/variable' && widget.key === 'action') {
+          this._rebuildVariablePins(node);
         }
         dropdown.remove();
         this._markDirty();
@@ -2157,6 +2547,237 @@ class WorkflowGraphEngine {
     this._markDirty();
     this._notifyChanged();
     this.pushSnapshot();
+  }
+
+  // ═══ CONTEXT MENU ══════════════════════════════════════════════════════
+
+  _handleContextMenu(e) {
+    e.preventDefault();
+    const [sx, sy] = this._getMousePos(e);
+    const [cx, cy] = this._screenToCanvas(sx, sy);
+
+    // Determine what was right-clicked
+    const node = this._hitTestNode(cx, cy);
+    const comment = this._hitTestCommentHeader(cx, cy) || this._hitTestCommentBody(cx, cy);
+
+    const items = [];
+
+    if (node) {
+      // ── Node context menu ──
+      items.push({ label: 'Duplicate', icon: '⧉', action: () => {
+        this._deselectAll();
+        this._selectNode(node, false);
+        this.duplicateSelected();
+      }});
+      items.push({ label: 'Disconnect All', icon: '⊘', action: () => {
+        for (const inp of node.inputs) { if (inp.link != null) this._removeLink(inp.link); }
+        for (const out of node.outputs) { for (const lid of [...out.links]) this._removeLink(lid); }
+        this._markDirty(); this._notifyChanged(); this.pushSnapshot();
+      }});
+      if (node.removable !== false) {
+        items.push({ type: 'sep' });
+        items.push({ label: 'Delete', icon: '✕', danger: true, action: () => {
+          this._removeNode(node);
+          this._selectedNodes.delete(node.id);
+          if (this.onNodeDeselected) this.onNodeDeselected();
+          this._markDirty(); this._notifyChanged(); this.pushSnapshot();
+        }});
+      }
+    } else if (comment) {
+      // ── Comment context menu ──
+      items.push({ label: 'Rename', icon: '✎', action: () => {
+        this._showInlineInput(comment.title || '', (val) => {
+          comment.title = val;
+          this._markDirty(); this._notifyChanged(); this.pushSnapshot();
+        });
+      }});
+      items.push({ label: 'Change Color', icon: '●', submenu: [
+        { label: 'Orange',  color: '#f59e0b' },
+        { label: 'Blue',    color: '#3b82f6' },
+        { label: 'Green',   color: '#22c55e' },
+        { label: 'Red',     color: '#ef4444' },
+        { label: 'Purple',  color: '#a78bfa' },
+        { label: 'Cyan',    color: '#22d3ee' },
+        { label: 'Pink',    color: '#f472b6' },
+        { label: 'Gray',    color: '#6b7280' },
+      ].map(c => ({ label: c.label, swatch: c.color, action: () => {
+        comment.color = c.color;
+        this._markDirty(); this._notifyChanged(); this.pushSnapshot();
+      }}))});
+      items.push({ type: 'sep' });
+      items.push({ label: 'Delete Comment', icon: '✕', danger: true, action: () => {
+        this.deleteComment(comment.id);
+      }});
+    } else {
+      // ── Canvas context menu (empty space) ──
+      const categories = [
+        { label: 'Actions', types: ['claude', 'shell', 'git', 'http', 'notify'] },
+        { label: 'Data',    types: ['file', 'db', 'variable', 'transform'] },
+        { label: 'Flow',    types: ['condition', 'loop', 'switch', 'wait', 'log', 'subworkflow'] },
+      ];
+      for (const cat of categories) {
+        items.push({ label: cat.label, submenu: cat.types.map(t => {
+          const def = NODE_TYPES['workflow/' + t];
+          if (!def) return null;
+          return { label: def.title, desc: def.desc, action: () => {
+            this.addNode('workflow/' + t, [cx, cy]);
+          }};
+        }).filter(Boolean)});
+      }
+      items.push({ type: 'sep' });
+      items.push({ label: 'Add Comment', icon: '▬', action: () => {
+        this.addComment([cx, cy], [300, 200]);
+      }});
+    }
+
+    this._showContextMenu(e.clientX, e.clientY, items);
+  }
+
+  _showInlineInput(currentValue, onConfirm, placeholder) {
+    document.querySelectorAll('.wf-inline-input-overlay').forEach(el => el.remove());
+
+    const overlay = document.createElement('div');
+    overlay.className = 'wf-inline-input-overlay';
+    overlay.style.cssText = `position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+      background:rgba(0,0,0,0.4);`;
+
+    const box = document.createElement('div');
+    box.style.cssText = `background:#1a1a1e;border:1px solid #333;border-radius:10px;padding:16px;min-width:300px;
+      box-shadow:0 12px 40px rgba(0,0,0,0.7);`;
+
+    if (placeholder) {
+      const label = document.createElement('div');
+      label.textContent = placeholder;
+      label.style.cssText = `color:#888;font:500 11px ${FONT};margin-bottom:8px;`;
+      box.appendChild(label);
+    }
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentValue;
+    input.style.cssText = `width:100%;background:#111;border:1px solid #444;border-radius:6px;padding:8px 10px;
+      color:#e0e0e0;font:500 13px ${FONT};outline:none;box-sizing:border-box;`;
+    input.addEventListener('focus', () => { input.style.borderColor = '#f59e0b'; });
+    input.addEventListener('blur', () => { input.style.borderColor = '#444'; });
+
+    const close = () => overlay.remove();
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = input.value.trim();
+        if (val) { close(); onConfirm(val); }
+      } else if (e.key === 'Escape') {
+        close();
+      }
+    });
+
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) close();
+    });
+
+    box.appendChild(input);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+  }
+
+  _hitTestCommentBody(cx, cy) {
+    for (let i = this._comments.length - 1; i >= 0; i--) {
+      const c = this._comments[i];
+      if (cx >= c.pos[0] && cx <= c.pos[0] + c.size[0] &&
+          cy >= c.pos[1] && cy <= c.pos[1] + c.size[1]) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  _showContextMenu(screenX, screenY, items) {
+    // Remove any existing menu
+    document.querySelectorAll('.wf-ctx-menu').forEach(el => el.remove());
+
+    const menu = document.createElement('div');
+    menu.className = 'wf-ctx-menu';
+    menu.style.cssText = `position:fixed;left:${screenX}px;top:${screenY}px;z-index:99999;
+      background:#1a1a1e;border:1px solid #333;border-radius:8px;padding:4px 0;min-width:170px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.6);font:500 12px ${FONT};`;
+
+    const buildItems = (container, list) => {
+      for (const item of list) {
+        if (item.type === 'sep') {
+          const sep = document.createElement('div');
+          sep.style.cssText = 'height:1px;background:#2d2d2d;margin:4px 8px;';
+          container.appendChild(sep);
+          continue;
+        }
+        if (item.submenu) {
+          // Submenu parent
+          const row = document.createElement('div');
+          row.style.cssText = `padding:7px 12px;cursor:default;color:#ccc;display:flex;align-items:center;justify-content:space-between;position:relative;`;
+          row.innerHTML = `<span>${item.icon ? item.icon + ' ' : ''}${item.label}</span><span style="color:#555;font-size:10px">▸</span>`;
+          row.addEventListener('mouseenter', () => {
+            row.style.background = '#252525';
+            // Show submenu
+            let sub = row.querySelector('.wf-ctx-sub');
+            if (!sub) {
+              sub = document.createElement('div');
+              sub.className = 'wf-ctx-sub';
+              sub.style.cssText = `position:absolute;left:100%;top:-4px;
+                background:#1a1a1e;border:1px solid #333;border-radius:8px;padding:4px 0;min-width:150px;
+                box-shadow:0 8px 32px rgba(0,0,0,0.6);`;
+              buildItems(sub, item.submenu);
+              row.appendChild(sub);
+            }
+            sub.style.display = 'block';
+          });
+          row.addEventListener('mouseleave', () => {
+            row.style.background = 'none';
+            const sub = row.querySelector('.wf-ctx-sub');
+            if (sub) sub.style.display = 'none';
+          });
+          container.appendChild(row);
+          continue;
+        }
+
+        const row = document.createElement('div');
+        const color = item.danger ? '#ef4444' : item.swatch ? item.swatch : '#ccc';
+        row.style.cssText = `padding:7px 12px;cursor:pointer;color:${color};display:flex;align-items:center;gap:8px;`;
+        let html = '';
+        if (item.swatch) {
+          html += `<span style="width:10px;height:10px;border-radius:50%;background:${item.swatch};display:inline-block;flex-shrink:0;"></span>`;
+        } else if (item.icon) {
+          html += `<span style="width:14px;text-align:center;opacity:0.6">${item.icon}</span>`;
+        }
+        html += `<span>${item.label}</span>`;
+        if (item.desc) html += `<span style="color:#555;font-size:10px;margin-left:auto">${item.desc}</span>`;
+        row.innerHTML = html;
+        row.addEventListener('mouseenter', () => { row.style.background = '#252525'; });
+        row.addEventListener('mouseleave', () => { row.style.background = 'none'; });
+        row.addEventListener('click', () => {
+          menu.remove();
+          document.removeEventListener('mousedown', closeHandler);
+          if (item.action) item.action();
+        });
+        container.appendChild(row);
+      }
+    };
+
+    buildItems(menu, items);
+
+    // Clamp to viewport
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = (screenX - rect.width) + 'px';
+    if (rect.bottom > window.innerHeight) menu.style.top = (screenY - rect.height) + 'px';
+
+    const closeHandler = (e) => {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener('mousedown', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
   // ═══ COMMENTS (group zones) ═════════════════════════════════════════════
