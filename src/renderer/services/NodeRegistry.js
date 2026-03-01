@@ -4,6 +4,20 @@
 let _registry = null;
 let _byType   = new Map();
 
+/**
+ * Reconstruit une fonction depuis sa représentation string.
+ * Gère 3 formes :
+ *   - Arrow :    "(a, b) => { ... }"  → return (str)
+ *   - Regular :  "function foo(a) {}" → return (str)  [déjà une expression]
+ *   - Shorthand: "function foo(a) {}" → idem (déjà normalisé côté main)
+ * On utilise un wrapper var pour éviter les ambiguïtés de parsing.
+ */
+function _hydrateFunction(str) {
+  // eslint-disable-next-line no-new-func
+  const fn = new Function('var __fn = ' + str.replace(/\r\n/g, '\n') + '; return __fn;')();
+  return fn;
+}
+
 async function loadNodeRegistry() {
   if (_registry) return _registry;
   const api = window.electron_api?.workflow;
@@ -32,7 +46,7 @@ async function loadNodeRegistry() {
         if (f.render && typeof f.render === 'string') {
           try {
             // eslint-disable-next-line no-new-func
-            f = { ...f, render: new Function('return (' + f.render + ')')() };
+            f = { ...f, render: _hydrateFunction(f.render) };
           } catch (e) {
             console.warn('[NodeRegistry] Failed to parse render for', f.key, e);
           }
@@ -40,7 +54,7 @@ async function loadNodeRegistry() {
         if (f.bind && typeof f.bind === 'string') {
           try {
             // eslint-disable-next-line no-new-func
-            f = { ...f, bind: new Function('return (' + f.bind + ')')() };
+            f = { ...f, bind: _hydrateFunction(f.bind) };
           } catch (e) {
             console.warn('[NodeRegistry] Failed to parse bind for', f.key, e);
           }

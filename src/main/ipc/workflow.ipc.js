@@ -43,11 +43,13 @@ const workflowService = require('../services/WorkflowService');
  * Shorthand: "render(a, b) { ... }" → "function render(a, b) { ... }"
  */
 function _serializeFn(fn) {
-  const s = fn.toString();
-  // Shorthand method: starts with an identifier followed by '('
-  // e.g. "render(field, props, node) {" or "bind(container, field) {"
-  // NOT a regular function ("function foo(") or arrow ("(a) =>" / "a =>")
-  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/.test(s) && !s.startsWith('function') && !s.includes('=>')) {
+  const s = fn.toString().replace(/\r\n/g, '\n');
+  // Shorthand method: "render(a, b) { ... }" — starts with an identifier
+  // directly followed by '(', without a 'function' keyword prefix.
+  // We cannot use includes('=>') to exclude arrows because the function body
+  // may itself contain arrow functions (e.g. .map(t => ...)).
+  // Instead: check only the very first token.
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/.test(s) && !s.startsWith('function') && !s.startsWith('async')) {
     return 'function ' + s;
   }
   return s;
