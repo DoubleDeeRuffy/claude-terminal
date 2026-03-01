@@ -1120,7 +1120,7 @@ class WorkflowRunner {
 
           if (isParallel && eachTargets.length) {
             // Parallel execution: each iteration gets its own AbortController child
-            // to avoid stacking N×M listeners on the shared parent signal.
+            // and its own stepOutputs map to avoid cross-iteration data races.
             const promises = items.map(async (item, idx) => {
               if (signal.aborted) throw new Error('Cancelled');
               // Child controller: one listener on parent signal instead of many
@@ -1132,8 +1132,10 @@ class WorkflowRunner {
                 iterVars.set('loop', { item, index: idx, total: items.length });
                 iterVars.set('item', item);
                 iterVars.set('index', idx);
+                // Each iteration gets its own stepOutputs to prevent cross-iteration overwrites
+                const iterStepOutputs = {};
                 const { outputs, visitedNodes } = await this._executeSubGraph(
-                  eachTargets, nodeById, outgoing, incoming, iterVars, runId, iterAbort.signal, stepOutputs, workflow
+                  eachTargets, nodeById, outgoing, incoming, iterVars, runId, iterAbort.signal, iterStepOutputs, workflow
                 );
                 for (const nid of visitedNodes) allBodyVisited.add(nid);
                 return { ...outputs, _item: item };
