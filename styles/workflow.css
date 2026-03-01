@@ -66,7 +66,7 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   letter-spacing: .01em;
 }
 .wf-tab:hover {
@@ -107,7 +107,7 @@
   border: none;
   border-radius: 7px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -149,7 +149,7 @@
   border: 1px solid var(--wf-border);
   border-radius: 12px;
   overflow: hidden;
-  transition: all .25s var(--wf-ease);
+  transition: color .25s var(--wf-ease), background-color .25s var(--wf-ease), border-color .25s var(--wf-ease), opacity .25s var(--wf-ease), transform .25s var(--wf-ease)
   position: relative;
 }
 .wf-card:hover {
@@ -251,7 +251,7 @@
   gap: 5px;
   padding: 4px 8px;
   border-radius: 6px;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
   flex-shrink: 0;
 }
 .wf-pipe-step:hover {
@@ -424,7 +424,7 @@
   background: rgba(255,255,255,.08);
   border-radius: 8px;
   border: none;
-  transition: all .25s var(--wf-ease);
+  transition: color .25s var(--wf-ease), background-color .25s var(--wf-ease), border-color .25s var(--wf-ease), opacity .25s var(--wf-ease), transform .25s var(--wf-ease)
   position: relative;
 }
 .wf-switch-track::after {
@@ -434,7 +434,7 @@
   border-radius: 50%;
   background: rgba(255,255,255,.3);
   top: 2px; left: 2px;
-  transition: all .25s var(--wf-ease);
+  transition: color .25s var(--wf-ease), background-color .25s var(--wf-ease), border-color .25s var(--wf-ease), opacity .25s var(--wf-ease), transform .25s var(--wf-ease)
 }
 .wf-switch input:checked + .wf-switch-track {
   background: rgba(217,119,6,.2);
@@ -457,7 +457,7 @@
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   flex-shrink: 0;
   letter-spacing: .01em;
 }
@@ -480,7 +480,7 @@
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   flex-shrink: 0;
   letter-spacing: .01em;
 }
@@ -500,7 +500,7 @@
   border-radius: 6px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   flex-shrink: 0;
   opacity: 0;
 }
@@ -528,7 +528,7 @@
 .wf-runs-clear {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; color: var(--text-muted); background: none; border: none;
-  cursor: pointer; padding: 3px 8px; border-radius: 4px; transition: all .15s;
+  cursor: pointer; padding: 3px 8px; border-radius: 4px; transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-runs-clear:hover { color: #f87171; background: rgba(239,68,68,.08); }
 
@@ -537,7 +537,7 @@
 .wf-run {
   display: flex;
   gap: 0;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
   position: relative;
   border-radius: 8px;
   cursor: pointer;
@@ -676,7 +676,7 @@
   color: var(--text-muted);
   cursor: pointer;
   border-radius: 6px;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
   margin-top: 4px;
 }
 .wf-runs-show-more:hover { color: var(--text-secondary); background: rgba(255,255,255,.03); }
@@ -745,7 +745,7 @@
   border-radius: 7px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
   flex-shrink: 0;
 }
 .wf-modal-x:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
@@ -770,7 +770,7 @@
   background: rgba(255,255,255,.04);
   border: 1.5px solid rgba(255,255,255,.08);
   color: var(--text-muted);
-  transition: all .3s var(--wf-ease);
+  transition: color .3s var(--wf-ease), background-color .3s var(--wf-ease), border-color .3s var(--wf-ease), opacity .3s var(--wf-ease), transform .3s var(--wf-ease)
 }
 
 .wf-wz-node.cur .wf-wz-n {
@@ -845,7 +845,7 @@
   font-size: var(--font-xs);
   color: var(--text-primary);
   font-family: inherit;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   box-sizing: border-box;
 }
 .wf-input:focus { outline: none; border-color: rgba(217,119,6,.4); box-shadow: 0 0 0 3px rgba(217,119,6,.08); background: rgba(255,255,255,.04); }
@@ -870,7 +870,7 @@
   border: 1.5px solid var(--wf-border);
   border-radius: 10px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   text-align: left;
   position: relative;
   overflow: hidden;
@@ -933,7 +933,7 @@
   border: 1.5px solid var(--wf-border);
   border-radius: 8px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   text-align: left;
 }
 .wf-hook-opt:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); }
@@ -953,7 +953,7 @@
 .wf-cron-mode {
   flex: 1; padding: 6px 0; border: 1.5px solid var(--wf-border); border-radius: 8px;
   background: rgba(255,255,255,.02); color: var(--text-secondary);
-  font-size: 11px; font-weight: 500; cursor: pointer; transition: all .2s var(--wf-ease);
+  font-size: 11px; font-weight: 500; cursor: pointer; transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wf-cron-mode:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); }
 .wf-cron-mode.active {
@@ -977,7 +977,7 @@
   padding: 4px 10px; background: rgba(255,255,255,.04);
   border: 1.5px solid rgba(255,255,255,.1); border-radius: 6px;
   color: var(--text-primary); font-size: 12px; font-weight: 600;
-  cursor: pointer; transition: all .15s; white-space: nowrap;
+  cursor: pointer; transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s; white-space: nowrap;
   font-family: inherit;
 }
 .wf-cdrop-btn svg { opacity: .4; flex-shrink: 0; transition: transform .15s; }
@@ -1001,7 +1001,7 @@
 .wf-cdrop-item {
   padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 500;
   color: var(--text-secondary); cursor: pointer; white-space: nowrap;
-  transition: all .1s;
+  transition: color .1s, background-color .1s, border-color .1s, opacity .1s, transform .1s
 }
 .wf-cdrop-item:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
 .wf-cdrop-item.active { background: rgba(59,130,246,.12); color: var(--info); font-weight: 600; }
@@ -1072,7 +1072,7 @@
   background: rgba(255,255,255,.02);
   border: 1px solid var(--wf-border);
   border-radius: 10px;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   animation: wfNodeIn .25s var(--wf-ease) backwards;
   animation-delay: var(--step-delay, 0ms);
   position: relative;
@@ -1139,7 +1139,7 @@
   width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; border-radius: 6px;
-  color: var(--text-muted); cursor: pointer; transition: all .15s; flex-shrink: 0;
+  color: var(--text-muted); cursor: pointer; transition: color .15s; flex-shrink: 0, background-color .15s; flex-shrink: 0, border-color .15s; flex-shrink: 0, opacity .15s; flex-shrink: 0, transform .15s; flex-shrink: 0
   opacity: 0;
 }
 .wf-step-node:hover .wf-step-node-del { opacity: 1; }
@@ -1216,7 +1216,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   text-align: left;
   color: var(--text-secondary);
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wf-agent-card:hover {
   background: rgba(255,255,255,.04);
@@ -1258,7 +1258,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   text-align: left;
   color: var(--text-secondary);
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wf-action-card:hover {
   background: rgba(255,255,255,.04);
@@ -1297,7 +1297,7 @@ select.wf-step-edit-input {
 }
 .wf-cond-mode-btn {
   flex: 1; padding: 4px 8px; border: none; border-radius: 4px; background: transparent;
-  color: var(--text-secondary); cursor: pointer; font-size: 11px; font-weight: 500; transition: all .15s;
+  color: var(--text-secondary); cursor: pointer; font-size: 11px; font-weight: 500; transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-cond-mode-btn.active { background: var(--accent-dim); color: var(--accent); }
 .wf-cond-mode-btn:hover:not(.active) { color: var(--text-primary); }
@@ -1307,7 +1307,7 @@ select.wf-step-edit-input {
 .wf-cond-op-btn {
   padding: 3px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: transparent;
   color: var(--text-secondary); cursor: pointer; font-size: 11px; font-family: 'SF Mono', 'Fira Code', monospace;
-  transition: all .15s; min-width: 28px; text-align: center;
+  transition: color .15s; min-width: 28px; text-align: center, background-color .15s; min-width: 28px; text-align: center, border-color .15s; min-width: 28px; text-align: center, opacity .15s; min-width: 28px; text-align: center, transform .15s; min-width: 28px; text-align: center
 }
 .wf-cond-op-btn:hover { border-color: var(--accent); color: var(--text-primary); }
 .wf-cond-op-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
@@ -1345,7 +1345,7 @@ select.wf-step-edit-input {
   border-radius: 8px;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
   text-align: center;
 }
 .wf-claude-mode-tab:hover {
@@ -1390,7 +1390,7 @@ select.wf-step-edit-input {
   color: var(--text-muted);
   font-size: 12px; font-weight: 700;
   cursor: pointer;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
   z-index: 2;
   line-height: 1;
 }
@@ -1457,7 +1457,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   text-align: left;
   color: var(--text-secondary);
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wf-skill-card:hover {
   background: rgba(255,255,255,.04);
@@ -1540,7 +1540,7 @@ select.wf-step-edit-input {
   border-radius: 5px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
   flex-shrink: 0;
 }
 .wf-schema-del:hover {
@@ -1557,7 +1557,7 @@ select.wf-step-edit-input {
   font-size: 10px; font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wf-schema-add:hover {
   border-color: rgba(217,119,6,.3);
@@ -1575,7 +1575,7 @@ select.wf-step-edit-input {
   font-size: 11px; font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .25s var(--wf-ease);
+  transition: color .25s var(--wf-ease), background-color .25s var(--wf-ease), border-color .25s var(--wf-ease), opacity .25s var(--wf-ease), transform .25s var(--wf-ease)
   margin-top: 6px;
 }
 .wf-add-step-btn:hover {
@@ -1616,7 +1616,7 @@ select.wf-step-edit-input {
   width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; border-radius: 6px;
-  color: var(--text-muted); cursor: pointer; transition: all .15s;
+  color: var(--text-muted); cursor: pointer; transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-picker-close:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
 
@@ -1631,7 +1631,7 @@ select.wf-step-edit-input {
   border: 1px solid var(--wf-border);
   border-radius: 10px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   position: relative;
   overflow: hidden;
 }
@@ -1693,7 +1693,7 @@ select.wf-step-edit-input {
   background: rgba(255,255,255,.02);
   border: 1.5px solid var(--wf-border);
   border-radius: 10px;
-  cursor: pointer; transition: all .2s var(--wf-ease); text-align: center;
+  cursor: pointer; transition: color .2s var(--wf-ease); text-align: center, background-color .2s var(--wf-ease); text-align: center, border-color .2s var(--wf-ease); text-align: center, opacity .2s var(--wf-ease); text-align: center, transform .2s var(--wf-ease); text-align: center
 }
 .wf-conc-btn:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1); }
 .wf-conc-btn.active { background: rgba(217,119,6,.06); border-color: rgba(217,119,6,.35); }
@@ -1745,7 +1745,7 @@ select.wf-step-edit-input {
   background: var(--accent); color: #fff;
   border: none; border-radius: 8px;
   font-size: var(--font-xs); font-weight: 600;
-  cursor: pointer; transition: all .2s var(--wf-ease); white-space: nowrap;
+  cursor: pointer; transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease); white-space: nowrap;
   letter-spacing: .01em;
 }
 .wf-btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 20px rgba(217,119,6,.3); transform: translateY(-1px); }
@@ -1758,7 +1758,7 @@ select.wf-step-edit-input {
   background: transparent; color: var(--text-secondary);
   border: 1px solid rgba(255,255,255,.08); border-radius: 8px;
   font-size: var(--font-xs); font-weight: 500;
-  cursor: pointer; transition: all .2s var(--wf-ease);
+  cursor: pointer; transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wf-btn-ghost:hover { background: rgba(255,255,255,.04); color: var(--text-primary); }
 
@@ -1803,7 +1803,7 @@ select.wf-step-edit-input {
   background: rgba(255,255,255,.025);
   border: 1px solid var(--wf-border);
   border-radius: 8px;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wf-det-step:hover { background: rgba(255,255,255,.04); }
 
@@ -1936,7 +1936,7 @@ select.wf-step-edit-input {
   border-radius: 8px;
   cursor: pointer;
   text-align: left;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-nav-item:hover { color: var(--text-primary); background: rgba(255,255,255,.04); }
 .hub-nav-item.active {
@@ -1965,7 +1965,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all .18s ease;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease, opacity .18s ease, transform .18s ease
 }
 .hub-publish-btn:hover {
   background: var(--accent-hover);
@@ -2064,7 +2064,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 5px;
   cursor: pointer;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
   white-space: nowrap;
 }
 .hub-sort-pill:hover { color: var(--text-secondary); background: rgba(255,255,255,.04); }
@@ -2079,7 +2079,7 @@ select.wf-step-edit-input {
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-close-btn:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
 
@@ -2110,7 +2110,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.06);
   border-radius: 10px;
   cursor: pointer;
-  transition: all .18s ease;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease, opacity .18s ease, transform .18s ease
   animation: hubCardIn .25s ease-out both;
 }
 @keyframes hubCardIn {
@@ -2237,7 +2237,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all .18s ease;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease, opacity .18s ease, transform .18s ease
 }
 .hub-card-import:hover { background: var(--accent-hover); box-shadow: 0 3px 14px rgba(217,119,6,.3); }
 .hub-card-import:disabled { opacity: .4; cursor: not-allowed; }
@@ -2316,7 +2316,7 @@ select.wf-step-edit-input {
   border-radius: 7px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-page-btn:hover:not(:disabled) { background: rgba(255,255,255,.08); color: var(--text-primary); }
 .hub-page-btn:disabled { opacity: .3; cursor: not-allowed; }
@@ -2404,7 +2404,7 @@ select.wf-step-edit-input {
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-detail-close:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
 
@@ -2495,7 +2495,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 8px;
   cursor: pointer;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-detail-cancel:hover { background: rgba(255,255,255,.05); color: var(--text-primary); }
 
@@ -2511,7 +2511,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all .18s ease;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease, opacity .18s ease, transform .18s ease
 }
 .hub-detail-import:hover { background: var(--accent-hover); box-shadow: 0 4px 20px rgba(217,119,6,.3); }
 
@@ -2569,7 +2569,7 @@ select.wf-step-edit-input {
   border-radius: 7px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-pub-close:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
 
@@ -2636,7 +2636,7 @@ select.wf-step-edit-input {
 .hub-tag-preset {
   cursor: pointer;
   border: none;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-tag-preset:hover { filter: brightness(1.2); transform: translateY(-1px); }
 
@@ -2673,7 +2673,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 8px;
   cursor: pointer;
-  transition: all .15s ease;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease, transform .15s ease
 }
 .hub-pub-cancel:hover { background: rgba(255,255,255,.05); color: var(--text-primary); }
 
@@ -2689,7 +2689,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all .18s ease;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease, opacity .18s ease, transform .18s ease
 }
 .hub-pub-submit:hover { background: var(--accent-hover); box-shadow: 0 4px 16px rgba(217,119,6,.3); }
 .hub-pub-submit:disabled { opacity: .4; cursor: not-allowed; }
@@ -2839,7 +2839,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-publish-btn:hover {
   background: var(--accent-hover);
@@ -2879,7 +2879,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-tab:hover { color: var(--text-secondary); background: rgba(255,255,255,.04); }
 .wfm-tab.active { color: var(--text-primary); background: rgba(255,255,255,.07); font-weight: 600; }
@@ -2895,7 +2895,7 @@ select.wf-step-edit-input {
   min-width: 190px;
   max-width: 260px;
   color: var(--text-muted);
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-search-wrap:focus-within { border-color: rgba(217,119,6,.35); }
 
@@ -2933,7 +2933,7 @@ select.wf-step-edit-input {
   border: 1px solid var(--wf-border);
   border-radius: 10px;
   overflow: hidden;
-  transition: all .25s var(--wf-ease);
+  transition: color .25s var(--wf-ease), background-color .25s var(--wf-ease), border-color .25s var(--wf-ease), opacity .25s var(--wf-ease), transform .25s var(--wf-ease)
   cursor: default;
 }
 .wfm-card:hover {
@@ -3091,7 +3091,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-card-import:hover {
   background: var(--accent-hover);
@@ -3211,7 +3211,7 @@ select.wf-step-edit-input {
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wfm-overlay-close:hover { background: rgba(255,255,255,.06); color: var(--text-primary); }
 
@@ -3305,7 +3305,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-detail-import:hover { background: var(--accent-hover); box-shadow: 0 4px 20px rgba(217,119,6,.3); transform: translateY(-1px); }
 
@@ -3318,7 +3318,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 8px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-detail-cancel:hover { background: rgba(255,255,255,.04); color: var(--text-primary); }
 
@@ -3409,7 +3409,7 @@ select.wf-step-edit-input {
   font-size: var(--font-xs);
   color: var(--text-primary);
   outline: none;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   width: 100%;
 }
 .wfm-pub-select:focus,
@@ -3425,7 +3425,7 @@ select.wf-step-edit-input {
   outline: none;
   resize: vertical;
   line-height: 1.5;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
   width: 100%;
   font-family: inherit;
 }
@@ -3450,7 +3450,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 7px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-btn-ghost:hover { background: rgba(255,255,255,.04); color: var(--text-primary); }
 
@@ -3466,7 +3466,7 @@ select.wf-step-edit-input {
   border: none;
   border-radius: 7px;
   cursor: pointer;
-  transition: all .2s var(--wf-ease);
+  transition: color .2s var(--wf-ease), background-color .2s var(--wf-ease), border-color .2s var(--wf-ease), opacity .2s var(--wf-ease), transform .2s var(--wf-ease)
 }
 .wfm-publish-submit:hover { background: var(--accent-hover); box-shadow: 0 4px 16px rgba(217,119,6,.25); }
 .wfm-publish-submit:disabled { opacity: .4; cursor: not-allowed; }
@@ -3566,7 +3566,7 @@ select.wf-step-edit-input {
   padding: 3px 6px !important;
   border-radius: 5px !important;
   color: rgba(255,255,255,.8) !important;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
   letter-spacing: -.01em;
   min-width: 60px; max-width: 200px;
 }
@@ -4796,7 +4796,7 @@ select.wf-step-edit-input {
   background: transparent;
   border: none; border-radius: 7px;
   cursor: pointer;
-  transition: all .2s cubic-bezier(.4,0,.2,1);
+  transition: color .2s cubic-bezier(.4,0,.2,1), background-color .2s cubic-bezier(.4,0,.2,1), border-color .2s cubic-bezier(.4,0,.2,1), opacity .2s cubic-bezier(.4,0,.2,1), transform .2s cubic-bezier(.4,0,.2,1)
   position: relative;
 }
 .wf-editor-properties .wf-claude-mode-tab:hover {
@@ -4828,7 +4828,7 @@ select.wf-step-edit-input {
   border: 1.5px solid rgba(255,255,255,.1);
   border-radius: 8px;
   cursor: pointer;
-  transition: all .2s cubic-bezier(.4,0,.2,1);
+  transition: color .2s cubic-bezier(.4,0,.2,1), background-color .2s cubic-bezier(.4,0,.2,1), border-color .2s cubic-bezier(.4,0,.2,1), opacity .2s cubic-bezier(.4,0,.2,1), transform .2s cubic-bezier(.4,0,.2,1)
   position: relative;
   overflow: hidden;
   color: #e0e0e0;
@@ -4861,7 +4861,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.1);
   color: var(--text-secondary);
   flex-shrink: 0;
-  transition: all .2s;
+  transition: color .2s, background-color .2s, border-color .2s, opacity .2s, transform .2s
 }
 .wf-editor-properties .wf-agent-card.active .wf-agent-card-icon {
   background: rgba(217,119,6,.15);
@@ -4925,7 +4925,7 @@ select.wf-step-edit-input {
   border: 1px solid rgba(255,255,255,.04);
   border-radius: 6px;
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-props-delete:hover {
   color: var(--danger);
@@ -4952,7 +4952,7 @@ select.wf-step-edit-input {
   cursor: pointer;
   font-size: 10.5px;
   font-weight: 500;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
   text-align: center;
 }
 .wf-props-tab:hover { color: var(--text-secondary); background: rgba(255,255,255,.04); }
@@ -5174,7 +5174,7 @@ select.wf-step-edit-input {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-ai-panel-close:hover {
   background: rgba(255,255,255,.07);
@@ -5244,7 +5244,7 @@ select.wf-step-edit-input {
   padding: 7px 12px !important;
   border-radius: 6px !important;
   margin: 1px 0 !important;
-  transition: all .1s !important;
+  transition: color .1s !important, background-color .1s !important, border-color .1s !important, opacity .1s !important, transform .1s !important
 }
 .litegraph .litecontextmenu .litemenu-entry:hover {
   background: rgba(255,255,255,.07) !important;
@@ -5348,7 +5348,7 @@ select.wf-step-edit-input {
   font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
   letter-spacing: .3px;
   cursor: pointer;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-sql-tpl:hover {
   background: rgba(var(--accent-rgb, 217,119,6), .1);
@@ -5543,7 +5543,7 @@ select.wf-step-edit-input {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-loop-suggest-btn--yes {
   background: rgba(56,189,248,.2);
@@ -5588,7 +5588,7 @@ select.wf-step-edit-input {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
   flex-shrink: 0;
 }
 .wf-run-detail-back:hover {
@@ -5789,7 +5789,7 @@ select.wf-step-edit-input {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-confirm-btn--cancel {
   background: rgba(255,255,255,.06);
@@ -5951,7 +5951,7 @@ select.wf-step-edit-input {
 .wf-loop-mode-tabs { display: flex; gap: 1px; background: rgba(255,255,255,.04); border-radius: 4px; padding: 1px; }
 .wf-loop-mode-tab {
   padding: 3px 8px; border: none; border-radius: 3px; background: transparent;
-  color: var(--text-muted); cursor: pointer; font-size: 10px; font-weight: 500; transition: all .12s;
+  color: var(--text-muted); cursor: pointer; font-size: 10px; font-weight: 500; transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-loop-mode-tab:hover { color: var(--text-secondary); }
 .wf-loop-mode-tab.active { background: rgba(56,189,248,.12); color: #38bdf8; }
@@ -6007,7 +6007,7 @@ select.wf-step-edit-input {
 .wf-log-level-tab {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 3px;
   padding: 5px 6px; border: none; border-radius: 4px; background: transparent;
-  color: var(--text-muted); cursor: pointer; font-size: 10px; font-weight: 500; transition: all .15s;
+  color: var(--text-muted); cursor: pointer; font-size: 10px; font-weight: 500; transition: color .15s, background-color .15s, border-color .15s, opacity .15s, transform .15s
 }
 .wf-log-level-tab:hover { background: rgba(255,255,255,.04); color: var(--text-secondary); }
 .wf-log-level-tab.active { background: rgba(255,255,255,.06); color: var(--tab-color, var(--text-primary)); }
@@ -6019,7 +6019,7 @@ select.wf-step-edit-input {
 }
 .wf-log-tpl {
   padding: 3px 8px; border: 1px solid rgba(255,255,255,.06); border-radius: 4px;
-  background: transparent; color: var(--text-muted); font-size: 10px; cursor: pointer; transition: all .12s;
+  background: transparent; color: var(--text-muted); font-size: 10px; cursor: pointer; transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-log-tpl:hover { border-color: rgba(255,255,255,.12); color: var(--text-secondary); background: rgba(255,255,255,.03); }
 
@@ -6128,7 +6128,7 @@ select.wf-step-edit-input {
   color: rgba(255,255,255,.15);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wf-card-fav:hover {
   color: rgba(251,191,36,.6);
@@ -6162,7 +6162,7 @@ select.wf-step-edit-input {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .15s var(--wf-ease);
+  transition: color .15s var(--wf-ease), background-color .15s var(--wf-ease), border-color .15s var(--wf-ease), opacity .15s var(--wf-ease), transform .15s var(--wf-ease)
 }
 .wf-run-detail-rerun:hover {
   background: rgba(255,255,255,.08);
@@ -6291,7 +6291,7 @@ select.wf-step-edit-input {
   background: rgba(255,255,255,.03);
   border: 1px solid rgba(255,255,255,.06);
   border-radius: 6px;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-switch-case-row:hover {
   border-color: rgba(255,255,255,.1);
@@ -6332,7 +6332,7 @@ select.wf-step-edit-input {
   color: rgba(255,255,255,.15);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-switch-case-del:hover {
   color: #ef4444;
@@ -6352,7 +6352,7 @@ select.wf-step-edit-input {
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-switch-case-add:hover {
   border-color: rgba(255,255,255,.2);
@@ -6413,7 +6413,7 @@ select.wf-step-edit-input {
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-transform-op-btn:hover {
   background: rgba(255,255,255,.04);
@@ -6484,7 +6484,7 @@ select.wf-step-edit-input {
   border-radius: 5px;
   background: rgba(255,255,255,.03);
   cursor: pointer;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, opacity .12s, transform .12s
 }
 .wf-var-browser-item:hover {
   border-color: rgba(255,255,255,.12);
