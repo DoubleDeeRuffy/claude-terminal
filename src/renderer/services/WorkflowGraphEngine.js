@@ -466,18 +466,7 @@ class WorkflowGraphEngine {
     canvasElement.addEventListener('contextmenu', this._onCtxMenu);
     window.addEventListener('keydown', this._onKeyDown);
 
-    // Render loop
-    const loop = () => {
-      if (this._dirty) {
-        this._render();
-        this._dirty = false;
-      }
-      // Keep rendering if any node is in running test state (spinner animation)
-      const hasRunning = this._nodes.some(n => n._testState === 'running');
-      if (hasRunning) this._dirty = true;
-      this._animFrame = requestAnimationFrame(loop);
-    };
-    this._animFrame = requestAnimationFrame(loop);
+    this._startRenderLoop();
 
     return this;
   }
@@ -512,6 +501,32 @@ class WorkflowGraphEngine {
 
   _markDirty() {
     this._dirty = true;
+    // Restart render loop if it was stopped due to inactivity
+    if (!this._animFrame && this.canvasElement) this._startRenderLoop();
+  }
+
+  /** Render loop — throttled to 30fps, auto-stops after 4s idle */
+  _startRenderLoop() {
+    const FRAME_MS = 1000 / 30;
+    let lastFrameTime = 0;
+    let idleFrames = 0;
+    const loop = (now) => {
+      const hasRunning = this._nodes.some(n => n._testState === 'running');
+      if (hasRunning) this._dirty = true;
+
+      if (this._dirty && (now - lastFrameTime >= FRAME_MS)) {
+        this._render();
+        this._dirty = false;
+        lastFrameTime = now;
+        idleFrames = 0;
+      } else if (!this._dirty) {
+        idleFrames++;
+      }
+
+      if (idleFrames > 120) { this._animFrame = null; return; }
+      this._animFrame = requestAnimationFrame(loop);
+    };
+    this._animFrame = requestAnimationFrame(loop);
   }
 
   // ═══ NODE MANAGEMENT ════════════════════════════════════════════════════════
