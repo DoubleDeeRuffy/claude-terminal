@@ -3,7 +3,7 @@
  * Minimal entry point that bootstraps the modular architecture
  */
 
-const { app, globalShortcut } = require('electron');
+const { app, globalShortcut, session } = require('electron');
 
 // ============================================
 // FIX PATH on macOS/Linux - Apps launched from Finder/Dock have a minimal PATH
@@ -182,7 +182,28 @@ function bootstrapApp() {
   }
 
   // App lifecycle
-  app.whenReady().then(initializeApp);
+  app.whenReady().then(() => {
+    // Content Security Policy — allow only local file:// resources
+    // Prevents XSS attacks from loading remote scripts/styles/iframes
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' file: data: blob:; " +
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' file:; " +
+            "style-src 'self' 'unsafe-inline' file: data:; " +
+            "img-src 'self' file: data: blob: https:; " +
+            "font-src 'self' file: data:; " +
+            "connect-src 'self' file: ws://localhost:* http://localhost:* http://127.0.0.1:* https://claude-terminal-hub.claudeterminal.workers.dev; " +
+            "frame-src 'none'; " +
+            "object-src 'none'"
+          ]
+        }
+      });
+    });
+    initializeApp();
+  });
   app.on('will-quit', cleanup);
   app.on('before-quit', () => {
     telemetryService.sendQuitPing();

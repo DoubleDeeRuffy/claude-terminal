@@ -36,6 +36,25 @@
 const { ipcMain } = require('electron');
 const workflowService = require('../services/WorkflowService');
 
+/**
+ * Serialize a function to a string that can be reconstructed via
+ * new Function('return (' + str + ')')() on the renderer side.
+ * Handles both arrow/regular functions AND shorthand methods.
+ * Shorthand: "render(a, b) { ... }" → "function render(a, b) { ... }"
+ */
+function _serializeFn(fn) {
+  const s = fn.toString().replace(/\r\n/g, '\n');
+  // Shorthand method: "render(a, b) { ... }" — starts with an identifier
+  // directly followed by '(', without a 'function' keyword prefix.
+  // We cannot use includes('=>') to exclude arrows because the function body
+  // may itself contain arrow functions (e.g. .map(t => ...)).
+  // Instead: check only the very first token.
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/.test(s) && !s.startsWith('function') && !s.startsWith('async')) {
+    return 'function ' + s;
+  }
+  return s;
+}
+
 function registerWorkflowHandlers(mainWindow) {
   // Inject main window so service can emit events
   workflowService.setMainWindow(mainWindow);
@@ -216,6 +235,37 @@ function registerWorkflowHandlers(mainWindow) {
     } catch (err) {
       return { success: false, valid: false, error: err.message };
     }
+  });
+
+  // ── Node Registry ─────────────────────────────────────────────────────────
+
+  ipcMain.handle('workflow:get-node-registry', () => {
+    const registry = require('../workflow-nodes/_registry');
+    registry.loadRegistry();
+    return registry.getAll().map(def => ({
+      type:      def.type,
+      title:     def.title,
+      desc:      def.desc,
+      color:     def.color,
+      width:     def.width      || 200,
+      category:  def.category   || 'actions',
+      icon:      def.icon       || '',
+      inputs:    def.inputs     || [],
+      outputs:   def.outputs    || [],
+      props:     def.props      || {},
+      fields:    (def.fields || []).map(f => ({
+        ...f,
+        // showIf, render, bind sont des fonctions → sérialiser en string pour re-eval côté renderer
+        // Les méthodes shorthand (ex: render(a,b){}) ne sont pas des expressions valides —
+        // on les préfixe avec 'function' pour que new Function('return (fn)')() fonctionne.
+        showIf: f.showIf ? _serializeFn(f.showIf) : undefined,
+        render: f.render ? _serializeFn(f.render) : undefined,
+        bind:   f.bind   ? _serializeFn(f.bind)   : undefined,
+      })),
+      dynamic:   def.dynamic   || null,
+      removable: def.removable !== false,
+      resizable: def.resizable !== false,
+    }));
   });
 
   console.log('[WorkflowIPC] Handlers registered');

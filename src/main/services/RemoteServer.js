@@ -137,10 +137,10 @@ function _getNetworkInterfaces() {
 // ─── PIN Management ───────────────────────────────────────────────────────────
 
 function generatePin() {
-  _pin = String(crypto.randomInt(0, 10000)).padStart(4, '0');
+  _pin = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   _pinExpiry = Date.now() + PIN_TTL_MS;
   _pinUsed = false;
-  console.log(`[Remote] New PIN generated (valid 2 min)`);
+  console.debug(`[Remote] New PIN generated (valid 2 min)`);
   return _pin;
 }
 
@@ -211,7 +211,7 @@ function _handleHttpRequest(req, res) {
         const token = crypto.randomBytes(24).toString('hex');
         _sessionTokens.set(token, { issuedAt: Date.now() });
         _pinUsed = true;
-        console.log(`[Remote] Auth OK — session token issued, ${_sessionTokens.size} active token(s)`);
+        console.debug(`[Remote] Auth OK — session token issued, ${_sessionTokens.size} active token(s)`);
         // Immediately generate a fresh PIN for next auth
         generatePin();
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -290,15 +290,17 @@ function _handleWsUpgrade(request, socket, head) {
     if (existing) { try { existing.close(); } catch (e) {} }
 
     _connectedClients.set(token, ws);
-    console.log(`[Remote] WS connected — ${_connectedClients.size} client(s) active`);
+    console.debug(`[Remote] WS connected — ${_connectedClients.size} client(s) active`);
 
     ws.on('message', (raw) => _handleClientMessage(ws, token, raw));
     ws.on('close', (code) => {
       _connectedClients.delete(token);
-      console.log(`[Remote] WS disconnected (code: ${code}) — ${_connectedClients.size} client(s) remaining`);
+      _sessionTokens.delete(token);
+      console.debug(`[Remote] WS disconnected (code: ${code}) — ${_connectedClients.size} client(s) remaining`);
     });
     ws.on('error', (e) => {
       _connectedClients.delete(token);
+      _sessionTokens.delete(token);
       console.warn(`[Remote] WS error: ${e.message}`);
     });
 
@@ -354,7 +356,7 @@ function _sendProjectsAndSessions(ws) {
     const chatService = require('./ChatService');
     const activeSessions = chatService.getActiveSessions();
     let totalBuffered = 0;
-    console.log(`[Remote] Sending init data — ${projects.length} project(s), ${activeSessions.length} active session(s)`);
+    console.debug(`[Remote] Sending init data — ${projects.length} project(s), ${activeSessions.length} active session(s)`);
     for (const { sessionId, cwd } of activeSessions) {
       const project = projects.find(p => p.path && cwd && (
         cwd.replace(/\\/g, '/').startsWith(p.path.replace(/\\/g, '/'))
@@ -372,7 +374,7 @@ function _sendProjectsAndSessions(ws) {
 
       // Replay buffered chat events for this session
       const buffer = _sessionMessageBuffer.get(sessionId);
-      console.log(`[Remote] Session ${sessionId}: buffer has ${buffer?.length || 0} event(s), all buffers: ${[..._sessionMessageBuffer.keys()].join(', ') || 'none'}`);
+      console.debug(`[Remote] Session ${sessionId}: buffer has ${buffer?.length || 0} event(s), all buffers: ${[..._sessionMessageBuffer.keys()].join(', ') || 'none'}`);
       if (buffer && buffer.length > 0) {
         totalBuffered += buffer.length;
         for (const { channel, data } of buffer) {
@@ -381,7 +383,7 @@ function _sendProjectsAndSessions(ws) {
       }
     }
     if (totalBuffered > 0) {
-      console.log(`[Remote] Replayed ${totalBuffered} buffered chat event(s)`);
+      console.debug(`[Remote] Replayed ${totalBuffered} buffered chat event(s)`);
     }
   } catch (e) {
     console.warn(`[Remote] Failed to send init data: ${e.message}`);
@@ -403,7 +405,7 @@ function _handleClientMessage(ws, token, raw) {
 
   const { type, data } = msg;
   if (!type) return;
-  if (type !== 'ping') console.log(`[Remote] ← ${type}`, data ? JSON.stringify(data).slice(0, 120) : '');
+  if (type !== 'ping') console.debug(`[Remote] ← ${type}`, data ? JSON.stringify(data).slice(0, 120) : '');
 
   try {
     switch (type) {
@@ -446,6 +448,11 @@ function _handleClientMessage(ws, token, raw) {
         if (_isMainWindowReady()) {
           const mentions = Array.isArray(data?.mentions) ? data.mentions : [];
           const cwd = data?.cwd;
+          // Validate cwd against registered projects to prevent path traversal
+          if (cwd && !_isRegisteredProjectPath(cwd)) {
+            _wsSend(ws, 'chat-error', { sessionId: data?.sessionId, error: 'Invalid project path' });
+            break;
+          }
           _resolveMentions(mentions, cwd).then(resolvedText => {
             const prompt = resolvedText ? (data.prompt || '') + resolvedText : (data.prompt || '');
             mainWindow.webContents.send('remote:open-chat-tab', {
@@ -483,6 +490,11 @@ function _handleClientMessage(ws, token, raw) {
         const { requestId, result } = data || {};
         if (!requestId || typeof result?.behavior !== 'string') {
           console.warn('[Remote] Invalid permission response');
+          break;
+        }
+        // Validate that the requestId exists in pending permissions before resolving
+        if (!chatService.pendingPermissions.has(requestId)) {
+          console.warn(`[Remote] Permission response for unknown requestId: ${requestId}`);
           break;
         }
         chatService.resolvePermission(requestId, result);
@@ -563,7 +575,7 @@ function _handleClientMessage(ws, token, raw) {
 
       case 'request:init': {
         // Mobile (cloud or local) is requesting initial state
-        console.log('[Remote] ← request:init — sending hello + projects + sessions');
+        console.debug('[Remote] ← request:init — sending hello + projects + sessions');
         const settings = _loadSettings();
         _wsSend(ws, 'hello', {
           version: '1.0',
@@ -782,7 +794,7 @@ function broadcastProjectsUpdate(projects) {
 }
 
 function broadcastSessionStarted({ sessionId, projectId, tabName }) {
-  console.log(`[Remote] → broadcast session:started sessionId=${sessionId} projectId=${projectId} tabName=${tabName}`);
+  console.debug(`[Remote] → broadcast session:started sessionId=${sessionId} projectId=${projectId} tabName=${tabName}`);
   if (projectId) _sessionProjectMap.set(sessionId, projectId);
   if (tabName) _sessionTabNames.set(sessionId, tabName);
   _broadcast('session:started', { sessionId, projectId, tabName: tabName || 'Chat' });
@@ -822,14 +834,14 @@ let _chatBridgeInstalled = false;
 function _ensureChatBridge() {
   if (_chatBridgeInstalled) return;
   _chatBridgeInstalled = true;
-  console.log('[Remote] Installing chat bridge callback');
+  console.debug('[Remote] Installing chat bridge callback');
 
   const chatService = require('./ChatService');
   chatService.setRemoteEventCallback((channel, data) => {
     const relayed = ['chat-message', 'chat-idle', 'chat-done', 'chat-error', 'chat-permission-request', 'chat-user-message', 'session:closed', 'session:tab-renamed'];
     if (!relayed.includes(channel)) return;
     if (channel === 'chat-user-message') {
-      console.log(`[Remote] Bridge received chat-user-message sid=${data?.sessionId} text="${(data?.text || '').slice(0, 50)}"`);
+      console.debug(`[Remote] Bridge received chat-user-message sid=${data?.sessionId} text="${(data?.text || '').slice(0, 50)}"`);
     }
 
     let enriched = data;
@@ -851,7 +863,7 @@ function _ensureChatBridge() {
         buf.push({ channel, data: enriched });
         if (buf.length > MAX_BUFFER_PER_SESSION) buf.shift();
         if (channel !== 'chat-message') {
-          console.log(`[Remote] Buffered ${channel} for session ${sid} (buffer size: ${buf.length})`);
+          console.debug(`[Remote] Buffered ${channel} for session ${sid} (buffer size: ${buf.length})`);
         }
       }
       // Clean up buffers on session end
@@ -863,7 +875,7 @@ function _ensureChatBridge() {
     }
 
     if (channel !== 'chat-message') {
-      console.log(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
+      console.debug(`[Remote] → broadcast ${channel} sessionId=${data?.sessionId} clients=${_connectedClients.size}`);
     }
     _broadcast(channel, enriched);
   });
@@ -900,8 +912,8 @@ function start(win, port = 3712) {
 
   httpServer.listen(port, '0.0.0.0', () => {
     const ips = _getLocalIps();
-    console.log(`[Remote] Server started on port ${port}`);
-    ips.forEach(ip => console.log(`[Remote]   → http://${ip}:${port}`));
+    console.debug(`[Remote] Server started on port ${port}`);
+    ips.forEach(ip => console.debug(`[Remote]   → http://${ip}:${port}`));
   });
 
   httpServer.on('error', (e) => {
@@ -936,7 +948,7 @@ function stop() {
   // Only remove chat bridge if cloud is also disconnected
   _teardownChatBridge();
 
-  console.log('[Remote] Server stopped');
+  console.debug('[Remote] Server stopped');
 }
 
 function setMainWindow(win) {
@@ -978,7 +990,7 @@ function handleCloudMessage(msg) {
  */
 function sendInitToCloud() {
   if (!_cloudClient?.connected) return;
-  console.log('[Remote] Sending init data to cloud relay');
+  console.debug('[Remote] Sending init data to cloud relay');
 
   // 1. hello
   const settings = _loadSettings();

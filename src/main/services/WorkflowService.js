@@ -16,6 +16,7 @@
 'use strict';
 
 const crypto    = require('crypto');
+const events    = require('events');
 const fs        = require('fs');
 const path      = require('path');
 
@@ -401,19 +402,20 @@ class WorkflowService {
     const triggerData = opts.triggerData || {};
 
     // Build context variables
-    const contextVars = await this._buildContext(workflow, opts.projectPath);
+    const projectPath = opts.projectPath || this._resolveProjectPath(workflow) || '';
+    const contextVars = await this._buildContext(workflow, projectPath);
+    contextVars.projectPath = projectPath; // Pass to runner for ctx.project
 
-    // Build step list from graph or legacy steps
+    // Build step list from graph or legacy steps — sorted by execution order (BFS)
     let runSteps;
     if (workflow.graph && workflow.graph.nodes) {
-      runSteps = workflow.graph.nodes
-        .filter(n => n.type !== 'workflow/trigger')
-        .map(n => ({
-          id:     `node_${n.id}`,
-          type:   n.type.replace('workflow/', ''),
-          status: RUN_STATUS.PENDING,
-          duration: null,
-        }));
+      const ordered = this._bfsNodeOrder(workflow.graph);
+      runSteps = ordered.map(n => ({
+        id:     `node_${n.id}`,
+        type:   n.type.replace('workflow/', ''),
+        status: RUN_STATUS.PENDING,
+        duration: null,
+      }));
     } else {
       runSteps = (workflow.steps || []).map(s => ({
         id:     s.id,
@@ -443,6 +445,8 @@ class WorkflowService {
     this._send('workflow-run-start', { run });
 
     const abortController = new AbortController();
+    // Allow many parallel listeners (loop iterations, per-step timeouts, SDK internals…)
+    events.setMaxListeners(200, abortController.signal);
 
     let resolveExec, rejectExec;
     const promise = new Promise((res, rej) => { resolveExec = res; rejectExec = rej; });
@@ -569,7 +573,7 @@ class WorkflowService {
 
     // Notify on_workflow triggers
     if (status === RUN_STATUS.SUCCESS || status === RUN_STATUS.FAILED) {
-      this._scheduler.onWorkflowComplete(workflow.name, {
+      this._scheduler.onWorkflowComplete(workflow.id, {
         success:    status === RUN_STATUS.SUCCESS,
         outputs:    result.outputs || {},
         workflowId: workflow.id,
@@ -647,6 +651,102 @@ class WorkflowService {
     return workflow.scope?.projectPath || null;
   }
 
+  /**
+   * BFS from trigger node to get nodes in execution order.
+   * Only follows exec links (type === 'exec' or slot 0/1 of non-data outputs).
+   */
+  _bfsNodeOrder(graph) {
+    const { nodes = [], links = [] } = graph;
+    if (!nodes.length) return [];
+
+    const trigger = nodes.find(n => n.type === 'workflow/trigger');
+    if (!trigger) return nodes.filter(n => n.type !== 'workflow/trigger');
+
+    // Build outgoing exec adjacency: nodeId → Set<targetNodeId>
+    const outExec = new Map();
+    for (const link of links) {
+      // link: [id, originId, originSlot, targetId, targetSlot, type]
+      const originId = link[1], targetId = link[3], targetSlot = link[4], type = link[5];
+      // Exec links connect to slot 0 (the "In" exec pin) and have type 'exec' or -1
+      if (targetSlot === 0 || type === 'exec' || type === -1 || type == null) {
+        if (!outExec.has(originId)) outExec.set(originId, new Set());
+        outExec.get(originId).add(targetId);
+      }
+    }
+
+    const visited = new Set();
+    const ordered = [];
+    const queue = [trigger.id];
+    visited.add(trigger.id);
+
+    // Build the set of nodes that are children of any loop (slot 0 = Each body)
+    // so we can exclude them from the top-level step list.
+    const loopChildNodes = new Set();
+    for (const node of nodes) {
+      if (node.type === 'workflow/loop') {
+        // Collect all nodes reachable via slot 0 (Each body) of this loop
+        const bodyQueue = [...(outExec.get(node.id) || [])];
+        // outExec only covers slot 0 links (the "Each" path) — but we need to
+        // distinguish slot 0 (Each) from slot 1 (Done). Rebuild per-slot map.
+        const outSlot0 = new Map();
+        for (const link of links) {
+          const originId = link[1], targetId = link[3], originSlot = link[2];
+          if (originId === node.id && originSlot === 0) {
+            if (!outSlot0.has(originId)) outSlot0.set(originId, []);
+            outSlot0.get(originId).push(targetId);
+          }
+        }
+        const bodyStart = outSlot0.get(node.id) || [];
+        const bodyVisited = new Set();
+        const bq = [...bodyStart];
+        while (bq.length) {
+          const bid = bq.shift();
+          if (bodyVisited.has(bid)) continue;
+          bodyVisited.add(bid);
+          loopChildNodes.add(bid);
+          for (const nid of (outExec.get(bid) || [])) {
+            if (!bodyVisited.has(nid)) bq.push(nid);
+          }
+        }
+      }
+    }
+
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const node = nodes.find(n => n.id === id);
+      if (node && node.type !== 'workflow/trigger' && !loopChildNodes.has(id)) {
+        ordered.push(node);
+      }
+      // Don't traverse into loop body nodes (slot 0 children) — they're not top-level steps
+      if (node?.type === 'workflow/loop') {
+        // Only follow slot 1 (Done) for the BFS continuation — not slot 0 (Each body)
+        for (const link of links) {
+          const originId = link[1], targetId = link[3], originSlot = link[2];
+          if (originId === id && originSlot === 1 && !visited.has(targetId)) {
+            visited.add(targetId);
+            queue.push(targetId);
+          }
+        }
+      } else {
+        for (const nextId of (outExec.get(id) || [])) {
+          if (!visited.has(nextId)) {
+            visited.add(nextId);
+            queue.push(nextId);
+          }
+        }
+      }
+    }
+
+    // Append any unvisited non-child nodes (disconnected) at the end
+    for (const n of nodes) {
+      if (n.type !== 'workflow/trigger' && !visited.has(n.id) && !loopChildNodes.has(n.id)) {
+        ordered.push(n);
+      }
+    }
+
+    return ordered;
+  }
+
   // ─── Dependency graph for UI ─────────────────────────────────────────────────
 
   /**
@@ -667,7 +767,7 @@ class WorkflowService {
       }
       // on_workflow trigger
       if (wf.trigger?.type === 'on_workflow') {
-        const target = workflows.find(w => w.name === wf.trigger.value);
+        const target = workflows.find(w => w.id === wf.trigger.value || w.name === wf.trigger.value);
         if (target) edges.push({ from: target.id, to: wf.id, type: 'chain' });
       }
     }

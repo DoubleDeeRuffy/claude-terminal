@@ -1209,8 +1209,11 @@ function initResizer() {
   let startX, startWidth;
 
   resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     startX = e.clientX;
     startWidth = panel.offsetWidth;
+    resizer.classList.add('active');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
@@ -1222,17 +1225,30 @@ function initResizer() {
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      resizer.classList.remove('active');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      localStorage.setItem('file-explorer-width', panel.offsetWidth);
+      const { settingsState, saveSettingsImmediate } = require('../../state/settings.state');
+      settingsState.setProp('fileExplorerWidth', panel.offsetWidth);
+      saveSettingsImmediate();
     };
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   });
 
-  // Restore saved width
-  const savedWidth = localStorage.getItem('file-explorer-width');
+  // Restore saved width (migrate from localStorage if needed)
+  const { getSetting: getSettingForWidth, settingsState: ss, saveSettings: saveSett } = require('../../state/settings.state');
+  let savedWidth = getSettingForWidth('fileExplorerWidth');
+  if (!savedWidth) {
+    const legacyWidth = localStorage.getItem('file-explorer-width');
+    if (legacyWidth) {
+      savedWidth = parseInt(legacyWidth);
+      ss.setProp('fileExplorerWidth', savedWidth);
+      saveSett();
+      localStorage.removeItem('file-explorer-width');
+    }
+  }
   if (savedWidth) {
     panel.style.width = savedWidth + 'px';
   }

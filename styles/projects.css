@@ -30,7 +30,7 @@
 
 .projects-panel {
   width: var(--projects-panel-width);
-  min-width: 280px;
+  min-width: 170px;
   max-width: 450px;
   flex-shrink: 0;
   background: var(--bg-secondary);

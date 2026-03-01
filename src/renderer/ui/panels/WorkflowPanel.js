@@ -2,929 +2,50 @@ const { escapeHtml } = require('../../utils');
 const WorkflowMarketplace = require('./WorkflowMarketplacePanel');
 const { getAgents } = require('../../services/AgentService');
 const { getSkills } = require('../../services/SkillService');
-const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphService');
-const { LiteGraph } = require('litegraph.js');
+const { getGraphService, resetGraphService } = require('../../services/WorkflowGraphEngine');
 const { projectsState } = require('../../state/projects.state');
 const { schemaCache } = require('../../services/WorkflowSchemaCache');
 const { showContextMenu } = require('../components/ContextMenu');
 const { showConfirm } = require('../components/Modal');
 const { createChatView } = require('../components/ChatView');
+const nodeRegistry = require('../../services/NodeRegistry');
+const fieldRegistry = require('../../workflow-fields/_registry');
+
+const {
+  // Constants
+  HOOK_TYPES, NODE_OUTPUTS, STEP_TYPES, STEP_FIELDS, STEP_TYPE_ALIASES,
+  GIT_ACTIONS, WAIT_UNITS, CONDITION_VARS, CONDITION_OPS,
+  TRIGGER_CONFIG, CRON_MODES,
+  // Functions
+  findStepType, buildConditionPreview,
+  drawCronPicker, bindWfDropdown, wfDropdown,
+  // Formatting
+  fmtTime, fmtDuration, statusDot, statusLabel,
+  // SVG icons
+  svgWorkflow, svgAgent, svgShell, svgGit, svgHttp, svgNotify, svgWait, svgCond,
+  svgClock, svgTimer, svgHook, svgChain, svgPlay, svgX, svgScope, svgConc,
+  svgEmpty, svgRuns, svgClaude, svgPrompt, svgSkill, svgProject, svgFile, svgDb,
+  svgLoop, svgVariable, svgLog, svgTriggerType, svgLink, svgMode, svgEdit,
+  svgBranch, svgCode, svgTrash, svgCopy, svgTransform, svgGetVar, svgSwitch,
+  svgSubworkflow, svgTeal,
+  // Autocomplete & Schema
+  getLoopPreview, initSmartSQL,
+  // DOM helpers
+  upgradeSelectsToDropdowns, setupAutocomplete,
+  insertLoopBetween,
+} = require('./WorkflowHelpers');
 
 let ctx = null;
-
-const HOOK_TYPES = [
-  { value: 'PreToolUse',        label: 'PreToolUse',        desc: 'Avant chaque outil' },
-  { value: 'PostToolUse',       label: 'PostToolUse',       desc: 'Après chaque outil' },
-  { value: 'PostToolUseFailure',label: 'PostToolUseFailure',desc: 'Après échec d\'un outil' },
-  { value: 'Notification',      label: 'Notification',      desc: 'À chaque notification' },
-  { value: 'UserPromptSubmit',  label: 'UserPromptSubmit',  desc: 'Soumission d\'un prompt' },
-  { value: 'SessionStart',      label: 'SessionStart',      desc: 'Début de session' },
-  { value: 'SessionEnd',        label: 'SessionEnd',        desc: 'Fin de session' },
-  { value: 'Stop',              label: 'Stop',              desc: 'À l\'arrêt de Claude' },
-  { value: 'SubagentStart',     label: 'SubagentStart',     desc: 'Lancement d\'un sous-agent' },
-  { value: 'SubagentStop',      label: 'SubagentStop',      desc: 'Arrêt d\'un sous-agent' },
-  { value: 'PreCompact',        label: 'PreCompact',        desc: 'Avant compaction mémoire' },
-  { value: 'PermissionRequest', label: 'PermissionRequest', desc: 'Demande de permission' },
-  { value: 'Setup',             label: 'Setup',             desc: 'Phase de setup' },
-  { value: 'TeammateIdle',      label: 'TeammateIdle',      desc: 'Teammate inactif' },
-  { value: 'TaskCompleted',     label: 'TaskCompleted',     desc: 'Tâche terminée' },
-  { value: 'ConfigChange',     label: 'ConfigChange',     desc: 'Changement de config' },
-  { value: 'WorktreeCreate',   label: 'WorktreeCreate',   desc: 'Création de worktree' },
-  { value: 'WorktreeRemove',   label: 'WorktreeRemove',   desc: 'Suppression de worktree' },
-];
-
-// Output properties produced by each node type — used for autocomplete suggestions
-const NODE_OUTPUTS = {
-  claude:    ['output', 'success'],
-  shell:     ['stdout', 'stderr', 'exitCode'],
-  git:       ['output', 'success', 'action'],
-  http:      ['status', 'ok', 'body'],
-  file:      ['content', 'success', 'exists'],
-  db:        ['rows', 'columns', 'rowCount', 'duration', 'firstRow'],
-  condition: ['result', 'value'],
-  wait:      ['waited', 'timedOut'],
-  notify:    ['sent', 'message'],
-  project:   ['success', 'action'],
-  variable:  ['name', 'value', 'action'],
-  log:       ['level', 'message', 'logged'],
-  loop:      ['items', 'count'],
-};
-
-/**
- * Get autocomplete suggestions for variable references.
- * @param {Object} graph - LiteGraph graph instance
- * @param {number} currentNodeId - The node currently being edited
- * @param {string} filterText - Text typed after '$' to filter results
- * @returns {Array<{category: string, label: string, value: string, detail: string}>}
- */
-function getAutocompleteSuggestions(graph, currentNodeId, filterText) {
-  const suggestions = [];
-  const filter = (filterText || '').toLowerCase();
-
-  // Category 1: Context variables
-  const ctxVars = [
-    { value: '$ctx.project',  detail: 'Chemin du projet' },
-    { value: '$ctx.branch',   detail: 'Branche Git active' },
-    { value: '$ctx.date',     detail: 'Date du jour' },
-    { value: '$ctx.trigger',  detail: 'Type de déclencheur' },
-  ];
-  for (const v of ctxVars) {
-    if (v.value.toLowerCase().includes(filter)) {
-      suggestions.push({ category: 'Contexte', label: v.value, value: v.value, detail: v.detail });
-    }
-  }
-
-  // Category 2: Loop variables
-  const loopVars = [
-    { value: '$loop.item',  detail: 'Élément courant' },
-    { value: '$loop.index', detail: 'Index (0-based)' },
-    { value: '$loop.total', detail: 'Nombre total d\'items' },
-  ];
-  for (const v of loopVars) {
-    if (v.value.toLowerCase().includes(filter)) {
-      suggestions.push({ category: 'Loop', label: v.value, value: v.value, detail: v.detail });
-    }
-  }
-
-  // Category 3: Node outputs
-  if (graph && graph._nodes) {
-    for (const node of graph._nodes) {
-      if (node.id === currentNodeId) continue;
-      const nodeType = (node.type || '').replace('workflow/', '');
-      if (nodeType === 'trigger') continue;
-      const outputs = NODE_OUTPUTS[nodeType];
-      if (!outputs) continue;
-
-      const nodeLabel = node.title || nodeType;
-      const prefix = `$node_${node.id}`;
-
-      for (const prop of outputs) {
-        const full = `${prefix}.${prop}`;
-        if (full.toLowerCase().includes(filter) || nodeLabel.toLowerCase().includes(filter)) {
-          suggestions.push({
-            category: 'Nodes',
-            label: full,
-            value: full,
-            detail: `${nodeLabel} → ${prop}`,
-          });
-        }
-      }
-    }
-  }
-
-  // Category 4: Custom variables (from Variable nodes with action=set)
-  if (graph && graph._nodes) {
-    for (const node of graph._nodes) {
-      const nodeType = (node.type || '').replace('workflow/', '');
-      if (nodeType !== 'variable') continue;
-      if (node.properties?.action !== 'set') continue;
-      const varName = node.properties?.name;
-      if (!varName) continue;
-      const full = `$${varName}`;
-      if (full.toLowerCase().includes(filter)) {
-        suggestions.push({
-          category: 'Variables',
-          label: full,
-          value: full,
-          detail: `Variable custom`,
-        });
-      }
-    }
-  }
-
-  return suggestions;
-}
-
-/**
- * Extract table name from a SQL query (FROM clause).
- */
-function extractTableFromSQL(sql) {
-  if (!sql) return null;
-  const match = sql.match(/\bFROM\s+[`"']?(\w+(?:\.\w+)?)[`"']?/i);
-  if (!match) return null;
-  const name = match[1];
-  return name.includes('.') ? name.split('.').pop() : name;
-}
-
-/**
- * BFS backward through graph links to find the nearest upstream DB node.
- */
-function findUpstreamDbNode(graph, startNode) {
-  if (!graph || !startNode) return null;
-  const visited = new Set();
-  const queue = [startNode];
-  visited.add(startNode.id);
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current.inputs) continue;
-
-    for (const input of current.inputs) {
-      if (!input.link) continue;
-      const linkInfo = graph.links?.[input.link] || graph._links?.get?.(input.link);
-      if (!linkInfo) continue;
-      const originNode = graph.getNodeById(linkInfo.origin_id);
-      if (!originNode || visited.has(originNode.id)) continue;
-      visited.add(originNode.id);
-
-      const originType = (originNode.type || '').replace('workflow/', '');
-      if (originType === 'db') return originNode;
-      queue.push(originNode);
-    }
-  }
-  return null;
-}
-
-/**
- * Get deep autocomplete suggestions (async) — resolves DB column names from schema.
- * Called when user types second-level property like `$node_X.firstRow.` or `$loop.item.`
- */
-async function getDeepAutocompleteSuggestions(graph, currentNodeId, filterText) {
-  const suggestions = [];
-  if (!graph || !filterText) return suggestions;
-
-  // Match patterns like $node_X.firstRow. or $node_X.rows.
-  const nodeMatch = filterText.match(/^\$node_(\d+)\.(firstRow|rows)\.(.*)?$/i);
-  // Match patterns like $loop.item. or $item.
-  const loopMatch = filterText.match(/^\$(loop\.item|item)\.(.*)?$/i);
-
-  let dbNode = null;
-  let columnFilter = '';
-
-  if (nodeMatch) {
-    const sourceNodeId = parseInt(nodeMatch[1], 10);
-    columnFilter = (nodeMatch[3] || '').toLowerCase();
-    const sourceNode = graph.getNodeById(sourceNodeId);
-    if (sourceNode) {
-      const sourceType = (sourceNode.type || '').replace('workflow/', '');
-      if (sourceType === 'db') dbNode = sourceNode;
-    }
-  } else if (loopMatch) {
-    columnFilter = (loopMatch[2] || '').toLowerCase();
-    // Find the node being edited, then trace upstream to find a DB node
-    const currentNode = graph.getNodeById(currentNodeId);
-    if (currentNode) {
-      dbNode = findUpstreamDbNode(graph, currentNode);
-    }
-  }
-
-  if (!dbNode) return suggestions;
-
-  // Extract connection and table from the DB node properties
-  const connectionId = dbNode.properties?.connection;
-  const sql = dbNode.properties?.query;
-  const tableName = extractTableFromSQL(sql);
-
-  if (!connectionId || !tableName) return suggestions;
-
-  // Fetch schema (async, cached)
-  await schemaCache.getSchema(connectionId);
-  const columns = schemaCache.getColumnsForTable(connectionId, tableName);
-  if (!columns || !columns.length) return suggestions;
-
-  for (const col of columns) {
-    const colName = col.name || col;
-    const colType = col.type || '';
-    if (columnFilter && !colName.toLowerCase().includes(columnFilter)) continue;
-
-    const pkBadge = col.primaryKey ? ' 🔑' : '';
-    suggestions.push({
-      category: 'Colonnes DB',
-      label: colName,
-      value: filterText.substring(0, filterText.lastIndexOf('.') + 1) + colName,
-      detail: `${colType}${pkBadge}`,
-    });
-  }
-
-  return suggestions;
-}
-
-// ── Smart SQL textarea with autocomplete ─────────────────────────────────────
-
-/**
- * Initialize the smart SQL textarea on a DB panel.
- * Adds: SQL autocomplete (tables/columns), template buttons, schema prefetch.
- */
-async function initSmartSQL(container, node, graphService) {
-  const connectionId = node.properties?.connection;
-  const textarea = container.querySelector('.wf-sql-textarea');
-  const templateBar = container.querySelector('.wf-sql-templates');
-  if (!textarea) return;
-
-  // Pass connection configs to schema cache for auto-connect
-  if (_dbConnectionsCache) schemaCache.setConnectionConfigs(_dbConnectionsCache);
-
-  // Autocomplete popup (shared with variable autocomplete but separate)
-  let sqlPopup = container.querySelector('.wf-sql-ac-popup');
-  if (!sqlPopup) {
-    sqlPopup = document.createElement('div');
-    sqlPopup.className = 'wf-sql-ac-popup';
-    sqlPopup.style.display = 'none';
-    container.appendChild(sqlPopup);
-  }
-
-  let acItems = [];
-  let acIndex = 0;
-  let acStart = -1; // cursor position where the current word starts
-
-  function hideSqlAc() {
-    sqlPopup.style.display = 'none';
-    acItems = [];
-    acIndex = 0;
-  }
-
-  function insertSqlAc(text) {
-    if (acStart < 0) return;
-    const before = textarea.value.substring(0, acStart);
-    const after = textarea.value.substring(textarea.selectionStart);
-    textarea.value = before + text + after;
-    const newPos = acStart + text.length;
-    textarea.setSelectionRange(newPos, newPos);
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    hideSqlAc();
-    textarea.focus();
-  }
-
-  function renderSqlAc(items, wordStart) {
-    if (!items.length) { hideSqlAc(); return; }
-    acItems = items;
-    acIndex = 0;
-    acStart = wordStart;
-
-    sqlPopup.innerHTML = items.map((it, i) =>
-      `<div class="wf-sql-ac-item${i === 0 ? ' active' : ''}" data-idx="${i}">
-        <span class="wf-sql-ac-name">${escapeHtml(it.name)}</span>
-        <span class="wf-sql-ac-type">${escapeHtml(it.type || '')}</span>
-      </div>`
-    ).join('');
-
-    // Position below textarea at cursor
-    const rect = textarea.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    sqlPopup.style.top = (rect.bottom - containerRect.top + 2) + 'px';
-    sqlPopup.style.left = (rect.left - containerRect.left) + 'px';
-    sqlPopup.style.width = rect.width + 'px';
-    sqlPopup.style.display = 'block';
-
-    sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach(el => {
-      el.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        insertSqlAc(acItems[parseInt(el.dataset.idx, 10)].name);
-      });
-    });
-  }
-
-  // ── Prefetch schema ──
-  let tables = []; // [{name, columns: [{name, type, primaryKey}]}]
-  if (connectionId) {
-    try {
-      const fetched = await schemaCache.getSchema(connectionId);
-      tables = fetched || [];
-    } catch { /* silently fail */ }
-  }
-
-  // ── SQL Autocomplete logic ──
-  textarea.addEventListener('input', () => {
-    const val = textarea.value;
-    const cursor = textarea.selectionStart;
-    if (!tables.length) { hideSqlAc(); return; }
-
-    // Find current word (before cursor)
-    let wordStart = cursor;
-    while (wordStart > 0 && /[\w.]/.test(val[wordStart - 1])) wordStart--;
-    const word = val.substring(wordStart, cursor).toLowerCase();
-
-    if (!word) { hideSqlAc(); return; }
-
-    // Determine context: after FROM/INTO/UPDATE/JOIN → suggest tables
-    // after table. or known table ref → suggest columns
-    const beforeWord = val.substring(0, wordStart).replace(/\s+$/, '').toUpperCase();
-    const lastKeyword = beforeWord.match(/(FROM|INTO|UPDATE|JOIN|TABLE)\s*$/i);
-    const dotParts = word.split('.');
-
-    let suggestions = [];
-
-    if (dotParts.length === 2) {
-      // tableName.col → suggest columns of that table
-      const tableName = dotParts[0];
-      const colFilter = dotParts[1];
-      const table = tables.find(t => t.name.toLowerCase() === tableName);
-      if (table?.columns) {
-        suggestions = table.columns
-          .filter(c => (c.name || '').toLowerCase().startsWith(colFilter))
-          .map(c => ({ name: c.name, type: c.type + (c.primaryKey ? ' PK' : '') }));
-      }
-    } else if (lastKeyword) {
-      // After FROM/INTO/UPDATE/JOIN → suggest table names
-      suggestions = tables
-        .filter(t => t.name.toLowerCase().startsWith(word))
-        .map(t => ({ name: t.name, type: `${t.columns?.length || 0} cols` }));
-    } else {
-      // General context: suggest tables and SQL keywords if short
-      suggestions = tables
-        .filter(t => t.name.toLowerCase().startsWith(word))
-        .map(t => ({ name: t.name, type: 'table' }));
-      // Also suggest columns from all tables (deduplicated) if there's a match
-      if (word.length >= 2) {
-        const seen = new Set(suggestions.map(s => s.name));
-        for (const table of tables) {
-          for (const col of (table.columns || [])) {
-            const colName = col.name || '';
-            if (!seen.has(colName) && colName.toLowerCase().startsWith(word)) {
-              seen.add(colName);
-              suggestions.push({ name: colName, type: `${table.name}.${col.type || ''}` });
-            }
-          }
-        }
-      }
-    }
-
-    if (suggestions.length > 12) suggestions = suggestions.slice(0, 12);
-    renderSqlAc(suggestions, wordStart);
-  });
-
-  textarea.addEventListener('keydown', (e) => {
-    if (sqlPopup.style.display === 'none') return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      acIndex = Math.min(acIndex + 1, acItems.length - 1);
-      sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach((el, i) => el.classList.toggle('active', i === acIndex));
-      sqlPopup.querySelector('.wf-sql-ac-item.active')?.scrollIntoView({ block: 'nearest' });
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      acIndex = Math.max(acIndex - 1, 0);
-      sqlPopup.querySelectorAll('.wf-sql-ac-item').forEach((el, i) => el.classList.toggle('active', i === acIndex));
-    } else if (e.key === 'Tab' || e.key === 'Enter') {
-      if (acItems.length) { e.preventDefault(); insertSqlAc(acItems[acIndex].name); }
-    } else if (e.key === 'Escape') {
-      e.preventDefault(); hideSqlAc();
-    }
-  });
-
-  textarea.addEventListener('blur', () => {
-    setTimeout(() => hideSqlAc(), 150);
-  });
-
-  // ── Template buttons ──
-  if (templateBar && tables.length) {
-    templateBar.querySelectorAll('.wf-sql-tpl').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tpl = btn.dataset.tpl;
-        const firstTable = tables[0]?.name || 'table_name';
-        let sql = '';
-        switch (tpl) {
-          case 'select': sql = `SELECT * FROM ${firstTable}\nWHERE \nORDER BY \nLIMIT 100`; break;
-          case 'insert': sql = `INSERT INTO ${firstTable} (col1, col2)\nVALUES ('val1', 'val2')`; break;
-          case 'update': sql = `UPDATE ${firstTable}\nSET col1 = 'val1'\nWHERE id = `; break;
-          case 'delete': sql = `DELETE FROM ${firstTable}\nWHERE id = `; break;
-        }
-        textarea.value = sql;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        textarea.focus();
-        // Position cursor after the first table name for easy editing
-        const tablePos = sql.indexOf(firstTable) + firstTable.length;
-        textarea.setSelectionRange(tablePos, tablePos);
-      });
-    });
-  }
-}
-
-/**
- * Build loop preview info by tracing the upstream connection.
- * Returns { html, itemDesc } for display in the Loop panel.
- */
-function getLoopPreview(loopNode, graphService) {
-  const noPreview = { html: '', itemDesc: 'Valeur de l\'itération courante' };
-  if (!graphService?.graph || !loopNode) return noPreview;
-
-  const graph = graphService.graph;
-
-  // Find what's connected to Loop's In slot (slot 0)
-  const inSlot = loopNode.inputs?.[0];
-  if (!inSlot?.link) return { html: '<div class="wf-loop-preview wf-loop-preview--empty"><span class="wf-loop-preview-icon">⚠</span> Aucun node connecté au port <strong>In</strong></div>', itemDesc: 'Valeur de l\'itération courante' };
-
-  const linkInfo = graph.links?.[inSlot.link] || graph._links?.get?.(inSlot.link);
-  if (!linkInfo) return noPreview;
-
-  const sourceNode = graph.getNodeById(linkInfo.origin_id);
-  if (!sourceNode) return noPreview;
-
-  const sourceType = (sourceNode.type || '').replace('workflow/', '');
-  const sourceName = sourceNode.title || sourceType;
-  const sourceProps = sourceNode.properties || {};
-
-  // Determine what the source produces
-  let dataType = '';
-  let dataDesc = '';
-  let itemDesc = 'Valeur de l\'itération courante';
-  let previewItems = [];
-
-  if (sourceType === 'db') {
-    const action = sourceProps.action || 'query';
-    if (action === 'query') {
-      const table = extractTableFromSQL(sourceProps.query);
-      dataType = 'rows[]';
-      dataDesc = table ? `Lignes de <code>${escapeHtml(table)}</code>` : 'Résultats de la requête SQL';
-      itemDesc = table ? `Ligne de ${table} (objet avec colonnes)` : 'Ligne de résultat (objet)';
-    } else if (action === 'tables') {
-      dataType = 'string[]';
-      dataDesc = 'Noms des tables de la base';
-      itemDesc = 'Nom de table (string)';
-    } else if (action === 'schema') {
-      dataType = 'object[]';
-      dataDesc = 'Tables avec leurs colonnes';
-      itemDesc = 'Table (objet avec name, columns)';
-    }
-  } else if (sourceType === 'shell') {
-    dataType = 'lines';
-    dataDesc = 'Sortie du shell (stdout)';
-    itemDesc = 'Ligne de sortie';
-  } else if (sourceType === 'http') {
-    dataType = 'array';
-    dataDesc = 'Réponse HTTP (body)';
-    itemDesc = 'Élément du tableau de réponse';
-  } else if (sourceType === 'file') {
-    dataType = 'lines';
-    dataDesc = 'Contenu du fichier';
-    itemDesc = 'Ligne du fichier';
-  } else {
-    dataType = 'auto';
-    dataDesc = `Sortie de ${escapeHtml(sourceName)}`;
-    itemDesc = 'Élément de la sortie';
-  }
-
-  // Check for last run output for actual preview
-  const lastOutput = graphService.getNodeOutput(sourceNode.id);
-  if (lastOutput) {
-    // Extract array from output
-    if (Array.isArray(lastOutput)) previewItems = lastOutput;
-    else if (Array.isArray(lastOutput.rows)) previewItems = lastOutput.rows;
-    else if (Array.isArray(lastOutput.tables)) previewItems = lastOutput.tables;
-    else if (Array.isArray(lastOutput.items)) previewItems = lastOutput.items;
-  }
-
-  const countText = previewItems.length > 0 ? `<span class="wf-loop-preview-count">${previewItems.length} items</span>` : '';
-
-  // Build preview items list (max 5)
-  let previewHtml = '';
-  if (previewItems.length > 0) {
-    const shown = previewItems.slice(0, 5);
-    previewHtml = `<div class="wf-loop-preview-list">${shown.map((item, i) => {
-      const text = typeof item === 'string' ? item : (item?.name || JSON.stringify(item));
-      return `<div class="wf-loop-preview-item"><span class="wf-loop-preview-idx">${i}</span><code>${escapeHtml(String(text).substring(0, 60))}</code></div>`;
-    }).join('')}${previewItems.length > 5 ? `<div class="wf-loop-preview-more">… +${previewItems.length - 5} autres</div>` : ''}</div>`;
-  }
-
-  const html = `
-    <div class="wf-loop-preview">
-      <div class="wf-loop-preview-header">
-        <span class="wf-loop-preview-source">${escapeHtml(sourceName)}</span>
-        <span class="wf-loop-preview-type">${dataType}</span>
-        ${countText}
-      </div>
-      <div class="wf-loop-preview-desc">${dataDesc}</div>
-      ${previewHtml}
-    </div>
-  `;
-
-  return { html, itemDesc };
-}
-
-const STEP_TYPES = [
-  { type: 'trigger',   label: 'Trigger',   color: 'success',  icon: svgPlay(11),     desc: 'Déclencheur du workflow' },
-  // ── Actions ──
-  { type: 'claude',    label: 'Claude',    color: 'accent',   icon: svgClaude(),     desc: 'Prompt, Agent ou Skill',  category: 'action' },
-  { type: 'shell',     label: 'Shell',     color: 'info',     icon: svgShell(),      desc: 'Commande bash',           category: 'action' },
-  { type: 'git',       label: 'Git',       color: 'purple',   icon: svgGit(),        desc: 'Opération git',           category: 'action' },
-  { type: 'http',      label: 'HTTP',      color: 'cyan',     icon: svgHttp(),       desc: 'Requête API',             category: 'action' },
-  { type: 'notify',    label: 'Notify',    color: 'warning',  icon: svgNotify(),     desc: 'Notification',            category: 'action' },
-  // ── Data ──
-  { type: 'project',   label: 'Project',   color: 'pink',     icon: svgProject(),    desc: 'Cibler un projet',        category: 'data' },
-  { type: 'file',      label: 'File',      color: 'lime',     icon: svgFile(),       desc: 'Opération fichier',       category: 'data' },
-  { type: 'db',        label: 'Database',  color: 'orange',   icon: svgDb(),         desc: 'Requête base de données', category: 'data' },
-  { type: 'variable',  label: 'Variable',  color: 'violet',   icon: svgVariable(),   desc: 'Lire/écrire une variable',category: 'data' },
-  // ── Transform ──
-  { type: 'transform',    label: 'Transform',    color: 'teal',    icon: svgTransform(),    desc: 'Transformer des données',     category: 'data' },
-  { type: 'get_variable', label: 'Get Var',      color: 'violet',  icon: svgGetVar(),       desc: 'Lire une variable (pure)',     category: 'data' },
-  // ── Flow ──
-  { type: 'condition',   label: 'Condition',    color: 'success', icon: svgCond(),         desc: 'Branchement conditionnel',    category: 'flow' },
-  { type: 'loop',        label: 'Loop',         color: 'sky',     icon: svgLoop(),         desc: 'Itérer sur une liste',        category: 'flow' },
-  { type: 'switch',      label: 'Switch',       color: 'pink',    icon: svgSwitch(),       desc: 'Aiguillage multi-sorties',    category: 'flow' },
-  { type: 'subworkflow', label: 'Sub-workflow', color: 'purple',  icon: svgSubworkflow(),  desc: 'Appeler un autre workflow',   category: 'flow' },
-  { type: 'wait',        label: 'Wait',         color: 'muted',   icon: svgWait(),         desc: 'Temporisation',               category: 'flow' },
-  { type: 'log',         label: 'Log',          color: 'slate',   icon: svgLog(),          desc: 'Écrire dans le log',          category: 'flow' },
-];
-
-const GIT_ACTIONS = [
-  { value: 'pull',     label: 'Pull',     desc: 'Récupérer les changements distants' },
-  { value: 'push',     label: 'Push',     desc: 'Pousser les commits locaux' },
-  { value: 'commit',   label: 'Commit',   desc: 'Créer un commit', extra: [{ key: 'message', label: 'Message de commit', placeholder: 'feat: add new feature', mono: true }] },
-  { value: 'checkout', label: 'Checkout', desc: 'Changer de branche', extra: [{ key: 'branch', label: 'Branche', placeholder: 'main / develop / feature/...', mono: true }] },
-  { value: 'merge',    label: 'Merge',    desc: 'Fusionner une branche', extra: [{ key: 'branch', label: 'Branche source', placeholder: 'feature/my-branch', mono: true }] },
-  { value: 'stash',    label: 'Stash',    desc: 'Mettre de côté les changements' },
-  { value: 'stash-pop',label: 'Stash Pop',desc: 'Restaurer les changements mis de côté' },
-  { value: 'reset',    label: 'Reset',    desc: 'Annuler les changements non commités' },
-];
-
-const WAIT_UNITS = [
-  { value: 's', label: 'Secondes' },
-  { value: 'm', label: 'Minutes' },
-  { value: 'h', label: 'Heures' },
-];
-
-const CONDITION_VARS = [
-  { value: '$ctx.branch',      label: 'Branche actuelle' },
-  { value: '$ctx.exitCode',    label: 'Code de sortie' },
-  { value: '$ctx.project',     label: 'Nom du projet' },
-  { value: '$ctx.prevStatus',  label: 'Statut step précédent' },
-  { value: '$env.',            label: 'Variable d\'env', extra: [{ key: 'envVar', label: 'Nom', placeholder: 'NODE_ENV', mono: true }] },
-];
-
-const CONDITION_OPS = [
-  { value: '==', label: '==', group: 'compare' },
-  { value: '!=', label: '!=', group: 'compare' },
-  { value: '>',  label: '>',  group: 'compare' },
-  { value: '<',  label: '<',  group: 'compare' },
-  { value: '>=', label: '>=', group: 'compare' },
-  { value: '<=', label: '<=', group: 'compare' },
-  { value: 'contains',    label: 'contient',     group: 'text' },
-  { value: 'starts_with', label: 'commence par', group: 'text' },
-  { value: 'matches',     label: 'regex',        group: 'text' },
-  { value: 'is_empty',     label: 'est vide',      group: 'unary' },
-  { value: 'is_not_empty', label: 'n\'est pas vide', group: 'unary' },
-];
-
-function buildConditionPreview(variable, op, value, isUnary) {
-  if (!variable) return '(aucune condition)';
-  if (isUnary) return `${variable} ${op}`;
-  return `${variable} ${op} ${value || '?'}`;
-}
-
-const STEP_FIELDS = {
-  shell: [
-    { key: 'command', label: 'Commande', placeholder: 'npm run build', mono: true },
-  ],
-  claude: [
-    { key: 'mode', label: 'Mode', type: 'claude-mode-tabs' },
-    { key: 'prompt', label: 'Prompt', type: 'variable-textarea', showIf: (s) => !s.mode || s.mode === 'prompt' },
-    { key: 'agentId', label: 'Agent', type: 'agent-picker', showIf: (s) => s.mode === 'agent' },
-    { key: 'skillId', label: 'Skill', type: 'skill-picker', showIf: (s) => s.mode === 'skill' },
-    { key: 'prompt', label: 'Instructions additionnelles', placeholder: 'Contexte supplémentaire (optionnel)', textarea: true, showIf: (s) => s.mode === 'agent' || s.mode === 'skill' },
-    { key: 'model', label: 'Modèle', type: 'model-select' },
-    { key: 'effort', label: 'Effort', type: 'effort-select' },
-    { key: 'outputSchema', label: 'Sortie structurée', type: 'structured-output' },
-  ],
-  agent: 'claude',
-  git: [
-    { key: 'action', label: 'Action', type: 'action-select', actions: GIT_ACTIONS },
-  ],
-  http: [
-    { key: 'method', label: 'Méthode', type: 'select', options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default: 'GET' },
-    { key: 'url', label: 'URL', placeholder: 'https://api.example.com/endpoint', mono: true },
-    { key: 'headers', label: 'Headers', placeholder: 'Content-Type: application/json', textarea: true, mono: true, showIf: (s) => ['POST', 'PUT', 'PATCH'].includes(s.method) },
-    { key: 'body', label: 'Body', placeholder: '{ "key": "value" }', textarea: true, mono: true, showIf: (s) => ['POST', 'PUT', 'PATCH'].includes(s.method) },
-  ],
-  notify: [
-    { key: 'title', label: 'Titre', placeholder: 'Build terminé' },
-    { key: 'message', label: 'Message', placeholder: 'Le build $project est OK', textarea: true },
-  ],
-  wait: [
-    { key: 'duration', label: 'Durée', type: 'duration-picker' },
-  ],
-  condition: [
-    { key: 'condition', label: 'Condition', type: 'condition-builder' },
-  ],
-};
-
-// Resolve step type with backward compat (agent → claude)
-const STEP_TYPE_ALIASES = { agent: 'claude' };
-const findStepType = (type) => {
-  const resolved = STEP_TYPE_ALIASES[type] || type;
-  return STEP_TYPES.find(x => x.type === resolved) || STEP_TYPES[0];
-};
-
-const TRIGGER_CONFIG = {
-  cron: {
-    label: 'Cron',
-    desc: 'Planifié à heures fixes',
-    icon: svgClock(),
-    color: 'info',
-    extra: 'cronPicker',
-  },
-  hook: {
-    label: 'Hook Claude',
-    desc: 'Réagit aux événements',
-    icon: svgHook(),
-    color: 'accent',
-    extra: 'hookType',
-  },
-  on_workflow: {
-    label: 'Après workflow',
-    desc: 'Enchaîné à un autre',
-    icon: svgChain(),
-    color: 'purple',
-    fields: [
-      { id: 'triggerValue', label: 'Nom du workflow source', placeholder: 'Daily Code Review', mono: false },
-    ],
-  },
-  manual: {
-    label: 'Manuel',
-    desc: 'Déclenché à la demande',
-    icon: svgPlay(),
-    color: 'success',
-    fields: [],
-  },
-};
-
-/* ─── Cron picker ──────────────────────────────────────────────────────────── */
-
-const CRON_MODES = [
-  { id: 'interval', label: 'Intervalle' },
-  { id: 'daily',    label: 'Quotidien' },
-  { id: 'weekly',   label: 'Hebdo' },
-  { id: 'monthly',  label: 'Mensuel' },
-  { id: 'custom',   label: 'Custom' },
-];
-
-const DAYS_OF_WEEK = [
-  { value: 1, label: 'Lundi' },    { value: 2, label: 'Mardi' },
-  { value: 3, label: 'Mercredi' }, { value: 4, label: 'Jeudi' },
-  { value: 5, label: 'Vendredi' }, { value: 6, label: 'Samedi' },
-  { value: 0, label: 'Dimanche' },
-];
-
-const INTERVAL_OPTIONS = [
-  { value: 5,  label: '5 min' },   { value: 10, label: '10 min' },
-  { value: 15, label: '15 min' },  { value: 20, label: '20 min' },
-  { value: 30, label: '30 min' },  { value: 60, label: '1 heure' },
-  { value: 120, label: '2 heures' }, { value: 180, label: '3 heures' },
-  { value: 240, label: '4 heures' }, { value: 360, label: '6 heures' },
-  { value: 480, label: '8 heures' }, { value: 720, label: '12 heures' },
-];
-
-function buildCronFromMode(mode, v) {
-  switch (mode) {
-    case 'interval': {
-      const mins = v.interval || 15;
-      if (mins >= 60) return `0 */${mins / 60} * * *`;
-      return `*/${mins} * * * *`;
-    }
-    case 'daily':   return `${v.minute || 0} ${v.hour ?? 8} * * *`;
-    case 'weekly':  return `${v.minute || 0} ${v.hour ?? 8} * * ${v.dow ?? 1}`;
-    case 'monthly': return `${v.minute || 0} ${v.hour ?? 8} ${v.dom || 1} * *`;
-    default: return v.raw || '* * * * *';
-  }
-}
-
-function parseCronToMode(expr) {
-  if (!expr || !expr.trim()) return { mode: 'daily', values: { hour: 8, minute: 0 } };
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return { mode: 'custom', values: { raw: expr } };
-
-  const [min, hour, dom, mon, dow] = parts;
-
-  // Interval: */N * * * * or 0 */N * * *
-  if (min.startsWith('*/') && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
-    return { mode: 'interval', values: { interval: parseInt(min.slice(2)) } };
-  }
-  if (min === '0' && hour.startsWith('*/') && dom === '*' && mon === '*' && dow === '*') {
-    return { mode: 'interval', values: { interval: parseInt(hour.slice(2)) * 60 } };
-  }
-
-  // Weekly: N N * * N
-  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && /^\d+$/.test(dow)) {
-    return { mode: 'weekly', values: { hour: +hour, minute: +min, dow: +dow } };
-  }
-
-  // Monthly: N N N * *
-  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && /^\d+$/.test(dom) && mon === '*' && dow === '*') {
-    return { mode: 'monthly', values: { hour: +hour, minute: +min, dom: +dom } };
-  }
-
-  // Daily: N N * * *
-  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '*') {
-    return { mode: 'daily', values: { hour: +hour, minute: +min } };
-  }
-
-  return { mode: 'custom', values: { raw: expr } };
-}
-
-/** Build HTML for a custom dropdown (div-based, no native <select>) */
-function wfDropdown(key, options, selectedValue) {
-  const sel = options.find(o => String(o.value) === String(selectedValue)) || options[0];
-  return `<div class="wf-cdrop" data-cv="${key}">
-    <button class="wf-cdrop-btn" type="button">${escapeHtml(sel.label)}<svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <div class="wf-cdrop-list">${options.map(o =>
-      `<div class="wf-cdrop-item ${String(o.value) === String(selectedValue) ? 'active' : ''}" data-val="${o.value}">${escapeHtml(o.label)}</div>`
-    ).join('')}</div>
-  </div>`;
-}
-
-/** Bind a wfDropdown by data-cv key inside a container. Calls onChange(value) on pick. */
-function bindWfDropdown(container, key, onChange) {
-  const drop = container.querySelector(`.wf-cdrop[data-cv="${key}"]`);
-  if (!drop) return;
-  const btn = drop.querySelector('.wf-cdrop-btn');
-  const list = drop.querySelector('.wf-cdrop-list');
-
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    document.querySelectorAll('.wf-cdrop.open').forEach(d => { if (d !== drop) d.classList.remove('open'); });
-    drop.classList.toggle('open');
-    if (drop.classList.contains('open')) {
-      const active = list.querySelector('.wf-cdrop-item.active');
-      if (active) active.scrollIntoView({ block: 'nearest' });
-    }
-  });
-
-  list.querySelectorAll('.wf-cdrop-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      drop.classList.remove('open');
-      btn.firstChild.textContent = item.textContent;
-      list.querySelectorAll('.wf-cdrop-item').forEach(it => it.classList.remove('active'));
-      item.classList.add('active');
-      onChange(item.dataset.val);
-    });
-  });
-
-  // Close on outside click — auto-cleanup if element is detached from DOM
-  const close = (e) => {
-    if (!document.body.contains(drop)) { document.removeEventListener('click', close); return; }
-    if (!drop.contains(e.target)) { drop.classList.remove('open'); document.removeEventListener('click', close); }
-  };
-  document.addEventListener('click', close);
-}
-
-/** Generate option arrays for the cron dropdowns */
-function cronOpts() {
-  return {
-    hour: Array.from({ length: 24 }, (_, i) => ({ value: i, label: String(i).padStart(2, '0') })),
-    minute: [0, 15, 30, 45].map(m => ({ value: m, label: String(m).padStart(2, '0') })),
-    dow: DAYS_OF_WEEK,
-    dom: Array.from({ length: 28 }, (_, i) => ({ value: i + 1, label: `${i + 1}` })),
-    interval: INTERVAL_OPTIONS,
-  };
-}
-
-function drawCronPicker(container, draft) {
-  const parsed = parseCronToMode(draft.triggerValue);
-  let cronMode = parsed.mode;
-  let cronValues = { ...parsed.values };
-  const opts = cronOpts();
-  let _prevCloseAll = null; // Track previous document listener for cleanup
-
-  const render = () => {
-    // Clean up previous document-level listener before re-render
-    if (_prevCloseAll) {
-      document.removeEventListener('click', _prevCloseAll);
-      _prevCloseAll = null;
-    }
-    let phrase = '';
-    switch (cronMode) {
-      case 'interval':
-        phrase = `<span class="wf-cron-label">Toutes les</span>${wfDropdown('interval', opts.interval, cronValues.interval || 15)}`;
-        break;
-      case 'daily':
-        phrase = `<span class="wf-cron-label">Chaque jour à</span>${wfDropdown('hour', opts.hour, cronValues.hour ?? 8)}<span class="wf-cron-label">h</span>${wfDropdown('minute', opts.minute, cronValues.minute || 0)}`;
-        break;
-      case 'weekly':
-        phrase = `<span class="wf-cron-label">Chaque</span>${wfDropdown('dow', opts.dow, cronValues.dow ?? 1)}<span class="wf-cron-label">à</span>${wfDropdown('hour', opts.hour, cronValues.hour ?? 8)}<span class="wf-cron-label">h</span>${wfDropdown('minute', opts.minute, cronValues.minute || 0)}`;
-        break;
-      case 'monthly':
-        phrase = `<span class="wf-cron-label">Le</span>${wfDropdown('dom', opts.dom, cronValues.dom || 1)}<span class="wf-cron-label">de chaque mois à</span>${wfDropdown('hour', opts.hour, cronValues.hour ?? 8)}<span class="wf-cron-label">h</span>${wfDropdown('minute', opts.minute, cronValues.minute || 0)}`;
-        break;
-      case 'custom':
-        phrase = `<input class="wf-input wf-input--mono" id="wf-cron-raw" placeholder="0 8 * * *" value="${escapeHtml(cronValues.raw || draft.triggerValue || '')}">`;
-        break;
-    }
-
-    const cron = cronMode === 'custom' ? (cronValues.raw || draft.triggerValue || '') : buildCronFromMode(cronMode, cronValues);
-    draft.triggerValue = cron;
-
-    container.innerHTML = `
-      <div class="wf-cron-modes">
-        ${CRON_MODES.map(m => `<button class="wf-cron-mode ${cronMode === m.id ? 'active' : ''}" data-cm="${m.id}">${m.label}</button>`).join('')}
-      </div>
-      <div class="wf-cron-phrase">${phrase}</div>
-      ${cron ? `<div class="wf-cron-preview"><code>${escapeHtml(cron)}</code></div>` : ''}
-    `;
-
-    // Bind mode buttons
-    container.querySelectorAll('[data-cm]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        cronMode = btn.dataset.cm;
-        cronValues = { hour: cronValues.hour ?? 8, minute: cronValues.minute || 0, dow: cronValues.dow ?? 1, dom: cronValues.dom || 1, interval: cronValues.interval || 15 };
-        render();
-      });
-    });
-
-    // Bind custom dropdowns
-    container.querySelectorAll('.wf-cdrop').forEach(drop => {
-      const btn = drop.querySelector('.wf-cdrop-btn');
-      const list = drop.querySelector('.wf-cdrop-list');
-      const key = drop.dataset.cv;
-
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Close all other open dropdowns first
-        container.querySelectorAll('.wf-cdrop.open').forEach(d => { if (d !== drop) d.classList.remove('open'); });
-        drop.classList.toggle('open');
-        // Scroll active item into view
-        if (drop.classList.contains('open')) {
-          const activeItem = list.querySelector('.wf-cdrop-item.active');
-          if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
-        }
-      });
-
-      list.querySelectorAll('.wf-cdrop-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const val = isNaN(+item.dataset.val) ? item.dataset.val : +item.dataset.val;
-          cronValues[key] = val;
-          drop.classList.remove('open');
-          // Update button label
-          btn.firstChild.textContent = item.textContent;
-          // Mark active
-          list.querySelectorAll('.wf-cdrop-item').forEach(it => it.classList.remove('active'));
-          item.classList.add('active');
-          // Update cron
-          draft.triggerValue = buildCronFromMode(cronMode, cronValues);
-          const prev = container.querySelector('.wf-cron-preview code');
-          if (prev) prev.textContent = draft.triggerValue;
-        });
-      });
-    });
-
-    // Close dropdowns on outside click
-    const closeAll = (e) => {
-      if (!container.contains(e.target)) {
-        container.querySelectorAll('.wf-cdrop.open').forEach(d => d.classList.remove('open'));
-      }
-    };
-    _prevCloseAll = closeAll;
-    document.addEventListener('click', closeAll);
-
-    // Bind custom input
-    const rawInput = container.querySelector('#wf-cron-raw');
-    if (rawInput) {
-      rawInput.addEventListener('input', () => {
-        cronValues.raw = rawInput.value;
-        draft.triggerValue = rawInput.value;
-        const prev = container.querySelector('.wf-cron-preview code');
-        if (prev) prev.textContent = rawInput.value;
-      });
-    }
-  };
-
-  render();
-}
 
 const state = {
   workflows: [],
   runs: [],
   activeTab: 'workflows',  // 'workflows' | 'runs' | 'hub'
+  viewingRunId: null,       // track which run detail is open
 };
+
+const _agentLogs = new Map(); // stepId → [{ type, text, ts }]
+const MAX_LOG_ENTRIES = 50;
 
 function init(context) {
   ctx = context;
@@ -973,8 +94,17 @@ function registerLiveListeners() {
       run.status = status;
       run.duration = duration;
     }
-    renderContent();
+    // Clear all agent logs for this run's steps
+    for (const step of (run?.steps || [])) _agentLogs.delete(step.id);
+    // If viewing this run's detail, re-render it fully (with final outputs)
+    if (state.viewingRunId === runId) {
+      renderRunDetail(document.getElementById('wf-content'), run);
+    } else {
+      renderContent();
+    }
   });
+
+  const _stepStartTimes = new Map(); // stepId → Date.now()
 
   api.onStepUpdate(({ runId, stepId, status, output }) => {
     const run = state.runs.find(r => r.id === runId);
@@ -985,22 +115,58 @@ function registerLiveListeners() {
         if (output) step.output = output;
       }
     }
-    // Store step output for link tooltip preview
-    if (output && status === 'success') {
-      try {
-        const graphService = getGraphService();
-        if (graphService?.graph) {
-          // Find the litegraph node matching this stepId
-          for (const node of graphService.graph._nodes) {
-            if (node.properties?.stepId === stepId || `node_${node.id}` === stepId) {
-              graphService.setNodeOutput(node.id, output);
-              break;
+
+    // Track step timing
+    if (status === 'running') {
+      _stepStartTimes.set(stepId, Date.now());
+    }
+
+    // Update canvas node status for live visualization
+    try {
+      const graphService = getGraphService();
+      if (graphService) {
+        // Find the graph node matching this stepId
+        const graphNode = graphService._nodes?.find(n =>
+          n.properties?.stepId === stepId || `node_${n.id}` === stepId
+        );
+        if (graphNode) {
+          // Map runner status to canvas status
+          const canvasStatus = status === 'retrying' ? 'running' : status;
+          graphService.setNodeStatus(graphNode.id, canvasStatus);
+
+          // Store duration on completion
+          if (status === 'success' || status === 'failed' || status === 'skipped') {
+            const startTime = _stepStartTimes.get(stepId);
+            if (startTime) {
+              graphNode._runDuration = Date.now() - startTime;
+              _stepStartTimes.delete(stepId);
             }
           }
+
+          // Store error
+          if (status === 'failed' && output?.error) {
+            graphNode._runError = output.error;
+          }
+
+          // Store step output for tooltips and Last Run tab
+          if (output && status === 'success') {
+            graphService.setNodeOutput(graphNode.id, output);
+          }
         }
-      } catch (_) { /* ignore */ }
+      }
+    } catch (_) { /* ignore */ }
+
+    // Incremental update if viewing this run's detail, otherwise full re-render
+    if (state.viewingRunId === runId) {
+      _updateStepInDetail(runId, stepId, status, output);
+    } else {
+      renderContent();
     }
-    renderContent();
+
+    // Clean up agent logs when step finishes
+    if (status === 'success' || status === 'failed' || status === 'skipped') {
+      _agentLogs.delete(stepId);
+    }
   });
 
   // MCP graph edit tools signal a reload after modifying definitions.json directly
@@ -1012,14 +178,242 @@ function registerLiveListeners() {
     const graphService = getGraphService();
     if (graphService) {
       const editorEl = document.querySelector('.wf-editor');
-      const nameEl = editorEl?.querySelector('#wf-ed-name');
-      const currentName = nameEl?.value;
-      if (currentName && workflows) {
-        const updated = workflows.find(w => w.name === currentName);
+      if (workflowId && workflows) {
+        const updated = workflows.find(w => w.id === workflowId);
         if (updated) graphService.loadFromWorkflow(updated);
       }
     }
   });
+
+  // Live loop progress — update loop step output as iterations complete
+  api.onLoopProgress(({ runId, stepId, loopOutput }) => {
+    const run = state.runs.find(r => r.id === runId);
+    if (!run) return;
+    const step = run.steps?.find(s => s.id === stepId);
+    if (step) step.output = loopOutput;
+    // Update loop step in detail view without full re-render
+    if (state.viewingRunId === runId) {
+      _updateLoopStepInDetail(stepId, loopOutput, run);
+    }
+  });
+
+  // Live streaming logs for Claude/agent nodes
+  api.onAgentMessage(({ runId, stepId, message }) => {
+    if (!message) return;
+    const entries = _agentLogs.get(stepId) || [];
+
+    if (message.type === 'assistant' && message.message?.content) {
+      for (const block of message.message.content) {
+        if (block.type === 'tool_use') {
+          const detail = block.input?.file_path || block.input?.command || block.input?.pattern || '';
+          entries.push({ type: 'tool', text: detail ? `${block.name}: ${detail}` : block.name, ts: Date.now() });
+        }
+        if (block.type === 'text' && block.text) {
+          entries.push({ type: 'text', text: block.text.slice(0, 200), ts: Date.now() });
+        }
+      }
+    }
+    while (entries.length > MAX_LOG_ENTRIES) entries.shift();
+    _agentLogs.set(stepId, entries);
+    _scheduleLogUpdate(stepId);
+  });
+}
+
+/* ─── Step accordion toggle bindings ─────────────────────────────────────── */
+
+/** Bind click-to-expand/collapse for a loop's iteration accordion and child steps */
+function _bindLoopAccordion(stepEl) {
+  // Single delegated listener on stepEl covers all iter-headers and child-steps
+  if (stepEl._loopAccordionBound) return;
+  stepEl._loopAccordionBound = true;
+
+  stepEl.addEventListener('click', (e) => {
+    // Iteration header → toggle iteration steps visibility
+    const header = e.target.closest('.wf-loop-iter-header');
+    if (header && stepEl.contains(header)) {
+      e.stopPropagation();
+      const iter = header.closest('.wf-loop-iter');
+      if (!iter) return;
+      const stepsEl = iter.querySelector('.wf-loop-iter-steps');
+      if (!stepsEl) return;
+      const visible = stepsEl.style.display !== 'none';
+      stepsEl.style.display = visible ? 'none' : 'block';
+      iter.classList.toggle('expanded', !visible);
+      return;
+    }
+
+    // Child step with output → toggle output visibility
+    const childEl = e.target.closest('.wf-loop-child-step.has-output');
+    if (childEl && stepEl.contains(childEl)) {
+      e.stopPropagation();
+      const outputEl = childEl.nextElementSibling;
+      if (!outputEl || !outputEl.classList.contains('wf-loop-child-output')) return;
+      const visible = outputEl.style.display !== 'none';
+      outputEl.style.display = visible ? 'none' : 'block';
+      childEl.classList.toggle('expanded', !visible);
+    }
+  });
+}
+
+/** Bind click-to-expand/collapse for a single run step element */
+function _bindStepToggle(stepEl) {
+  if (stepEl._stepToggleBound) return;
+  stepEl._stepToggleBound = true;
+
+  const isLoop = stepEl.querySelector('.wf-loop-iterations') != null;
+
+  if (isLoop) {
+    const iterationsEl = stepEl.querySelector('.wf-loop-iterations');
+    stepEl.addEventListener('click', (e) => {
+      // Only react to clicks on the direct step header (not on nested iter-headers)
+      const header = e.target.closest('.wf-run-step-header');
+      if (!header) return;
+      if (!stepEl.contains(header)) return;
+      // Ignore if the click came from inside the iterations panel itself
+      if (iterationsEl && iterationsEl.contains(e.target)) return;
+      if (!iterationsEl) return;
+      const visible = iterationsEl.style.display !== 'none';
+      iterationsEl.style.display = visible ? 'none' : 'block';
+      stepEl.classList.toggle('expanded', !visible);
+    });
+    _bindLoopAccordion(stepEl);
+  } else {
+    const outputEl = stepEl.querySelector('.wf-run-step-output');
+    stepEl.addEventListener('click', (e) => {
+      const header = e.target.closest('.wf-run-step-header');
+      if (!header || !stepEl.contains(header)) return;
+      if (!outputEl) return;
+      const visible = outputEl.style.display !== 'none';
+      outputEl.style.display = visible ? 'none' : 'block';
+      stepEl.classList.toggle('expanded', !visible);
+    });
+  }
+}
+
+/* ─── Live loop progress updater ─────────────────────────────────────────── */
+
+function _updateLoopStepInDetail(stepId, loopOutput, run) {
+  const stepEl = document.querySelector(`.wf-run-step[data-step-id="${stepId}"]`);
+  if (!stepEl) return;
+
+  // Update iteration badge (×N done / total)
+  const done = loopOutput.done || (loopOutput.items || []).length;
+  const total = loopOutput.count || done;
+  const badge = stepEl.querySelector('.wf-loop-iter-badge');
+  if (badge) badge.textContent = `×${done}/${total}`;
+
+  // Rebuild the iterations accordion with current data
+  const totalRunDuration = (run.steps || []).reduce((s, st) => s + (st.duration || 0), 0) || 1;
+  const step = run.steps?.find(s => s.id === stepId);
+  if (!step) return;
+  step.output = loopOutput;
+
+  const existingAccordion = stepEl.querySelector('.wf-loop-iterations');
+  const newHtml = buildLoopIterationsHtml(step, totalRunDuration);
+  if (newHtml) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = newHtml;
+    const newAccordion = tmp.firstElementChild;
+    if (existingAccordion) {
+      // Preserve open/closed state of existing iterations
+      existingAccordion.querySelectorAll('.wf-loop-iter').forEach((el, i) => {
+        if (!el.classList.contains('collapsed')) {
+          newAccordion?.querySelectorAll('.wf-loop-iter')[i]?.classList.remove('collapsed');
+        }
+      });
+      existingAccordion.replaceWith(newAccordion);
+    } else {
+      stepEl.querySelector('.wf-run-step-header')?.after(newAccordion);
+    }
+    // Re-bind all accordion toggle events (header + inner iterations + child steps)
+    _bindStepToggle(stepEl);
+  }
+}
+
+/* ─── Live log throttled DOM updater ─────────────────────────────────────── */
+
+let _logTimer = null;
+const _pendingLogs = new Set();
+
+function _scheduleLogUpdate(stepId) {
+  _pendingLogs.add(stepId);
+  if (_logTimer) return;
+  _logTimer = requestAnimationFrame(() => {
+    _logTimer = null;
+    for (const sid of _pendingLogs) _updateLiveLogDOM(sid);
+    _pendingLogs.clear();
+  });
+}
+
+function _updateLiveLogDOM(stepId) {
+  const container = document.querySelector(`.wf-live-log[data-step-id="${stepId}"]`);
+  if (!container) return;
+  const entries = _agentLogs.get(stepId) || [];
+  container.innerHTML = entries.map(e =>
+    `<div class="wf-log-entry wf-log-entry--${e.type}">` +
+    (e.type === 'tool' ? `<span class="wf-log-icon">\u2699</span>` : '') +
+    `<span class="wf-log-text">${escapeHtml(e.text)}</span></div>`
+  ).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+/** Incremental update of a single step in the detail view (avoids full re-render) */
+function _updateStepInDetail(runId, stepId, status, output) {
+  const run = state.runs.find(r => r.id === runId);
+  if (!run) return;
+  const stepIdx = run.steps?.findIndex(s => s.id === stepId);
+  if (stepIdx === -1) return;
+
+  const stepEl = document.querySelector(`.wf-run-step[data-step-id="${stepId}"]`);
+  if (!stepEl) {
+    const detailCol = document.getElementById('wf-detail-col');
+    if (detailCol) renderRunDetailInCol(detailCol, run);
+    return;
+  }
+
+  // Update status class
+  stepEl.className = stepEl.className.replace(/wf-run-step--\w+/g, '');
+  stepEl.classList.add(`wf-run-step--${status}`);
+  if (status === 'failed') stepEl.classList.add('wf-run-step--error-highlight');
+
+  // Update status icon
+  const iconEl = stepEl.querySelector('.wf-run-step-status-icon');
+  if (iconEl) {
+    iconEl.textContent = status === 'success' ? '\u2713' : status === 'failed' ? '\u2717' : status === 'skipped' ? '\u2013' : '\u2026';
+  }
+
+  // Add/remove live log container
+  const existingLog = stepEl.querySelector('.wf-live-log');
+  if (status === 'running' && !existingLog) {
+    const logEl = document.createElement('div');
+    logEl.className = 'wf-live-log';
+    logEl.dataset.stepId = stepId;
+    stepEl.querySelector('.wf-run-step-header')?.after(logEl);
+  } else if (status !== 'running' && existingLog) {
+    existingLog.remove();
+  }
+
+  // Show output when step completes
+  if ((status === 'success' || status === 'failed') && output != null) {
+    let outputEl = stepEl.querySelector('.wf-run-step-output');
+    if (!outputEl) {
+      outputEl = document.createElement('div');
+      outputEl.className = 'wf-run-step-output';
+      outputEl.innerHTML = `<pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(output))}</pre>`;
+      stepEl.appendChild(outputEl);
+      // Add chevron if missing
+      if (!stepEl.querySelector('.wf-run-step-chevron')) {
+        const header = stepEl.querySelector('.wf-run-step-header');
+        header?.insertAdjacentHTML('beforeend', '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>');
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', () => {
+          const visible = outputEl.style.display !== 'none';
+          outputEl.style.display = visible ? 'none' : 'block';
+          stepEl.classList.toggle('expanded', !visible);
+        });
+      }
+    }
+  }
 }
 
 /* ─── Panel shell ──────────────────────────────────────────────────────────── */
@@ -1038,7 +432,7 @@ function renderPanel() {
           <button class="wf-tab" data-wftab="runs">
             Historique <span class="wf-badge">4</span>
           </button>
-          <button class="wf-tab" data-wftab="hub">
+          <button class="wf-tab wf-tab--hub" id="wf-tab-hub">
             <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             Hub
           </button>
@@ -1053,9 +447,15 @@ function renderPanel() {
   `;
 
   el.querySelector('#wf-btn-new').addEventListener('click', () => openEditor());
-  el.querySelectorAll('.wf-tab').forEach(tab => {
+
+  // Hub tab opens modal instead of switching content
+  el.querySelector('#wf-tab-hub').addEventListener('click', () => {
+    WorkflowMarketplace.open();
+  });
+
+  el.querySelectorAll('.wf-tab:not(.wf-tab--hub)').forEach(tab => {
     tab.addEventListener('click', () => {
-      el.querySelectorAll('.wf-tab').forEach(t => t.classList.remove('active'));
+      el.querySelectorAll('.wf-tab:not(.wf-tab--hub)').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       state.activeTab = tab.dataset.wftab;
       renderContent();
@@ -1064,6 +464,7 @@ function renderPanel() {
 }
 
 function renderContent() {
+  state.viewingRunId = null;
   const el = document.getElementById('wf-content');
   if (!el) return;
   // Update badge counts
@@ -1075,7 +476,6 @@ function renderContent() {
   }
   if (state.activeTab === 'workflows') renderWorkflowList(el);
   else if (state.activeTab === 'runs') renderRunHistory(el);
-  else if (state.activeTab === 'hub') WorkflowMarketplace.render(el);
 }
 
 /* ─── Workflow list ────────────────────────────────────────────────────────── */
@@ -1097,40 +497,71 @@ function renderWorkflowList(el) {
     return;
   }
 
-  el.innerHTML = `<div class="wf-list">${state.workflows.map(wf => cardHtml(wf)).join('')}</div>`;
+  // Sort: favorites first, then by last run date
+  const sorted = [...state.workflows].sort((a, b) => {
+    if (a.favorite && !b.favorite) return -1;
+    if (!a.favorite && b.favorite) return 1;
+    const aRun = state.runs.find(r => r.workflowId === a.id);
+    const bRun = state.runs.find(r => r.workflowId === b.id);
+    return (bRun?.startedAt || 0) - (aRun?.startedAt || 0);
+  });
+  const listDiv = document.createElement('div');
+  listDiv.className = 'wf-list';
+  listDiv.innerHTML = sorted.map(wf => cardHtml(wf)).join('');
+  el.replaceChildren(listDiv);
 
-  el.querySelectorAll('.wf-card').forEach(card => {
+  // Single delegated click handler for the whole list
+  listDiv.addEventListener('click', async (e) => {
+    const card = e.target.closest('.wf-card[data-id]');
+    if (!card) return;
     const id = card.dataset.id;
-    card.querySelector('.wf-card-body').addEventListener('click', (e) => {
-      // Don't trigger detail when clicking interactive elements
-      if (e.target.closest('.wf-card-run') || e.target.closest('.wf-card-edit') || e.target.closest('.wf-switch') || e.target.closest('.wf-card-toggle')) return;
-      openDetail(id);
-    });
-    card.querySelector('.wf-card-run')?.addEventListener('click', e => { e.stopPropagation(); triggerWorkflow(id); });
-    card.querySelector('.wf-card-edit')?.addEventListener('click', e => { e.stopPropagation(); openEditor(id); });
-    const toggle = card.querySelector('.wf-card-toggle');
-    if (toggle) {
-      toggle.addEventListener('change', e => { e.stopPropagation(); toggleWorkflow(id, e.target.checked); });
-      toggle.closest('.wf-switch')?.addEventListener('click', e => e.stopPropagation());
-    }
 
-    // Right-click context menu
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
+    if (e.target.closest('.wf-card-fav')) {
       e.stopPropagation();
       const wf = state.workflows.find(w => w.id === id);
       if (!wf) return;
-      showContextMenu({
-        x: e.clientX,
-        y: e.clientY,
-        items: [
-          { label: 'Modifier', icon: svgEdit(), onClick: () => openEditor(id) },
-          { label: 'Lancer maintenant', icon: svgPlay(12), onClick: () => triggerWorkflow(id) },
-          { label: 'Dupliquer', icon: svgCopy(), onClick: () => duplicateWorkflow(id) },
-          { separator: true },
-          { label: 'Supprimer', icon: svgTrash(), danger: true, onClick: () => confirmDeleteWorkflow(id, wf.name) },
-        ],
-      });
+      wf.favorite = !wf.favorite;
+      await api?.save({ ...wf });
+      renderContent();
+      return;
+    }
+    if (e.target.closest('.wf-card-run')) { e.stopPropagation(); triggerWorkflow(id); return; }
+    if (e.target.closest('.wf-card-stop')) {
+      e.stopPropagation();
+      const runId = e.target.closest('.wf-card-stop').dataset.runId;
+      if (runId) api?.cancel(runId);
+      return;
+    }
+    if (e.target.closest('.wf-card-edit')) { e.stopPropagation(); openEditor(id); return; }
+    if (e.target.closest('.wf-switch')) { e.stopPropagation(); return; }
+    openDetail(id);
+  });
+
+  listDiv.addEventListener('change', (e) => {
+    const toggle = e.target.closest('.wf-card-toggle');
+    if (!toggle) return;
+    e.stopPropagation();
+    const id = toggle.closest('.wf-card[data-id]')?.dataset.id;
+    if (id) toggleWorkflow(id, toggle.checked);
+  });
+
+  listDiv.addEventListener('contextmenu', (e) => {
+    const card = e.target.closest('.wf-card[data-id]');
+    if (!card) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = card.dataset.id;
+    const wf = state.workflows.find(w => w.id === id);
+    if (!wf) return;
+    showContextMenu({
+      x: e.clientX, y: e.clientY,
+      items: [
+        { label: 'Modifier', icon: svgEdit(), onClick: () => openEditor(id) },
+        { label: 'Lancer maintenant', icon: svgPlay(12), onClick: () => triggerWorkflow(id) },
+        { label: 'Dupliquer', icon: svgCopy(), onClick: () => duplicateWorkflow(id) },
+        { separator: true },
+        { label: 'Supprimer', icon: svgTrash(), danger: true, onClick: () => confirmDeleteWorkflow(id, wf.name) },
+      ],
     });
   });
 }
@@ -1147,6 +578,9 @@ function cardHtml(wf) {
       <div class="wf-card-body">
         <div class="wf-card-top">
           <div class="wf-card-title-row">
+            <button class="wf-card-fav ${wf.favorite ? 'wf-card-fav--active' : ''}" title="${wf.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}">
+              <svg width="12" height="12" viewBox="0 0 24 24" ${wf.favorite ? 'fill="currentColor"' : 'fill="none"'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
             <span class="wf-card-name">${escapeHtml(wf.name)}</span>
             ${!wf.enabled ? '<span class="wf-card-paused">PAUSED</span>' : ''}
           </div>
@@ -1178,8 +612,126 @@ function cardHtml(wf) {
             ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
           <button class="wf-card-edit" title="Modifier"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>
+          ${lastRun?.status === 'running'
+            ? `<button class="wf-card-stop" data-run-id="${lastRun.id}" title="Arrêter le run"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> <span>Stop</span></button>`
+            : `<button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>`
+          }
         </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ─── Run history helpers ──────────────────────────────────────────────────── */
+
+function buildTimelineHtml(steps) {
+  const total = steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
+  return steps
+    .filter(s => s.duration > 0 || s.status === 'running')
+    .map(s => {
+      const sType = (s.type || '').split('.')[0];
+      const pct = Math.max(1, Math.round(((s.duration || 0) / total) * 100));
+      return `<div class="wf-run-timeline-seg wf-run-timeline-seg--${sType}" style="width:${pct}%" title="${sType}"></div>`;
+    })
+    .join('');
+}
+
+function buildLoopIterationsHtml(step, totalRunDuration) {
+  const loopOutput = step.output;
+  if (!loopOutput || !Array.isArray(loopOutput.items)) return '';
+
+  const chevronSvg = `<svg class="wf-loop-iter-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+
+  const itersHtml = loopOutput.items.map((iterOutputs, idx) => {
+    const item = iterOutputs?._item;
+    let itemLabel = `Itération ${idx + 1}`;
+    if (item && typeof item === 'object') {
+      if (item.name && item.path) itemLabel = `\uD83D\uDCC1 ${escapeHtml(item.name)} \xB7 ${escapeHtml(item.path)}`;
+      else if (item.name) itemLabel = `\uD83D\uDCC1 ${escapeHtml(item.name)}`;
+      else itemLabel = `${idx + 1} \xB7 ${escapeHtml(JSON.stringify(item).slice(0, 40))}`;
+    } else if (typeof item === 'string') {
+      itemLabel = `${idx + 1} \xB7 ${escapeHtml(item.slice(0, 50))}`;
+    }
+
+    const childEntries = Object.entries(iterOutputs || {}).filter(([k]) => k !== '_item');
+    const hasFailed = childEntries.some(([, v]) => v?._status === 'failed');
+    const hasRunning = childEntries.some(([, v]) => v?._status === 'running');
+    const iterStatus = hasFailed ? 'failed' : hasRunning ? 'running' : 'success';
+    const iterStatusIcon = iterStatus === 'success' ? '\u2713' : iterStatus === 'failed' ? '\u2717' : '\u2026';
+
+    const childStepsHtml = childEntries.map(([nodeId, nodeOutput]) => {
+      const childStatus = nodeOutput?._status || 'success';
+      const childType = (nodeOutput?._type || nodeId.replace('node_', '')).split('.')[0];
+      const childInfo = findStepType(childType);
+      const childDur = nodeOutput?._duration || 0;
+      const childPct = totalRunDuration > 0 ? Math.max(1, Math.round((childDur / totalRunDuration) * 100)) : 2;
+      const hasOut = nodeOutput != null && Object.keys(nodeOutput).filter(k => !k.startsWith('_')).length > 0;
+      const childChevron = hasOut ? `<svg class="wf-loop-child-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>` : '';
+      return `
+        <div class="wf-loop-child-step wf-loop-child-step--${childStatus}${hasOut ? ' has-output' : ''}" data-node-id="${escapeHtml(nodeId)}" data-iter="${idx}">
+          <span class="wf-chip wf-chip--${childInfo.color}">${childInfo.icon}</span>
+          <span class="wf-loop-child-type">${escapeHtml(childInfo.label || childType)}</span>
+          <div class="wf-loop-child-timing"><div class="wf-loop-child-timing-bar" style="width:${childPct}%"></div></div>
+          <span class="wf-loop-child-dur">${fmtDuration(childDur)}</span>
+          <span class="wf-loop-child-status">${childStatus === 'success' ? '\u2713' : childStatus === 'failed' ? '\u2717' : childStatus === 'skipped' ? '\u2013' : '\u2026'}</span>
+          ${childChevron}
+        </div>
+        ${hasOut ? `<div class="wf-loop-child-output" style="display:none"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(nodeOutput))}</pre></div>` : ''}
+      `;
+    }).join('');
+
+    return `
+      <div class="wf-loop-iter wf-loop-iter--${iterStatus}" data-iter-idx="${idx}">
+        <div class="wf-loop-iter-header">
+          <span class="wf-loop-iter-num">${idx + 1}</span>
+          <span class="wf-loop-iter-item">${itemLabel}</span>
+          <span class="wf-loop-iter-status">${iterStatusIcon}</span>
+          ${chevronSvg}
+        </div>
+        <div class="wf-loop-iter-steps" style="display:none">${childStepsHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  return `<div class="wf-loop-iterations" style="display:none">${itersHtml}</div>`;
+}
+
+function buildRunCardHtml(run) {
+  const wf = state.workflows.find(w => w.id === run.workflowId);
+  const statusLabels = { success: '\u25CF Succ\xE8s', failed: '\u2717 \xC9chec', running: '\u27F3 En cours', cancelled: '\u2013 Annul\xE9', pending: '\u2026 En attente' };
+  const statusLabel_ = statusLabels[run.status] || run.status;
+
+  const pipelineHtml = (run.steps || []).map((s, i) => {
+    const sType = (s.type || s.name || '').split('.')[0];
+    const info = findStepType(sType);
+    const statusIcon = s.status === 'success' ? '\u2713' : s.status === 'failed' ? '\u2717' : s.status === 'skipped' ? '\u2013' : s.status === 'running' ? '\u2026' : '';
+    const isLoop = sType === 'loop';
+    const loopCount = isLoop && s.output?.count ? `<span class="wf-run-pipe-loop-count">\xD7${s.output.count}</span>` : '';
+    const connector = i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : '';
+    return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
+      <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+      <span class="wf-run-pipe-name">${escapeHtml(info.label || sType)}</span>
+      ${loopCount}
+      ${statusIcon ? `<span class="wf-run-pipe-status">${statusIcon}</span>` : ''}
+    </div>${connector}`;
+  }).join('');
+
+  const isRunning = run.status === 'running';
+  return `
+    <div class="wf-run-card wf-run-card--${run.status}" data-run-id="${run.id}">
+      <div class="wf-run-card-accent"></div>
+      <div class="wf-run-card-body">
+        <div class="wf-run-card-top">
+          <span class="wf-run-card-name">${escapeHtml(wf?.name || 'Supprim\xE9')}</span>
+          <div class="wf-run-card-top-right">
+            <span class="wf-run-card-status">${statusLabel_}</span>
+            ${isRunning ? `<button class="wf-run-stop-btn" data-run-id="${run.id}" title="Arr\xEAter le run">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            </button>` : ''}
+          </div>
+        </div>
+        <div class="wf-run-card-meta">${fmtTime(run.startedAt)} \xB7 ${fmtDuration(run.duration)} \xB7 ${escapeHtml(run.trigger)}</div>
+        <div class="wf-run-card-pipeline">${pipelineHtml}</div>
       </div>
     </div>
   `;
@@ -1188,162 +740,192 @@ function cardHtml(wf) {
 /* ─── Run history ──────────────────────────────────────────────────────────── */
 
 function renderRunHistory(el) {
-  if (!state.runs.length) {
-    el.innerHTML = `<div class="wf-empty"><p class="wf-empty-title">Aucun run</p><p class="wf-empty-sub">Les exécutions s'afficheront ici</p></div>`;
-    return;
-  }
-
-  const INITIAL_LIMIT = 15;
+  const INITIAL_LIMIT = 20;
   const showAll = el._showAllRuns || false;
   const runs = showAll ? state.runs : state.runs.slice(0, INITIAL_LIMIT);
   const hasMore = state.runs.length > INITIAL_LIMIT && !showAll;
 
-  function buildRunRow(run) {
-    const wf = state.workflows.find(w => w.id === run.workflowId);
-    return `
-      <div class="wf-run wf-run--${run.status}" data-run-id="${run.id}">
-        <div class="wf-run-bar wf-run-bar--${run.status}"></div>
-        <div class="wf-run-body">
-          <div class="wf-run-header">
-            <div class="wf-run-header-left">
-              <span class="wf-run-name">${escapeHtml(wf?.name || 'Supprimé')}</span>
-              <div class="wf-run-meta">
-                <span class="wf-run-time">${svgClock(9)} ${fmtTime(run.startedAt)}</span>
-                <span class="wf-run-duration">${svgTimer()} ${fmtDuration(run.duration)}</span>
-              </div>
-            </div>
-            <div class="wf-run-header-right">
-              <span class="wf-run-trigger-tag">${escapeHtml(run.trigger)}</span>
-              <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
-            </div>
-          </div>
-          <div class="wf-run-pipeline">
-            ${(run.steps || []).map((s, i) => {
-              const sType = (s.type || s.name || '').split('.')[0];
-              const info = findStepType(sType);
-              return `<div class="wf-run-pipe-step wf-run-pipe-step--${s.status}">
-                <span class="wf-run-pipe-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                <span class="wf-run-pipe-name">${escapeHtml(s.type || s.name || '')}</span>
-                <span class="wf-run-pipe-status">${s.status === 'success' ? '✓' : s.status === 'failed' ? '✗' : s.status === 'skipped' ? '–' : '…'}</span>
-              </div>${i < (run.steps || []).length - 1 ? '<div class="wf-run-pipe-connector"></div>' : ''}`;
-            }).join('')}
-          </div>
-        </div>
-      </div>`;
-  }
-
   el.innerHTML = `
-    <div class="wf-runs-header">
-      <span class="wf-runs-count">${state.runs.length} run${state.runs.length > 1 ? 's' : ''}</span>
-      <button class="wf-runs-clear" id="wf-clear-runs" title="Effacer l'historique">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-        Effacer
-      </button>
-    </div>
-    <div class="wf-runs">
-      ${runs.map(buildRunRow).join('')}
-      ${hasMore ? `<div class="wf-runs-show-more" id="wf-show-more-runs">Afficher ${state.runs.length - INITIAL_LIMIT} runs de plus</div>` : ''}
+    <div class="wf-history-layout">
+      <div class="wf-runs-list">
+        <div class="wf-runs-list-header">
+          <span class="wf-runs-list-count">${state.runs.length} run${state.runs.length !== 1 ? 's' : ''}</span>
+          <button class="wf-runs-clear" id="wf-clear-runs" title="Effacer l'historique">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            Effacer
+          </button>
+        </div>
+        <div class="wf-runs-list-scroll">
+          ${!state.runs.length ? `<div class="wf-empty"><p class="wf-empty-title">Aucun run</p><p class="wf-empty-sub">Les ex\xE9cutions s'afficheront ici</p></div>` : ''}
+          ${runs.map(buildRunCardHtml).join('')}
+          ${hasMore ? `<div class="wf-runs-show-more" id="wf-show-more-runs">Afficher ${state.runs.length - INITIAL_LIMIT} runs de plus</div>` : ''}
+        </div>
+      </div>
+      <div class="wf-run-detail-col" id="wf-detail-col">
+        <div class="wf-run-detail-empty">
+          <span class="wf-run-detail-empty-icon">\u27F3</span>
+          <span class="wf-run-detail-empty-text">S\xE9lectionne un run pour voir le d\xE9tail</span>
+        </div>
+      </div>
     </div>
   `;
 
-  // Clear all runs
-  const clearBtn = el.querySelector('#wf-clear-runs');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const confirmed = await showConfirm({
-        title: 'Effacer l\'historique',
-        message: `Supprimer les ${state.runs.length} runs de l'historique ? Cette action est irréversible.`,
-        confirmLabel: 'Effacer',
-        danger: true,
-      });
-      if (!confirmed) return;
-      await api?.clearAllRuns();
-      state.runs = [];
-      renderContent();
+  // Restore previously selected run detail
+  if (state.viewingRunId) {
+    const run = state.runs.find(r => r.id === state.viewingRunId);
+    if (run) {
+      const detailCol = el.querySelector('#wf-detail-col');
+      renderRunDetailInCol(detailCol, run);
+      el.querySelector(`.wf-run-card[data-run-id="${run.id}"]`)?.classList.add('wf-run-card--selected');
+    }
+  }
+
+  // Single delegated listener for run cards and stop buttons
+  const scrollEl = el.querySelector('.wf-runs-list-scroll');
+  if (scrollEl) {
+    scrollEl.addEventListener('click', async (e) => {
+      const stopBtn = e.target.closest('.wf-run-stop-btn[data-run-id]');
+      if (stopBtn) { e.stopPropagation(); await api?.cancel(stopBtn.dataset.runId); return; }
+
+      const card = e.target.closest('.wf-run-card[data-run-id]');
+      if (!card) return;
+      const run = state.runs.find(r => r.id === card.dataset.runId);
+      if (!run) return;
+      scrollEl.querySelectorAll('.wf-run-card').forEach(c => c.classList.remove('wf-run-card--selected'));
+      card.classList.add('wf-run-card--selected');
+      const detailCol = el.querySelector('#wf-detail-col');
+      if (detailCol) renderRunDetailInCol(detailCol, run);
     });
   }
 
-  // Bind click to open run detail
-  el.querySelectorAll('.wf-run[data-run-id]').forEach(runEl => {
-    runEl.addEventListener('click', () => {
-      const run = state.runs.find(r => r.id === runEl.dataset.runId);
-      if (run) renderRunDetail(el, run);
+  // Clear all runs
+  el.querySelector('#wf-clear-runs')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const confirmed = await showConfirm({
+      title: 'Effacer l\'historique',
+      message: `Supprimer les ${state.runs.length} runs de l'historique ? Cette action est irr\xE9versible.`,
+      confirmLabel: 'Effacer',
+      danger: true,
     });
+    if (!confirmed) return;
+    await api?.clearAllRuns();
+    state.runs = [];
+    state.viewingRunId = null;
+    renderContent();
   });
 
-  // Show more button
-  const showMoreBtn = el.querySelector('#wf-show-more-runs');
-  if (showMoreBtn) {
-    showMoreBtn.addEventListener('click', () => {
-      el._showAllRuns = true;
-      renderRunHistory(el);
-    });
-  }
+  // Show more
+  el.querySelector('#wf-show-more-runs')?.addEventListener('click', () => {
+    el._showAllRuns = true;
+    renderRunHistory(el);
+  });
 }
 
 /* ─── Run Detail View ──────────────────────────────────────────────────── */
 
-function renderRunDetail(el, run) {
+function renderRunDetailInCol(col, run) {
+  state.viewingRunId = run.id;
   const wf = state.workflows.find(w => w.id === run.workflowId);
   const steps = run.steps || [];
+  const totalDuration = steps.reduce((s, st) => s + (st.duration || 0), 0) || 1;
+  const chevronSvg = `<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
-  el.innerHTML = `
+  const stepsHtml = steps.map((step, i) => {
+    const sType = (step.type || step.name || '').split('.')[0];
+    const info = findStepType(sType);
+    const isLoop = sType === 'loop';
+    const hasOutput = step.output != null;
+    const isFailed = step.status === 'failed';
+    const isRunningAgent = step.status === 'running' && (sType === 'claude' || sType === 'agent');
+    const errorMsg = isFailed && step.error ? step.error : (isFailed && typeof step.output === 'string' && step.output.length < 500 ? step.output : null);
+    const pct = Math.max(2, Math.round(((step.duration || 0) / totalDuration) * 100));
+    const loopCount = isLoop && step.output?.count ? step.output.count : 0;
+    const loopBadge = isLoop && loopCount ? `<span class="wf-loop-iter-badge">\xD7${loopCount}</span>` : '';
+    const loopAccordion = isLoop ? buildLoopIterationsHtml(step, totalDuration) : '';
+    const outputSection = isLoop
+      ? loopAccordion
+      : (hasOutput ? `<div class="wf-run-step-output" style="display:${isFailed ? 'block' : 'none'}"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : '');
+    const canExpand = isLoop ? loopCount > 0 : hasOutput;
+
+    return `
+      <div class="wf-run-step wf-run-step--${step.status}${isFailed ? ' wf-run-step--error-highlight' : ''}" data-step-idx="${i}" data-step-id="${step.id}">
+        <div class="wf-run-step-header">
+          <span class="wf-run-step-num">${i + 1}</span>
+          <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
+          <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
+          <span class="wf-run-step-type">${escapeHtml(info.label || sType).toUpperCase()}</span>
+          <div class="wf-run-step-timing"><div class="wf-run-step-timing-bar" style="width:${pct}%"></div></div>
+          <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
+          ${loopBadge}
+          <span class="wf-run-step-status-icon">${step.status === 'success' ? '\u2713' : step.status === 'failed' ? '\u2717' : step.status === 'skipped' ? '\u2013' : '\u2026'}</span>
+          ${canExpand ? chevronSvg : ''}
+        </div>
+        ${isRunningAgent ? `<div class="wf-live-log" data-step-id="${step.id}"></div>` : ''}
+        ${errorMsg ? `<div class="wf-run-step-error"><span class="wf-run-step-error-label">Error</span> ${escapeHtml(errorMsg)}</div>` : ''}
+        ${outputSection}
+      </div>
+    `;
+  }).join('');
+
+  col.innerHTML = `
     <div class="wf-run-detail">
-      <div class="wf-run-detail-header">
-        <button class="wf-run-detail-back" id="wf-run-back">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <div class="wf-run-detail-info">
-          <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprimé')}</span>
-          <div class="wf-run-detail-meta">
-            ${svgClock(9)} ${fmtTime(run.startedAt)}
-            <span style="margin:0 6px;opacity:.3">·</span>
-            ${svgTimer()} ${fmtDuration(run.duration)}
-            <span style="margin:0 6px;opacity:.3">·</span>
-            <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
+      <div class="wf-run-detail-header-new">
+        <div class="wf-run-detail-title-row">
+          <span class="wf-run-detail-name">${escapeHtml(wf?.name || 'Workflow supprim\xE9')}</span>
+          <div class="wf-run-detail-actions">
+            ${run.status === 'running'
+              ? `<button class="wf-run-stop-btn wf-run-stop-btn--detail" id="wf-run-stop">
+                   <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                   Stop
+                 </button>`
+              : (wf ? `<button class="wf-run-detail-rerun" id="wf-run-rerun">${svgPlay(10)} Re-run</button>` : '')
+            }
+            <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
           </div>
         </div>
-        <span class="wf-status-pill wf-status-pill--${run.status}">${statusDot(run.status)}${statusLabel(run.status)}</span>
+        <div class="wf-run-detail-meta">
+          ${svgClock(9)} ${fmtTime(run.startedAt)}
+          <span style="margin:0 5px;opacity:.25">\xB7</span>
+          ${svgTimer()} ${fmtDuration(run.duration)}
+          <span style="margin:0 5px;opacity:.25">\xB7</span>
+          <span class="wf-run-trigger-tag" style="font-size:10px">${escapeHtml(run.trigger)}</span>
+        </div>
+        <div class="wf-run-detail-timeline">${buildTimelineHtml(steps)}</div>
       </div>
-      <div class="wf-run-detail-steps">
-        ${steps.map((step, i) => {
-          const sType = (step.type || step.name || '').split('.')[0];
-          const info = findStepType(sType);
-          const hasOutput = step.output != null;
-          return `
-            <div class="wf-run-step wf-run-step--${step.status}" data-step-idx="${i}">
-              <div class="wf-run-step-header">
-                <span class="wf-run-step-icon wf-chip wf-chip--${info.color}">${info.icon}</span>
-                <span class="wf-run-step-name">${escapeHtml(step.id || step.type || '')}</span>
-                <span class="wf-run-step-type">${escapeHtml(sType)}</span>
-                <span class="wf-run-step-dur">${fmtDuration(step.duration)}</span>
-                <span class="wf-run-step-status-icon">${step.status === 'success' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'skipped' ? '–' : '…'}</span>
-                ${hasOutput ? '<svg class="wf-run-step-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' : ''}
-              </div>
-              ${hasOutput ? `<div class="wf-run-step-output" style="display:none"><pre class="wf-run-step-pre">${escapeHtml(formatStepOutput(step.output))}</pre></div>` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
+      <div class="wf-run-detail-steps">${stepsHtml}</div>
     </div>
   `;
 
-  // Back button
-  el.querySelector('#wf-run-back').addEventListener('click', () => renderContent());
-
-  // Toggle step outputs
-  el.querySelectorAll('.wf-run-step').forEach(stepEl => {
-    const header = stepEl.querySelector('.wf-run-step-header');
-    const output = stepEl.querySelector('.wf-run-step-output');
-    if (!output) return;
-    header.style.cursor = 'pointer';
-    header.addEventListener('click', () => {
-      const visible = output.style.display !== 'none';
-      output.style.display = visible ? 'none' : 'block';
-      stepEl.classList.toggle('expanded', !visible);
-    });
+  // Re-run button
+  col.querySelector('#wf-run-rerun')?.addEventListener('click', async () => {
+    if (run.workflowId) await triggerWorkflow(run.workflowId);
   });
+
+  // Stop button (detail header)
+  col.querySelector('#wf-run-stop')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await api?.cancel(run.id);
+  });
+
+  // Toggle step outputs / loop accordion
+  col.querySelectorAll('.wf-run-step').forEach(stepEl => _bindStepToggle(stepEl));
+
+  // Populate existing live logs
+  for (const [stepId, entries] of _agentLogs) {
+    if (entries.length > 0) _updateLiveLogDOM(stepId);
+  }
+}
+
+/** Legacy alias — called by onRunEnd when viewing a run, forwards to new col-based renderer */
+function renderRunDetail(el, run) {
+  // If the 2-col layout is active, render in the detail column
+  const detailCol = document.getElementById('wf-detail-col');
+  if (detailCol) {
+    renderRunDetailInCol(detailCol, run);
+    return;
+  }
+  // Fallback: re-render full history (handles edge cases)
+  renderContent();
 }
 
 function formatStepOutput(output) {
@@ -1435,6 +1017,7 @@ function openEditor(workflowId = null) {
     scope: wf?.scope || 'current',
     concurrency: wf?.concurrency || 'skip',
     dirty: false,
+    variables: (wf?.variables || []).map(v => ({ ...v })), // abstract variable definitions
   };
 
   // ── Render editor into the panel ──
@@ -1443,6 +1026,12 @@ function openEditor(workflowId = null) {
 
   // Pre-load DB connections from disk (async, used by DB node properties)
   loadDbConnections();
+
+  // Pre-load node registry (async, used by generic field renderer)
+  nodeRegistry.loadNodeRegistry().catch(e => console.warn('[WorkflowPanel] nodeRegistry load error:', e));
+
+  // Load all custom field renderers (synchronous, idempotent)
+  fieldRegistry.loadAll();
 
   const graphService = getGraphService();
 
@@ -1483,6 +1072,13 @@ function openEditor(workflowId = null) {
             <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
             <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
           </div>
+          <div class="wf-editor-toolbar-sep"></div>
+          <button class="wf-ed-hist-btn" id="wf-ed-comment" title="Add comment zone (C)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg>
+          </button>
+          <button class="wf-ed-hist-btn" id="wf-ed-minimap" title="Toggle minimap (M)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </button>
         </div>
 
         <!-- Right: actions -->
@@ -1503,30 +1099,42 @@ function openEditor(workflowId = null) {
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-left-panel">
-          <div class="wf-editor-palette" id="wf-ed-palette">
-            ${[
-              { key: 'action', title: 'Actions' },
-              { key: 'data',   title: 'Données' },
-              { key: 'flow',   title: 'Contrôle' },
-            ].map(cat => {
-              const items = nodeTypes.filter(st => st.category === cat.key);
-              if (!items.length) return '';
-              return `<div class="wf-palette-title"><span>${cat.title}</span></div>` +
-                items.map(st => `
-                  <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="${st.desc}" draggable="true">
-                    <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
-                    <span class="wf-palette-label">${st.label}</span>
-                  </div>
-                `).join('');
-            }).join('')}
+          <div class="wf-lp-tabs">
+            <button class="wf-lp-tab active" data-lp-tab="nodes">Nodes</button>
+            <button class="wf-lp-tab" data-lp-tab="vars">Variables</button>
           </div>
-          <div class="wf-vars-panel" id="wf-vars-panel">
-            <div class="wf-vars-panel-header">
-              <span class="wf-vars-panel-title">Variables</span>
-              <button class="wf-vars-add-btn" id="wf-vars-add" title="Ajouter une variable">+</button>
+          <div class="wf-lp-content" data-lp-content="nodes">
+            <div class="wf-editor-palette" id="wf-ed-palette">
+              ${[
+                { key: 'action', title: 'Actions' },
+                { key: 'data',   title: 'Données' },
+                { key: 'flow',   title: 'Contrôle' },
+              ].map(cat => {
+                const items = nodeTypes.filter(st => st.category === cat.key);
+                if (!items.length) return '';
+                return `<div class="wf-palette-title"><span>${cat.title}</span></div>` +
+                  items.map(st => `
+                    <div class="wf-palette-item" data-node-type="workflow/${st.type}" data-color="${st.color}" title="${st.desc}" draggable="true">
+                      <span class="wf-palette-icon wf-chip wf-chip--${st.color}">${st.icon}</span>
+                      <span class="wf-palette-label">${st.label}</span>
+                    </div>
+                  `).join('');
+              }).join('')}
             </div>
-            <div class="wf-vars-list" id="wf-vars-list">
-              <div class="wf-vars-empty">Aucune variable</div>
+          </div>
+          <div class="wf-lp-content" data-lp-content="vars" style="display:none">
+            <div class="wf-vars-panel" id="wf-vars-panel">
+              <div class="wf-vars-panel-header">
+                <button class="wf-vars-add-btn" id="wf-vars-add" title="Ajouter une variable">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+              </div>
+              <div class="wf-vars-list" id="wf-vars-list">
+                <div class="wf-vars-empty">
+                  <svg class="wf-vars-empty-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                  <span class="wf-vars-empty-text">Cliquer + pour créer<br>une variable</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1571,6 +1179,18 @@ function openEditor(workflowId = null) {
   canvasEl.height = canvasWrap.offsetHeight;
 
   graphService.init(canvasEl);
+
+  // ── Left panel tab switching ──
+  panel.querySelectorAll('.wf-lp-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.lpTab;
+      panel.querySelectorAll('.wf-lp-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      panel.querySelectorAll('.wf-lp-content').forEach(c => {
+        c.style.display = c.dataset.lpContent === target ? '' : 'none';
+      });
+    });
+  });
 
   // Load or create empty
   if (wf) {
@@ -1623,6 +1243,103 @@ function openEditor(workflowId = null) {
     }
   });
   resizeObs.observe(canvasWrap);
+
+  // ── Generic field renderer (registry-driven) ──────────────────────────────
+  /**
+   * Génère le HTML des champs depuis la définition de node registry.
+   * @param {Array} fields - Tableau de définitions de champs
+   * @param {Object} props - Propriétés actuelles du node
+   * @param {Object} node - Le node LiteGraph courant
+   * @returns {string} HTML généré
+   */
+  function _renderFieldsFromDef(fields, props, node) {
+    return fields.map(field => {
+      // Gérer conditional fields (showIf déjà hydraté en fonction par NodeRegistry)
+      if (field.showIf && typeof field.showIf === 'function') {
+        if (!field.showIf(props)) return '';
+      }
+      if (field.showIf && typeof field.showIf === 'string') {
+        try {
+          // eslint-disable-next-line no-new-func
+          const fn = new Function('props', 'return (' + field.showIf + ')(props)');
+          if (!fn(props)) return '';
+        } catch { /* show anyway */ }
+      }
+
+      // Inline custom field (render/bind définis directement dans le field)
+      if (field.type === 'custom' && typeof field.render === 'function') {
+        try {
+          return field.render(field, props, node);
+        } catch (e) {
+          console.warn('[WorkflowPanel] custom field render error', field.key, e);
+          return '';
+        }
+      }
+
+      // Essayer le field renderer custom d'abord
+      const customRenderer = fieldRegistry.get(field.type);
+      if (customRenderer) {
+        return customRenderer.render(field, props[field.key] ?? '', node);
+      }
+
+      // Renderers built-in
+      const value = props[field.key] ?? (field.default ?? '');
+      const label = field.label || field.key;
+      const key = field.key;
+
+      switch (field.type) {
+        case 'text':
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            <input class="wf-step-edit-input wf-node-prop${field.mono ? ' wf-field-mono' : ''}"
+              data-key="${key}" value="${escapeHtml(String(value))}"
+              placeholder="${escapeHtml(field.placeholder || '')}" />
+          </div>`;
+
+        case 'textarea':
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            <textarea class="wf-step-edit-input wf-node-prop${field.mono ? ' wf-field-mono' : ''}"
+              data-key="${key}" rows="${field.rows || 3}"
+              placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(String(value))}</textarea>
+          </div>`;
+
+        case 'select': {
+          const options = (field.options || []).map(opt => {
+            const optVal = typeof opt === 'object' ? opt.value : opt;
+            const optLabel = typeof opt === 'object' ? opt.label : opt;
+            return `<option value="${escapeHtml(String(optVal))}" ${String(value) === String(optVal) ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
+          }).join('');
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            <select class="wf-step-edit-input wf-node-prop" data-key="${key}">${options}</select>
+          </div>`;
+        }
+
+        case 'toggle':
+          return `<div class="wf-step-edit-field" style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" class="wf-node-prop" data-key="${key}"
+              id="wf-toggle-${key}" ${value ? 'checked' : ''} style="width:auto;margin:0" />
+            <label for="wf-toggle-${key}" style="margin:0;cursor:pointer;font-size:var(--font-xs)">${escapeHtml(label)}</label>
+          </div>`;
+
+        case 'hint':
+          return `<div class="wf-step-edit-field">
+            <span class="wf-field-hint">${escapeHtml(field.text || label)}</span>
+          </div>`;
+
+        default:
+          // Type inconnu, render comme text
+          return `<div class="wf-step-edit-field">
+            <label class="wf-step-edit-label">${escapeHtml(label)}</label>
+            <input class="wf-step-edit-input wf-node-prop" data-key="${key}" value="${escapeHtml(String(value))}" />
+          </div>`;
+      }
+    }).join('');
+  }
 
   // ── Properties panel rendering ──
   const renderProperties = (node) => {
@@ -1679,569 +1396,59 @@ function openEditor(workflowId = null) {
 
     let fieldsHtml = '';
 
-    // Trigger node properties
-    if (nodeType === 'trigger') {
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgTriggerType()} Déclencheur</label>
-          <span class="wf-field-hint">Comment ce workflow démarre</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="triggerType">
-            <option value="manual" ${props.triggerType === 'manual' ? 'selected' : ''}>Manuel (bouton play)</option>
-            <option value="cron" ${props.triggerType === 'cron' ? 'selected' : ''}>Planifié (cron)</option>
-            <option value="hook" ${props.triggerType === 'hook' ? 'selected' : ''}>Hook Claude</option>
-            <option value="on_workflow" ${props.triggerType === 'on_workflow' ? 'selected' : ''}>Après un workflow</option>
-          </select>
-        </div>
-        ${props.triggerType === 'cron' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgClock()} Expression cron</label>
-          <span class="wf-field-hint">min heure jour mois jour-semaine</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="*/5 * * * *" />
-        </div>` : ''}
-        ${props.triggerType === 'hook' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgHook()} Type de hook</label>
-          <span class="wf-field-hint">Événement Claude qui déclenche le workflow</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="hookType">
-            ${HOOK_TYPES.map(h => `<option value="${h.value}" ${props.hookType === h.value ? 'selected' : ''}>${h.label} — ${h.desc}</option>`).join('')}
-          </select>
-        </div>` : ''}
-        ${props.triggerType === 'on_workflow' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgLink()} Workflow source</label>
-          <span class="wf-field-hint">Nom du workflow à surveiller</span>
-          <input class="wf-step-edit-input wf-node-prop" data-key="triggerValue" value="${escapeHtml(props.triggerValue || '')}" placeholder="deploy-production" />
-        </div>` : ''}
-      `;
-    }
-    // Claude node properties
-    else if (nodeType === 'claude') {
-      const mode = props.mode || 'prompt';
-      const agents = getAgents() || [];
-      const skills = (getSkills() || []).filter(s => s.userInvocable !== false);
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgMode()} Mode d'exécution</label>
-          <div class="wf-claude-mode-tabs">
-            <button class="wf-claude-mode-tab ${mode === 'prompt' ? 'active' : ''}" data-mode="prompt">
-              ${svgPrompt(16)}
-              <span class="wf-claude-mode-tab-label">Prompt</span>
-            </button>
-            <button class="wf-claude-mode-tab ${mode === 'agent' ? 'active' : ''}" data-mode="agent">
-              ${svgAgent()}
-              <span class="wf-claude-mode-tab-label">Agent</span>
-            </button>
-            <button class="wf-claude-mode-tab ${mode === 'skill' ? 'active' : ''}" data-mode="skill">
-              ${svgSkill(16)}
-              <span class="wf-claude-mode-tab-label">Skill</span>
-            </button>
-          </div>
-        </div>
-        ${mode === 'prompt' || !mode ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgPrompt(10)} Prompt</label>
-          <span class="wf-field-hint">Instructions envoyées à Claude</span>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="5" placeholder="Analyse ce fichier et résume les changements...">${escapeHtml(props.prompt || '')}</textarea>
-        </div>` : ''}
-        ${mode === 'agent' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgAgent(10)} Agent</label>
-          <span class="wf-field-hint">Worker autonome avec contexte isolé</span>
-          <div class="wf-agent-grid">
-            ${agents.length ? agents.map(a => `
-              <div class="wf-agent-card ${props.agentId === a.id ? 'active' : ''}" data-agent-id="${a.id}">
-                <span class="wf-agent-card-icon">${svgAgent(14)}</span>
-                <div class="wf-agent-card-text">
-                  <span class="wf-agent-card-name">${escapeHtml(a.name)}</span>
-                  ${a.description ? `<span class="wf-agent-card-desc">${escapeHtml(a.description)}</span>` : ''}
-                </div>
-                <svg class="wf-agent-card-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </div>
-            `).join('') : '<div class="wf-agent-empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Aucun agent dans ~/.claude/agents/</div>'}
-          </div>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgPrompt(10)} Instructions</label>
-          <span class="wf-field-hint">Contexte additionnel pour l'agent</span>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Focus on performance issues...">${escapeHtml(props.prompt || '')}</textarea>
-        </div>` : ''}
-        ${mode === 'skill' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgSkill(10)} Skill</label>
-          <span class="wf-field-hint">Commande spécialisée à invoquer</span>
-          <div class="wf-agent-grid">
-            ${skills.length ? skills.map(s => `
-              <div class="wf-agent-card ${props.skillId === s.id ? 'active' : ''}" data-skill-id="${s.id}">
-                <span class="wf-agent-card-icon">${svgSkill(14)}</span>
-                <div class="wf-agent-card-text">
-                  <span class="wf-agent-card-name">${escapeHtml(s.name)}</span>
-                  ${s.description ? `<span class="wf-agent-card-desc">${escapeHtml(s.description)}</span>` : ''}
-                </div>
-                <svg class="wf-agent-card-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </div>
-            `).join('') : '<div class="wf-agent-empty"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Aucun skill dans ~/.claude/skills/</div>'}
-          </div>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgPrompt(10)} Arguments</label>
-          <span class="wf-field-hint">Texte passé au skill comme argument</span>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="prompt" rows="2" placeholder="Arguments optionnels...">${escapeHtml(props.prompt || '')}</textarea>
-        </div>` : ''}
-        <div class="wf-field-row">
-          <div class="wf-step-edit-field wf-field-half">
-            <label class="wf-step-edit-label">Modèle</label>
-            <select class="wf-step-edit-input wf-node-prop" data-key="model">
-              <option value="" ${!props.model ? 'selected' : ''}>Auto</option>
-              <option value="sonnet" ${props.model === 'sonnet' ? 'selected' : ''}>Sonnet</option>
-              <option value="opus" ${props.model === 'opus' ? 'selected' : ''}>Opus</option>
-              <option value="haiku" ${props.model === 'haiku' ? 'selected' : ''}>Haiku</option>
-            </select>
-          </div>
-          <div class="wf-step-edit-field wf-field-half">
-            <label class="wf-step-edit-label">Effort</label>
-            <select class="wf-step-edit-input wf-node-prop" data-key="effort">
-              <option value="" ${!props.effort ? 'selected' : ''}>Auto</option>
-              <option value="low" ${props.effort === 'low' ? 'selected' : ''}>Low</option>
-              <option value="medium" ${props.effort === 'medium' ? 'selected' : ''}>Medium</option>
-              <option value="high" ${props.effort === 'high' ? 'selected' : ''}>High</option>
-            </select>
-          </div>
-        </div>
-      `;
-    }
-    // Shell node
-    else if (nodeType === 'shell') {
-      const allProjects = projectsState.get().projects || [];
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Exécuter dans</label>
-          <span class="wf-field-hint">Répertoire de travail de la commande</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgShell()} Commande</label>
-          <span class="wf-field-hint">Commande bash exécutée dans un terminal</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="command" rows="3" placeholder="npm run build && npm test">${escapeHtml(props.command || '')}</textarea>
-        </div>
-      `;
-    }
-    // Git node
-    else if (nodeType === 'git') {
-      const allProjects = projectsState.get().projects || [];
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Projet cible</label>
-          <span class="wf-field-hint">Dépôt git sur lequel opérer</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="" ${!props.projectId ? 'selected' : ''}>Projet courant (contexte workflow)</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgGit()} Action</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            ${GIT_ACTIONS.map(a => `<option value="${a.value}" ${props.action === a.value ? 'selected' : ''}>${a.label} — ${a.desc}</option>`).join('')}
-          </select>
-        </div>
-        ${props.action === 'commit' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgEdit()} Message de commit</label>
-          <span class="wf-field-hint">Convention: type(scope): description</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="message" value="${escapeHtml(props.message || '')}" placeholder="feat(auth): add password reset" />
-        </div>` : ''}
-        ${props.action === 'checkout' || props.action === 'merge' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgBranch()} Branche</label>
-          <span class="wf-field-hint">Nom de la branche git</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="branch" value="${escapeHtml(props.branch || '')}" placeholder="feature/my-branch" />
-        </div>` : ''}
-      `;
-    }
-    // HTTP node
-    else if (nodeType === 'http') {
-      fieldsHtml = `
-        <div class="wf-field-row">
-          <div class="wf-step-edit-field" style="width:100px;flex-shrink:0">
-            <label class="wf-step-edit-label">Méthode</label>
-            <select class="wf-step-edit-input wf-node-prop" data-key="method">
-              ${['GET','POST','PUT','PATCH','DELETE'].map(m => `<option value="${m}" ${props.method === m ? 'selected' : ''}>${m}</option>`).join('')}
-            </select>
-          </div>
-          <div class="wf-step-edit-field" style="flex:1">
-            <label class="wf-step-edit-label">URL</label>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="url" value="${escapeHtml(props.url || '')}" placeholder="https://api.example.com/v1/users" />
-          </div>
-        </div>
-        ${['POST','PUT','PATCH'].includes(props.method) ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCode()} Headers</label>
-          <span class="wf-field-hint">Objet JSON des en-têtes HTTP</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="headers" rows="2" placeholder='{"Authorization": "Bearer $token"}'>${escapeHtml(props.headers || '')}</textarea>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCode()} Body</label>
-          <span class="wf-field-hint">Corps de la requête (JSON)</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="body" rows="3" placeholder='{"name": "John", "email": "john@example.com"}'>${escapeHtml(props.body || '')}</textarea>
-        </div>` : ''}
-      `;
-    }
-    // Notify node
-    else if (nodeType === 'notify') {
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgNotify()} Titre</label>
-          <input class="wf-step-edit-input wf-node-prop" data-key="title" value="${escapeHtml(props.title || '')}" placeholder="Build terminé" />
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgEdit()} Message</label>
-          <span class="wf-field-hint">Variables : $ctx.project, $ctx.branch, $node_X.output</span>
-          <textarea class="wf-step-edit-input wf-node-prop" data-key="message" rows="3" placeholder="Le build de $ctx.project est terminé avec succès.">${escapeHtml(props.message || '')}</textarea>
-        </div>
-      `;
-    }
-    // Wait node
-    else if (nodeType === 'wait') {
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgWait()} Durée</label>
-          <span class="wf-field-hint">Formats: 5s, 2m, 1h, 500ms</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="duration" value="${escapeHtml(props.duration || '5s')}" placeholder="5s" />
-        </div>
-      `;
-    }
-    // Condition node
-    else if (nodeType === 'condition') {
-      const condMode = props._condMode || 'builder';
-      const currentOp = props.operator || '==';
-      const isUnary = currentOp === 'is_empty' || currentOp === 'is_not_empty';
-      const compareOps = CONDITION_OPS.filter(o => o.group === 'compare');
-      const textOps = CONDITION_OPS.filter(o => o.group === 'text');
-      const unaryOps = CONDITION_OPS.filter(o => o.group === 'unary');
-      fieldsHtml = `
-        <div class="wf-cond-mode-toggle">
-          <button class="wf-cond-mode-btn ${condMode === 'builder' ? 'active' : ''}" data-cond-mode="builder">Builder</button>
-          <button class="wf-cond-mode-btn ${condMode === 'expression' ? 'active' : ''}" data-cond-mode="expression">Expression</button>
-        </div>
-        <div class="wf-cond-builder" ${condMode === 'expression' ? 'style="display:none"' : ''}>
-          <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${svgVariable()} Variable</label>
-            <span class="wf-field-hint">$variable ou valeur libre — Autocomplete avec $</span>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="variable" value="${escapeHtml(props.variable || '')}" placeholder="$ctx.branch" />
-          </div>
-          <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">Opérateur</label>
-            <div class="wf-cond-ops">
-              <div class="wf-cond-ops-group">
-                ${compareOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.value}</button>`).join('')}
-              </div>
-              <div class="wf-cond-ops-group">
-                ${textOps.map(o => `<button class="wf-cond-op-btn ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.label}</button>`).join('')}
-              </div>
-              <div class="wf-cond-ops-group">
-                ${unaryOps.map(o => `<button class="wf-cond-op-btn wf-cond-op-unary ${currentOp === o.value ? 'active' : ''}" data-op="${o.value}" title="${o.label}">${o.label}</button>`).join('')}
-              </div>
-            </div>
-          </div>
-          <div class="wf-step-edit-field wf-cond-value-field" ${isUnary ? 'style="display:none"' : ''}>
-            <label class="wf-step-edit-label">Valeur</label>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="main" />
-          </div>
-          <div class="wf-cond-preview">
-            <code class="wf-cond-preview-code">${escapeHtml(buildConditionPreview(props.variable, currentOp, props.value, isUnary))}</code>
-          </div>
-        </div>
-        <div class="wf-cond-expression" ${condMode === 'builder' ? 'style="display:none"' : ''}>
-          <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${svgVariable()} Expression</label>
-            <span class="wf-field-hint">Expression libre — ex: $node_1.rows.length > 0</span>
-            <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-cond-expr-input" data-key="expression" rows="2" placeholder="$node_1.exitCode == 0">${escapeHtml(props.expression || '')}</textarea>
-          </div>
-        </div>
-      `;
-    }
-    // Project node
-    else if (nodeType === 'project') {
-      const allProjects = projectsState.get().projects || [];
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgProject()} Projet</label>
-          <span class="wf-field-hint">Projet cible de cette opération</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="projectId">
-            <option value="">-- Choisir un projet --</option>
-            ${allProjects.map(p => `<option value="${p.id}" ${props.projectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCond()} Action</label>
-          <span class="wf-field-hint">Opération à effectuer sur le projet</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            <option value="set_context" ${props.action === 'set_context' ? 'selected' : ''}>Définir comme contexte actif</option>
-            <option value="open" ${props.action === 'open' ? 'selected' : ''}>Ouvrir dans l'éditeur</option>
-            <option value="build" ${props.action === 'build' ? 'selected' : ''}>Lancer le build</option>
-            <option value="install" ${props.action === 'install' ? 'selected' : ''}>Installer les dépendances</option>
-            <option value="test" ${props.action === 'test' ? 'selected' : ''}>Exécuter les tests</option>
-          </select>
-        </div>
-      `;
-    }
-    // File node
-    else if (nodeType === 'file') {
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCond()} Action</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            <option value="read" ${props.action === 'read' ? 'selected' : ''}>Lire le fichier</option>
-            <option value="write" ${props.action === 'write' ? 'selected' : ''}>Écrire (remplacer)</option>
-            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la fin</option>
-            <option value="copy" ${props.action === 'copy' ? 'selected' : ''}>Copier</option>
-            <option value="delete" ${props.action === 'delete' ? 'selected' : ''}>Supprimer</option>
-            <option value="exists" ${props.action === 'exists' ? 'selected' : ''}>Vérifier existence</option>
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgFile()} Chemin</label>
-          <span class="wf-field-hint">Chemin relatif ou absolu du fichier</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="path" value="${escapeHtml(props.path || '')}" placeholder="./src/index.js" />
-        </div>
-        ${props.action === 'copy' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgFile()} Destination</label>
-          <span class="wf-field-hint">Chemin cible pour la copie</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="destination" value="${escapeHtml(props.destination || '')}" placeholder="./backup/index.js.bak" />
-        </div>` : ''}
-        ${props.action === 'write' || props.action === 'append' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCode()} Contenu</label>
-          <span class="wf-field-hint">Texte ou données à écrire dans le fichier</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="content" rows="4" placeholder="console.log('Hello world');">${escapeHtml(props.content || '')}</textarea>
-        </div>` : ''}
-      `;
-    }
-    // DB node
-    else if (nodeType === 'db') {
-      const dbConns = _dbConnectionsCache || [];
-      const dbAction = props.action || 'query';
-      const selectedConn = dbConns.find(c => c.id === props.connection);
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgDb()} Connexion</label>
-          <span class="wf-field-hint">Base de données configurée dans l'app</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="connection">
-            <option value="">-- Choisir une connexion --</option>
-            ${dbConns.map(c => `<option value="${c.id}" ${props.connection === c.id ? 'selected' : ''}>${escapeHtml(c.name)} (${c.type || 'sql'})</option>`).join('')}
-          </select>
-          ${!dbConns.length ? '<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">Aucune connexion — onglet Database</span>' : ''}
-          ${selectedConn ? `<span class="wf-field-hint" style="color:rgba(251,191,36,.5)">${selectedConn.type || 'sql'}${selectedConn.host ? ' — ' + escapeHtml(selectedConn.host) : ''}${selectedConn.database ? '/' + escapeHtml(selectedConn.database) : ''}</span>` : ''}
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCond()} Action</label>
-          <span class="wf-field-hint">Type d'opération sur la base</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            <option value="query" ${dbAction === 'query' ? 'selected' : ''}>Query — Exécuter une requête SQL</option>
-            <option value="schema" ${dbAction === 'schema' ? 'selected' : ''}>Schema — Lister les tables et colonnes</option>
-            <option value="tables" ${dbAction === 'tables' ? 'selected' : ''}>Tables — Lister les noms de tables</option>
-          </select>
-        </div>
-        ${dbAction === 'query' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCode()} Requête SQL</label>
-          <div class="wf-sql-templates">
-            <button class="wf-sql-tpl" data-tpl="select">SELECT</button>
-            <button class="wf-sql-tpl" data-tpl="insert">INSERT</button>
-            <button class="wf-sql-tpl" data-tpl="update">UPDATE</button>
-            <button class="wf-sql-tpl" data-tpl="delete">DELETE</button>
-          </div>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-sql-textarea" data-key="query" rows="5" placeholder="SELECT * FROM users WHERE active = 1" spellcheck="false">${escapeHtml(props.query || '')}</textarea>
-          <span class="wf-field-hint">Autocomplete : tables et colonnes en tapant. Variables : $ctx, $node_X, $loop</span>
-        </div>
-        <div class="wf-field-row">
-          <div class="wf-step-edit-field wf-field-half">
-            <label class="wf-step-edit-label">${svgCond()} Limite</label>
-            <span class="wf-field-hint">Max de lignes retournées</span>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="limit" type="number" min="1" max="10000" value="${escapeHtml(String(props.limit || 100))}" placeholder="100" />
-          </div>
-          <div class="wf-step-edit-field wf-field-half">
-            <label class="wf-step-edit-label">${svgVariable()} Variable de sortie</label>
-            <span class="wf-field-hint">Nom pour accéder au résultat</span>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar" value="${escapeHtml(props.outputVar || '')}" placeholder="dbResult" />
-          </div>
-        </div>` : ''}
-        <div class="wf-db-output-hint">
-          <div class="wf-db-output-title">${svgTriggerType()} Sortie disponible ${props.outputVar ? `<code style="margin-left:4px;font-size:10px">$${escapeHtml(props.outputVar)}</code>` : ''}</div>
-          ${dbAction === 'query' ? `
-          <div class="wf-db-output-items">
-            <code>$node_${node.id}.rows</code> <span>tableau des résultats</span>
-            <code>$node_${node.id}.columns</code> <span>noms des colonnes</span>
-            <code>$node_${node.id}.rowCount</code> <span>nombre de lignes</span>
-            <code>$node_${node.id}.duration</code> <span>temps d'exécution (ms)</span>
-            <code>$node_${node.id}.firstRow</code> <span>première ligne (objet)</span>
-          </div>` : dbAction === 'schema' ? `
-          <div class="wf-db-output-items">
-            <code>$node_${node.id}.tables</code> <span>liste des tables avec colonnes</span>
-            <code>$node_${node.id}.tableCount</code> <span>nombre de tables</span>
-          </div>` : `
-          <div class="wf-db-output-items">
-            <code>$node_${node.id}.tables</code> <span>liste des noms de tables</span>
-            <code>$node_${node.id}.tableCount</code> <span>nombre de tables</span>
-          </div>`}
-        </div>
-      `;
-    }
-    // Loop node
-    else if (nodeType === 'loop') {
-      // Detect upstream source for preview
-      const loopPreview = getLoopPreview(node, graphService);
-      const loopMode = props.mode || 'sequential';
-
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgLoop()} Source d'itération</label>
-          <span class="wf-field-hint">D'où viennent les items à parcourir</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="source">
-            <option value="auto" ${(!props.source || props.source === 'auto' || props.source === 'previous_output') ? 'selected' : ''}>Automatique (depuis node connecté)</option>
-            <option value="projects" ${props.source === 'projects' ? 'selected' : ''}>Tous les projets enregistrés</option>
-            <option value="files" ${props.source === 'files' ? 'selected' : ''}>Fichiers (pattern glob)</option>
-            <option value="custom" ${props.source === 'custom' ? 'selected' : ''}>Liste personnalisée</option>
-          </select>
-        </div>
-        ${props.source === 'files' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgFile()} Pattern glob</label>
-          <span class="wf-field-hint">Expression pour trouver les fichiers</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" value="${escapeHtml(props.filter || '')}" placeholder="src/**/*.test.js" />
-        </div>` : ''}
-        ${props.source === 'custom' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCode()} Items</label>
-          <span class="wf-field-hint">Un item par ligne, ou variable $node_X.rows</span>
-          <textarea class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="filter" rows="4" placeholder="api-service\nweb-app\nworker">${escapeHtml(props.filter || '')}</textarea>
-        </div>` : ''}
-        ${loopPreview.html}
-        <div class="wf-loop-options">
-          <div class="wf-loop-opt">
-            <span class="wf-loop-opt-label">Mode</span>
-            <div class="wf-loop-mode-tabs">
-              <button class="wf-loop-mode-tab ${loopMode === 'sequential' ? 'active' : ''}" data-mode="sequential" title="Un par un dans l'ordre">Séq.</button>
-              <button class="wf-loop-mode-tab ${loopMode === 'parallel' ? 'active' : ''}" data-mode="parallel" title="Tous en parallèle">Par.</button>
-            </div>
-          </div>
-          <div class="wf-loop-opt">
-            <span class="wf-loop-opt-label">Limite</span>
-            <input class="wf-step-edit-input wf-node-prop wf-field-mono wf-loop-max-input" data-key="maxIterations" type="number" min="1" max="10000" value="${escapeHtml(String(props.maxIterations || ''))}" placeholder="∞" />
-          </div>
-        </div>
-        <div class="wf-loop-usage-hint">
-          <div class="wf-loop-usage-title">${svgTriggerType()} Variables dans Each</div>
-          <div class="wf-loop-usage-items">
-            <code>$item</code> <span>${escapeHtml(loopPreview.itemDesc)}</span>
-            <code>$loop.index</code> <span>Index courant (0, 1, 2…)</span>
-            <code>$loop.total</code> <span>Nombre total d'items</span>
-          </div>
-          <div class="wf-loop-usage-tip">Connectez un node au port <strong>Each</strong> pour traiter chaque item</div>
-        </div>
-      `;
-    }
-    // Variable node (Set/Get/Increment/Append)
-    else if (nodeType === 'variable') {
-      const VAR_TYPE_OPTIONS = ['string', 'number', 'boolean', 'array', 'object', 'any'];
-      const varType = props.varType || 'any';
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCond()} Action</label>
-          <select class="wf-step-edit-input wf-node-prop" data-key="action">
-            <option value="set" ${props.action === 'set' ? 'selected' : ''}>Définir une valeur</option>
-            <option value="get" ${props.action === 'get' ? 'selected' : ''}>Lire la valeur</option>
-            <option value="increment" ${props.action === 'increment' ? 'selected' : ''}>Incrémenter (+n)</option>
-            <option value="append" ${props.action === 'append' ? 'selected' : ''}>Ajouter à la liste</option>
-          </select>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgVariable()} Nom</label>
-          <span class="wf-field-hint">Identifiant unique de la variable</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="name" value="${escapeHtml(props.name || '')}" placeholder="buildCount" />
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCond()} Type</label>
-          <span class="wf-field-hint">Type de la variable (pour les connexions data pins)</span>
-          <select class="wf-step-edit-input wf-node-prop" data-key="varType">
-            ${VAR_TYPE_OPTIONS.map(t => `<option value="${t}" ${varType === t ? 'selected' : ''}>${t}</option>`).join('')}
-          </select>
-        </div>
-        ${props.action !== 'get' ? `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgEdit()} Valeur</label>
-          <span class="wf-field-hint">${props.action === 'increment' ? 'Incrément (nombre)' : 'Valeur à assigner'}</span>
-          <input class="wf-step-edit-input wf-node-prop ${props.action === 'increment' ? 'wf-field-mono' : ''}" data-key="value" value="${escapeHtml(props.value || '')}" placeholder="${props.action === 'increment' ? '1' : 'production'}" ${props.action === 'increment' ? 'type="number"' : ''} />
-        </div>` : ''}
-      `;
-    }
-    // Get Variable node (pure — no exec)
-    else if (nodeType === 'get_variable') {
-      const VAR_TYPE_OPTIONS = ['string', 'number', 'boolean', 'array', 'object', 'any'];
-      const varType = props.varType || 'any';
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgVariable()} Variable</label>
-          <span class="wf-field-hint">Nom de la variable à lire</span>
-          <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="name" value="${escapeHtml(props.name || '')}" placeholder="buildCount" />
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgCond()} Type du pin</label>
-          <span class="wf-field-hint">Détermine la couleur et la compatibilité du pin de sortie</span>
-          <div class="wf-var-type-picker" id="wf-getvar-type-picker">
-            ${VAR_TYPE_OPTIONS.map(t => {
-              const color = { string:'#c8c8c8', number:'#60a5fa', boolean:'#4ade80', array:'#fb923c', object:'#a78bfa', any:'#6b7280' }[t] || '#6b7280';
-              return `<button class="wf-var-type-btn ${varType === t ? 'active' : ''}" data-type="${t}" style="--btn-color:${color}">${t}</button>`;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    }
-    // Log node
-    else if (nodeType === 'log') {
-      const logLevel = props.level || 'info';
-      const LOG_LEVELS = [
-        { value: 'debug', label: 'Debug',   icon: '🔍', color: 'var(--text-muted)' },
-        { value: 'info',  label: 'Info',    icon: 'ℹ',  color: '#60a5fa' },
-        { value: 'warn',  label: 'Warn',    icon: '⚠',  color: '#fbbf24' },
-        { value: 'error', label: 'Error',   icon: '✕',  color: '#f87171' },
-      ];
-      const LOG_TEMPLATES = [
-        { label: 'Status',   value: '[$ctx.project] Step $loop.index completed' },
-        { label: 'Result',   value: 'Output: $node_1.stdout' },
-        { label: 'Timing',   value: 'Done at $ctx.date' },
-      ];
-      fieldsHtml = `
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgLog()} Niveau</label>
-          <div class="wf-log-level-tabs">
-            ${LOG_LEVELS.map(l => `
-              <button class="wf-log-level-tab ${logLevel === l.value ? 'active' : ''}" data-level="${l.value}" style="${logLevel === l.value ? `--tab-color:${l.color}` : ''}">
-                <span class="wf-log-level-icon">${l.icon}</span>
-                ${l.label}
-              </button>
-            `).join('')}
-          </div>
-        </div>
-        <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgEdit()} Message</label>
-          <div class="wf-log-tpl-bar">
-            ${LOG_TEMPLATES.map(t => `<button class="wf-log-tpl" data-tpl="${escapeHtml(t.value)}" title="${escapeHtml(t.value)}">${t.label}</button>`).join('')}
-          </div>
-          <textarea class="wf-step-edit-input wf-node-prop wf-log-textarea" data-key="message" rows="3" placeholder="Build finished for $ctx.project">${escapeHtml(props.message || '')}</textarea>
-          <div class="wf-log-preview" data-level="${logLevel}">
-            <span class="wf-log-preview-badge">${LOG_LEVELS.find(l => l.value === logLevel)?.icon || 'ℹ'}</span>
-            <span class="wf-log-preview-text">${escapeHtml(props.message || 'Aperçu du message...')}</span>
-          </div>
-        </div>
-      `;
+    // ── Moteur générique (registry-driven) ──────────────────────────────────
+    const nodeDef = nodeRegistry.get(node.type);
+    if (nodeDef && nodeDef.fields && nodeDef.fields.length > 0) {
+      fieldsHtml = _renderFieldsFromDef(nodeDef.fields, props, node);
     }
 
     const customTitle = node.properties._customTitle || '';
     const nodeStepId = `node_${node.id}`;
+
+    // Check for last run data
+    const runOutput = graphService?.getNodeOutput?.(node.id);
+    const hasRunData = runOutput != null || node._runStatus;
+    const activeTab = propsEl._activeTab || 'properties';
+
+    // Build Last Run tab HTML
+    let lastRunHtml = '';
+    if (hasRunData && activeTab === 'lastrun') {
+      const status = node._runStatus || 'unknown';
+      const statusCol = { success:'#22c55e', failed:'#ef4444', running:'#f59e0b', skipped:'#6b7280' }[status] || '#888';
+      const duration = node._runDuration != null ? `${node._runDuration}ms` : '-';
+      const error = node._runError || '';
+
+      let outputsHtml = '';
+      if (runOutput && typeof runOutput === 'object') {
+        const entries = Object.entries(runOutput);
+        outputsHtml = entries.map(([k, v]) => {
+          let display, typeLabel;
+          if (v === null || v === undefined) { display = 'null'; typeLabel = 'null'; }
+          else if (typeof v === 'string') { display = v.length > 200 ? escapeHtml(v.slice(0, 197)) + '...' : escapeHtml(v); typeLabel = 'string'; }
+          else if (typeof v === 'number') { display = String(v); typeLabel = 'number'; }
+          else if (typeof v === 'boolean') { display = String(v); typeLabel = 'boolean'; }
+          else if (Array.isArray(v)) { display = `Array[${v.length}]`; typeLabel = 'array'; }
+          else { display = JSON.stringify(v, null, 2); if (display.length > 200) display = display.slice(0, 197) + '...'; display = escapeHtml(display); typeLabel = 'object'; }
+          const typeColor = { string:'#c8c8c8', number:'#60a5fa', boolean:'#4ade80', array:'#fb923c', object:'#a78bfa', null:'#6b7280' }[typeLabel] || '#888';
+          return `<div class="wf-lastrun-entry">
+            <div class="wf-lastrun-key"><code>${escapeHtml(k)}</code><span class="wf-lastrun-type" style="color:${typeColor}">${typeLabel}</span></div>
+            <pre class="wf-lastrun-value">${display}</pre>
+          </div>`;
+        }).join('');
+      }
+
+      lastRunHtml = `
+        <div class="wf-lastrun-content">
+          <div class="wf-lastrun-status-row">
+            <span class="wf-lastrun-status-dot" style="background:${statusCol}"></span>
+            <span class="wf-lastrun-status-label" style="color:${statusCol}">${status}</span>
+            <span class="wf-lastrun-duration">${duration}</span>
+          </div>
+          ${error ? `<div class="wf-lastrun-error"><span class="wf-lastrun-error-label">Erreur</span><pre class="wf-lastrun-error-msg">${escapeHtml(error)}</pre></div>` : ''}
+          ${outputsHtml ? `<div class="wf-lastrun-section"><div class="wf-lastrun-section-title">Outputs</div>${outputsHtml}</div>` : '<div class="wf-lastrun-empty">Aucune donnée de sortie</div>'}
+        </div>`;
+    }
+
     propsEl.innerHTML = `
       <div class="wf-props-section" data-node-color="${typeInfo.color}">
         <div class="wf-props-header">
@@ -2252,6 +1459,12 @@ function openEditor(workflowId = null) {
           </div>
           <span class="wf-props-badge wf-props-badge--${typeInfo.color}">${nodeType.toUpperCase()}</span>
         </div>
+        ${hasRunData ? `
+        <div class="wf-props-tabs">
+          <button class="wf-props-tab ${activeTab === 'properties' ? 'active' : ''}" data-tab="properties">Properties</button>
+          <button class="wf-props-tab ${activeTab === 'lastrun' ? 'active' : ''}" data-tab="lastrun">Last Run</button>
+        </div>` : ''}
+        ${activeTab === 'lastrun' ? lastRunHtml : `
         ${nodeType !== 'trigger' ? `<div class="wf-node-id-badge"><code>$${nodeStepId}</code> <span>ID de ce node pour les variables</span></div>` : ''}
         ${nodeType !== 'trigger' ? `
         <div class="wf-step-edit-field">
@@ -2265,18 +1478,53 @@ function openEditor(workflowId = null) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           Supprimer ce node
         </button>` : ''}
+        `}
       </div>
     `;
 
+    // ── Bind tab switching ──
+    propsEl.querySelectorAll('.wf-props-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        propsEl._activeTab = tab.dataset.tab;
+        renderProperties(node);
+      });
+    });
+
     // Upgrade native selects to custom dropdowns
     upgradeSelectsToDropdowns(propsEl);
+
+    // ── Bind custom field renderers ──────────────────────────────────────────
+    if (nodeDef && nodeDef.fields) {
+      const onChange = (key, newValue) => {
+        node.properties[key] = newValue;
+        editorDraft.dirty = true;
+        graphService.canvas?.setDirty?.(true, true);
+      };
+      nodeDef.fields.forEach(field => {
+        // Inline custom field — bind directement depuis le field
+        if (field.type === 'custom' && typeof field.bind === 'function') {
+          try {
+            field.bind(propsEl, field, node, (newValue) => onChange(field.key, newValue));
+          } catch (e) {
+            console.warn('[WorkflowPanel] custom field bind error', field.key, e);
+          }
+          return;
+        }
+        const customRenderer = fieldRegistry.get(field.type);
+        if (!customRenderer?.bind) return;
+        const container = propsEl.querySelector(`[data-key="${field.key}"]`)?.closest('.wf-field-group');
+        if (!container) return;
+        customRenderer.bind(container, field, node, (newValue) => onChange(field.key, newValue));
+      });
+    }
 
     // ── Bind property inputs ──
     let _propSnapshotTimer = null;
     propsEl.querySelectorAll('.wf-node-prop').forEach(input => {
       const handler = () => {
         const key = input.dataset.key;
-        const val = input.value;
+        // Support toggle (checkbox) fields from the generic renderer
+        const val = input.type === 'checkbox' ? input.checked : input.value;
         node.properties[key] = val;
         editorDraft.dirty = true;
         // Update widget display in node
@@ -2290,17 +1538,25 @@ function openEditor(workflowId = null) {
           schemaCache.invalidate(val);
         }
         // Re-render properties if field affects visibility (trigger type, method, action, mode, connection)
-        if (['triggerType', 'method', 'action', 'mode', 'connection'].includes(key)) {
+        if (['triggerType', 'method', 'action', 'mode', 'connection', 'projectId'].includes(key)) {
           renderProperties(node);
+        }
+        // Rebuild Variable pins when action changes (adaptive Get/Set like Unreal)
+        if (key === 'action' && node.type === 'workflow/variable') {
+          // Sync the widget combo
+          const aw = node.widgets?.find(w => w.key === 'action');
+          if (aw) aw.value = val;
+          graphService._rebuildVariablePins(node);
+        }
+        // Rebuild Time outputs when action changes
+        if (key === 'action' && node.type === 'workflow/time') {
+          const aw = node.widgets?.find(w => w.key === 'action');
+          if (aw) aw.value = val;
+          graphService._rebuildTimeOutputs(node);
         }
         // Refresh pin type on get_variable when varType changes
         if (key === 'varType' && node._updatePinType) {
           node._updatePinType();
-          updateVarsPanel();
-        }
-        // Refresh vars panel when variable name/type changes
-        if (['name', 'varType', 'action'].includes(key) && ['variable', 'get_variable'].includes(nodeType)) {
-          updateVarsPanel();
         }
         // Debounced snapshot so rapid typing doesn't flood the history
         clearTimeout(_propSnapshotTimer);
@@ -2311,172 +1567,11 @@ function openEditor(workflowId = null) {
     });
 
     // ── Autocomplete for $variable references ──
-    setupAutocomplete(propsEl, node, graphService);
+    setupAutocomplete(propsEl, node, graphService, schemaCache);
 
     // ── Initialize Smart SQL for DB nodes ──
     if (nodeType === 'db') {
-      initSmartSQL(propsEl, node, graphService).catch(e => console.warn('[SmartSQL] init error:', e));
-    }
-
-    // Claude mode tabs
-    propsEl.querySelectorAll('.wf-claude-mode-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        node.properties.mode = tab.dataset.mode;
-        // Update widget
-        if (node.widgets) {
-          const w = node.widgets.find(w => w.name === 'Mode');
-          if (w) w.value = tab.dataset.mode;
-        }
-        editorDraft.dirty = true;
-        graphService.canvas.setDirty(true, true);
-        renderProperties(node);
-      });
-    });
-
-    // Agent card selection
-    propsEl.querySelectorAll('.wf-agent-card[data-agent-id]').forEach(card => {
-      card.addEventListener('click', () => {
-        node.properties.agentId = card.dataset.agentId;
-        editorDraft.dirty = true;
-        propsEl.querySelectorAll('.wf-agent-card[data-agent-id]').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-      });
-    });
-
-    // Skill card selection
-    propsEl.querySelectorAll('.wf-agent-card[data-skill-id]').forEach(card => {
-      card.addEventListener('click', () => {
-        node.properties.skillId = card.dataset.skillId;
-        editorDraft.dirty = true;
-        propsEl.querySelectorAll('.wf-agent-card[data-skill-id]').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-      });
-    });
-
-    // Get Variable type picker buttons
-    propsEl.querySelectorAll('.wf-var-type-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.type;
-        node.properties.varType = t;
-        editorDraft.dirty = true;
-        if (node._updatePinType) node._updatePinType();
-        updateVarsPanel();
-        // Update active state visually
-        propsEl.querySelectorAll('.wf-var-type-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      });
-    });
-
-    // Loop mode tabs (sequential/parallel)
-    propsEl.querySelectorAll('.wf-loop-mode-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        node.properties.mode = tab.dataset.mode;
-        editorDraft.dirty = true;
-        graphService.canvas.setDirty(true, true);
-        renderProperties(node);
-      });
-    });
-
-    // Log level tabs
-    propsEl.querySelectorAll('.wf-log-level-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        node.properties.level = tab.dataset.level;
-        editorDraft.dirty = true;
-        graphService.canvas.setDirty(true, true);
-        renderProperties(node);
-      });
-    });
-
-    // Log template buttons
-    propsEl.querySelectorAll('.wf-log-tpl').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const textarea = propsEl.querySelector('.wf-log-textarea');
-        if (textarea) {
-          const start = textarea.selectionStart || textarea.value.length;
-          const before = textarea.value.substring(0, start);
-          const after = textarea.value.substring(textarea.selectionEnd || start);
-          textarea.value = before + btn.dataset.tpl + after;
-          node.properties.message = textarea.value;
-          editorDraft.dirty = true;
-          textarea.focus();
-          // Update preview
-          const preview = propsEl.querySelector('.wf-log-preview-text');
-          if (preview) preview.textContent = textarea.value || 'Aperçu du message...';
-        }
-      });
-    });
-
-    // Log message live preview
-    const logTextarea = propsEl.querySelector('.wf-log-textarea');
-    if (logTextarea) {
-      logTextarea.addEventListener('input', () => {
-        const preview = propsEl.querySelector('.wf-log-preview-text');
-        if (preview) preview.textContent = logTextarea.value || 'Aperçu du message...';
-      });
-    }
-
-    // Condition mode toggle (Builder / Expression)
-    propsEl.querySelectorAll('.wf-cond-mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const mode = btn.dataset.condMode;
-        node.properties._condMode = mode;
-        editorDraft.dirty = true;
-        const builderEl = propsEl.querySelector('.wf-cond-builder');
-        const exprEl = propsEl.querySelector('.wf-cond-expression');
-        if (builderEl && exprEl) {
-          builderEl.style.display = mode === 'builder' ? '' : 'none';
-          exprEl.style.display = mode === 'expression' ? '' : 'none';
-        }
-        propsEl.querySelectorAll('.wf-cond-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
-        // When switching to expression, sync builder → expression
-        if (mode === 'expression' && !node.properties.expression) {
-          const isUnary = (node.properties.operator || '==') === 'is_empty' || (node.properties.operator || '==') === 'is_not_empty';
-          node.properties.expression = buildConditionPreview(node.properties.variable || '', node.properties.operator || '==', node.properties.value || '', isUnary);
-          const exprInput = propsEl.querySelector('.wf-cond-expr-input');
-          if (exprInput) exprInput.value = node.properties.expression;
-        }
-      });
-    });
-
-    // Condition operator buttons
-    propsEl.querySelectorAll('.wf-cond-op-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const op = btn.dataset.op;
-        node.properties.operator = op;
-        editorDraft.dirty = true;
-        // Toggle active state
-        propsEl.querySelectorAll('.wf-cond-op-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        // Show/hide value field based on unary
-        const isUnary = op === 'is_empty' || op === 'is_not_empty';
-        const valField = propsEl.querySelector('.wf-cond-value-field');
-        if (valField) valField.style.display = isUnary ? 'none' : '';
-        // Update preview
-        const preview = propsEl.querySelector('.wf-cond-preview-code');
-        if (preview) preview.textContent = buildConditionPreview(node.properties.variable || '', op, node.properties.value || '', isUnary);
-        // Update widget
-        if (node.widgets) {
-          const w = node.widgets.find(w => w.name === 'operator' || w.name === 'Operator');
-          if (w) w.value = op;
-        }
-        graphService.canvas.setDirty(true, true);
-      });
-    });
-
-    // Condition live preview update on variable/value change
-    const condVarInput = propsEl.querySelector('.wf-cond-builder [data-key="variable"]');
-    const condValInput = propsEl.querySelector('.wf-cond-builder [data-key="value"]');
-    const condPreview = propsEl.querySelector('.wf-cond-preview-code');
-    if (condPreview) {
-      const updateCondPreview = () => {
-        const v = condVarInput?.value || '';
-        const op = node.properties.operator || '==';
-        const val = condValInput?.value || '';
-        const isUnary = op === 'is_empty' || op === 'is_not_empty';
-        condPreview.textContent = buildConditionPreview(v, op, val, isUnary);
-      };
-      if (condVarInput) condVarInput.addEventListener('input', updateCondPreview);
-      if (condValInput) condValInput.addEventListener('input', updateCondPreview);
+      initSmartSQL(propsEl, node, graphService, schemaCache, _dbConnectionsCache).catch(e => console.warn('[SmartSQL] init error:', e));
     }
 
     // Delete node button
@@ -2501,6 +1596,80 @@ function openEditor(workflowId = null) {
         graphService.canvas.setDirty(true, true);
       });
     }
+
+    // ── Switch case editor ──
+    const _syncSwitchCases = () => {
+      const rows = propsEl.querySelectorAll('.wf-switch-case-input');
+      const cases = Array.from(rows).map(r => r.value.trim()).filter(Boolean);
+      node.properties.cases = cases.join(',');
+      // Sync widget
+      if (node.widgets) {
+        const w = node.widgets.find(w => w.key === 'cases');
+        if (w) w.value = node.properties.cases;
+      }
+      editorDraft.dirty = true;
+      graphService.canvas._rebuildSwitchOutputs(node);
+      graphService.canvas.setDirty(true, true);
+      graphService.pushSnapshot();
+    };
+    // Bind case inputs
+    propsEl.querySelectorAll('.wf-switch-case-input').forEach(input => {
+      input.addEventListener('change', _syncSwitchCases);
+    });
+    // Delete case buttons
+    propsEl.querySelectorAll('.wf-switch-case-del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.closest('.wf-switch-case-row')?.remove();
+        _syncSwitchCases();
+        renderProperties(node);
+      });
+    });
+    // Add case button
+    const addCaseBtn = propsEl.querySelector('#wf-switch-add-case');
+    if (addCaseBtn) {
+      addCaseBtn.addEventListener('click', () => {
+        const cases = (node.properties.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+        cases.push(`case${cases.length + 1}`);
+        node.properties.cases = cases.join(',');
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.key === 'cases');
+          if (w) w.value = node.properties.cases;
+        }
+        editorDraft.dirty = true;
+        graphService.canvas._rebuildSwitchOutputs(node);
+        graphService.canvas.setDirty(true, true);
+        graphService.pushSnapshot();
+        renderProperties(node);
+      });
+    }
+
+    // ── Transform operation picker ──
+    propsEl.querySelectorAll('.wf-transform-op-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        node.properties.operation = btn.dataset.op;
+        // Sync widget
+        if (node.widgets) {
+          const w = node.widgets.find(w => w.key === 'operation');
+          if (w) w.value = btn.dataset.op;
+        }
+        editorDraft.dirty = true;
+        graphService.canvas.setDirty(true, true);
+        renderProperties(node);
+      });
+    });
+
+    // ── Variable browser — click to fill name ──
+    propsEl.querySelectorAll('.wf-var-browser-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nameInput = propsEl.querySelector('[data-key="name"]');
+        if (nameInput) {
+          nameInput.value = btn.dataset.varname;
+          node.properties.name = btn.dataset.varname;
+          editorDraft.dirty = true;
+          graphService.canvas.setDirty(true, true);
+        }
+      });
+    });
   };
 
   // ── Graph events ──
@@ -2516,11 +1685,11 @@ function openEditor(workflowId = null) {
   graphService.onGraphChanged = () => {
     editorDraft.dirty = true;
     updateStatusBar();
-    updateVarsPanel();
   };
 
   // ── Variables panel (Blueprint-style) ──────────────────────────────────────
-  // Type color map (mirror of PIN_TYPES in WorkflowGraphService)
+  // Abstract variable definitions live in editorDraft.variables (not as graph nodes).
+  // Clicking a variable inserts a workflow/variable node with name pre-filled.
   const VAR_TYPE_COLORS = {
     string:  '#c8c8c8',
     number:  '#60a5fa',
@@ -2529,93 +1698,206 @@ function openEditor(workflowId = null) {
     object:  '#a78bfa',
     any:     '#6b7280',
   };
-  /**
-   * Collect variables from the graph:
-   * - 'variable' nodes with action=set → define a variable
-   * - 'get_variable' nodes → reference a variable (show in list if not already from set)
-   * Returns array of { name, type, source: 'set'|'get' }
-   */
-  function collectGraphVariables() {
-    const graph = graphService.graph;
-    if (!graph || !graph._nodes) return [];
-    const vars = new Map(); // name → { name, type, source }
-    for (const node of graph._nodes) {
-      const ntype = (node.type || '').replace('workflow/', '');
-      if (ntype === 'variable' && node.properties?.action === 'set') {
-        const name = (node.properties.name || '').trim();
-        if (!name) continue;
-        const type = node.properties.varType || 'any';
-        if (!vars.has(name)) vars.set(name, { name, type, source: 'set' });
-      }
-    }
-    // Also surface get_variable nodes whose name isn't from a set node
-    for (const node of graph._nodes) {
-      const ntype = (node.type || '').replace('workflow/', '');
-      if (ntype === 'get_variable') {
-        const name = (node.properties.name || '').trim();
-        if (!name || vars.has(name)) continue;
-        const type = node.properties.varType || 'any';
-        vars.set(name, { name, type, source: 'get' });
-      }
-    }
-    return [...vars.values()];
-  }
+  const VAR_TYPE_LIST = ['string', 'number', 'boolean', 'array', 'object', 'any'];
 
   const varsList = panel.querySelector('#wf-vars-list');
 
+  /** Generate a unique variable name */
+  function nextVarName() {
+    const names = new Set(editorDraft.variables.map(v => v.name));
+    let i = 1;
+    while (names.has(`var${i}`)) i++;
+    return `var${i}`;
+  }
+
+  /** Also used by the AI chat context injection */
+  function collectGraphVariables() {
+    return editorDraft.variables;
+  }
+
   function updateVarsPanel() {
     if (!varsList) return;
-    const vars = collectGraphVariables();
+    const vars = editorDraft.variables;
     if (!vars.length) {
-      varsList.innerHTML = '<div class="wf-vars-empty">Aucune variable</div>';
+      varsList.innerHTML = `
+        <div class="wf-vars-empty">
+          <svg class="wf-vars-empty-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          <span class="wf-vars-empty-text">Cliquer + pour créer<br>une variable</span>
+        </div>`;
       return;
     }
-    varsList.innerHTML = vars.map(v => {
-      const color = VAR_TYPE_COLORS[v.type] || VAR_TYPE_COLORS.any;
-      const isDefined = v.source === 'set';
+    varsList.innerHTML = vars.map((v, idx) => {
+      const color = VAR_TYPE_COLORS[v.varType] || VAR_TYPE_COLORS.any;
       return `
-        <div class="wf-var-item ${isDefined ? '' : 'wf-var-item--ghost'}" data-var-name="${escapeHtml(v.name)}" data-var-type="${escapeHtml(v.type)}" title="${isDefined ? 'Cliquer pour insérer un Get Variable' : 'Variable référencée mais non définie'}">
+        <div class="wf-var-item" data-var-idx="${idx}" style="--var-color:${color}" title="Cliquer pour insérer un node Variable">
           <span class="wf-var-dot" style="background:${color}"></span>
           <span class="wf-var-name">${escapeHtml(v.name)}</span>
-          <span class="wf-var-type" style="color:${color}">${v.type}</span>
+          <span class="wf-var-type-badge" style="--var-color:${color}">${v.varType || 'any'}</span>
         </div>
       `;
     }).join('');
 
-    // Bind clicks → add GetVariableNode
+    // Bind clicks → insert a workflow/variable node with this name
     varsList.querySelectorAll('.wf-var-item').forEach(item => {
       item.addEventListener('click', () => {
-        const name = item.dataset.varName;
-        const type = item.dataset.varType;
+        const idx = parseInt(item.dataset.varIdx, 10);
+        const v = editorDraft.variables[idx];
+        if (!v) return;
         const canvas = graphService.canvas;
         if (!canvas) return;
         const cx = (-canvas.ds.offset[0] + canvasWrap.offsetWidth / 2) / canvas.ds.scale;
         const cy = (-canvas.ds.offset[1] + canvasWrap.offsetHeight / 2) / canvas.ds.scale;
-        const node = graphService.addNode('workflow/get_variable', [cx - 75, cy - 18]);
+        const node = graphService.addNode('workflow/variable', [cx - 100, cy - 30]);
         if (node) {
-          node.properties.name = name;
-          node.properties.varType = type;
-          if (node.widgets) {
-            const w = node.widgets.find(w => w.name === 'Name');
-            if (w) w.value = name;
-          }
-          if (node._updatePinType) node._updatePinType();
-          graphService.canvas.setDirty(true, true);
+          node.properties.name = v.name;
+          node.properties.varType = v.varType || 'any';
+          node.properties.action = 'get';
+          // Update widget value to match
+          const actionW = node.widgets?.find(w => w.key === 'action');
+          if (actionW) actionW.value = 'get';
+          const nameW = node.widgets?.find(w => w.key === 'name');
+          if (nameW) nameW.value = v.name;
+          graphService._rebuildVariablePins(node);
+          graphService._markDirty();
         }
+      });
+
+      // Right-click → edit inline
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const idx = parseInt(item.dataset.varIdx, 10);
+        openVarEditor(idx);
       });
     });
   }
   updateVarsPanel();
 
-  // Bouton + → ajouter une variable (crée un nœud Variable Set)
+  /** Open floating popover editor for a variable definition */
+  function openVarEditor(idx) {
+    const v = editorDraft.variables[idx];
+    if (!v) return;
+
+    // Remove any existing popover
+    const old = panel.querySelector('.wf-var-popover-backdrop');
+    if (old) old.remove();
+
+    const isNew = !v._persisted;
+    v._persisted = true;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'wf-var-popover-backdrop';
+    backdrop.innerHTML = `
+      <div class="wf-var-popover">
+        <div class="wf-var-popover-header">
+          <span class="wf-var-popover-title">${isNew ? 'Nouvelle variable' : 'Modifier la variable'}</span>
+          <button class="wf-var-popover-close" title="Fermer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="wf-var-popover-body">
+          <div class="wf-var-popover-field">
+            <label class="wf-var-popover-label">Nom</label>
+            <input class="wf-var-popover-input" id="wf-vp-name" value="${escapeHtml(v.name)}" placeholder="myVariable" spellcheck="false" autocomplete="off" />
+          </div>
+          <div class="wf-var-popover-field">
+            <label class="wf-var-popover-label">Type</label>
+            <div class="wf-var-popover-types">
+              ${VAR_TYPE_LIST.map(t => {
+                const c = VAR_TYPE_COLORS[t];
+                return `<button class="wf-var-popover-type-btn ${(v.varType || 'any') === t ? 'active' : ''}" data-type="${t}" style="--type-color:${c}">
+                  <span class="wf-var-popover-type-dot" style="background:${c}"></span>
+                  ${t}
+                </button>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="wf-var-popover-footer">
+          <button class="wf-var-popover-delete" id="wf-vp-delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Supprimer
+          </button>
+          <button class="wf-var-popover-save" id="wf-vp-save">Enregistrer</button>
+        </div>
+      </div>
+    `;
+
+    // Insert into the editor (not body — stays within workflow scope)
+    panel.querySelector('.wf-editor').appendChild(backdrop);
+
+    const pop = backdrop.querySelector('.wf-var-popover');
+    const nameInput = backdrop.querySelector('#wf-vp-name');
+
+    // Focus
+    requestAnimationFrame(() => {
+      nameInput.focus();
+      nameInput.select();
+    });
+
+    // Type buttons
+    backdrop.querySelectorAll('.wf-var-popover-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        backdrop.querySelectorAll('.wf-var-popover-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        v.varType = btn.dataset.type;
+      });
+    });
+
+    // Close
+    const close = () => {
+      backdrop.classList.add('closing');
+      setTimeout(() => backdrop.remove(), 120);
+    };
+
+    // Save
+    const save = () => {
+      const newName = (nameInput.value || '').trim();
+      if (newName) {
+        v.name = newName;
+        editorDraft.dirty = true;
+      }
+      updateVarsPanel();
+      close();
+    };
+
+    backdrop.querySelector('.wf-var-popover-close').addEventListener('click', () => {
+      // If new and name is still default, revert
+      if (isNew && !nameInput.value.trim()) {
+        editorDraft.variables.splice(idx, 1);
+      }
+      save();
+    });
+    backdrop.querySelector('#wf-vp-save').addEventListener('click', save);
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') save();
+      if (e.key === 'Escape') close();
+      e.stopPropagation();
+    });
+    nameInput.addEventListener('keyup', (e) => e.stopPropagation());
+
+    // Delete
+    backdrop.querySelector('#wf-vp-delete').addEventListener('click', () => {
+      editorDraft.variables.splice(idx, 1);
+      editorDraft.dirty = true;
+      updateVarsPanel();
+      close();
+    });
+
+    // Click backdrop to close
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) save();
+    });
+  }
+
+  // Bouton + → add a new abstract variable definition
   const varsAddBtn = panel.querySelector('#wf-vars-add');
   if (varsAddBtn) {
     varsAddBtn.addEventListener('click', () => {
-      const canvas = graphService.canvas;
-      if (!canvas) return;
-      const cx = (-canvas.ds.offset[0] + canvasWrap.offsetWidth / 2) / canvas.ds.scale;
-      const cy = (-canvas.ds.offset[1] + canvasWrap.offsetHeight / 2) / canvas.ds.scale;
-      graphService.addNode('workflow/variable', [cx - 100, cy - 40]);
+      const name = nextVarName();
+      editorDraft.variables.push({ name, varType: 'string' });
+      editorDraft.dirty = true;
+      updateVarsPanel();
+      openVarEditor(editorDraft.variables.length - 1);
     });
   }
 
@@ -2626,12 +1908,11 @@ function openEditor(workflowId = null) {
     if (old) old.remove();
 
     // Position popup at the midpoint of the link (converted from graph coords to screen)
-    const canvas = graphService.canvas;
-    const originPos = sourceNode.getConnectionPos(false, link.origin_slot);
-    const targetPos = targetNode.getConnectionPos(true, link.target_slot);
+    const originPos = graphService.getOutputPinPos(sourceNode.id, link.origin_slot);
+    const targetPos = graphService.getInputPinPos(targetNode.id, link.target_slot);
     const mx = (originPos[0] + targetPos[0]) / 2;
     const my = (originPos[1] + targetPos[1]) / 2;
-    const screenPos = canvas.ds.convertOffsetToCanvas([mx, my]);
+    const screenPos = graphService.graphToScreen(mx, my);
     const canvasRect = graphService.canvasElement.getBoundingClientRect();
     const panelRect = panel.getBoundingClientRect();
 
@@ -2659,7 +1940,7 @@ function openEditor(workflowId = null) {
     popup.querySelector('.wf-loop-suggest-btn--yes').addEventListener('click', () => {
       clearTimeout(autoDismiss);
       popup.remove();
-      insertLoopBetween(graphService, link, sourceNode, targetNode);
+      insertLoopBetween(graphService, link);
       editorDraft.dirty = true;
       updateStatusBar();
     });
@@ -2698,6 +1979,22 @@ function openEditor(workflowId = null) {
     updateStatusBar();
   });
 
+  // Comment zone
+  panel.querySelector('#wf-ed-comment')?.addEventListener('click', () => {
+    const s = graphService._scale || 1;
+    const ox = graphService._offsetX || 0;
+    const oy = graphService._offsetY || 0;
+    const cx = (-ox / s) + 200;
+    const cy = (-oy / s) + 100;
+    graphService.addComment([cx, cy], [300, 200], 'Comment');
+    updateStatusBar();
+  });
+
+  // Minimap toggle
+  panel.querySelector('#wf-ed-minimap')?.addEventListener('click', () => {
+    graphService.toggleMinimap();
+  });
+
   // Undo / Redo
   panel.querySelector('#wf-ed-undo').addEventListener('click', () => {
     graphService.undo();
@@ -2722,6 +2019,7 @@ function openEditor(workflowId = null) {
       concurrency: editorDraft.concurrency,
       graph: data.graph,
       steps: data.steps,
+      variables: editorDraft.variables.filter(v => v.name),
     };
     const res = await api.save(workflow);
     if (res?.success) {
@@ -2739,21 +2037,73 @@ function openEditor(workflowId = null) {
   // Save
   panel.querySelector('#wf-ed-save').addEventListener('click', saveWorkflow);
 
-  // Run — save first if needed, then trigger
+  // Run — always save before triggering to persist graph changes
+  // Once the run starts, button becomes a Stop button until the run ends.
+  let _edRunId = null; // track running run launched from editor
+
+  function _setEdRunBtn(running, runId) {
+    const btn = panel.querySelector('#wf-ed-run');
+    if (!btn) return;
+    if (running) {
+      _edRunId = runId || null;
+      btn.classList.add('wf-editor-btn--stop');
+      btn.classList.remove('wf-editor-btn--run');
+      btn.disabled = false;
+      btn.title = 'Arrêter le run';
+      btn.innerHTML = '<span class="wf-btn-icon"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>Stop';
+    } else {
+      _edRunId = null;
+      btn.classList.remove('wf-editor-btn--stop');
+      btn.classList.add('wf-editor-btn--run');
+      btn.disabled = false;
+      btn.title = 'Lancer le workflow';
+      btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
+    }
+  }
+
+  // Check if a run for this workflow is already in progress when editor opens
+  if (workflowId) {
+    const existingRun = state.runs.find(r => r.workflowId === workflowId && r.status === 'running');
+    if (existingRun) _setEdRunBtn(true, existingRun.id);
+  }
+
   panel.querySelector('#wf-ed-run').addEventListener('click', async () => {
     const btn = panel.querySelector('#wf-ed-run');
+    // If already running, act as Stop
+    if (_edRunId) {
+      api?.cancel(_edRunId);
+      return;
+    }
     btn.disabled = true;
+    btn.textContent = 'Saving...';
     try {
-      // If workflow has no id yet (unsaved), save it first
-      if (!workflowId) {
-        const ok = await saveWorkflow();
-        if (!ok) return;
+      const ok = await saveWorkflow();
+      if (!ok) {
+        console.warn('[Workflow] Save failed, cannot run');
+        btn.disabled = false;
+        btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
+        return;
       }
-      if (workflowId) await triggerWorkflow(workflowId);
-    } finally {
+      if (workflowId) {
+        btn.textContent = 'Starting...';
+        await triggerWorkflow(workflowId);
+        // Button will be updated by onRunStart listener below
+      }
+    } catch (e) {
       btn.disabled = false;
+      btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
     }
   });
+
+  // Listen to run lifecycle to update editor run/stop button
+  if (api && workflowId) {
+    api.onRunStart(({ run }) => {
+      if (run?.workflowId === workflowId) _setEdRunBtn(true, run.id);
+    });
+    api.onRunEnd(({ runId, status }) => {
+      if (runId === _edRunId) _setEdRunBtn(false);
+    });
+  }
 
   // ── AI Workflow Builder ──
   const aiPanel = panel.querySelector('#wf-ai-panel');
@@ -2792,7 +2142,10 @@ workflow/trigger — Entry point (always the first node, required)
 
 workflow/claude — AI task
   mode: prompt | agent | skill
-  prompt, model, effort
+  prompt, model (e.g. "sonnet", "haiku", "opus"), effort (low | medium | high | max)
+  maxTurns (default 30), cwd (working directory, defaults to project context)
+  skillId (skill name when mode=skill)
+  outputSchema (array of {name, type} for structured JSON output)
   Exec outputs: slot0=Done, slot1=Error
   Data outputs: output (string)
 
@@ -2819,10 +2172,11 @@ workflow/db — SQL query
   Data outputs: rows (array), rowCount (number), firstRow (object)
 
 workflow/file — File operation
-  action: read | write | append | copy | delete | exists
-  path, content
+  action: read | write | append | copy | delete | exists | move | list
+  path, content, destination (for copy/move), pattern (glob for list), recursive (bool), type (files|dirs|all)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: content (string), exists (boolean)
+  Data outputs: content (string, slot2), exists (boolean, slot3), files (array, slot4), count (number, slot5)
+  list action: set path=directory, pattern="**/*.js", recursive=true — returns files array (ideal to connect to Loop)
 
 workflow/notify — Desktop notification
   title, message
@@ -2861,16 +2215,64 @@ workflow/get_variable — Read a variable (pure data node, NO exec pins)
   NOTE: This node has no exec input/output. Connect its data output directly to another node's data input.
   Use workflow_get_variables to discover existing variables before adding this node.
 
+workflow/transform — Data transformation
+  operation: map | filter | find | reduce | pluck | count | sort | unique | flatten | json_parse | json_stringify
+  input ($var pointing to data), expression (JS expression with item/index)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: result (any)
+
+workflow/subworkflow — Trigger another workflow
+  workflow (name or ID of the target workflow)
+  inputVars (JSON object or key=value pairs to pass as variables)
+  waitForCompletion: true | false (default true, waits up to 10min)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: outputs (object)
+
+workflow/switch — Multi-branch routing (like switch/case)
+  variable ($var to evaluate), cases (comma-separated values e.g. "success,warning,error")
+  Each case creates an exec output slot (slot0=first case, slot1=second, etc.), last slot=default
+  No data outputs
+
+workflow/project — Set project context or list projects
+  action: list | set_context | open | build | install | test
+  projectId (project to target, not needed for list)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: projects (array, slot2) — only populated for action=list
+  list action: returns all Claude Terminal projects array — connect slot2 to Loop node Items (slot1) to iterate
+
+workflow/time — Read time tracking data
+  action: get_today | get_week | get_project | get_all_projects | get_sessions
+  projectId (required for get_project, optional for get_sessions — can also be connected via data input pin)
+  startDate, endDate (ISO date strings, for get_sessions filtering)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs vary by action:
+    get_today: today=slot2 (ms), week=slot3 (ms), month=slot4 (ms), projects=slot5 (array of active projects)
+    get_week: total=slot2 (ms), days=slot3 (array [{date, dayOfWeek, ms, formatted}])
+    get_project: today=slot2, week=slot3, month=slot4, total=slot5, sessionCount=slot6 (all ms except count)
+    get_all_projects: projects=slot2 (array sorted by today desc), count=slot3
+    get_sessions: sessions=slot2 (array), count=slot3, totalMs=slot4
+  NOTE: get_project and get_sessions expose a projectId data INPUT pin (slot1) — connect any string output to it
+  TIP: get_all_projects → Loop → get_project pattern to build per-project reports
+  TIP: divide ms by 3600000 to get hours, by 60000 to get minutes
+
 DATA PIN CONNECTION SLOTS (for workflow_connect_nodes):
 When connecting data pins, slot indices start AFTER the exec slots:
   shell: stdout=slot2, stderr=slot3, exitCode=slot4
   db: rows=slot2, rowCount=slot3, firstRow=slot4
   http: body=slot2, status=slot3, ok=slot4
-  file: content=slot2, exists=slot3
+  file: content=slot2, exists=slot3, files=slot4, count=slot5
   loop: item=slot2, index=slot3
   variable: value=slot1
   get_variable: value=slot0
   claude: output=slot2
+  transform: result=slot2
+  subworkflow: outputs=slot2
+  project: projects=slot2
+  time/get_today: today=slot2, week=slot3, month=slot4, projects=slot5
+  time/get_week: total=slot2, days=slot3
+  time/get_project: today=slot2, week=slot3, month=slot4, total=slot5, sessionCount=slot6
+  time/get_all_projects: projects=slot2, count=slot3
+  time/get_sessions: sessions=slot2, count=slot3, totalMs=slot4
 
 AVAILABLE VARIABLES IN PROPERTIES (legacy $var syntax, still works):
 $ctx.project — current project name
@@ -2929,15 +2331,12 @@ Rules:
       const aiProject = { path: homeDir };
       const wfName = editorDraft.name || (workflowId ? state.workflows.find(w => w.id === workflowId)?.name : null) || null;
 
-      // Inject existing variables from the graph into the system prompt
+      // Inject existing variables from editorDraft into the system prompt
       let varsContext = '';
-      if (typeof collectGraphVariables === 'function' && typeof graphService !== 'undefined' && graphService?.graph) {
-        const existingVars = collectGraphVariables(graphService.graph);
-        if (existingVars.length > 0) {
-          varsContext = '\n\nEXISTING VARIABLES IN THIS WORKFLOW:\n' +
-            existingVars.map(v => `- ${v.name} (${v.varType || 'any'})`).join('\n') +
-            '\nUse workflow/get_variable nodes with these names to read them.';
-        }
+      if (editorDraft.variables.length > 0) {
+        varsContext = '\n\nEXISTING VARIABLES IN THIS WORKFLOW:\n' +
+          editorDraft.variables.map(v => `- ${v.name} (${v.varType || 'any'})`).join('\n') +
+          '\nUse workflow/variable nodes with these names to get/set them.';
       }
 
       const promptWithContext = wfName
@@ -3047,6 +2446,22 @@ Rules:
       updateStatusBar();
       return;
     }
+    // C — Add comment zone
+    if (e.key === 'c' && !inInput && !e.ctrlKey && !e.metaKey) {
+      const s = graphService._scale || 1;
+      const ox = graphService._offsetX || 0;
+      const oy = graphService._offsetY || 0;
+      const cx = (-ox / s) + 200;
+      const cy = (-oy / s) + 100;
+      graphService.addComment([cx, cy], [300, 200], 'Comment');
+      updateStatusBar();
+      return;
+    }
+    // M — Toggle minimap
+    if (e.key === 'm' && !inInput && !e.ctrlKey && !e.metaKey) {
+      graphService.toggleMinimap();
+      return;
+    }
   };
   document.addEventListener('keydown', editorKeyHandler);
 
@@ -3070,6 +2485,7 @@ function openDetail(id) {
   if (!wf) return;
   const runs = state.runs.filter(r => r.workflowId === id);
   const cfg = TRIGGER_CONFIG[wf.trigger?.type] || TRIGGER_CONFIG.manual;
+  const runningRun = runs.find(r => r.status === 'running');
 
   const overlay = document.createElement('div');
   overlay.className = 'wf-overlay';
@@ -3081,7 +2497,10 @@ function openDetail(id) {
           <span class="wf-modal-title">${escapeHtml(wf.name)}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
-          <button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} Lancer</button>
+          ${runningRun
+            ? `<button class="wf-btn-danger wf-btn-sm" id="wf-run-now-stop" data-run-id="${runningRun.id}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Stop</button>`
+            : `<button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} Lancer</button>`
+          }
           <button class="wf-btn-ghost wf-btn-sm" id="wf-edit">Modifier</button>
           <button class="wf-modal-x" id="wf-det-close">${svgX(12)}</button>
         </div>
@@ -3153,7 +2572,8 @@ function openDetail(id) {
   document.body.appendChild(overlay);
   overlay.querySelector('#wf-det-close').addEventListener('click', () => overlay.remove());
   overlay.querySelector('#wf-edit').addEventListener('click', () => { overlay.remove(); openEditor(id); });
-  overlay.querySelector('#wf-run-now').addEventListener('click', () => { triggerWorkflow(id); overlay.remove(); });
+  overlay.querySelector('#wf-run-now')?.addEventListener('click', () => { triggerWorkflow(id); overlay.remove(); });
+  overlay.querySelector('#wf-run-now-stop')?.addEventListener('click', e => { const runId = e.currentTarget.dataset.runId; if (runId) api?.cancel(runId); overlay.remove(); });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
@@ -3183,7 +2603,11 @@ async function saveWorkflow(draft, existingId) {
 
 async function triggerWorkflow(id) {
   if (!api) return;
-  await api.trigger(id);
+  // Pass the currently opened project path so the runner has a valid cwd
+  const pState = projectsState.get();
+  const openedProject = (pState.projects || []).find(p => p.id === pState.openedProjectId);
+  const projectPath = openedProject?.path || '';
+  await api.trigger(id, { projectPath });
   // Live listener will update UI when run starts
 }
 
@@ -3245,510 +2669,5 @@ async function duplicateWorkflow(id) {
   }
 }
 
-/* ─── Helpers ───────────────────────────────────────────────────────────────── */
-
-/** Format ISO date to relative/short string */
-function fmtTime(iso) {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return "À l'instant";
-    if (diffMin < 60) return `Il y a ${diffMin} min`;
-    const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return `Il y a ${diffH}h`;
-    const diffD = Math.floor(diffH / 24);
-    if (diffD === 1) return `Hier ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    if (diffD < 7) return `Il y a ${diffD}j`;
-    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  } catch { return String(iso); }
-}
-
-/** Format duration (seconds number or string) */
-function fmtDuration(val) {
-  if (val == null) return '…';
-  const s = typeof val === 'number' ? val : parseInt(val);
-  if (isNaN(s)) return String(val);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s`;
-}
-
-function statusDot(s) {
-  return `<span class="wf-dot wf-dot--${s}"></span>`;
-}
-
-function statusLabel(s) {
-  return { success: 'Succès', failed: 'Échec', running: 'En cours', pending: 'En attente' }[s] || s;
-}
-
-/* ─── SVG icons ─────────────────────────────────────────────────────────────── */
-
-function svgWorkflow(s = 14) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
-function svgAgent(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>`; }
-function svgShell() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`; }
-function svgGit() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`; }
-function svgHttp() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
-function svgNotify() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`; }
-function svgWait() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`; }
-function svgCond() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`; }
-function svgClock(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`; }
-function svgTimer() { return `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`; }
-function svgHook(s = 13) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`; }
-function svgChain(s = 13) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
-function svgPlay(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>`; }
-function svgX(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>`; }
-function svgScope() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`; }
-function svgConc() { return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>`; }
-function svgEmpty() { return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 12v3"/></svg>`; }
-function svgRuns() { return `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>`; }
-function svgClaude(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7v1a7 7 0 0 0 14 0V9a7 7 0 0 0-7-7z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/><path d="M8 18v2a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2"/></svg>`; }
-function svgPrompt(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`; }
-function svgSkill(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`; }
-function svgProject(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`; }
-function svgFile(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`; }
-function svgDb(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`; }
-function svgLoop(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`; }
-function svgVariable(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></svg>`; }
-function svgLog(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`; }
-function svgTriggerType(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`; }
-function svgLink(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`; }
-function svgMode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`; }
-function svgEdit(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`; }
-function svgBranch(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`; }
-function svgCode(s = 10) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`; }
-function svgTrash(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`; }
-function svgCopy(s = 12) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`; }
-function svgTransform(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="m8 7-4 4 4 4"/><path d="m16 7 4 4-4 4"/></svg>`; }
-function svgGetVar(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/></svg>`; }
-function svgSwitch(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/><path d="M21 22v-5l-9-9"/></svg>`; }
-function svgSubworkflow(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="6" height="6" rx="1"/><rect x="16" y="7" width="6" height="6" rx="1"/><path d="M8 10h8"/><path d="M12 3v4"/><path d="M12 17v4"/></svg>`; }
-function svgTeal(s = 11) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20"/><path d="M6 8l-4 4 4 4"/><path d="M18 8l4 4-4 4"/></svg>`; }
-
-/**
- * Replace native <select> elements with custom styled dropdowns.
- * Each select is hidden and wrapped by a .wf-dropdown that syncs value back.
- */
-function upgradeSelectsToDropdowns(container) {
-  container.querySelectorAll('select.wf-step-edit-input, select.wf-node-prop').forEach(sel => {
-    if (sel.dataset.upgraded) return;
-    sel.dataset.upgraded = '1';
-    sel.style.display = 'none';
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'wf-dropdown';
-    sel.parentNode.insertBefore(wrapper, sel.nextSibling);
-
-    // Build trigger button
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'wf-dropdown-trigger';
-    wrapper.appendChild(trigger);
-
-    // Build menu
-    const menu = document.createElement('div');
-    menu.className = 'wf-dropdown-menu';
-    wrapper.appendChild(menu);
-
-    const chevron = `<svg class="wf-dropdown-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
-    function buildOptions() {
-      const selected = sel.value;
-      const selectedOpt = sel.options[sel.selectedIndex];
-      trigger.innerHTML = `<span class="wf-dropdown-text">${selectedOpt ? escapeHtml(selectedOpt.textContent) : ''}</span>${chevron}`;
-      if (!selected && selectedOpt && selectedOpt.value === '') {
-        trigger.classList.add('wf-dropdown-placeholder');
-      } else {
-        trigger.classList.remove('wf-dropdown-placeholder');
-      }
-
-      menu.innerHTML = '';
-      Array.from(sel.options).forEach(opt => {
-        const item = document.createElement('div');
-        item.className = 'wf-dropdown-item' + (opt.value === selected ? ' active' : '');
-        item.dataset.value = opt.value;
-        item.innerHTML = `<span>${escapeHtml(opt.textContent)}</span>${opt.value === selected ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}`;
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          sel.value = opt.value;
-          sel.dispatchEvent(new Event('change', { bubbles: true }));
-          closeMenu();
-          buildOptions();
-        });
-        menu.appendChild(item);
-      });
-    }
-
-    function openMenu() {
-      if (wrapper.classList.contains('open')) { closeMenu(); return; }
-      // Close any other open dropdowns
-      document.querySelectorAll('.wf-dropdown.open').forEach(d => d.classList.remove('open'));
-      wrapper.classList.add('open');
-      // Scroll active item into view
-      const activeItem = menu.querySelector('.wf-dropdown-item.active');
-      if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
-    }
-
-    function closeMenu() {
-      wrapper.classList.remove('open');
-    }
-
-    trigger.addEventListener('click', (e) => { e.stopPropagation(); openMenu(); });
-
-    // Close on outside click
-    const outsideHandler = (e) => {
-      if (!wrapper.contains(e.target)) closeMenu();
-    };
-    document.addEventListener('click', outsideHandler, true);
-
-    // Close on escape
-    const escHandler = (e) => {
-      if (e.key === 'Escape') closeMenu();
-    };
-    document.addEventListener('keydown', escHandler, true);
-
-    // Cleanup document listeners when dropdown is removed from DOM
-    const cleanupObs = new MutationObserver(() => {
-      if (!wrapper.isConnected) {
-        document.removeEventListener('click', outsideHandler, true);
-        document.removeEventListener('keydown', escHandler, true);
-        cleanupObs.disconnect();
-      }
-    });
-    cleanupObs.observe(wrapper.parentNode || document.body, { childList: true, subtree: true });
-
-    buildOptions();
-  });
-}
-
-// ── Auto-loop insertion ───────────────────────────────────────────────────────
-function insertLoopBetween(graphService, link, sourceNode, targetNode) {
-  const graph = graphService.graph;
-  if (!graph) return;
-
-  // Calculate position: midpoint between source and target
-  const originPos = sourceNode.getConnectionPos(false, link.origin_slot);
-  const targetPos = targetNode.getConnectionPos(true, link.target_slot);
-  const mx = (originPos[0] + targetPos[0]) / 2;
-  const my = (originPos[1] + targetPos[1]) / 2;
-
-  // Remove the existing link
-  graph.removeLink(link.id);
-
-  // Create a Loop node at the midpoint
-  const loopNode = LiteGraph.createNode('workflow/loop');
-  if (!loopNode) return;
-  loopNode.pos = [mx - 70, my - 30];
-  loopNode.properties = loopNode.properties || {};
-  loopNode.properties.source = 'auto';
-  graph.add(loopNode);
-
-  // Connect: source.slot → loop.In (slot 0), then loop.Each (output 0) → target.slot
-  sourceNode.connect(link.origin_slot, loopNode, 0);  // source → loop In
-  loopNode.connect(0, targetNode, link.target_slot);   // loop Each → target
-
-  graphService.canvas.setDirty(true, true);
-}
-
-// ── Autocomplete for $variable references ────────────────────────────────────
-function setupAutocomplete(container, node, graphService) {
-  // Only wire up text inputs and textareas that accept variables
-  const fields = container.querySelectorAll('input.wf-node-prop[type="text"], input.wf-node-prop:not([type]), textarea.wf-node-prop, input.wf-field-mono, textarea.wf-field-mono');
-  if (!fields.length) return;
-
-  // Shared popup element (reuse across fields)
-  let popup = container.querySelector('.wf-autocomplete-popup');
-  if (!popup) {
-    popup = document.createElement('div');
-    popup.className = 'wf-autocomplete-popup';
-    popup.style.display = 'none';
-    container.appendChild(popup);
-  }
-
-  let activeField = null;
-  let activeIndex = 0;
-  let currentSuggestions = [];
-  let dollarPos = -1;
-
-  function hidePopup() {
-    popup.style.display = 'none';
-    activeField = null;
-    currentSuggestions = [];
-    activeIndex = 0;
-  }
-
-  function insertSuggestion(value) {
-    if (!activeField || dollarPos < 0) return;
-    const field = activeField;
-    const before = field.value.substring(0, dollarPos);
-    const after = field.value.substring(field.selectionStart);
-    field.value = before + value + after;
-    const newPos = dollarPos + value.length;
-    field.setSelectionRange(newPos, newPos);
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-    hidePopup();
-    field.focus();
-  }
-
-  function renderPopup(suggestions, anchorField) {
-    if (!suggestions.length) { hidePopup(); return; }
-    currentSuggestions = suggestions;
-    activeIndex = 0;
-
-    // Group by category
-    const groups = {};
-    for (const s of suggestions) {
-      if (!groups[s.category]) groups[s.category] = [];
-      groups[s.category].push(s);
-    }
-
-    let html = '';
-    for (const [cat, items] of Object.entries(groups)) {
-      html += `<div class="wf-ac-category">${escapeHtml(cat)}</div>`;
-      for (const item of items) {
-        const idx = suggestions.indexOf(item);
-        html += `<div class="wf-ac-item${idx === 0 ? ' active' : ''}" data-idx="${idx}">
-          <span class="wf-ac-label">${escapeHtml(item.label)}</span>
-          <span class="wf-ac-detail">${escapeHtml(item.detail)}</span>
-        </div>`;
-      }
-    }
-    popup.innerHTML = html;
-
-    // Position below the field
-    const rect = anchorField.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    popup.style.top = (rect.bottom - containerRect.top + 2) + 'px';
-    popup.style.left = (rect.left - containerRect.left) + 'px';
-    popup.style.width = rect.width + 'px';
-    popup.style.display = 'block';
-
-    // Click handlers on items
-    popup.querySelectorAll('.wf-ac-item').forEach(el => {
-      el.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        const idx = parseInt(el.dataset.idx, 10);
-        insertSuggestion(currentSuggestions[idx].value);
-      });
-    });
-  }
-
-  function updateActiveItem() {
-    popup.querySelectorAll('.wf-ac-item').forEach((el, i) => {
-      el.classList.toggle('active', i === activeIndex);
-    });
-    // Scroll into view
-    const activeEl = popup.querySelector('.wf-ac-item.active');
-    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-  }
-
-  let deepFetchId = 0; // debounce async deep suggestions
-
-  // ── Variable Picker button {x} ──
-  fields.forEach(field => {
-    // Skip selects, checkboxes, number-only inputs
-    if (field.tagName === 'SELECT' || field.type === 'number' || field.type === 'checkbox') return;
-    const wrapper = field.parentElement;
-    if (!wrapper || wrapper.querySelector('.wf-var-picker-btn')) return;
-    wrapper.style.position = 'relative';
-    const btn = document.createElement('button');
-    btn.className = 'wf-var-picker-btn';
-    btn.type = 'button';
-    btn.textContent = '{x}';
-    btn.title = 'Insérer une variable';
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      showVariablePicker(field, node, graphService, container);
-    });
-    wrapper.appendChild(btn);
-  });
-
-  fields.forEach(field => {
-    field.addEventListener('input', async () => {
-      const val = field.value;
-      const cursor = field.selectionStart;
-
-      // Find the $ before cursor
-      let dPos = -1;
-      for (let i = cursor - 1; i >= 0; i--) {
-        const ch = val[i];
-        if (ch === '$') { dPos = i; break; }
-        if (!/[\w.]/.test(ch)) break;
-      }
-
-      if (dPos < 0) { hidePopup(); return; }
-
-      dollarPos = dPos;
-      activeField = field;
-      const filterText = val.substring(dPos, cursor);
-
-      const graph = graphService?.graph;
-
-      // Check if this is a deep property access (has 2+ dots: $node_X.firstRow.col)
-      const dotCount = (filterText.match(/\./g) || []).length;
-      if (dotCount >= 2) {
-        // Async deep suggestions (DB columns)
-        const fetchId = ++deepFetchId;
-        const deepSuggestions = await getDeepAutocompleteSuggestions(graph, node?.id, filterText);
-        if (fetchId !== deepFetchId) return; // stale request
-        if (deepSuggestions.length > 0) {
-          renderPopup(deepSuggestions, field);
-          return;
-        }
-      }
-
-      // Standard suggestions
-      const suggestions = getAutocompleteSuggestions(graph, node?.id, filterText);
-      renderPopup(suggestions, field);
-    });
-
-    field.addEventListener('keydown', (e) => {
-      if (popup.style.display === 'none') return;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        activeIndex = Math.min(activeIndex + 1, currentSuggestions.length - 1);
-        updateActiveItem();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        activeIndex = Math.max(activeIndex - 1, 0);
-        updateActiveItem();
-      } else if (e.key === 'Enter' || e.key === 'Tab') {
-        if (currentSuggestions.length > 0) {
-          e.preventDefault();
-          insertSuggestion(currentSuggestions[activeIndex].value);
-        }
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        hidePopup();
-      }
-    });
-
-    field.addEventListener('blur', () => {
-      // Small delay to allow mousedown on popup items
-      setTimeout(() => {
-        if (popup.style.display !== 'none') hidePopup();
-      }, 150);
-    });
-  });
-}
-
-// ── Variable Picker popup ─────────────────────────────────────────────────────
-let activeVarPicker = null;
-
-function showVariablePicker(anchorField, node, graphService, panelContainer) {
-  // Close existing picker
-  hideVariablePicker();
-
-  const graph = graphService?.graph;
-  const suggestions = getAutocompleteSuggestions(graph, node?.id, '$');
-
-  if (!suggestions.length) return;
-
-  // Group by category
-  const groups = {};
-  for (const s of suggestions) {
-    if (!groups[s.category]) groups[s.category] = [];
-    groups[s.category].push(s);
-  }
-
-  // Build picker DOM
-  const picker = document.createElement('div');
-  picker.className = 'wf-var-picker';
-
-  // Search input
-  const searchWrap = document.createElement('div');
-  searchWrap.className = 'wf-var-picker-search';
-  const searchInput = document.createElement('input');
-  searchInput.type = 'text';
-  searchInput.placeholder = 'Rechercher une variable...';
-  searchWrap.appendChild(searchInput);
-  picker.appendChild(searchWrap);
-
-  // Categories container
-  const catsEl = document.createElement('div');
-  catsEl.className = 'wf-var-picker-categories';
-
-  function renderItems(filter) {
-    catsEl.innerHTML = '';
-    const f = (filter || '').toLowerCase();
-    let anyVisible = false;
-    for (const [cat, items] of Object.entries(groups)) {
-      const filtered = f ? items.filter(i => i.label.toLowerCase().includes(f) || i.detail.toLowerCase().includes(f)) : items;
-      if (!filtered.length) continue;
-      anyVisible = true;
-      const catTitle = document.createElement('div');
-      catTitle.className = 'wf-var-picker-cat-title';
-      catTitle.textContent = cat;
-      catsEl.appendChild(catTitle);
-      for (const item of filtered) {
-        const row = document.createElement('div');
-        row.className = 'wf-var-picker-item';
-        row.innerHTML = `<code>${escapeHtml(item.label)}</code><span>${escapeHtml(item.detail)}</span>`;
-        row.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          insertVariableAtCursor(anchorField, item.value);
-          hideVariablePicker();
-        });
-        catsEl.appendChild(row);
-      }
-    }
-    if (!anyVisible) {
-      catsEl.innerHTML = '<div class="wf-var-picker-empty">Aucune variable trouvée</div>';
-    }
-  }
-
-  renderItems('');
-  picker.appendChild(catsEl);
-
-  // Position
-  const rect = anchorField.getBoundingClientRect();
-  const containerRect = panelContainer.getBoundingClientRect();
-  picker.style.top = (rect.bottom - containerRect.top + 4) + 'px';
-  picker.style.left = (rect.left - containerRect.left) + 'px';
-
-  panelContainer.appendChild(picker);
-  activeVarPicker = picker;
-  searchInput.focus();
-
-  // Search filter
-  searchInput.addEventListener('input', () => renderItems(searchInput.value));
-  searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { hideVariablePicker(); anchorField.focus(); }
-  });
-
-  // Close on click outside
-  const closeHandler = (e) => {
-    if (!picker.contains(e.target) && e.target !== anchorField && !e.target.classList.contains('wf-var-picker-btn')) {
-      hideVariablePicker();
-      document.removeEventListener('mousedown', closeHandler);
-    }
-  };
-  setTimeout(() => document.addEventListener('mousedown', closeHandler), 10);
-  picker._closeHandler = closeHandler;
-}
-
-function hideVariablePicker() {
-  if (activeVarPicker) {
-    if (activeVarPicker._closeHandler) document.removeEventListener('mousedown', activeVarPicker._closeHandler);
-    activeVarPicker.remove();
-    activeVarPicker = null;
-  }
-}
-
-function insertVariableAtCursor(field, variable) {
-  const start = field.selectionStart || 0;
-  const end = field.selectionEnd || 0;
-  const before = field.value.substring(0, start);
-  const after = field.value.substring(end);
-  field.value = before + variable + after;
-  const newPos = start + variable.length;
-  field.setSelectionRange(newPos, newPos);
-  field.dispatchEvent(new Event('input', { bubbles: true }));
-  field.focus();
-}
 
 module.exports = { init, load };

@@ -415,30 +415,36 @@ class DatabaseService {
     return new Database(dbPath, { readonly: false });
   }
 
-  async _createMysqlClient(config) {
+  _createMysqlClient(config) {
     const mysql = require('mysql2/promise');
-    return mysql.createConnection({
+    return mysql.createPool({
       host: config.host || 'localhost',
       port: config.port || 3306,
       user: config.username,
       password: config.password,
       database: config.database,
-      connectTimeout: 10000
+      connectTimeout: 10000,
+      waitForConnections: true,
+      connectionLimit: 5,
+      queueLimit: 0
     });
   }
 
   async _createPgClient(config) {
-    const { Client } = require('pg');
-    const client = new Client({
+    const { Pool } = require('pg');
+    const pool = new Pool({
       host: config.host || 'localhost',
       port: config.port || 5432,
       user: config.username,
       password: config.password,
       database: config.database,
-      connectionTimeoutMillis: 10000
+      connectionTimeoutMillis: 10000,
+      max: 5
     });
-    await client.connect();
-    return client;
+    // Verify connectivity immediately
+    const client = await pool.connect();
+    client.release();
+    return pool;
   }
 
   async _createMongoClient(config) {
@@ -458,7 +464,7 @@ class DatabaseService {
         client.prepare('SELECT 1').get();
         break;
       case 'mysql':
-        await client.ping();
+        await client.execute('SELECT 1');
         break;
       case 'postgresql':
         await client.query('SELECT 1');

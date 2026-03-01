@@ -11,6 +11,14 @@ const { fs, path } = window.electron_nodeModules;
 let saveTimer = null;
 const SAVE_DEBOUNCE_MS = 2000;
 
+// When true, saveTerminalSessionsImmediate preserves existing explorer state from disk
+// instead of overwriting with live getState() — used during terminal restore loop on cold start
+let _skipExplorerCapture = false;
+
+function setSkipExplorerCapture(value) {
+  _skipExplorerCapture = value;
+}
+
 /**
  * Get the session data file path.
  */
@@ -79,7 +87,7 @@ function saveTerminalSessionsImmediate() {
 
       const projectId = td.project.id;
       if (!projectSessions[projectId]) {
-        projectSessions[projectId] = { tabs: [], activeCwd: null };
+        projectSessions[projectId] = { tabs: [], activeCwd: null, activeTabIndex: null };
       }
 
       const tab = {
@@ -87,21 +95,47 @@ function saveTerminalSessionsImmediate() {
         isBasic: td.isBasic || false,
         mode: td.mode || 'terminal',
         claudeSessionId: td.claudeSessionId || null,
+        name: td.name || null,
       };
 
       projectSessions[projectId].tabs.push(tab);
 
-      // Track active terminal's cwd
+      // Track active terminal's cwd and tab index
       if (id === activeTerminalId) {
         projectSessions[projectId].activeCwd = tab.cwd;
+        projectSessions[projectId].activeTabIndex = projectSessions[projectId].tabs.length - 1;
+      }
+    }
+
+    // Merge existing explorer state from disk (preserve state for projects not currently active)
+    const existingData = loadSessionData();
+    for (const [pid, existing] of Object.entries((existingData && existingData.projects) || {})) {
+      if (existing.explorer) {
+        if (!projectSessions[pid]) {
+          projectSessions[pid] = { tabs: [], activeCwd: null };
+        }
+        projectSessions[pid].explorer = existing.explorer;
+      }
+    }
+
+    // Override current project's explorer state with live data
+    const currentProject = (selectedFilter !== null && selectedFilter !== undefined && projects[selectedFilter])
+      ? projects[selectedFilter] : null;
+
+    if (currentProject && !_skipExplorerCapture) {
+      if (!projectSessions[currentProject.id]) {
+        projectSessions[currentProject.id] = { tabs: [], activeCwd: null };
+      }
+      try {
+        const FileExplorer = require('../ui/components/FileExplorer');
+        projectSessions[currentProject.id].explorer = FileExplorer.getState();
+      } catch (e) {
+        // FileExplorer not initialized yet — skip
       }
     }
 
     // Determine last opened project
-    let lastOpenedProjectId = null;
-    if (selectedFilter !== null && selectedFilter !== undefined && projects[selectedFilter]) {
-      lastOpenedProjectId = projects[selectedFilter].id;
-    }
+    const lastOpenedProjectId = currentProject ? currentProject.id : null;
 
     const sessionData = {
       version: 1,
@@ -156,6 +190,8 @@ function clearAllSessions() {
 module.exports = {
   loadSessionData,
   saveTerminalSessions,
+  saveTerminalSessionsImmediate,
   clearProjectSessions,
   clearAllSessions,
+  setSkipExplorerCapture,
 };

@@ -74,23 +74,29 @@ async function readDiskCache(projectPath) {
   }
 }
 
+// Pending disk cache writes (batched to avoid blocking the UI thread)
+const _pendingDiskWrites = new Map(); // projectPath → data
+let _diskWriteTimer = null;
+
+function _flushDiskWrites() {
+  const writes = [..._pendingDiskWrites.entries()];
+  _pendingDiskWrites.clear();
+  for (const [projectPath, data] of writes) {
+    const filePath = getDiskCachePath(projectPath);
+    const payload = { _version: 1, _updatedAt: new Date().toISOString(), dashboard: data };
+    fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf-8').catch(() => {});
+  }
+}
+
 /**
- * Write disk cache for a project (sync, small file = fast)
+ * Write disk cache for a project (async + debounced to avoid UI blocking)
  * @param {string} projectPath
  * @param {Object} data
  */
 function writeDiskCache(projectPath, data) {
-  try {
-    const filePath = getDiskCachePath(projectPath);
-    const payload = {
-      _version: 1,
-      _updatedAt: new Date().toISOString(),
-      dashboard: data
-    };
-    fs.writeFileSync(filePath, JSON.stringify(payload), 'utf-8');
-  } catch (e) {
-    // Silently ignore write errors (read-only dirs, etc.)
-  }
+  _pendingDiskWrites.set(projectPath, data);
+  if (_diskWriteTimer) clearTimeout(_diskWriteTimer);
+  _diskWriteTimer = setTimeout(_flushDiskWrites, 1000);
 }
 
 // ========== PROJECT TYPE DETECTION ==========
@@ -141,52 +147,54 @@ async function getPackageDeps(projectPath) {
 }
 
 /**
- * Check if a glob-like pattern matches any file in dir (first level only)
- * @param {string} dir
- * @param {string} pattern - filename or *.ext
- * @returns {boolean}
- */
-function fileMatchExists(dir, pattern) {
-  if (pattern.startsWith('*.')) {
-    // Glob: check extension
-    const ext = pattern.slice(1); // .lua, .sln, etc.
-    try {
-      const entries = fs.readdirSync(dir);
-      return entries.some(e => e.endsWith(ext));
-    } catch (e) {
-      return false;
-    }
-  }
-  return fs.existsSync(path.join(dir, pattern));
-}
-
-/**
- * Detect project type from marker files
+ * Detect project type from marker files.
+ * Optimisation: readdirSync once + getPackageDeps once (lazy), then pure in-memory checks.
  * @param {string} projectPath
  * @returns {Promise<{ type: string, label: string, color: string }|null>}
  */
 async function detectProjectType(projectPath) {
   try {
-    let deps = null; // lazy-loaded
+    // Read directory listing once (covers all *.ext glob patterns + exact filenames)
+    let dirEntries = null;
+    const getDirEntries = () => {
+      if (dirEntries === null) {
+        try { dirEntries = fs.readdirSync(projectPath); } catch { dirEntries = []; }
+      }
+      return dirEntries;
+    };
+
+    // Parse package.json once (lazy)
+    let deps = null;
+    const getDeps = async () => {
+      if (deps === null) deps = await getPackageDeps(projectPath);
+      return deps;
+    };
 
     for (const marker of PROJECT_TYPE_MARKERS) {
-      // Check file markers
+      // Check file markers using cached dir listing
       if (marker.files) {
-        const hasFile = marker.files.some(f => fileMatchExists(projectPath, f));
+        const entries = getDirEntries();
+        const hasFile = marker.files.some(f => {
+          if (f.startsWith('*.')) {
+            const ext = f.slice(1); // e.g. '.lua'
+            return entries.some(e => e.endsWith(ext));
+          }
+          return entries.includes(f);
+        });
         if (hasFile) {
-          // For markers with deps, need to also check deps (e.g. next needs package.json AND next dep)
           if (!marker.deps) return { type: marker.type, label: marker.label, color: marker.color };
         } else if (!marker.deps) {
           continue;
         }
       }
 
-      // Check dependency markers
+      // Check dependency markers (package.json parsed at most once)
       if (marker.deps) {
-        if (!deps) deps = await getPackageDeps(projectPath);
-        if (deps.size === 0) continue;
-        const hasDep = marker.deps.some(d => deps.has(d));
-        if (hasDep) return { type: marker.type, label: marker.label, color: marker.color };
+        const d = await getDeps();
+        if (d.size === 0) continue;
+        if (marker.deps.some(dep => d.has(dep))) {
+          return { type: marker.type, label: marker.label, color: marker.color };
+        }
       }
     }
 

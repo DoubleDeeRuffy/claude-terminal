@@ -34,7 +34,8 @@ function execGit(cwd, args, timeout = 10000) {
 
     // Manual timeout with explicit kill (exec timeout doesn't kill the process)
     const timer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch (_) {}
+      try { child.kill('SIGTERM'); } catch (_) {}
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, 1000);
       resolve(null);
     }, timeout);
 
@@ -66,7 +67,8 @@ function spawnGit(cwd, args, opts = {}) {
     });
 
     const timer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch (_) {}
+      try { child.kill('SIGTERM'); } catch (_) {}
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, 1000);
       resolve({ success: false, error: 'Git command timed out' });
     }, timeout);
 

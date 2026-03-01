@@ -27,6 +27,7 @@ const { registerCloudHandlers, setCloudMainWindow } = require('./cloud.ipc');
 const { registerDatabaseHandlers } = require('./database.ipc');
 const { registerTelemetryHandlers } = require('./telemetry.ipc');
 const { registerExplorerHandlers } = require('./explorer.ipc');
+const { registerTimeHandlers } = require('./time.ipc');
 
 /**
  * Register all IPC handlers
@@ -62,6 +63,7 @@ function registerAllHandlers(mainWindow) {
   registerDatabaseHandlers();
   registerTelemetryHandlers();
   registerExplorerHandlers(mainWindow);
+  registerTimeHandlers();
 }
 
 module.exports = {

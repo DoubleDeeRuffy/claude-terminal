@@ -82,7 +82,8 @@
     "resumeError": "Unable to resume session",
     "messages": "{count} msgs",
     "loading": "Initializing Claude Code...",
-    "loadingHint": "This may take a few seconds"
+    "loadingHint": "This may take a few seconds",
+    "resumeSession": "Resume Claude session"
   },
   "git": {
     "noRemote": "No remote",
@@ -1334,6 +1335,12 @@
     "ctrlClickToOpen": "Ctrl+click to open",
     "searchPlaceholder": "Search in document...",
     "noResults": "No results"
+  },
+  "tabs": {
+    "rename": "Rename",
+    "close": "Close",
+    "closeOthers": "Close Others",
+    "closeToRight": "Close Tabs to Right"
   },
   "telemetry": {
     "consentTitle": "Help Improve Claude Terminal",

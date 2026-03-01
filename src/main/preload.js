@@ -434,6 +434,11 @@ contextBridge.exposeInMainWorld('electron_api', {
     setCredential:   (params)  => ipcRenderer.invoke('database-set-credential', params),
   },
 
+  // ==================== TIME TRACKING ====================
+  time: {
+    getStats: (config) => ipcRenderer.invoke('time:get-stats', config),
+  },
+
   // ==================== WORKFLOW AUTOMATION ====================
   workflow: {
     // CRUD
@@ -457,12 +462,14 @@ contextBridge.exposeInMainWorld('electron_api', {
     // Graph & utilities
     getDependencyGraph: ()           => ipcRenderer.invoke('workflow-dependency-graph'),
     validateCron:     (expr)         => ipcRenderer.invoke('workflow-validate-cron', { expr }),
+    getNodeRegistry:  ()             => ipcRenderer.invoke('workflow:get-node-registry'),
     // Real-time event listeners
     onRunStart:       createListener('workflow-run-start'),
     onRunEnd:         createListener('workflow-run-end'),
     onRunQueued:      createListener('workflow-run-queued'),
     onStepUpdate:     createListener('workflow-step-update'),
     onAgentMessage:   createListener('workflow-agent-message'),
+    onLoopProgress:   createListener('workflow-loop-progress'),
     onNotifyDesktop:  createListener('workflow-notify-desktop'),
     onListUpdated:    createListener('workflow-list-updated'),
   }

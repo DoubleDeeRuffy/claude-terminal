@@ -10,6 +10,8 @@ const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
 const { heartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
+const { updateTerminal } = require('../../state/terminals.state');
+const { saveTerminalSessions } = require('../../services/TerminalSessionService');
 
 const MODEL_OPTIONS = [
   { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable for complex work' },
@@ -463,8 +465,15 @@ function createChatView(wrapperEl, project, options = {}) {
     }
   });
 
+  // Track Shift key state independently to avoid e.shiftKey race condition on fast Shift+Enter
+  let shiftHeld = false;
+  const _onShiftBlur = () => { shiftHeld = false; };
+  wrapperEl.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftHeld = false; }, true);
+  window.addEventListener('blur', _onShiftBlur);
+
   // Ctrl+Arrow to switch terminals/projects (capture phase to intercept before textarea)
   wrapperEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift') shiftHeld = true;
     if (e.ctrlKey && !e.shiftKey && !e.altKey) {
       if (e.key === 'ArrowLeft' && onSwitchTerminal) { e.preventDefault(); e.stopPropagation(); onSwitchTerminal('left'); return; }
       if (e.key === 'ArrowRight' && onSwitchTerminal) { e.preventDefault(); e.stopPropagation(); onSwitchTerminal('right'); return; }
@@ -539,7 +548,7 @@ function createChatView(wrapperEl, project, options = {}) {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !shiftHeld && !e.shiftKey && !e.getModifierState('Shift')) {
       e.preventDefault();
       handleSend();
     }
@@ -1374,6 +1383,12 @@ function createChatView(wrapperEl, project, options = {}) {
       } else {
         card.querySelectorAll('.chat-question-option').forEach(b => b.classList.remove('selected'));
         optionBtn.classList.add('selected');
+      }
+      // Update markdown preview if present
+      const group = optionBtn.closest('.chat-question-group');
+      const preview = group?.querySelector('.chat-question-preview');
+      if (preview && optionBtn.dataset.markdown) {
+        preview.innerHTML = renderMarkdown(optionBtn.dataset.markdown);
       }
       return;
     }
@@ -2445,17 +2460,26 @@ function createChatView(wrapperEl, project, options = {}) {
 
     let questionsHtml = '';
     questions.forEach((q, i) => {
+      const hasMarkdown = (q.options || []).some(opt => opt.markdown);
       const optionsHtml = (q.options || []).map(opt =>
-        `<button class="chat-question-option" data-label="${escapeHtml(opt.label)}">
+        `<button class="chat-question-option" data-label="${escapeHtml(opt.label)}"${opt.markdown ? ` data-markdown="${escapeHtml(opt.markdown)}"` : ''}>
           <span class="chat-qo-label">${escapeHtml(opt.label)}</span>
           <span class="chat-qo-desc">${escapeHtml(opt.description || '')}</span>
         </button>`
       ).join('');
 
+      const firstMarkdown = q.options?.find(o => o.markdown)?.markdown || '';
+      const previewHtml = hasMarkdown
+        ? `<div class="chat-question-preview">${renderMarkdown(firstMarkdown)}</div>`
+        : '';
+
       questionsHtml += `
-        <div class="chat-question-group${i === 0 ? ' active' : ''}" data-step="${i}">
+        <div class="chat-question-group${i === 0 ? ' active' : ''}${hasMarkdown ? ' has-preview' : ''}" data-step="${i}">
           <p class="chat-question-text">${escapeHtml(q.question)}</p>
-          <div class="chat-question-options">${optionsHtml}</div>
+          <div class="chat-question-split">
+            <div class="chat-question-options">${optionsHtml}</div>
+            ${previewHtml}
+          </div>
           <div class="chat-question-custom">
             <input type="text" class="chat-question-custom-input" placeholder="${escapeHtml(t('chat.otherPlaceholder') || 'Or type your own answer...')}" />
           </div>
@@ -3039,7 +3063,14 @@ function createChatView(wrapperEl, project, options = {}) {
     if (!content) return;
 
     // Capture real SDK session UUID (needed for fork/resume)
-    if (msg.session_id) sdkSessionId = msg.session_id;
+    if (msg.session_id && msg.session_id !== sdkSessionId) {
+      sdkSessionId = msg.session_id;
+      // Propagate new session ID to termData for persistence (fixes /clear not saving new ID)
+      if (terminalId) {
+        updateTerminal(terminalId, { claudeSessionId: msg.session_id });
+        saveTerminalSessions();
+      }
+    }
 
     // Store message UUID on the assistant DOM element (used for fork)
     if (msg.uuid) {
@@ -3419,6 +3450,7 @@ function createChatView(wrapperEl, project, options = {}) {
       pendingImages.length = 0;
       lightboxImages.length = 0;
       // Remove global listeners
+      window.removeEventListener('blur', _onShiftBlur);
       document.removeEventListener('click', _closeDropdowns);
       document.removeEventListener('keydown', lightboxKeyHandler);
       if (lightboxEl?.parentNode) lightboxEl.parentNode.removeChild(lightboxEl);

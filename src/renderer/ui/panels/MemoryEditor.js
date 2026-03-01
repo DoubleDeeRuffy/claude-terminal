@@ -173,6 +173,45 @@ async function loadMemory() {
   renderMemorySources();
   await loadMemoryContent('global');
   setupMemoryEventListeners();
+  initMemorySidebarResizer();
+}
+
+function initMemorySidebarResizer() {
+  const resizer = document.getElementById('memory-sidebar-resizer');
+  const panel = document.querySelector('.memory-sidebar');
+  if (!resizer || !panel) return;
+
+  let startX, startWidth;
+
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+    resizer.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev) => {
+      const newWidth = Math.min(500, Math.max(150, startWidth + (ev.clientX - startX)));
+      panel.style.width = newWidth + 'px';
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      resizer.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const { settingsState, saveSettingsImmediate } = require('../../state/settings.state');
+      settingsState.setProp('memorySidebarWidth', panel.offsetWidth);
+      saveSettingsImmediate();
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
 }
 
 function renderMemorySources(filter = '') {

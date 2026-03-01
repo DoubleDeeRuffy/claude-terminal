@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; img-src 'self' data: blob: https:; connect-src 'self' https://api.github.com https://api.anthropic.com https://registry.modelcontextprotocol.io https://skills.sh https://telemetry.claudeterminal.dev; style-src 'self' 'unsafe-inline'; navigate-to 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; img-src 'self' data: blob: https:; connect-src 'self' https://api.github.com https://api.anthropic.com https://registry.modelcontextprotocol.io https://skills.sh https://telemetry.claudeterminal.dev https://claude-terminal-hub.claudeterminal.workers.dev; style-src 'self' 'unsafe-inline'; navigate-to 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Claude Terminal</title>
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
@@ -291,6 +291,12 @@
               </button>
               <div class="terminals-filter" id="terminals-filter" style="display: none;">
                 <span class="filter-project" id="filter-project-name"></span>
+                <button class="filter-resume-session-btn" id="btn-resume-session" data-i18n-title="terminals.resumeSession">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21h6"/>
+                    <path d="M12 2a7 7 0 0 1 4 12.9V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.1A7 7 0 0 1 12 2z"/>
+                  </svg>
+                </button>
                 <button class="filter-new-terminal-btn" id="btn-new-terminal" title="New terminal (Ctrl+T)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"/>
@@ -708,6 +714,7 @@
               </div>
               <div id="memory-projects-list"></div>
             </div>
+            <div class="panel-resizer" id="memory-sidebar-resizer"></div>
           </div>
           <div class="memory-main">
             <div class="memory-header">
