@@ -89,10 +89,10 @@ Plans:
 **Goal:** Implement a VSCode-style splitview for terminals and file tabs — drag a tab to the right side to split the view into two independent panes, each with its own tab bar and per-pane context menu actions.
 **Requirements**: [SPLIT-INFRA] PaneManager abstraction with container routing; [SPLIT-ACTIVE] Pane-aware setActiveTerminal and filterByProject; [SPLIT-TRIGGER] Context menu Split Right action; [SPLIT-MOVE] Move Right/Move Left between panes; [SPLIT-DROPZONE] VSCode-style drag-to-split with overlay; [SPLIT-COLLAPSE] Auto-collapse empty panes; [SPLIT-PERSIST] Full pane layout persistence across restarts.
 **Depends on:** —
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
-- [ ] Plan 31A: PaneManager infrastructure and DOM refactoring (zero behavioral change)
-- [ ] Plan 31B: Pane-aware activation and filtering
+- [x] Plan 31A: PaneManager infrastructure and DOM refactoring (zero behavioral change)
+- [x] Plan 31B: Pane-aware activation and filtering
 - [ ] Plan 31C: Split triggers, drag-to-split, and pane collapse
 - [ ] Plan 31D: Pane layout persistence and restore

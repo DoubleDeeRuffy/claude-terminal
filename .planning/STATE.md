@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Consolidations
 status: active
-last_updated: "2026-03-01T00:00:00.000Z"
+last_updated: "2026-03-01T08:01:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -16,9 +16,9 @@ progress:
 ## Current Position
 
 Phase: 31 (Tab-Splitview) — IN PROGRESS
-Plan: 31B of 31A-31D — 4 plans in 4 waves (31A complete)
-Status: 31A complete, ready for 31B execution
-Last activity: 2026-03-01 — 31A complete (PaneManager infrastructure, all getElementById calls refactored)
+Plan: 31C of 31A-31D — 4 plans in 4 waves (31A, 31B complete)
+Status: 31B complete, ready for 31C execution
+Last activity: 2026-03-01 — 31B complete (pane-aware activation, per-pane tab tracking, pane-aware filterByProject)
 
 ## Accumulated Context
 
@@ -37,3 +37,4 @@ Last activity: 2026-03-01 — 31A complete (PaneManager infrastructure, all getE
 - Phase 30 added: Support-NSIS-Silent
 - Phase 31 added: Tab-Splitview (4 plans: infra, activation, triggers, persistence)
 - Phase 31A complete: PaneManager module with container accessors, all 14 getElementById calls refactored
+- Phase 31B complete: Pane-scoped setActiveTerminal, per-pane active tab tracking, pane-aware filterByProject
