@@ -1118,9 +1118,16 @@ class WorkflowRunner {
           const iterationResults = [];
           const isParallel = step.mode === 'parallel';
 
+          // Helper: emit live loop progress after each iteration completes
+          const _emitLoopProgress = (doneResults) => {
+            const partial = { items: doneResults, count: items.length, done: doneResults.length };
+            this._send('workflow-loop-progress', { runId, stepId: step.id, loopOutput: partial });
+          };
+
           if (isParallel && eachTargets.length) {
             // Parallel execution: each iteration gets its own AbortController child
             // and its own stepOutputs map to avoid cross-iteration data races.
+            const doneResults = new Array(items.length).fill(null);
             const promises = items.map(async (item, idx) => {
               if (signal.aborted) throw new Error('Cancelled');
               // Child controller: one listener on parent signal instead of many
@@ -1138,7 +1145,10 @@ class WorkflowRunner {
                   eachTargets, nodeById, outgoing, incoming, iterVars, runId, iterAbort.signal, iterStepOutputs, workflow
                 );
                 for (const nid of visitedNodes) allBodyVisited.add(nid);
-                return { ...outputs, _item: item };
+                const iterResult = { ...outputs, _item: item };
+                doneResults[idx] = iterResult;
+                _emitLoopProgress(doneResults.filter(Boolean));
+                return iterResult;
               } finally {
                 signal.removeEventListener('abort', onParentAbort);
               }
@@ -1158,8 +1168,10 @@ class WorkflowRunner {
               const { outputs, visitedNodes } = await this._executeSubGraph(
                 eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
               );
-              iterationResults.push({ ...outputs, _item: items[idx] });
+              const iterResult = { ...outputs, _item: items[idx] };
+              iterationResults.push(iterResult);
               for (const nid of visitedNodes) allBodyVisited.add(nid);
+              _emitLoopProgress([...iterationResults]);
             }
           }
 
