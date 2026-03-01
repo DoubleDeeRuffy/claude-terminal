@@ -1437,8 +1437,14 @@ function setActiveTerminal(id) {
       termData.fitAddon.fit();
       termData.terminal.focus();
       // Auto-scroll to bottom on tab/project switch (Phase 20.1)
+      // Deferred: fit() triggers async reflow in xterm (especially for previously-hidden
+      // terminals after restore). Immediate scrollToBottom() fires before the buffer
+      // reflow completes, leaving scroll at mid-content. RAF + microtask ensures xterm
+      // has finished processing the resize before we scroll.
       if (getSetting('autoScrollOnSwitch') !== false) {
-        termData.terminal.scrollToBottom();
+        requestAnimationFrame(() => {
+          try { termData.terminal.scrollToBottom(); } catch (e) { /* terminal gone */ }
+        });
       }
     }
 
@@ -4505,7 +4511,7 @@ function cleanupProjectMaps(projectIndex) {
  * @param {string} id - Terminal ID
  */
 function scheduleScrollAfterRestore(id) {
-  const SILENCE_MS = 300;   // 300ms no new data = replay done
+  const SILENCE_MS = 500;   // 500ms no new data = replay done (300ms was too aggressive — Claude --resume can have natural pauses between replay chunks)
   const MAX_WAIT_MS = 8000; // hard fallback — scroll regardless after 8s
   const POLL_MS = 50;       // polling interval
 
