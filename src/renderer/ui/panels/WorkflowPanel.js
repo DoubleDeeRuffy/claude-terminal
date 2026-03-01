@@ -2571,7 +2571,10 @@ workflow/trigger — Entry point (always the first node, required)
 
 workflow/claude — AI task
   mode: prompt | agent | skill
-  prompt, model, effort
+  prompt, model (e.g. "sonnet", "haiku", "opus"), effort (low | medium | high | max)
+  maxTurns (default 30), cwd (working directory, defaults to project context)
+  skillId (skill name when mode=skill)
+  outputSchema (array of {name, type} for structured JSON output)
   Exec outputs: slot0=Done, slot1=Error
   Data outputs: output (string)
 
@@ -2640,6 +2643,29 @@ workflow/get_variable — Read a variable (pure data node, NO exec pins)
   NOTE: This node has no exec input/output. Connect its data output directly to another node's data input.
   Use workflow_get_variables to discover existing variables before adding this node.
 
+workflow/transform — Data transformation
+  operation: map | filter | find | reduce | pluck | count | sort | unique | flatten | json_parse | json_stringify
+  input ($var pointing to data), expression (JS expression with item/index)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: result (any)
+
+workflow/subworkflow — Trigger another workflow
+  workflow (name or ID of the target workflow)
+  inputVars (JSON object or key=value pairs to pass as variables)
+  waitForCompletion: true | false (default true, waits up to 10min)
+  Exec outputs: slot0=Done, slot1=Error
+  Data outputs: outputs (object)
+
+workflow/switch — Multi-branch routing (like switch/case)
+  variable ($var to evaluate), cases (comma-separated values e.g. "success,warning,error")
+  Each case creates an exec output slot (slot0=first case, slot1=second, etc.), last slot=default
+  No data outputs
+
+workflow/project — Set project context
+  action: set_context | open | build | install | test
+  projectId (project to target)
+  Exec output: slot0=Done
+
 DATA PIN CONNECTION SLOTS (for workflow_connect_nodes):
 When connecting data pins, slot indices start AFTER the exec slots:
   shell: stdout=slot2, stderr=slot3, exitCode=slot4
@@ -2650,6 +2676,8 @@ When connecting data pins, slot indices start AFTER the exec slots:
   variable: value=slot1
   get_variable: value=slot0
   claude: output=slot2
+  transform: result=slot2
+  subworkflow: outputs=slot2
 
 AVAILABLE VARIABLES IN PROPERTIES (legacy $var syntax, still works):
 $ctx.project — current project name
