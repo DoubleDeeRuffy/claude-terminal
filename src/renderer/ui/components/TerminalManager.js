@@ -951,6 +951,7 @@ function setupTabDragDrop(tab) {
     tab.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', tab.dataset.id);
+    PaneManager.setDragTabId(tab.dataset.id);
 
     // Create placeholder
     dragPlaceholder = document.createElement('div');
@@ -960,6 +961,8 @@ function setupTabDragDrop(tab) {
   tab.addEventListener('dragend', () => {
     tab.classList.remove('dragging');
     draggedTab = null;
+    PaneManager.clearDragTabId();
+    PaneManager.hideAllDropOverlays();
     if (dragPlaceholder && dragPlaceholder.parentNode) {
       dragPlaceholder.remove();
     }
@@ -970,7 +973,13 @@ function setupTabDragDrop(tab) {
     });
   });
 
+  tab.addEventListener('dragleave', () => {
+    tab.classList.remove('drag-over-left', 'drag-over-right');
+  });
+
   tab.addEventListener('dragover', (e) => {
+    // Stop propagation to prevent content-area overlay flickering when hovering over tabs
+    e.stopPropagation();
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
@@ -985,26 +994,65 @@ function setupTabDragDrop(tab) {
     tab.classList.add(isLeft ? 'drag-over-left' : 'drag-over-right');
   });
 
-  tab.addEventListener('dragleave', () => {
-    tab.classList.remove('drag-over-left', 'drag-over-right');
-  });
-
   tab.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation(); // prevent content-area handler
     tab.classList.remove('drag-over-left', 'drag-over-right');
 
     if (!draggedTab || draggedTab === tab) return;
 
-    const tabsContainer = draggedTab.closest('.pane-tabs');
+    const targetTabsContainer = tab.closest('.pane-tabs');
+    const sourceTabsContainer = draggedTab.closest('.pane-tabs');
+
     const rect = tab.getBoundingClientRect();
     const midX = rect.left + rect.width / 2;
     const insertBefore = e.clientX < midX;
 
-    if (insertBefore) {
-      tabsContainer.insertBefore(draggedTab, tab);
+    // Cross-pane tab-bar drop: move tab to target pane
+    if (sourceTabsContainer !== targetTabsContainer) {
+      const targetPaneEl = tab.closest('.split-pane');
+      const targetPaneId = 'pane-' + targetPaneEl.dataset.paneId;
+      const draggedId = draggedTab.dataset.id;
+
+      // Move wrapper to target pane's content
+      const wrapperEl = document.querySelector(`.terminal-wrapper[data-id="${draggedId}"]`);
+      const targetContentEl = targetPaneEl.querySelector('.pane-content');
+      if (wrapperEl && targetContentEl) targetContentEl.appendChild(wrapperEl);
+
+      // Insert tab at correct position in target tab bar
+      if (insertBefore) {
+        targetTabsContainer.insertBefore(draggedTab, tab);
+      } else {
+        targetTabsContainer.insertBefore(draggedTab, tab.nextSibling);
+      }
+
+      // Update PaneManager state
+      const sourcePaneEl = sourceTabsContainer.closest('.split-pane');
+      const sourcePaneId = 'pane-' + sourcePaneEl.dataset.paneId;
+      const sourcePane = PaneManager.getPanes().get(sourcePaneId);
+      const targetPane = PaneManager.getPanes().get(targetPaneId);
+
+      if (sourcePane) sourcePane.tabs.delete(draggedId);
+      if (targetPane) targetPane.tabs.add(draggedId);
+
+      // Activate the moved tab
+      setActiveTerminal(draggedId);
+
+      // Collapse source pane if empty
+      if (sourcePane && sourcePane.tabs.size === 0 && PaneManager.getPaneCount() > 1) {
+        PaneManager.collapsePane(sourcePaneId);
+      }
     } else {
-      tabsContainer.insertBefore(draggedTab, tab.nextSibling);
+      // Same pane: reorder (existing behavior)
+      if (insertBefore) {
+        targetTabsContainer.insertBefore(draggedTab, tab);
+      } else {
+        targetTabsContainer.insertBefore(draggedTab, tab.nextSibling);
+      }
     }
+
+    PaneManager.clearDragTabId();
+    PaneManager.hideAllDropOverlays();
   });
 }
 

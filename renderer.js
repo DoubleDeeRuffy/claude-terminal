@@ -195,6 +195,11 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   });
   PaneManager.setupPaneFocusHandlers();
 
+  // Wire tab-moved callback for drag-to-split (activates moved tab)
+  PaneManager.setOnTabMoved((termId) => {
+    TerminalManager.setActiveTerminal(termId);
+  });
+
   // Restore terminal sessions from previous run
   try {
     const { setSkipExplorerCapture } = require('./src/renderer/services/TerminalSessionService');

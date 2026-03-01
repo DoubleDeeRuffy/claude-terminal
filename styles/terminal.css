@@ -78,6 +78,26 @@
   pointer-events: auto;
 }
 
+/* Drop zone overlay for split-by-drag */
+.split-drop-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 50%;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.split-drop-overlay.visible {
+  opacity: 1;
+}
+
 /* Empty state sits outside pane area and overlays everything */
 .terminals-panel > .empty-state {
   position: absolute;
