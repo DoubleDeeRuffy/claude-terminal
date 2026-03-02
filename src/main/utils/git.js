@@ -225,7 +225,7 @@ async function checkoutBranch(projectPath, branch) {
  * @returns {Promise<Array>} - List of stash entries
  */
 async function getStashes(projectPath) {
-  const output = await execGit(projectPath, 'stash list --format="%gd|%s|%ar"');
+  const output = await execGit(projectPath, 'stash list --format=%gd|%s|%ar');
   if (!output) return [];
   return output.split('\n').filter(l => l.trim()).map(line => {
     const [ref, message, date] = line.split('|');

@@ -117,7 +117,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 14px;
+  padding: 5px 10px;
   background: rgba(0, 0, 0, 0.15);
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   flex-shrink: 0;
@@ -259,7 +259,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 16px;
+  padding: 6px 10px;
   background: rgba(0, 0, 0, 0.18);
   cursor: pointer;
   user-select: none;
@@ -369,8 +369,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px;
+  padding: 5px 10px;
   cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .git-file-item-row:hover {
@@ -708,6 +710,7 @@
   padding: 2px 0 4px;
   max-height: 80px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .git-changes-stash-list::-webkit-scrollbar { width: 3px; }
@@ -747,6 +750,10 @@
   font-weight: 600;
   flex-shrink: 0;
   opacity: 0.85;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .git-changes-stash-msg {
@@ -755,6 +762,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .git-changes-stash-date {
