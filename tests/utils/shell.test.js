@@ -1,5 +1,6 @@
 const originalPlatform = process.platform;
 const originalShell = process.env.SHELL;
+const fs = require('fs');
 
 // Helper to mock process.platform
 function setPlatform(platform) {
@@ -19,6 +20,7 @@ afterEach(() => {
   } else {
     delete process.env.SHELL;
   }
+  jest.restoreAllMocks();
 });
 
 describe('getShell', () => {
@@ -28,16 +30,18 @@ describe('getShell', () => {
     expect(getShell()).toEqual({ path: 'cmd.exe', args: [] });
   });
 
-  test('returns $SHELL on macOS', () => {
+  test('returns $SHELL on macOS when it exists', () => {
     setPlatform('darwin');
     process.env.SHELL = '/bin/zsh';
+    jest.spyOn(fs, 'existsSync').mockImplementation((p) => p === '/bin/zsh');
     const { getShell } = loadShell();
     expect(getShell()).toEqual({ path: '/bin/zsh', args: [] });
   });
 
-  test('returns $SHELL on Linux', () => {
+  test('returns $SHELL on Linux when it exists', () => {
     setPlatform('linux');
     process.env.SHELL = '/usr/bin/fish';
+    jest.spyOn(fs, 'existsSync').mockImplementation((p) => p === '/usr/bin/fish');
     const { getShell } = loadShell();
     expect(getShell()).toEqual({ path: '/usr/bin/fish', args: [] });
   });
@@ -45,6 +49,7 @@ describe('getShell', () => {
   test('falls back to /bin/bash when $SHELL is not set', () => {
     setPlatform('linux');
     delete process.env.SHELL;
+    jest.spyOn(fs, 'existsSync').mockImplementation((p) => p === '/bin/bash');
     const { getShell } = loadShell();
     expect(getShell()).toEqual({ path: '/bin/bash', args: [] });
   });

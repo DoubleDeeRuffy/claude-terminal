@@ -160,16 +160,15 @@ const postSpinnerExtended = new Set();   // ids where spinner was seen
 const terminalSubstatus = new Map();     // id -> 'thinking' | 'tool_calling'
 const lastTerminalData = new Map();      // id -> timestamp of last PTY data
 const terminalContext = new Map();        // id -> { taskName, lastTool, toolCount, duration }
+// ── Per-project activation history stack (browser-like tab-close behavior) ──
+// Map<projectId, number[]> — most-recently-activated tab ID is the last element
+const tabActivationHistory = new Map();
 
 // ── Per-project active tab tracking (in-memory, within-session only) ──
 // Track last-active terminal ID per project (so switching back to a project restores the tab)
 const lastActivePerProject = new Map();
 // Track scroll position per terminal at leave-time (for scroll restoration on project switch)
 const savedScrollPositions = new Map();
-// ── Per-project activation history stack (Phase 23 — browser-like tab-close behavior) ──
-// Map<projectId, number[]> — most-recently-activated tab ID is the last element
-const tabActivationHistory = new Map();
-
 /**
  * Scan terminal buffer for definitive completion signals.
  *
@@ -672,7 +671,8 @@ function eventToNormalizedKey(e) {
 
 function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal-input') {
   let shiftHeld = false;
-  window.addEventListener('blur', () => { shiftHeld = false; });
+  const _onBlur = () => { shiftHeld = false; };
+  window.addEventListener('blur', _onBlur);
   return (e) => {
     // Check rebound terminal shortcuts (ctrlC / ctrlV) at call-time — read from settings
     if (e.ctrlKey && e.type === 'keydown') {
@@ -1127,7 +1127,7 @@ function updateTerminalTabName(id, name) {
       nameSpan.textContent = name;
     }
   }
-  // Phase 16: persist name change (debounced)
+  // Persist name change (debounced)
   const TerminalSessionService = require('../../services/TerminalSessionService');
   TerminalSessionService.saveTerminalSessions();
 }
@@ -1271,7 +1271,9 @@ function startRenameTab(id) {
 }
 
 /**
- * Show right-click context menu on a tab (Rename, Close, Close Others, Close to Right)
+ * Show right-click context menu on a tab (Rename, Close, Close Others, Close to Right, Split)
+ * @param {MouseEvent} e - The contextmenu event
+ * @param {string} id - Tab/terminal ID
  */
 function showTabContextMenu(e, id) {
   e.preventDefault();
@@ -1480,11 +1482,15 @@ function setActiveTerminal(id) {
     // Record this terminal as last-active for its project
     if (newProjectId) {
       lastActivePerProject.set(newProjectId, id);
-      // Append to per-project activation history (Phase 23 — browser-like tab-close)
+      // Append to per-project activation history (browser-like tab-close)
       if (!tabActivationHistory.has(newProjectId)) {
         tabActivationHistory.set(newProjectId, []);
       }
-      tabActivationHistory.get(newProjectId).push(id);
+      const history = tabActivationHistory.get(newProjectId);
+      if (history[history.length - 1] !== id) {
+        history.push(id);
+        if (history.length > 50) history.shift();
+      }
     }
 
     // Restore scroll position of the incoming terminal (deferred until DOM is visible)
@@ -1621,7 +1627,7 @@ function closeTerminal(id) {
     }
   }
 
-  // Walk back activation history to find the previously-active tab (Phase 23)
+  // Walk back activation history to find the previously-active tab
   if (!sameProjectTerminalId && closedProjectId) {
     const history = tabActivationHistory.get(closedProjectId);
     if (history) {
@@ -4265,8 +4271,7 @@ async function createChatTerminal(project, options = {}) {
     onSessionStart: (sid) => {
       _chatSessionId = sid;
       // Persist session ID on termData for TerminalSessionService (fresh sessions)
-      const data = getTerminal(id);
-      if (data) data.claudeSessionId = sid;
+      updateTerminal(id, { claudeSessionId: sid });
       if (onSessionStart) onSessionStart(sid);
     },
     onTabRename: (name) => {
@@ -4274,7 +4279,7 @@ async function createChatTerminal(project, options = {}) {
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
-      // Phase 19: propagate tab name to session-names.json (resume dialog)
+      // Propagate tab name to session-names.json (resume dialog)
       if (_chatSessionId && name) {
         setSessionCustomName(_chatSessionId, name);
       }
@@ -4536,15 +4541,15 @@ function cleanupProjectMaps(projectIndex) {
  * Schedule a scroll-to-bottom for a restored terminal once PTY data goes silent.
  *
  * After app restart or --resume, PTY replay streams data through the adaptive batcher
- * (4–32ms per IPC batch) for an unbounded duration proportional to session history size.
+ * (4-32ms per IPC batch) for an unbounded duration proportional to session history size.
  * A fixed timeout cannot reliably cover all sessions. Instead, we poll lastTerminalData
- * (already maintained per terminal) and scroll once 300ms of silence is observed, or
+ * (already maintained per terminal) and scroll once 500ms of silence is observed, or
  * after 8s unconditionally.
  *
  * @param {string} id - Terminal ID
  */
 function scheduleScrollAfterRestore(id) {
-  const SILENCE_MS = 500;   // 500ms no new data = replay done (300ms was too aggressive — Claude --resume can have natural pauses between replay chunks)
+  const SILENCE_MS = 500;   // 500ms no new data = replay done (300ms was too aggressive for resume pauses)
   const MAX_WAIT_MS = 8000; // hard fallback — scroll regardless after 8s
   const POLL_MS = 50;       // polling interval
 

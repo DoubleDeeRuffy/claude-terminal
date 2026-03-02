@@ -11,7 +11,14 @@ function getShell() {
   if (process.platform === 'win32') {
     return { path: 'cmd.exe', args: [] };
   }
-  return { path: process.env.SHELL || '/bin/bash', args: [] };
+  // Prefer $SHELL env var (set by the user's login shell), fall back to known shells
+  if (process.env.SHELL && require('fs').existsSync(process.env.SHELL)) {
+    return { path: process.env.SHELL, args: [] };
+  }
+  for (const s of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
+    if (require('fs').existsSync(s)) return { path: s, args: [] };
+  }
+  return { path: '/bin/sh', args: [] };
 }
 
 /**

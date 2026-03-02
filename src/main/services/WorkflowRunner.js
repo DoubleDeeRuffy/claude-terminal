@@ -46,19 +46,28 @@ function resolveVars(value, vars) {
     const parts = singleVarMatch[1].split('.');
     let cur = vars.get(parts[0]);
     for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
-    if (cur != null) return cur;
+    if (cur != null) {
+      // Trim trailing CR/LF from shell command outputs (e.g. `date` on Windows)
+      return typeof cur === 'string' ? cur.replace(/[\r\n]+$/, '') : cur;
+    }
   }
 
   // Mixed text with variables: interpolate as strings
   return value.replace(/\$([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)/g, (match, key) => {
     const parts = key.split('.');
-    let cur = vars.get(parts[0]);
-    for (let i = 1; i < parts.length && cur != null; i++) {
-      cur = cur[parts[i]];
+    // Try resolving from longest path down to root variable
+    // e.g. $today.md → try "today.md" (fails) → try "today" + suffix ".md"
+    for (let take = parts.length; take >= 1; take--) {
+      let cur = vars.get(parts[0]);
+      for (let i = 1; i < take && cur != null; i++) cur = cur[parts[i]];
+      if (cur != null && (take === parts.length || typeof cur !== 'object')) {
+        // Trim CR/LF that shell commands often append (e.g. `date` output on Windows)
+        const resolved = typeof cur === 'object' ? JSON.stringify(cur) : String(cur).replace(/[\r\n]+$/, '');
+        const suffix = take < parts.length ? '.' + parts.slice(take).join('.') : '';
+        return resolved + suffix;
+      }
     }
-    if (cur == null) return match;
-    if (typeof cur === 'object') return JSON.stringify(cur);
-    return String(cur);
+    return match; // nothing resolved
   });
 }
 
@@ -78,6 +87,9 @@ function resolveDeep(obj, vars) {
   }
   return obj;
 }
+
+// ─── Data pin output schemas (shared source of truth) ────────────────────────
+const { getOutputKeyForSlot } = require('../../shared/workflow-schema');
 
 // ─── Safe condition evaluation ────────────────────────────────────────────────
 
@@ -107,7 +119,7 @@ function evalCondition(condition, vars) {
   }
 
   // Binary operators (left OP right)
-  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|matches)\s+(.+)$/);
+  const match = resolved.match(/^(.+?)\s*(==|!=|>=|<=|>|<|contains|starts_with|ends_with|matches)\s+(.+)$/);
   if (!match) {
     // Truthy check (non-empty string / non-zero number)
     const val = resolved.trim();
@@ -133,8 +145,12 @@ function evalCondition(condition, vars) {
     case '<=': return numeric && ln <= rn;
     case 'contains':    return left.includes(right);
     case 'starts_with': return left.startsWith(right);
+    case 'ends_with':   return left.endsWith(right);
     case 'matches': {
-      try { return new RegExp(right).test(left); } catch { return false; }
+      try {
+        if (left.length > 10_000) return false; // ReDoS protection: skip huge strings
+        return new RegExp(right).test(left);
+      } catch { return false; }
     }
     default:   return false;
   }
@@ -315,6 +331,44 @@ function assertPathWithinProject(filePath, vars) {
   }
 }
 
+/**
+ * Expand a glob pattern in a base directory and return matching file paths.
+ * Handles simple wildcards (* and **) without requiring a glob library.
+ * Falls back to regex matching if 'glob' npm package is unavailable.
+ */
+function expandGlob(pattern, baseDir) {
+  // Build a regex from the glob pattern
+  const toRegex = (pat) => {
+    // Escape special regex chars except * and ?
+    let reStr = pat
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*/g, '\x00DOUBLESTAR\x00')
+      .replace(/\*/g, '[^/\\\\]*')
+      .replace(/\x00DOUBLESTAR\x00/g, '.*')
+      .replace(/\?/g, '[^/\\\\]');
+    return new RegExp('^' + reStr + '$', process.platform === 'win32' ? 'i' : '');
+  };
+
+  const re = toRegex(pattern);
+  const results = [];
+
+  const walk = (dir, rel) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const relPath = rel ? rel + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), relPath);
+      } else {
+        if (re.test(relPath)) results.push(relPath);
+      }
+    }
+  };
+
+  walk(baseDir, '');
+  return results;
+}
+
 async function runFileStep(config, vars) {
   const action  = config.action || 'read';
   const p       = resolveVars(config.path || '', vars);
@@ -322,7 +376,7 @@ async function runFileStep(config, vars) {
   const content = resolveVars(config.content || '', vars);
 
   // Validate paths stay within the project directory
-  if (p) assertPathWithinProject(p, vars);
+  if (p && action !== 'list') assertPathWithinProject(p, vars);
   if (dest) assertPathWithinProject(dest, vars);
 
   switch (action) {
@@ -343,7 +397,48 @@ async function runFileStep(config, vars) {
       fs.rmSync(p, { force: true, recursive: true });
       return { success: true };
     case 'exists':
-      return { exists: fs.existsSync(p) };
+      return { exists: fs.existsSync(p), path: p };
+    case 'move':
+    case 'rename': {
+      if (!dest) throw new Error('File move/rename requires a destination path');
+      assertPathWithinProject(p, vars);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.renameSync(p, dest);
+      return { success: true, from: p, to: dest };
+    }
+    case 'list': {
+      // p is used as the base directory; config.pattern is the glob pattern
+      const baseDir = p || (() => { const ctx = vars.get('ctx') || {}; return ctx.project || process.cwd(); })();
+      if (baseDir) assertPathWithinProject(baseDir, vars);
+      const pattern = resolveVars(config.pattern || '*', vars);
+      const recursive = config.recursive === true || config.recursive === 'true';
+
+      let files;
+      // Simple non-recursive listing (no wildcards crossing directories)
+      if (!recursive && !pattern.includes('**') && !pattern.includes('/')) {
+        let entries;
+        try { entries = fs.readdirSync(baseDir, { withFileTypes: true }); } catch { entries = []; }
+        const re = new RegExp(
+          '^' + pattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '[^/\\\\]*')
+            .replace(/\?/g, '[^/\\\\]') + '$',
+          process.platform === 'win32' ? 'i' : ''
+        );
+        const type = config.type || 'files'; // 'files' | 'dirs' | 'all'
+        files = entries
+          .filter(e => {
+            if (type === 'files' && !e.isFile()) return false;
+            if (type === 'dirs'  && !e.isDirectory()) return false;
+            return re.test(e.name);
+          })
+          .map(e => e.name);
+      } else {
+        files = expandGlob(pattern, baseDir);
+      }
+
+      return { files, count: files.length, dir: baseDir };
+    }
     default:
       throw new Error(`Unknown file action: ${action}`);
   }
@@ -422,7 +517,7 @@ async function runDbStep(config, vars, databaseService) {
 // ─── Project step ─────────────────────────────────────────────────────────────
 
 /**
- * Run a project-related operation (set_context, open, build, install, test).
+ * Run a project-related operation (list, set_context, open, build, install, test).
  * @param {Object} config
  * @param {Map}    vars
  * @param {Function} sendFn
@@ -431,6 +526,23 @@ async function runProjectStep(config, vars, sendFn) {
   const action = config.action || 'set_context';
   const projectId = config.projectId || '';
   const ctx = vars.get('ctx') || {};
+
+  if (action === 'list') {
+    // Read all projects from Claude Terminal data file
+    const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+    try {
+      const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+      const projects = (data.projects || []).map(p => ({
+        id:   p.id,
+        name: p.name,
+        path: p.path,
+        type: p.type || 'general',
+      }));
+      return { projects, count: projects.length, success: true };
+    } catch {
+      return { projects: [], count: 0, success: true };
+    }
+  }
 
   if (action === 'set_context') {
     // Update the workflow context to use this project for subsequent steps
@@ -460,7 +572,8 @@ function runVariableStep(config, vars) {
 
   switch (action) {
     case 'set': {
-      const value = resolveVars(config.value || '', vars);
+      const raw = config.value != null ? config.value : '';
+      const value = resolveVars(raw, vars);
       vars.set(name, value);
       return { name, value, action: 'set' };
     }
@@ -474,7 +587,8 @@ function runVariableStep(config, vars) {
       return { name, value: newValue, action: 'increment' };
     }
     case 'append': {
-      const value = resolveVars(config.value || '', vars);
+      const rawA = config.value != null ? config.value : '';
+      const value = resolveVars(rawA, vars);
       const arr = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
       arr.push(value);
       vars.set(name, arr);
@@ -602,97 +716,41 @@ function buildJsonSchema(fields) {
 async function runAgentStep(config, vars, signal, chatService, onMessage) {
   const mode     = config.mode || 'prompt';
   const prompt   = resolveVars(config.prompt || '', vars);
-  const cwd      = resolveVars(config.cwd || process.cwd(), vars);
+  const ctx      = vars.get('ctx') || {};
+  const home     = require('os').homedir();
+  // Resolve cwd: prefer explicit cwd, then project context (same pattern as git/shell steps)
+  let   cwd      = resolveVars(config.cwd || '', vars) || ctx.project || '';
   const model    = config.model || null;
-  const effort   = config.effort || null;
+  const VALID_EFFORTS = ['low', 'medium', 'high', 'max'];
+  const rawEffort = config.effort || null;
+  const effort   = rawEffort && VALID_EFFORTS.includes(rawEffort) ? rawEffort : null;
   const maxTurns = config.maxTurns || 30;
+
+  // Validate cwd exists on disk — fallback to home dir to avoid ENOENT
+  if (!cwd || !fs.existsSync(cwd)) {
+    console.warn(`[WorkflowRunner] Claude step cwd invalid or missing: "${cwd}", falling back to ${home}`);
+    cwd = home;
+  }
 
   if (signal?.aborted) throw new Error('Cancelled');
 
-  // Build session options based on mode
-  const sessionOpts = {
-    cwd,
-    prompt,
-    permissionMode: 'bypassPermissions',
-    model,
-    effort,
-    maxTurns,
-  };
+  // Build options
+  const opts = { cwd, prompt, model, effort, maxTurns, signal, onMessage };
 
-  // Skill mode: pass skill to SDK
+  // Skill mode
   if (mode === 'skill' && config.skillId) {
-    sessionOpts.skills = [config.skillId];
+    opts.skills = [config.skillId];
   }
 
-  // Structured output: build JSON schema from field definitions
+  // Structured output
   if (config.outputSchema && config.outputSchema.length > 0) {
     const validFields = config.outputSchema.filter(f => f.name);
     if (validFields.length > 0) {
-      sessionOpts.outputFormat = { type: 'json_schema', schema: buildJsonSchema(validFields) };
+      opts.outputFormat = { type: 'json_schema', schema: buildJsonSchema(validFields) };
     }
   }
 
-  return new Promise((resolve, reject) => {
-    let sessionId;
-    let stdout = '';
-    let structuredOutput = null;
-    let cleanup;
-
-    const onAbort = () => {
-      if (sessionId) {
-        try { chatService.interrupt(sessionId); } catch {}
-        try { chatService.closeSession(sessionId); } catch {}
-      }
-      cleanup?.();
-      reject(new Error('Cancelled'));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-
-    let unregisterInterceptor;
-
-    const interceptor = (channel, data) => {
-      if (channel === 'chat-message' && onMessage) onMessage(data.message);
-      if (channel === 'chat-message' && data.message?.type === 'assistant') {
-        const content = data.message?.message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text') stdout += block.text;
-          }
-        }
-      }
-      // Capture structured output from result message
-      if (channel === 'chat-message' && data.message?.type === 'result' && data.message?.structured_output) {
-        structuredOutput = data.message.structured_output;
-      }
-      if (channel === 'chat-done') {
-        signal?.removeEventListener('abort', onAbort);
-        unregisterInterceptor?.();
-        cleanup?.();
-        const result = { output: stdout.trim(), success: true };
-        // Merge structured output fields into step result (accessible as $stepId.fieldName)
-        if (structuredOutput && typeof structuredOutput === 'object') {
-          Object.assign(result, structuredOutput);
-        }
-        resolve(result);
-      }
-      if (channel === 'chat-error') {
-        signal?.removeEventListener('abort', onAbort);
-        unregisterInterceptor?.();
-        cleanup?.();
-        reject(new Error(data.error || 'Agent step failed'));
-      }
-    };
-
-    chatService.startSession(sessionOpts).then(id => {
-      sessionId = id;
-      unregisterInterceptor = chatService.addSessionInterceptor(id, interceptor);
-      cleanup = () => {};
-    }).catch(err => {
-      signal?.removeEventListener('abort', onAbort);
-      unregisterInterceptor?.();
-      reject(err);
-    });
-  });
+  return chatService.runSinglePrompt(opts);
 }
 
 // ─── Notify step ─────────────────────────────────────────────────────────────
@@ -742,6 +800,193 @@ async function runNotifyStep(config, vars, sendFn) {
   return { sent: true, message };
 }
 
+// ─── Time tracking step ──────────────────────────────────────────────────────
+
+/**
+ * Query time tracking data by reading ~/.claude-terminal/timetracking.json directly.
+ * Uses the shared getTimeStats() from time.ipc — no IPC round-trip needed.
+ * @param {Object} config  { action, projectId?, startDate?, endDate? }
+ * @param {Map}    vars
+ */
+function runTimeStep(config, vars) {
+  const { getTimeStats } = require('../ipc/time.ipc');
+  const result = getTimeStats({
+    action:    config.action    || 'get_today',
+    projectId: resolveVars(config.projectId || '', vars) || undefined,
+    startDate: resolveVars(config.startDate || '', vars) || undefined,
+    endDate:   resolveVars(config.endDate   || '', vars) || undefined,
+  });
+  if (result?.error) throw new Error(result.error);
+  return result;
+}
+
+// ─── Transform step ───────────────────────────────────────────────────────────
+
+/**
+ * Apply a data transformation to an array or value.
+ * Supported operations: map, filter, reduce, find, pluck, count, sort, unique, flatten, json_parse, json_stringify
+ */
+function runTransformStep(config, vars) {
+  const operation = config.operation || 'map';
+  const inputRaw  = config.input ? resolveVars(config.input, vars) : null;
+  const expr      = config.expression ? resolveVars(config.expression, vars) : '';
+
+  // json_parse / json_stringify don't need an array input
+  if (operation === 'json_parse') {
+    try {
+      const parsed = JSON.parse(typeof inputRaw === 'string' ? inputRaw : JSON.stringify(inputRaw));
+      return { result: parsed, count: Array.isArray(parsed) ? parsed.length : 1, success: true };
+    } catch (e) {
+      throw new Error(`json_parse failed: ${e.message}`);
+    }
+  }
+  if (operation === 'json_stringify') {
+    return { result: JSON.stringify(inputRaw, null, 2), success: true };
+  }
+
+  const input = Array.isArray(inputRaw) ? inputRaw : (inputRaw != null ? [inputRaw] : []);
+
+  // Safe expression evaluator — builds a function with item as argument
+  // Only allows simple property access and comparisons, no arbitrary eval
+  const makeFn = (body) => {
+    try {
+      // eslint-disable-next-line no-new-func
+      return new Function('item', 'index', `"use strict"; return (${body});`);
+    } catch {
+      throw new Error(`Invalid expression: ${body}`);
+    }
+  };
+
+  let result;
+  switch (operation) {
+    case 'map':
+      result = input.map((item, index) => expr ? makeFn(expr)(item, index) : item);
+      break;
+    case 'filter':
+      result = input.filter((item, index) => expr ? makeFn(expr)(item, index) : true);
+      break;
+    case 'find':
+      result = expr ? input.find((item, index) => makeFn(expr)(item, index)) : input[0];
+      break;
+    case 'reduce': {
+      // expr format: "acc + item.value" — acc starts at 0
+      const reduceFn = expr ? new Function('acc', 'item', 'index', `"use strict"; return (${expr});`) : (acc, item) => acc + item; // eslint-disable-line no-new-func
+      result = input.reduce(reduceFn, 0);
+      break;
+    }
+    case 'pluck':
+      // expr = property name to extract, e.g. "name" or "user.id"
+      result = input.map(item => {
+        if (!expr) return item;
+        return expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), item);
+      });
+      break;
+    case 'count':
+      result = expr ? input.filter((item, index) => makeFn(expr)(item, index)).length : input.length;
+      break;
+    case 'sort':
+      result = [...input].sort((a, b) => {
+        if (!expr) return 0;
+        const va = expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), a);
+        const vb = expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), b);
+        return va < vb ? -1 : va > vb ? 1 : 0;
+      });
+      break;
+    case 'unique':
+      if (expr) {
+        const seen = new Set();
+        result = input.filter(item => {
+          const key = expr.split('.').reduce((o, k) => (o != null ? o[k] : undefined), item);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      } else {
+        result = [...new Set(input)];
+      }
+      break;
+    case 'flatten':
+      result = input.flat(expr ? parseInt(expr, 10) || 1 : 1);
+      break;
+    default:
+      throw new Error(`Unknown transform operation: ${operation}`);
+  }
+
+  return {
+    result,
+    count: Array.isArray(result) ? result.length : 1,
+    success: true,
+  };
+}
+
+// ─── Sub-workflow step ─────────────────────────────────────────────────────────
+
+/**
+ * Run another workflow by name or ID and optionally wait for completion.
+ * Injects inputVars into the triggered workflow's context.
+ */
+async function runSubworkflowStep(config, vars, workflowService) {
+  const workflowRef = resolveVars(config.workflow || '', vars);
+  if (!workflowRef) throw new Error('Sub-workflow: missing workflow name or ID');
+
+  // Parse optional input variables as JSON object or key=value pairs
+  let extraVars = {};
+  if (config.inputVars) {
+    const raw = resolveVars(config.inputVars, vars);
+    try {
+      extraVars = typeof raw === 'object' ? raw : JSON.parse(raw);
+    } catch {
+      // key=value,key2=value2 fallback
+      for (const pair of raw.split(',')) {
+        const [k, v] = pair.split('=').map(s => s.trim());
+        if (k) extraVars[k] = v ?? '';
+      }
+    }
+  }
+
+  const waitForCompletion = config.waitForCompletion !== false && config.waitForCompletion !== 'no';
+
+  const runId = await workflowService.trigger(workflowRef, 'subworkflow', { parent: true, extraVars });
+
+  if (!waitForCompletion) {
+    return { triggered: true, runId, waited: false };
+  }
+
+  // Poll for completion (max 10 min)
+  const start = Date.now();
+  const TIMEOUT = 10 * 60 * 1000;
+  const POLL = 1000;
+
+  while (Date.now() - start < TIMEOUT) {
+    await new Promise(r => setTimeout(r, POLL));
+    const run = workflowService.getRunById(runId);
+    if (!run) break;
+    if (run.status === 'success') {
+      return { success: true, runId, outputs: run.outputs || {}, waited: true };
+    }
+    if (run.status === 'failed' || run.status === 'cancelled') {
+      throw new Error(`Sub-workflow "${workflowRef}" ${run.status}`);
+    }
+  }
+
+  throw new Error(`Sub-workflow "${workflowRef}" timed out after 10 minutes`);
+}
+
+// ─── Switch step ──────────────────────────────────────────────────────────────
+
+/**
+ * Evaluate a variable and return which output slot index to follow.
+ * Returns { matchedSlot, value } — used by _executeGraph to route the BFS.
+ */
+function runSwitchStep(config, vars) {
+  const value  = resolveVars(config.variable || '', vars);
+  const cases  = (config.cases || '').split(',').map(c => c.trim()).filter(Boolean);
+  const idx    = cases.findIndex(c => String(value) === String(c));
+  // idx = matched case slot, cases.length = default slot
+  const matchedSlot = idx >= 0 ? idx : cases.length;
+  return { value, matchedCase: idx >= 0 ? cases[idx] : 'default', matchedSlot, success: true };
+}
+
 // ─── Time parser ──────────────────────────────────────────────────────────────
 
 function parseMs(value) {
@@ -765,12 +1010,49 @@ class WorkflowRunner {
    * @param {Map<string, Function>} opts.waitCallbacks - shared wait registry
    * @param {Object}            opts.projectTypeRegistry - { fivem, api, ... } services for native steps
    */
-  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {}, databaseService = null }) {
+  constructor({ sendFn, chatService, waitCallbacks, projectTypeRegistry = {}, databaseService = null, workflowService = null }) {
     this._send              = sendFn;
     this._chatService       = chatService;
     this._waitCallbacks     = waitCallbacks;
     this._projectTypeRegistry = projectTypeRegistry;
     this._databaseService   = databaseService;
+    this._workflowService   = workflowService;
+
+    // Load the node registry once at construction time
+    this._nodeRegistry = require('../workflow-nodes/_registry');
+    this._nodeRegistry.loadRegistry();
+  }
+
+  /**
+   * Build the config object passed to a registry node's run() method.
+   * Returns a shallow copy of the step's own properties (the node may call
+   * resolveVars() itself if it needs variable interpolation).
+   * @param {Object} step
+   * @returns {Object}
+   */
+  _resolveStepConfig(step) {
+    return { ...(step.properties || {}), ...step };
+  }
+
+  /**
+   * Execute a single step in isolation (no BFS, no context).
+   * Used by the "Test Node" button in the graph editor.
+   * @param {Object} step     - step properties (id, type, ...properties)
+   * @param {Object} [ctx]    - optional context vars (project path, etc.)
+   * @returns {Promise<{ success: boolean, output: any, error?: string, duration: number }>}
+   */
+  async testStep(step, ctx = {}) {
+    const vars = new Map([
+      ['ctx', { project: ctx.project || '', date: new Date().toISOString(), trigger: 'test' }],
+    ]);
+    const abort = new AbortController();
+    const start = Date.now();
+    try {
+      const output = await this._dispatchStep(step, vars, 'test', abort.signal, null);
+      return { success: true, output, duration: Date.now() - start };
+    } catch (err) {
+      return { success: false, output: null, error: err.message, duration: Date.now() - start };
+    }
   }
 
   /**
@@ -786,7 +1068,7 @@ class WorkflowRunner {
     const vars = new Map([
       // Context variables
       ['ctx', {
-        project:    workflow.scope?.project || '',
+        project:    run.projectPath || workflow.scope?.project || '',
         branch:     run.contextBranch  || '',
         date:       new Date().toISOString(),
         lastCommit: run.contextCommit  || '',
@@ -912,10 +1194,13 @@ class WorkflowRunner {
 
       // Convert node to step format for the dispatcher
       const stepType = nodeData.type.replace('workflow/', '');
+      // Merge data pin inputs (Blueprint-style) on top of step properties
+      const dataInputs = this._resolveDataInputs(nodeId, vars, incoming, nodeById);
       const step = {
         id:   `node_${nodeData.id}`,
         type: stepType,
         ...(nodeData.properties || {}),
+        ...dataInputs,
       };
 
       if (stepType === 'condition') {
@@ -952,21 +1237,52 @@ class WorkflowRunner {
           const iterationResults = [];
           const isParallel = step.mode === 'parallel';
 
+          // Helper: emit live loop progress after each iteration completes
+          const _emitLoopProgress = (doneResults) => {
+            const partial = { items: doneResults, count: items.length, done: doneResults.length };
+            this._send('workflow-loop-progress', { runId, stepId: step.id, loopOutput: partial });
+          };
+
           if (isParallel && eachTargets.length) {
-            // Parallel execution: run all iterations concurrently
-            const promises = items.map(async (item, idx) => {
-              if (signal.aborted) throw new Error('Cancelled');
-              const iterVars = new Map(vars);
-              iterVars.set('loop', { item, index: idx, total: items.length });
-              iterVars.set('item', item);
-              iterVars.set('index', idx);
-              const { outputs, visitedNodes } = await this._executeSubGraph(
-                eachTargets, nodeById, outgoing, incoming, iterVars, runId, signal, stepOutputs, workflow
-              );
-              for (const nid of visitedNodes) allBodyVisited.add(nid);
-              return outputs;
-            });
-            iterationResults.push(...await Promise.all(promises));
+            // Parallel execution with concurrency cap to avoid resource exhaustion
+            const concurrencyLimit = Math.max(1, parseInt(step.concurrency, 10) || 10);
+            const doneResults = new Array(items.length).fill(null);
+
+            const runIteration = async (item, idx) => {
+              if (signal.aborted) return { success: false, error: 'Cancelled', _item: item };
+              const iterAbort = new AbortController();
+              const onParentAbort = () => iterAbort.abort();
+              signal.addEventListener('abort', onParentAbort, { once: true });
+              try {
+                const iterVars = new Map(vars);
+                iterVars.set('loop', { item, index: idx, total: items.length });
+                iterVars.set('item', item);
+                iterVars.set('index', idx);
+                const iterStepOutputs = {};
+                const { outputs, visitedNodes } = await this._executeSubGraph(
+                  eachTargets, nodeById, outgoing, incoming, iterVars, runId, iterAbort.signal, iterStepOutputs, workflow
+                );
+                for (const nid of visitedNodes) allBodyVisited.add(nid);
+                const iterResult = { ...outputs, _item: item };
+                doneResults[idx] = iterResult;
+                _emitLoopProgress(doneResults.filter(Boolean));
+                return { success: true, result: iterResult };
+              } catch (iterErr) {
+                return { success: false, error: iterErr.message, _item: item };
+              } finally {
+                signal.removeEventListener('abort', onParentAbort);
+              }
+            };
+
+            // Process items in batches of concurrencyLimit
+            for (let batchStart = 0; batchStart < items.length; batchStart += concurrencyLimit) {
+              if (signal.aborted) break;
+              const batch = items.slice(batchStart, batchStart + concurrencyLimit);
+              const settled = await Promise.all(batch.map((item, i) => runIteration(item, batchStart + i)));
+              for (const s of settled) {
+                iterationResults.push(s.success ? s.result : { _error: s.error, _item: s._item });
+              }
+            }
           } else {
             // Sequential execution (default)
             for (let idx = 0; idx < items.length; idx++) {
@@ -981,16 +1297,20 @@ class WorkflowRunner {
               const { outputs, visitedNodes } = await this._executeSubGraph(
                 eachTargets, nodeById, outgoing, incoming, vars, runId, signal, stepOutputs, workflow
               );
-              iterationResults.push(outputs);
+              const iterResult = { ...outputs, _item: items[idx] };
+              iterationResults.push(iterResult);
               for (const nid of visitedNodes) allBodyVisited.add(nid);
+              _emitLoopProgress([...iterationResults]);
             }
           }
 
-          // 4. Store loop result and emit success
-          const loopOutput = { items: iterationResults, count: items.length };
+          // 4. Store loop result and emit status (failed if any iteration errored)
+          const failedCount = iterationResults.filter(r => r && r._error).length;
+          const loopOutput = { items: iterationResults, count: items.length, failedCount };
           vars.set(step.id, loopOutput);
           stepOutputs[step.id] = loopOutput;
-          this._emitStep(runId, step, 'success', loopOutput);
+          const loopStatus = failedCount > 0 ? 'failed' : 'success';
+          this._emitStep(runId, step, loopStatus, loopOutput);
 
           // 5. Clean up loop context
           vars.delete('loop');
@@ -1011,6 +1331,17 @@ class WorkflowRunner {
           this._emitStep(runId, step, 'failed', { error: err.message });
           throw err;
         }
+      } else if (stepType === 'switch') {
+        // Switch node: evaluate variable and follow the matched case slot
+        try {
+          await this._runOneStep(step, vars, runId, signal, stepOutputs, workflow);
+        } catch (err) {
+          if (signal.aborted) throw err;
+          stepOutputs[step.id] = { matchedSlot: -1, success: false };
+        }
+        const switchOut = stepOutputs[step.id];
+        const matchedSlot = switchOut?.matchedSlot ?? 0;
+        queue.push(...this._getNextNodes(nodeId, matchedSlot, outgoing));
       } else {
         // Normal step: try to execute
         try {
@@ -1042,6 +1373,70 @@ class WorkflowRunner {
   }
 
   /**
+   * Resolve data pin connections for a node before dispatch.
+   * Iterates each non-exec input slot, finds the connected origin node's output,
+   * and returns an object of { inputName: resolvedValue } to merge into step props.
+   *
+   * @param {number} nodeId
+   * @param {Map<number,any>} vars
+   * @param {Map} incoming  - nodeId → Map<targetSlot, {originId, originSlot}[]>
+   * @param {Map} nodeById  - nodeId → node data
+   * @returns {Object}
+   */
+  _resolveDataInputs(nodeId, vars, incoming, nodeById) {
+    const node = nodeById.get(nodeId);
+    if (!node || !node.inputs) return {};
+
+    const resolved = {};
+    const inSlots = incoming.get(nodeId);
+    if (!inSlots) return {};
+
+    for (const [slotIdx, links] of inSlots) {
+      if (!links || !links.length) continue;
+
+      // Determine if this slot is an exec slot by checking the slot's declared type
+      // LiteGraph serializes exec links with type -1 (EVENT) or string 'exec'
+      const nodeInput = node.inputs ? node.inputs[slotIdx] : null;
+      // Prefer the slot's own type; fall back to the link type
+      const slotType = nodeInput?.type ?? links[0]?.type ?? null;
+      const isExec = slotType === -1 || slotType === 'exec' || slotType === null || slotType === '';
+      if (isExec) continue;
+
+      const { originId, originSlot } = links[0];
+      const originStepId = `node_${originId}`;
+      let originOutput = vars.get(originStepId);
+
+      // Pure data nodes (no exec pins) are never visited by BFS.
+      // Resolve them inline when first encountered.
+      if (originOutput == null) {
+        const pureNode = nodeById.get(originId);
+        const pureType = pureNode?.type?.replace('workflow/', '') ?? '';
+        if (pureType === 'get_variable' || (pureType === 'variable' && pureNode?.properties?.action === 'get')) {
+          const varName = pureNode?.properties?.name || '';
+          const val = vars.get(varName) ?? vars.get(`var_${varName}`) ?? null;
+          originOutput = { value: val };
+          vars.set(originStepId, originOutput); // cache for future reads
+        }
+      }
+      if (originOutput == null) continue;
+
+      // Get the output key from slot mapping
+      const originNode = nodeById.get(originId);
+      const originType = originNode?.type?.replace('workflow/', '') ?? '';
+      const outputKey = getOutputKeyForSlot(originType, originSlot);
+
+      // Get the input name for this slot
+      const inputName = nodeInput?.name ?? null;
+      if (!inputName) continue;
+
+      const value = outputKey != null ? originOutput[outputKey] : originOutput;
+      if (value !== undefined) resolved[inputName] = value;
+    }
+
+    return resolved;
+  }
+
+  /**
    * Get the list of node IDs connected to a specific output slot.
    * @param {number} nodeId
    * @param {number} slotIndex
@@ -1062,13 +1457,11 @@ class WorkflowRunner {
   _extractArrayFromOutput(output) {
     if (!output) return null;
     if (Array.isArray(output)) return output;
-    if (Array.isArray(output.rows)) return output.rows;
-    if (Array.isArray(output.tables)) return output.tables;
-    if (Array.isArray(output.items)) return output.items;
-    if (Array.isArray(output.content)) return output.content;
-    // Last resort: look for any array property
-    for (const key of Object.keys(output)) {
-      if (Array.isArray(output[key]) && output[key].length > 0) return output[key];
+    // Generic scan: find any non-empty array property — no hardcoded keys needed
+    if (typeof output === 'object') {
+      for (const val of Object.values(output)) {
+        if (Array.isArray(val) && val.length > 0) return val;
+      }
     }
     return null;
   }
@@ -1082,8 +1475,19 @@ class WorkflowRunner {
     const source = step.source || 'projects';
 
     if (source === 'projects') {
+      // Try explicit _projectsList first, then read from Claude Terminal data
+      const cached = vars.get('_projectsList');
+      if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+      try {
+        const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+        const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+        const projects = (data.projects || []).map(p => ({
+          id: p.id, name: p.name, path: p.path, type: p.type || 'general',
+        }));
+        if (projects.length > 0) return projects;
+      } catch { /* fall through */ }
       const ctx = vars.get('ctx') || {};
-      return vars.get('_projectsList') || [ctx.project].filter(Boolean);
+      return [ctx.project].filter(Boolean);
     }
 
     if (source === 'files') {
@@ -1100,6 +1504,12 @@ class WorkflowRunner {
 
     if (source === 'custom') {
       const raw = resolveVars(step.filter || '', vars);
+      // If resolveVars returned an array (e.g. $var pointing to a JS array), use it directly
+      if (Array.isArray(raw)) return raw;
+      // If it's a string that looks like JSON array, try to parse it
+      if (typeof raw === 'string' && raw.trimStart().startsWith('[')) {
+        try { return JSON.parse(raw); } catch { /* fall through to split */ }
+      }
       return raw.split('\n').map(s => s.trim()).filter(Boolean);
     }
 
@@ -1165,10 +1575,13 @@ class WorkflowRunner {
       if (!nodeData) continue;
 
       const stepType = nodeData.type.replace('workflow/', '');
+      // Merge data pin inputs (Blueprint-style) on top of step properties
+      const dataInputs = this._resolveDataInputs(nodeId, vars, incoming, nodeById);
       const step = {
         id:   `node_${nodeData.id}`,
         type: stepType,
         ...(nodeData.properties || {}),
+        ...dataInputs,
       };
 
       if (stepType === 'condition') {
@@ -1274,11 +1687,13 @@ class WorkflowRunner {
       // Per-step timeout: chain into a child abort
       let stepAbort = signal;
       let stepTimer;
+      let _stepAbortOnParent;
       if (stepTimeout) {
         const controller = new AbortController();
         stepTimer = setTimeout(() => controller.abort(), stepTimeout);
-        // Propagate parent cancellation
-        signal.addEventListener('abort', () => controller.abort(), { once: true });
+        // Propagate parent cancellation — stored so we can remove it in finally
+        _stepAbortOnParent = () => controller.abort();
+        signal.addEventListener('abort', _stepAbortOnParent, { once: true });
         stepAbort = controller.signal;
       }
 
@@ -1286,11 +1701,16 @@ class WorkflowRunner {
         const output = await this._dispatchStep(step, vars, runId, stepAbort, workflow);
 
         if (stepTimer) clearTimeout(stepTimer);
+        if (_stepAbortOnParent) signal.removeEventListener('abort', _stepAbortOnParent);
 
         // Store output under step.id for downstream variable access
         if (step.id) {
-          vars.set(step.id, output);
-          stepOutputs[step.id] = output;
+          // Annotate with _type so the UI can display the correct step icon/label
+          const annotated = output && typeof output === 'object'
+            ? { ...output, _type: step.type || '' }
+            : output;
+          vars.set(step.id, annotated);
+          stepOutputs[step.id] = annotated;
         }
 
         this._emitStep(runId, step, 'success', output);
@@ -1298,6 +1718,7 @@ class WorkflowRunner {
 
       } catch (err) {
         if (stepTimer) clearTimeout(stepTimer);
+        if (_stepAbortOnParent) signal.removeEventListener('abort', _stepAbortOnParent);
         lastErr = err;
 
         if (signal.aborted) throw err; // propagate cancellation immediately
@@ -1316,12 +1737,34 @@ class WorkflowRunner {
 
   /**
    * Dispatch to the correct step handler.
+   * Consults the node registry first; falls back to the legacy inline handlers
+   * if the registry has no entry or the entry has no run() method.
    * @private
    */
   async _dispatchStep(step, vars, runId, signal, workflow) {
     const type = step.type || '';
 
-    // ── Built-in universal steps ──────────────────────────────────────────────
+    // ── Registry-based dispatch (Task 9) ─────────────────────────────────────
+    // Node files store their type as 'workflow/<name>'; the step arrives here
+    // with the prefix already stripped (done in _executeGraph / _runSteps).
+    const fullType = `workflow/${type}`;
+    const nodeDef  = this._nodeRegistry.get(fullType);
+
+    if (nodeDef && typeof nodeDef.run === 'function') {
+      const config = this._resolveStepConfig(step);
+      const ctx = {
+        chatService:     this._chatService,
+        workflowService: this._workflowService,
+        databaseService: this._databaseService,
+        sendFn:          (channel, data) => this._send(channel, data),
+        waitCallbacks:   this._waitCallbacks,
+        runId,
+      };
+      return nodeDef.run(config, vars, signal, ctx);
+    }
+
+    // TODO(registry): remove when all node runs are in .node.js
+    // ── Built-in universal steps (legacy fallback) ────────────────────────────
 
     if (type === 'agent' || type === 'claude') {
       return runAgentStep(step, vars, signal, this._chatService, (msg) => {
@@ -1384,6 +1827,29 @@ class WorkflowRunner {
 
     if (type === 'parallel') {
       return this._runParallelStep(step, vars, runId, signal, workflow);
+    }
+
+    if (type === 'transform') {
+      return runTransformStep(step, vars);
+    }
+
+    if (type === 'subworkflow') {
+      return runSubworkflowStep(step, vars, this._workflowService);
+    }
+
+    if (type === 'switch') {
+      return runSwitchStep(step, vars);
+    }
+
+    if (type === 'time') {
+      return runTimeStep(step, vars);
+    }
+
+    if (type === 'get_variable') {
+      // Pure getter node — read a named variable from vars
+      const varName = step.name || '';
+      const value = vars.get(varName) ?? vars.get(`var_${varName}`) ?? null;
+      return { value };
     }
 
     // ── Project-type native steps (fivem.ensure, api.request, …) ─────────────
@@ -1465,8 +1931,14 @@ class WorkflowRunner {
     const settled  = await Promise.allSettled(
       substeps.map(sub => {
         const outputs = {};
-        return this._runOneStep(sub, vars, runId, signal, outputs, workflow)
-          .then(() => outputs[sub.id]);
+        // Each substep gets its own child AbortController so that N parallel
+        // substeps don't stack N listeners on the shared parent signal.
+        const subAbort = new AbortController();
+        const onParentAbort = () => subAbort.abort();
+        signal.addEventListener('abort', onParentAbort, { once: true });
+        return this._runOneStep(sub, vars, runId, subAbort.signal, outputs, workflow)
+          .then(() => outputs[sub.id])
+          .finally(() => signal.removeEventListener('abort', onParentAbort));
       })
     );
 
@@ -1518,11 +1990,15 @@ class WorkflowRunner {
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(new Error('Cancelled'));
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 

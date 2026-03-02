@@ -262,6 +262,8 @@ let saveDebounceTimer = null;
 const SAVE_DEBOUNCE_MS = 500;
 let saveInProgress = false;
 let pendingSave = false;
+let saveRetryCount = 0;
+const MAX_SAVE_RETRIES = 3;
 
 /**
  * Save projects to file (debounced, atomic write)
@@ -324,30 +326,41 @@ function saveProjectsImmediate() {
 
     // Cleanup temp file if it exists
     try {
-      if (fs.existsSync(tempFile)) {
-        fs.unlinkSync(tempFile);
-      }
-    } catch (cleanupError) {
-      // Ignore cleanup errors
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    } catch (_) {}
+
+    saveInProgress = false;
+
+    // Retry with exponential backoff (max 3 attempts)
+    if (saveRetryCount < MAX_SAVE_RETRIES) {
+      saveRetryCount++;
+      const delay = 200 * Math.pow(2, saveRetryCount - 1); // 200ms, 400ms, 800ms
+      console.warn(`Retrying save (attempt ${saveRetryCount}/${MAX_SAVE_RETRIES}) in ${delay}ms`);
+      setTimeout(saveProjectsImmediate, delay);
+      return;
     }
 
-    // Try to notify user
+    // All retries exhausted — notify user
+    saveRetryCount = 0;
     try {
       window.electron_api.notification.show({
         title: t('errors.saveError'),
         body: t('errors.saveErrorDetail', { message: error.message })
       });
-    } catch (apiError) {
-      // API not available
-    }
-  } finally {
-    saveInProgress = false;
+    } catch (_) {}
 
-    // Process queued save
-    if (pendingSave) {
-      pendingSave = false;
-      setTimeout(saveProjectsImmediate, 50);
-    }
+    // Still process any pending save
+    if (pendingSave) { pendingSave = false; setTimeout(saveProjectsImmediate, 50); }
+    return;
+  }
+
+  saveInProgress = false;
+  saveRetryCount = 0;
+
+  // Process queued save
+  if (pendingSave) {
+    pendingSave = false;
+    setTimeout(saveProjectsImmediate, 50);
   }
 }
 

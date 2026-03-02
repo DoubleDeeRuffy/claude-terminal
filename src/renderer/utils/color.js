@@ -84,6 +84,8 @@ function applyAccentColor(color) {
   // Dimmed version (transparent)
   if (rgb) {
     root.style.setProperty('--accent-dim', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`);
+    // RGB components for rgba() usage in CSS (e.g. rgba(var(--accent-rgb), .08))
+    root.style.setProperty('--accent-rgb', `${rgb.r},${rgb.g},${rgb.b}`);
   }
 
   // Notify main process to update tray icon

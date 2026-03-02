@@ -10,6 +10,8 @@ const { sanitizeColor } = require('../../utils/color');
 const { t } = require('../../i18n');
 const { heartbeat, claudeHeartbeat } = require('../../state');
 const { getSetting, setSetting } = require('../../state/settings.state');
+const { updateTerminal } = require('../../state/terminals.state');
+const { saveTerminalSessions } = require('../../services/TerminalSessionService');
 
 const MODEL_OPTIONS = [
   { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable for complex work' },
@@ -118,7 +120,7 @@ function getToolDisplayInfo(toolName, input) {
 // ── Create Chat View ──
 
 function createChatView(wrapperEl, project, options = {}) {
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -463,8 +465,11 @@ function createChatView(wrapperEl, project, options = {}) {
     }
   });
 
-  // Track Shift key state independently to avoid e.shiftKey race condition in Enter handler
+  // Track Shift key state independently to avoid e.shiftKey race condition on fast Shift+Enter
   let shiftHeld = false;
+  const _onShiftBlur = () => { shiftHeld = false; };
+  wrapperEl.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftHeld = false; }, true);
+  window.addEventListener('blur', _onShiftBlur);
 
   // Ctrl+Arrow to switch terminals/projects (capture phase to intercept before textarea)
   wrapperEl.addEventListener('keydown', (e) => {
@@ -476,12 +481,6 @@ function createChatView(wrapperEl, project, options = {}) {
       if (e.key === 'ArrowDown' && onSwitchProject) { e.preventDefault(); e.stopPropagation(); onSwitchProject('down'); return; }
     }
   }, true);
-
-  wrapperEl.addEventListener('keyup', (e) => {
-    if (e.key === 'Shift') shiftHeld = false;
-  }, true);
-
-  window.addEventListener('blur', () => { shiftHeld = false; });
 
   inputEl.addEventListener('keydown', (e) => {
     // Mention dropdown navigation
@@ -549,12 +548,9 @@ function createChatView(wrapperEl, project, options = {}) {
       }
     }
 
-    if (e.key === 'Enter') {
-      console.log('[SHIFT-DEBUG] Enter pressed:', { shiftHeld, eShiftKey: e.shiftKey, modifierState: e.getModifierState('Shift'), key: e.key, code: e.code });
-      if (!shiftHeld && !e.shiftKey && !e.getModifierState('Shift')) {
-        e.preventDefault();
-        handleSend();
-      }
+    if (e.key === 'Enter' && !shiftHeld && !e.shiftKey && !e.getModifierState('Shift')) {
+      e.preventDefault();
+      handleSend();
     }
   });
 
@@ -1388,6 +1384,12 @@ function createChatView(wrapperEl, project, options = {}) {
         card.querySelectorAll('.chat-question-option').forEach(b => b.classList.remove('selected'));
         optionBtn.classList.add('selected');
       }
+      // Update markdown preview if present
+      const group = optionBtn.closest('.chat-question-group');
+      const preview = group?.querySelector('.chat-question-preview');
+      if (preview && optionBtn.dataset.markdown) {
+        preview.innerHTML = renderMarkdown(optionBtn.dataset.markdown);
+      }
       return;
     }
 
@@ -1448,7 +1450,7 @@ function createChatView(wrapperEl, project, options = {}) {
 
     sendLock = true;
     if (project?.id) heartbeat(project.id, 'chat');
-    api.telemetry?.sendFeature({ feature: 'chat:message', metadata: {} });
+    api.telemetry?.sendFeature?.({ feature: 'chat:message', metadata: {} });
 
     // Reset scroll detection when user sends a message
     resetScrollDetection();
@@ -1505,6 +1507,11 @@ function createChatView(wrapperEl, project, options = {}) {
           effort: selectedEffort,
           enable1MContext: getSetting('enable1MContext') || false
         };
+        if (systemPrompt) {
+          startOpts.systemPrompt = systemPrompt;
+          // Keep 'user' to load ~/.claude.json MCP config, but skip project/local CLAUDE.md
+          startOpts.settingSources = ['user'];
+        }
 
         if (pendingResumeId) {
           startOpts.resumeSessionId = pendingResumeId;
@@ -2453,17 +2460,26 @@ function createChatView(wrapperEl, project, options = {}) {
 
     let questionsHtml = '';
     questions.forEach((q, i) => {
+      const hasMarkdown = (q.options || []).some(opt => opt.markdown);
       const optionsHtml = (q.options || []).map(opt =>
-        `<button class="chat-question-option" data-label="${escapeHtml(opt.label)}">
+        `<button class="chat-question-option" data-label="${escapeHtml(opt.label)}"${opt.markdown ? ` data-markdown="${escapeHtml(opt.markdown)}"` : ''}>
           <span class="chat-qo-label">${escapeHtml(opt.label)}</span>
           <span class="chat-qo-desc">${escapeHtml(opt.description || '')}</span>
         </button>`
       ).join('');
 
+      const firstMarkdown = q.options?.find(o => o.markdown)?.markdown || '';
+      const previewHtml = hasMarkdown
+        ? `<div class="chat-question-preview">${renderMarkdown(firstMarkdown)}</div>`
+        : '';
+
       questionsHtml += `
-        <div class="chat-question-group${i === 0 ? ' active' : ''}" data-step="${i}">
+        <div class="chat-question-group${i === 0 ? ' active' : ''}${hasMarkdown ? ' has-preview' : ''}" data-step="${i}">
           <p class="chat-question-text">${escapeHtml(q.question)}</p>
-          <div class="chat-question-options">${optionsHtml}</div>
+          <div class="chat-question-split">
+            <div class="chat-question-options">${optionsHtml}</div>
+            ${previewHtml}
+          </div>
           <div class="chat-question-custom">
             <input type="text" class="chat-question-custom-input" placeholder="${escapeHtml(t('chat.otherPlaceholder') || 'Or type your own answer...')}" />
           </div>
@@ -3050,10 +3066,8 @@ function createChatView(wrapperEl, project, options = {}) {
       sdkSessionId = msg.session_id;
       // Propagate new session ID to termData for persistence (fixes /clear not saving new ID)
       if (terminalId) {
-        const { updateTerminal } = require('../../state/terminals.state');
         updateTerminal(terminalId, { claudeSessionId: msg.session_id });
-        const TerminalSessionService = require('../../services/TerminalSessionService');
-        TerminalSessionService.saveTerminalSessionsImmediate();
+        saveTerminalSessions();
       }
     }
 
@@ -3435,6 +3449,7 @@ function createChatView(wrapperEl, project, options = {}) {
       pendingImages.length = 0;
       lightboxImages.length = 0;
       // Remove global listeners
+      window.removeEventListener('blur', _onShiftBlur);
       document.removeEventListener('click', _closeDropdowns);
       document.removeEventListener('keydown', lightboxKeyHandler);
       if (lightboxEl?.parentNode) lightboxEl.parentNode.removeChild(lightboxEl);

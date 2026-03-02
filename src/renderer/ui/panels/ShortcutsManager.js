@@ -88,6 +88,7 @@ function resetShortcut(id) {
 
 function resetAllShortcuts() {
   ctx.settingsState.setProp('shortcuts', {});
+  ctx.settingsState.setProp('terminalShortcuts', {});
   ctx.saveSettings();
   registerAllShortcuts();
 }
@@ -293,13 +294,15 @@ function setupShortcutsPanelHandlers() {
     toggle.onchange = () => {
       const id = toggle.dataset.shortcutId;
       const terminalShortcuts = { ...(ctx.settingsState.get().terminalShortcuts || {}) };
-      terminalShortcuts[id] = { enabled: toggle.checked };
+      terminalShortcuts[id] = { ...terminalShortcuts[id], enabled: toggle.checked };
       ctx.settingsState.setProp('terminalShortcuts', terminalShortcuts);
       ctx.saveSettings();
-
-      // Sync Ctrl+Tab enabled state with main process
+      // Sync Ctrl+Tab enabled state to main process
       if (id === 'ctrlTab') {
-        ctx.api.window.setCtrlTabEnabled(toggle.checked);
+        const api = window.electron_api;
+        if (api?.window?.setCtrlTabEnabled) {
+          api.window.setCtrlTabEnabled(toggle.checked);
+        }
       }
     };
   });

@@ -1,0 +1,25 @@
+'use strict';
+
+const _triggers = new Map();
+
+/**
+ * Charge tous les trigger UI renderers.
+ * (Pas de fs.readdirSync en renderer bundlé esbuild — require manuel)
+ */
+function loadAll() {
+  const defs = [
+    require('./manual.trigger'),
+    require('./cron.trigger'),
+    require('./hook.trigger'),
+    require('./on_workflow.trigger'),
+  ];
+  for (const def of defs) {
+    if (def.type) _triggers.set(def.type, def);
+  }
+}
+
+function get(type)  { return _triggers.get(type); }
+function getAll()   { return [..._triggers.values()]; }
+function has(type)  { return _triggers.has(type); }
+
+module.exports = { loadAll, get, getAll, has };

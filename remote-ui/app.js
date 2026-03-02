@@ -16,7 +16,7 @@ const _debugLog = console.log.bind(console);
 const _isFr = navigator.language.toLowerCase().startsWith('fr');
 
 const STRINGS = {
-  pinMessage: _isFr ? 'Entrez le code affiché dans\nParamètres → Télécommande' : 'Enter the 4-digit PIN shown in\nSettings → Remote Control',
+  pinMessage: _isFr ? 'Entrez le code affiché dans\nParamètres → Télécommande' : 'Enter the 6-digit PIN shown in\nSettings → Remote Control',
   pinError: _isFr ? 'Code invalide ou expiré. Réessayez.' : 'Invalid or expired PIN. Try again.',
   pinConnFail: _isFr ? 'Connexion impossible. Le serveur est-il démarré ?' : 'Connection failed. Is the server running?',
   noSession: _isFr ? 'Nouveau chat' : 'New chat',
@@ -155,16 +155,17 @@ function _saveSessions() {
           status: s.status,
         };
       }
-      localStorage.setItem('remote_sessions', JSON.stringify(serializable));
-      localStorage.setItem('remote_selected_session', state.selectedSessionId || '');
-      localStorage.setItem('remote_selected_project', state.selectedProjectId || '');
+      // Use sessionStorage for chat messages — cleared on tab close, not persisted
+      sessionStorage.setItem('remote_sessions', JSON.stringify(serializable));
+      sessionStorage.setItem('remote_selected_session', state.selectedSessionId || '');
+      sessionStorage.setItem('remote_selected_project', state.selectedProjectId || '');
     } catch (e) {}
   }, 500);
 }
 
 function _restoreSessions() {
   try {
-    const raw = localStorage.getItem('remote_sessions');
+    const raw = sessionStorage.getItem('remote_sessions');
     if (!raw) return;
     const saved = JSON.parse(raw);
     for (const [id, s] of Object.entries(saved)) {
@@ -173,8 +174,8 @@ function _restoreSessions() {
         state.sessions[id].status = s.status || 'idle';
       }
     }
-    const selSession = localStorage.getItem('remote_selected_session');
-    const selProject = localStorage.getItem('remote_selected_project');
+    const selSession = sessionStorage.getItem('remote_selected_session');
+    const selProject = sessionStorage.getItem('remote_selected_project');
     if (selSession && state.sessions[selSession]) {
       state.selectedSessionId = selSession;
     }
@@ -322,9 +323,9 @@ function setupPinEntry() {
   if (!pinInput || !submitBtn) return;
 
   pinInput.addEventListener('input', () => {
-    const val = pinInput.value.replace(/\D/g, '').slice(0, 4);
+    const val = pinInput.value.replace(/\D/g, '').slice(0, 6);
     pinInput.value = val;
-    if (val.length === 4) submitPin(val);
+    if (val.length === 6) submitPin(val);
   });
   submitBtn.addEventListener('click', () => submitPin(pinInput.value.trim()));
   pinInput.addEventListener('keydown', (e) => {
@@ -333,7 +334,7 @@ function setupPinEntry() {
 }
 
 async function submitPin(pin) {
-  if (!pin || pin.length < 4) return;
+  if (!pin || pin.length < 6) return;
 
   const pinInput = $('pin-input');
   const submitBtn = $('pin-submit-btn');

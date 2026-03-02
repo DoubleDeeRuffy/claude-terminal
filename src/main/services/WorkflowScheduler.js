@@ -147,20 +147,21 @@ class WorkflowScheduler {
 
   /**
    * Call this when a workflow finishes (for on_workflow chaining).
-   * @param {string} finishedWorkflowName
+   * @param {string} finishedWorkflowId
    * @param {Object} result  — { success, outputs, … }
    */
-  onWorkflowComplete(finishedWorkflowName, result) {
+  onWorkflowComplete(finishedWorkflowId, result) {
     for (const wf of this._workflows) {
       if (!wf.enabled) continue;
       const trigger = wf.trigger || {};
       if (trigger.type !== 'on_workflow') continue;
-      if (trigger.value !== finishedWorkflowName) continue;
+      // Match by ID (new) or by name (legacy backwards compat)
+      if (trigger.value !== finishedWorkflowId) continue;
       if (!evalHookCondition(trigger.condition, result)) continue;
 
       this.dispatch?.(wf.id, {
         source:    'on_workflow',
-        workflow:  finishedWorkflowName,
+        workflow:  finishedWorkflowId,
         trigger:   result,
       });
     }

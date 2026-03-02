@@ -12,7 +12,10 @@ let mainWindow = null;
 let isQuitting = false;
 let normalBounds = null;
 let saveTimer = null;
+
+// Ctrl+Tab interception flag — synced from renderer settings via IPC
 let ctrlTabEnabled = true;
+ipcMain.on('set-ctrl-tab-enabled', (_, enabled) => { ctrlTabEnabled = !!enabled; });
 
 /**
  * Load saved window state from settings.json
@@ -166,14 +169,16 @@ function createMainWindow({ isDev = false } = {}) {
     mainWindow.maximize();
   }
 
-  // Intercept Ctrl+Up/Down to prevent Windows Snap and forward to renderer for project switching
-  // Ctrl+Left/Right is NOT intercepted — it passes through to xterm for word-jump (TERM-03)
-  // Ctrl+Tab/Ctrl+Shift+Tab intercepted here because Chromium swallows Tab before renderer keydown
+  // Intercept Ctrl+Arrow to prevent Windows Snap and forward to renderer
+  // Ctrl+Left/Right: intercepted to prevent Windows Snap, forwarded as ctrl-arrow (renderer uses for word-jump)
+  // Ctrl+Up/Down: forwarded as ctrl-arrow (renderer uses for project switching)
+  // Ctrl+Tab/Ctrl+Shift+Tab: intercepted because Chromium swallows Tab before renderer keydown
   mainWindow.webContents.on('before-input-event', (event, input) => {
     const modKey = process.platform === 'darwin' ? input.meta : input.control;
     if (modKey && !input.alt && input.type === 'keyDown') {
       if (!input.shift) {
-        const dir = { Up: 'up', ArrowUp: 'up', Down: 'down', ArrowDown: 'down' }[input.key];
+        const dir = { Left: 'left', ArrowLeft: 'left', Right: 'right', ArrowRight: 'right',
+                       Up: 'up', ArrowUp: 'up', Down: 'down', ArrowDown: 'down' }[input.key];
         if (dir) {
           event.preventDefault();
           mainWindow.webContents.send('ctrl-arrow', dir);

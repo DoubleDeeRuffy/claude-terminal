@@ -94,6 +94,10 @@ function registerGitHandlers() {
 
   // Git clone (auto-uses GitHub token if available)
   ipcMain.handle('git-clone', async (event, { repoUrl, targetPath }) => {
+    // Validate URL scheme to prevent file:// or other dangerous protocols
+    if (!repoUrl || typeof repoUrl !== 'string') return { success: false, error: 'Invalid repository URL' };
+    const allowed = /^(https?:\/\/|git@[\w.-]+:)/i;
+    if (!allowed.test(repoUrl.trim())) return { success: false, error: 'Only https:// and git@ URLs are allowed' };
     // Get GitHub token if available
     const token = await GitHubAuthService.getTokenForGit();
     return gitClone(repoUrl, targetPath, { token });

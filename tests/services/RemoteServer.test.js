@@ -39,10 +39,10 @@ beforeEach(() => {
 // ── PIN Generation ──
 
 describe('generatePin', () => {
-  test('returns a 4-digit string', () => {
+  test('returns a 6-digit string', () => {
     const pin = remoteServer.generatePin();
     expect(typeof pin).toBe('string');
-    expect(pin).toMatch(/^\d{4}$/);
+    expect(pin).toMatch(/^\d{6}$/);
   });
 
   test('generates different PINs (probabilistic)', () => {
@@ -50,17 +50,17 @@ describe('generatePin', () => {
     for (let i = 0; i < 50; i++) {
       pins.add(remoteServer.generatePin());
     }
-    // With 50 random 4-digit PINs, we should have at least a few unique ones
+    // With 50 random 6-digit PINs, we should have at least a few unique ones
     expect(pins.size).toBeGreaterThan(1);
   });
 
-  test('PIN is padded to 4 digits', () => {
-    // Even if crypto.randomInt gives 0, should be '0000'
+  test('PIN is padded to 6 digits', () => {
+    // Even if crypto.randomInt gives 0, should be '000000'
     const crypto = require('crypto');
     jest.spyOn(crypto, 'randomInt').mockReturnValueOnce(0);
     const pin = remoteServer.generatePin();
-    expect(pin).toBe('0000');
-    expect(pin.length).toBe(4);
+    expect(pin).toBe('000000');
+    expect(pin.length).toBe(6);
     crypto.randomInt.mockRestore();
   });
 });

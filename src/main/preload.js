@@ -441,6 +441,11 @@ contextBridge.exposeInMainWorld('electron_api', {
     setCredential:   (params)  => ipcRenderer.invoke('database-set-credential', params),
   },
 
+  // ==================== TIME TRACKING ====================
+  time: {
+    getStats: (config) => ipcRenderer.invoke('time:get-stats', config),
+  },
+
   // ==================== WORKFLOW AUTOMATION ====================
   workflow: {
     // CRUD
@@ -451,6 +456,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     enable:           (id, enabled)  => ipcRenderer.invoke('workflow-enable', { id, enabled }),
     // Execution
     trigger:          (id, opts)     => ipcRenderer.invoke('workflow-trigger', { id, opts }),
+    testNode:         (step, ctx)    => ipcRenderer.invoke('workflow-test-node', { step, ctx }),
     cancel:           (runId)        => ipcRenderer.invoke('workflow-cancel', { runId }),
     approveWait:      (runId, stepId, data) => ipcRenderer.invoke('workflow-approve-wait', { runId, stepId, data }),
     // History
@@ -462,13 +468,16 @@ contextBridge.exposeInMainWorld('electron_api', {
     // Graph & utilities
     getDependencyGraph: ()           => ipcRenderer.invoke('workflow-dependency-graph'),
     validateCron:     (expr)         => ipcRenderer.invoke('workflow-validate-cron', { expr }),
+    getNodeRegistry:  ()             => ipcRenderer.invoke('workflow:get-node-registry'),
     // Real-time event listeners
     onRunStart:       createListener('workflow-run-start'),
     onRunEnd:         createListener('workflow-run-end'),
     onRunQueued:      createListener('workflow-run-queued'),
     onStepUpdate:     createListener('workflow-step-update'),
     onAgentMessage:   createListener('workflow-agent-message'),
+    onLoopProgress:   createListener('workflow-loop-progress'),
     onNotifyDesktop:  createListener('workflow-notify-desktop'),
     clearAllRuns:     ()             => ipcRenderer.invoke('workflow-clear-runs'),
+    onListUpdated:    createListener('workflow-list-updated'),
   }
 });

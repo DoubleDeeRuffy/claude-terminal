@@ -146,9 +146,11 @@ function buildHtml(settings) {
               <div class="rp-pin-display" id="remote-pin-display">
                 <span class="rp-pin-digit" id="pin-d0">-</span>
                 <span class="rp-pin-digit" id="pin-d1">-</span>
-                <span class="rp-pin-sep"></span>
                 <span class="rp-pin-digit" id="pin-d2">-</span>
+                <span class="rp-pin-sep"></span>
                 <span class="rp-pin-digit" id="pin-d3">-</span>
+                <span class="rp-pin-digit" id="pin-d4">-</span>
+                <span class="rp-pin-digit" id="pin-d5">-</span>
               </div>
               <div class="rp-pin-countdown" id="remote-pin-countdown"></div>
               <button class="rp-pin-refresh" id="remote-pin-refresh-btn">
@@ -342,8 +344,8 @@ async function _loadAndShowPin() {
 }
 
 function _showPin(pin, expiresAt) {
-  const pinStr = String(pin).padStart(4, '0');
-  ['pin-d0', 'pin-d1', 'pin-d2', 'pin-d3'].forEach((id, i) => {
+  const pinStr = String(pin).padStart(6, '0');
+  ['pin-d0', 'pin-d1', 'pin-d2', 'pin-d3', 'pin-d4', 'pin-d5'].forEach((id, i) => {
     const el = document.getElementById(id);
     if (el) el.textContent = pinStr[i] || '-';
   });
