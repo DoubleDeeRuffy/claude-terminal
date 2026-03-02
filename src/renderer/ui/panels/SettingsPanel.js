@@ -309,6 +309,125 @@ function showPromptTemplateModal(existingTemplate = null) {
   showModal(modal);
 }
 
+// ── Agent Colors Panel ──
+
+const BUILTIN_TOOLS = [
+  'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
+  'WebSearch', 'WebFetch', 'Task', 'TodoWrite', 'NotebookEdit',
+  'MultiEdit', 'ListMcpResourcesTool', 'ReadMcpResourceTool',
+];
+
+function hexToRgbParts(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
+function renderAgentColorRow(key, label, badge, color) {
+  const swatchStyle = color ? `background:${color}; border-color:${color};` : '';
+  return `
+    <div class="agent-color-row" data-key="${escapeHtml(key)}">
+      <div class="agent-color-dot" style="${swatchStyle}"></div>
+      <span class="agent-color-name">${escapeHtml(label)}</span>
+      ${badge ? `<span class="agent-color-badge">${escapeHtml(badge)}</span>` : ''}
+      <input type="color" class="agent-color-input" value="${color || '#6366f1'}" ${color ? '' : 'data-unset="true"'}>
+      ${color ? `<button class="agent-color-reset" title="${t('settings.agentColorReset')}">×</button>` : ''}
+    </div>`;
+}
+
+async function loadAgentsColorPanel() {
+  const content = document.getElementById('agent-colors-content');
+  if (!content) return;
+
+  const { fs, path, os } = window.electron_nodeModules;
+  const home = os.homedir();
+  const agentColors = ctx.settingsState.get().agentColors || {};
+
+  // Load custom agents
+  const agents = [];
+  const agentsDir = path.join(home, '.claude', 'agents');
+  try {
+    if (fs.existsSync(agentsDir)) {
+      const entries = fs.readdirSync(agentsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.md')) {
+          agents.push({ id: entry.name.replace(/\.md$/, ''), name: entry.name.replace(/\.md$/, '') });
+        } else if (entry.isDirectory()) {
+          agents.push({ id: entry.name, name: entry.name });
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Load MCPs
+  const mcps = [];
+  const claudeConfigFile = path.join(home, '.claude.json');
+  try {
+    if (fs.existsSync(claudeConfigFile)) {
+      const config = JSON.parse(await fs.promises.readFile(claudeConfigFile, 'utf8'));
+      const servers = config.mcpServers || {};
+      Object.keys(servers).forEach(name => mcps.push({ id: name, name }));
+    }
+  } catch { /* ignore */ }
+
+  function buildSection(title, items, badge) {
+    if (items.length === 0) return '';
+    const rows = items.map(item => {
+      const color = agentColors[item.id] || null;
+      return renderAgentColorRow(item.id, item.name, badge, color);
+    }).join('');
+    return `
+      <div class="settings-group">
+        <div class="settings-group-title">${title}</div>
+        <div class="settings-card agent-colors-list">${rows}</div>
+      </div>`;
+  }
+
+  content.innerHTML =
+    buildSection(t('settings.agentColorsBuiltin'), BUILTIN_TOOLS.map(n => ({ id: n, name: n })), null) +
+    (agents.length ? buildSection(t('settings.agentColorsAgents'), agents, t('settings.agentBadgeAgent')) : '') +
+    (mcps.length ? buildSection(t('settings.agentColorsMcp'), mcps, t('settings.agentBadgeMcp')) : '');
+
+  // Save color on change
+  content.querySelectorAll('.agent-color-input').forEach(input => {
+    input.addEventListener('input', () => {
+      const key = input.closest('.agent-color-row').dataset.key;
+      const newColors = { ...ctx.settingsState.get().agentColors, [key]: input.value };
+      ctx.settingsState.set({ ...ctx.settingsState.get(), agentColors: newColors });
+      const dot = input.closest('.agent-color-row').querySelector('.agent-color-dot');
+      if (dot) { dot.style.background = input.value; dot.style.borderColor = input.value; }
+      delete input.dataset.unset;
+      // Ensure reset button present
+      if (!input.nextElementSibling?.classList.contains('agent-color-reset')) {
+        const btn = document.createElement('button');
+        btn.className = 'agent-color-reset';
+        btn.title = t('settings.agentColorReset');
+        btn.textContent = '×';
+        input.insertAdjacentElement('afterend', btn);
+        btn.addEventListener('click', () => resetAgentColor(btn));
+      }
+    });
+  });
+
+  content.querySelectorAll('.agent-color-reset').forEach(btn => {
+    btn.addEventListener('click', () => resetAgentColor(btn));
+  });
+
+  function resetAgentColor(btn) {
+    const row = btn.closest('.agent-color-row');
+    const key = row.dataset.key;
+    const newColors = { ...ctx.settingsState.get().agentColors };
+    delete newColors[key];
+    ctx.settingsState.set({ ...ctx.settingsState.get(), agentColors: newColors });
+    const dot = row.querySelector('.agent-color-dot');
+    if (dot) { dot.style.background = ''; dot.style.borderColor = ''; }
+    const input = row.querySelector('.agent-color-input');
+    if (input) input.dataset.unset = 'true';
+    btn.remove();
+  }
+}
+
 function switchToSettingsTab(initialSubTab = 'general') {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('btn-settings').classList.add('active');
@@ -348,6 +467,7 @@ async function renderSettingsTab(initialTab = 'general') {
         <button class="settings-tab ${initialTab === 'themes' ? 'active' : ''}" data-tab="themes">${t('settings.tabThemes')}</button>
         <button class="settings-tab ${initialTab === 'shortcuts' ? 'active' : ''}" data-tab="shortcuts">${t('settings.tabShortcuts')}</button>
         <button class="settings-tab ${initialTab === 'library' ? 'active' : ''}" data-tab="library">${t('settings.tabLibrary')}</button>
+        <button class="settings-tab ${initialTab === 'agents' ? 'active' : ''}" data-tab="agents">${t('settings.tabAgents')}</button>
         <button class="settings-tab ${initialTab === 'remote' ? 'active' : ''}" data-tab="remote">${t('remote.tabTitle')}</button>
         ${(() => {
           const registry = require('../../../project-types/registry');
@@ -813,6 +933,9 @@ async function renderSettingsTab(initialTab = 'general') {
         <div class="settings-panel ${initialTab === 'library' ? 'active' : ''}" data-panel="library">
           ${buildLibraryPanel()}
         </div>
+        <div class="settings-panel ${initialTab === 'agents' ? 'active' : ''}" data-panel="agents">
+          <div id="agent-colors-content"><div class="settings-loading-hint">${t('common.loading')}</div></div>
+        </div>
         <div class="settings-panel ${initialTab === 'remote' ? 'active' : ''}" data-panel="remote">
           ${RemotePanel.buildHtml(settings)}
         </div>
@@ -870,8 +993,11 @@ async function renderSettingsTab(initialTab = 'general') {
       container.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
       container.querySelector(`.settings-panel[data-panel="${tab.dataset.tab}"]`)?.classList.add('active');
+      if (tab.dataset.tab === 'agents') loadAgentsColorPanel();
     };
   });
+
+  if (initialTab === 'agents') loadAgentsColorPanel();
 
   ctx.ShortcutsManager.setupShortcutsPanelHandlers();
   RemotePanel.setupHandlers(ctx);

@@ -2058,6 +2058,23 @@ function createChatView(wrapperEl, project, options = {}) {
     currentStreamText = '';
   }
 
+  function applyToolColor(el, toolName) {
+    const colors = getSetting('agentColors') || {};
+    let color = colors[toolName];
+    // For MCP tools like "mcp__server__tool", match by server name prefix
+    if (!color && toolName.startsWith('mcp__')) {
+      const serverName = toolName.split('__')[1];
+      color = colors[serverName];
+    }
+    if (color) {
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      el.style.setProperty('--accent-color', color);
+      el.style.setProperty('--accent-color-rgb', `${r}, ${g}, ${b}`);
+    }
+  }
+
   function appendToolCard(toolName, detail) {
     const el = document.createElement('div');
     el.className = 'chat-tool-card';
@@ -2070,6 +2087,7 @@ function createChatView(wrapperEl, project, options = {}) {
       </div>
       <div class="chat-tool-status running"><div class="chat-tool-spinner"></div></div>
     `;
+    applyToolColor(el, toolName);
     messagesEl.appendChild(el);
     scrollToBottom();
     return el;
@@ -3411,6 +3429,7 @@ function createChatView(wrapperEl, project, options = {}) {
             </div>
           `;
 
+          applyToolColor(el, msg.toolName);
           if (msg.toolUseId) el.dataset.toolUseId = msg.toolUseId;
           if (msg.toolInput) {
             el.dataset.toolInput = JSON.stringify(msg.toolInput);
