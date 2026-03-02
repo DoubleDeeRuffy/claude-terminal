@@ -106,3 +106,13 @@ Plans:
 
 Plans:
 - [ ] Plan 32A: Close warning dialog when Claude is actively working
+
+### Phase 33: Updater-Settings
+
+**Goal:** Add user-configurable settings for the auto-update mechanism: check interval (30min/1h/3h/startup-only/never), download mode (auto/manual), and install mode (auto-on-close/manual).
+**Requirements**: [UPD-01] Add updater settings UI to settings panel (check interval, download mode, install mode); [UPD-02] Persist settings in app config; [UPD-03] Wire settings to UpdaterService (respect check interval, auto/manual download, auto/manual install); [UPD-04] Add i18n keys for EN/FR.
+**Depends on:** —
+**Plans:** 1 plan
+
+Plans:
+- [ ] 33-01-PLAN.md — Updater settings UI, persistence, and UpdaterService wiring
