@@ -1773,13 +1773,40 @@ function createChatView(wrapperEl, project, options = {}) {
       const offset = input.offset || 1;
       const limit = input.limit || '';
       const rangeInfo = limit ? `lines ${offset}–${offset + parseInt(limit, 10) - 1}` : (offset > 1 ? `from line ${offset}` : '');
-      if (output) {
-        const lines = output.split('\n');
-        const maxLines = 50;
-        const truncated = lines.length > maxLines;
-        const displayLines = truncated ? lines.slice(0, maxLines) : lines;
-        return `<div class="chat-tool-content-path">${escapeHtml(path)}${rangeInfo ? ` <span class="chat-tool-content-meta">(${rangeInfo})</span>` : ''} <span class="chat-tool-content-meta">${lines.length} lines</span></div>
-          <div class="chat-tool-output"><pre>${escapeHtml(displayLines.join('\n'))}${truncated ? `\n… (${lines.length - maxLines} more lines)` : ''}</pre></div>`;
+
+      let effectiveOutput = output;
+      // If no output stored (live streaming), read file directly
+      if (!effectiveOutput && path) {
+        try {
+          const { fs } = window.electron_nodeModules;
+          const raw = await fs.promises.readFile(path, 'utf8');
+          const allLines = raw.split('\n');
+          const start = Math.max(0, (parseInt(offset, 10) || 1) - 1);
+          const end = limit ? start + parseInt(limit, 10) : allLines.length;
+          effectiveOutput = allLines.slice(start, end)
+            .map((l, i) => `${String(start + i + 1).padStart(6)}→${l}`)
+            .join('\n');
+        } catch { /* file not readable, ignore */ }
+      }
+
+      if (effectiveOutput) {
+        const catFormat = /^\s*(\d+)→(.*)$/;
+        const parsed = effectiveOutput.split('\n').map((line, i) => {
+          const m = line.match(catFormat);
+          return m ? { num: parseInt(m[1], 10), content: m[2] } : { num: (parseInt(offset, 10) || 1) + i, content: line };
+        });
+        const maxLines = 80;
+        const truncated = parsed.length > maxLines;
+        const display = parsed.slice(0, maxLines);
+        const ext = path.split('.').pop().toLowerCase();
+        const plainText = display.map(l => l.content).join('\n');
+        const highlightedText = highlight(plainText, ext);
+        const highlightedLines = highlightedText.split('\n');
+        const linesHtml = display.map((l, i) =>
+          `<div class="diff-line"><span class="diff-ln">${l.num}</span><span class="diff-sign"> </span><span class="diff-text">${highlightedLines[i] ?? ''}</span></div>`
+        ).join('');
+        return `<div class="chat-tool-content-path">${escapeHtml(path)}${rangeInfo ? ` <span class="chat-tool-content-meta">(${rangeInfo})</span>` : ''} <span class="chat-tool-content-meta">${parsed.length} lines</span></div>
+          <div class="chat-diff-viewer">${linesHtml}${truncated ? `<div class="diff-line diff-truncated"><span class="diff-ln"></span><span class="diff-sign"> </span><span class="diff-text">… (${parsed.length - maxLines} more lines)</span></div>` : ''}</div>`;
       }
       return `<div class="chat-tool-content-path">${escapeHtml(path)}${rangeInfo ? ` <span class="chat-tool-content-meta">(${rangeInfo})</span>` : ''}</div>`;
     }
