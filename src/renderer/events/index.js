@@ -198,11 +198,13 @@ function findTerminalForSessionId(projectId, sessionId) {
 
     let uncapturedTerminalId = null;
     let projectTerminalCount = 0;
+    const debugTerminals = [];
 
     for (const [id, td] of terminals) {
       if (td.project?.id !== projectId) continue;
       if (td.mode !== 'terminal' || td.isBasic) continue;
       projectTerminalCount++;
+      debugTerminals.push({ id, claudeSessionId: td.claudeSessionId?.slice(0, 8) || 'NONE', name: td.name });
 
       // Priority 1: terminal already has this session ID (resume case)
       if (td.claudeSessionId === sessionId) return id;
@@ -212,6 +214,8 @@ function findTerminalForSessionId(projectId, sessionId) {
         uncapturedTerminalId = id;
       }
     }
+
+    console.debug(`[Events] findTerminalForSessionId: looking for session=${sessionId?.slice(0, 8)}, project terminals:`, debugTerminals, `uncaptured=${uncapturedTerminalId}, count=${projectTerminalCount}`);
 
     // Priority 2: assign to terminal awaiting capture (only if multiple terminals exist)
     if (uncapturedTerminalId !== null && projectTerminalCount > 1) return uncapturedTerminalId;
@@ -306,9 +310,14 @@ function resolveTerminalIdForEvent(e) {
   const sessionId = e.data?.sessionId;
   if (sessionId && e.projectId) {
     const match = findTerminalForSessionId(e.projectId, sessionId);
-    if (match != null) return match;
+    if (match != null) {
+      console.debug(`[Events] resolveTerminalIdForEvent: session_id=${sessionId?.slice(0, 8)} → terminal ${match} (session match)`);
+      return match;
+    }
   }
-  return lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+  const fallback = lastActiveClaudeTab.get(e.projectId) ?? findClaudeTerminalForProject(e.projectId);
+  console.debug(`[Events] resolveTerminalIdForEvent: session_id=${sessionId?.slice(0, 8) || 'NONE'} → terminal ${fallback} (fallback, lastActive=${lastActiveClaudeTab.get(e.projectId)}, highest=${findClaudeTerminalForProject(e.projectId)})`);
+  return fallback;
 }
 
 // ── Consumer: Terminal Tab Status (hooks-only — forces tab status from hook events) ──
@@ -376,12 +385,18 @@ function wireTabRenameConsumer() {
       const { getSetting } = require('../state/settings.state');
       if (!getSetting('tabRenameOnSlashCommand')) return;
       const terminalId = resolveTerminalIdForEvent(e);
+      console.debug(`[Events] wireTabRenameConsumer: prompt="${prompt?.slice(0, 30)}", sessionId=${e.data?.sessionId?.slice(0, 8) || 'NONE'}, resolved terminalId=${terminalId}`);
       if (!terminalId) return;
       const name = prompt.length > MAX_TAB_NAME_LEN
         ? prompt.slice(0, MAX_TAB_NAME_LEN - 1) + '\u2026'
         : prompt;
       try {
         const TerminalManager = require('../ui/components/TerminalManager');
+        // Debug: check if terminal exists and if its tab is visible
+        const { terminalsState } = require('../state/terminals.state');
+        const td = terminalsState.get().terminals.get(terminalId) || terminalsState.get().terminals.get(Number(terminalId));
+        const tabEl = document.querySelector(`.terminal-tab[data-id="${terminalId}"]`);
+        console.debug(`[Events] wireTabRenameConsumer: renaming terminal ${terminalId}, exists=${!!td}, tabEl=${!!tabEl}, tabVisible=${tabEl ? tabEl.style.display !== 'none' : 'N/A'}, claudeSessionId=${td?.claudeSessionId?.slice(0, 8) || 'NONE'}`);
         TerminalManager.updateTerminalTabName(terminalId, name);
       } catch (err) { /* TerminalManager not ready */ }
     })

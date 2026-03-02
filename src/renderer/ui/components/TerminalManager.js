@@ -1601,6 +1601,8 @@ function closeTerminal(id) {
     cleanupTerminalResources(termData);
     removeTerminal(id);
   }
+  // Capture pane ID before unregisterTab removes the tab from the pane
+  const closedPaneId = PaneManager.getPaneForTab(String(id));
   const emptyPaneId = PaneManager.unregisterTab(String(id));
   document.querySelector(`.terminal-tab[data-id="${id}"]`)?.remove();
   document.querySelector(`.terminal-wrapper[data-id="${id}"]`)?.remove();
@@ -1610,9 +1612,17 @@ function closeTerminal(id) {
     PaneManager.collapsePane(emptyPaneId);
   }
 
-  // Walk back activation history to find the previously-active tab (Phase 23)
+  // Prefer the pane-local successor that unregisterTab already computed
   let sameProjectTerminalId = null;
-  if (closedProjectId) {
+  if (closedPaneId && !emptyPaneId) {
+    const closedPane = PaneManager.getPanes().get(closedPaneId);
+    if (closedPane?.activeTab) {
+      sameProjectTerminalId = closedPane.activeTab;
+    }
+  }
+
+  // Walk back activation history to find the previously-active tab (Phase 23)
+  if (!sameProjectTerminalId && closedProjectId) {
     const history = tabActivationHistory.get(closedProjectId);
     if (history) {
       // Walk from most-recent backward; skip the closed tab and already-removed tabs
