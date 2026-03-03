@@ -8,6 +8,7 @@
  * - Output hints block
  */
 const { escapeHtml, escapeAttr } = require('./_registry');
+const { t } = require('../i18n');
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -24,21 +25,21 @@ function renderOutputHints(action, nodeId) {
   const id = nodeId != null ? nodeId : 'X';
   if (action === 'query') {
     return `<div class="wf-db-output-hint">
-  <div class="wf-db-output-title">Sorties disponibles</div>
+  <div class="wf-db-output-title">${t('workflow.db.availableOutputs')}</div>
   <div class="wf-db-output-items">
-    <code>$node_${esc(String(id))}.rows</code> <span>tableau des résultats</span>
-    <code>$node_${esc(String(id))}.columns</code> <span>noms des colonnes</span>
-    <code>$node_${esc(String(id))}.rowCount</code> <span>nombre de lignes</span>
-    <code>$node_${esc(String(id))}.duration</code> <span>temps d'exécution (ms)</span>
-    <code>$node_${esc(String(id))}.firstRow</code> <span>première ligne (objet)</span>
+    <code>$node_${esc(String(id))}.rows</code> <span>${t('workflow.db.outputRows')}</span>
+    <code>$node_${esc(String(id))}.columns</code> <span>${t('workflow.db.outputColumns')}</span>
+    <code>$node_${esc(String(id))}.rowCount</code> <span>${t('workflow.db.outputRowCount')}</span>
+    <code>$node_${esc(String(id))}.duration</code> <span>${t('workflow.db.outputDuration')}</span>
+    <code>$node_${esc(String(id))}.firstRow</code> <span>${t('workflow.db.outputFirstRow')}</span>
   </div>
 </div>`;
   }
   return `<div class="wf-db-output-hint">
-  <div class="wf-db-output-title">Sorties disponibles</div>
+  <div class="wf-db-output-title">${t('workflow.db.availableOutputs')}</div>
   <div class="wf-db-output-items">
-    <code>$node_${esc(String(id))}.tables</code> <span>liste des tables</span>
-    <code>$node_${esc(String(id))}.tableCount</code> <span>nombre de tables</span>
+    <code>$node_${esc(String(id))}.tables</code> <span>${t('workflow.db.outputTables')}</span>
+    <code>$node_${esc(String(id))}.tableCount</code> <span>${t('workflow.db.outputTableCount')}</span>
   </div>
 </div>`;
 }
@@ -57,14 +58,14 @@ module.exports = {
       .join('');
 
     const connHint = !dbConns.length
-      ? '<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">Aucune connexion — onglet Database</span>'
+      ? `<span class="wf-field-hint" style="color:rgba(251,191,36,.6)">${t('workflow.db.noConnection')}</span>`
       : (selectedConn
           ? `<span class="wf-field-hint" style="color:rgba(251,191,36,.5)">${esc(selectedConn.type || 'sql')}${selectedConn.host ? ' — ' + esc(selectedConn.host) : ''}${selectedConn.database ? '/' + esc(selectedConn.database) : ''}</span>`
           : '');
 
     const querySection = dbAction === 'query' ? `
 <div class="wf-step-edit-field">
-  <label class="wf-step-edit-label">Requête SQL</label>
+  <label class="wf-step-edit-label">${t('workflow.db.sqlQuery')}</label>
   <div class="wf-sql-templates">
     <button class="wf-sql-tpl" data-tpl="select">SELECT</button>
     <button class="wf-sql-tpl" data-tpl="insert">INSERT</button>
@@ -74,18 +75,18 @@ module.exports = {
   <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-sql-textarea" data-key="query"
     rows="5" spellcheck="false"
     placeholder="SELECT * FROM users WHERE active = 1">${esc(props.query || '')}</textarea>
-  <span class="wf-field-hint">Variables : $ctx, $node_X, $loop</span>
+  <span class="wf-field-hint">${t('workflow.db.sqlVariables')}</span>
 </div>
 <div class="wf-field-row">
   <div class="wf-step-edit-field wf-field-half">
-    <label class="wf-step-edit-label">Limite</label>
-    <span class="wf-field-hint">Max de lignes retournées</span>
+    <label class="wf-step-edit-label">${t('workflow.db.limit')}</label>
+    <span class="wf-field-hint">${t('workflow.db.limitHint')}</span>
     <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="limit" type="number"
       min="1" max="10000" value="${esc(String(props.limit || 100))}" placeholder="100" />
   </div>
   <div class="wf-step-edit-field wf-field-half">
-    <label class="wf-step-edit-label">Variable de sortie</label>
-    <span class="wf-field-hint">Nom pour accéder au résultat</span>
+    <label class="wf-step-edit-label">${t('workflow.db.outputVar')}</label>
+    <span class="wf-field-hint">${t('workflow.db.outputVarHint')}</span>
     <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar"
       value="${esc(props.outputVar || '')}" placeholder="dbResult" />
   </div>
@@ -93,21 +94,21 @@ module.exports = {
 
     return `<div class="wf-field-group" data-key="connection">
 <div class="wf-step-edit-field">
-  <label class="wf-step-edit-label">Connexion</label>
-  <span class="wf-field-hint">Base de données configurée dans l'app</span>
+  <label class="wf-step-edit-label">${t('workflow.db.connection')}</label>
+  <span class="wf-field-hint">${t('workflow.db.connectionHint')}</span>
   <select class="wf-step-edit-input wf-node-prop wf-db-conn-select" data-key="connection">
-    <option value="">-- Choisir une connexion --</option>
+    <option value="">${t('workflow.db.selectConnection')}</option>
     ${connOptions}
   </select>
   ${connHint}
 </div>
 <div class="wf-step-edit-field">
-  <label class="wf-step-edit-label">Action</label>
-  <span class="wf-field-hint">Type d'opération sur la base</span>
+  <label class="wf-step-edit-label">${t('workflow.db.action')}</label>
+  <span class="wf-field-hint">${t('workflow.db.actionHint')}</span>
   <select class="wf-step-edit-input wf-node-prop wf-db-action-select" data-key="action">
-    <option value="query"${dbAction === 'query' ? ' selected' : ''}>Query — Exécuter une requête SQL</option>
-    <option value="schema"${dbAction === 'schema' ? ' selected' : ''}>Schema — Lister les tables et colonnes</option>
-    <option value="tables"${dbAction === 'tables' ? ' selected' : ''}>Tables — Lister les noms de tables</option>
+    <option value="query"${dbAction === 'query' ? ' selected' : ''}>${t('workflow.db.actionQuery')}</option>
+    <option value="schema"${dbAction === 'schema' ? ' selected' : ''}>${t('workflow.db.actionSchema')}</option>
+    <option value="tables"${dbAction === 'tables' ? ' selected' : ''}>${t('workflow.db.actionTables')}</option>
   </select>
 </div>
 <div class="wf-db-query-section">
@@ -144,7 +145,7 @@ ${renderOutputHints(dbAction, node.id)}
           const props = node.properties || {};
           qSection.innerHTML = action === 'query' ? `
 <div class="wf-step-edit-field">
-  <label class="wf-step-edit-label">Requête SQL</label>
+  <label class="wf-step-edit-label">${t('workflow.db.sqlQuery')}</label>
   <div class="wf-sql-templates">
     <button class="wf-sql-tpl" data-tpl="select">SELECT</button>
     <button class="wf-sql-tpl" data-tpl="insert">INSERT</button>
@@ -154,16 +155,16 @@ ${renderOutputHints(dbAction, node.id)}
   <textarea class="wf-step-edit-input wf-node-prop wf-field-mono wf-sql-textarea" data-key="query"
     rows="5" spellcheck="false"
     placeholder="SELECT * FROM users WHERE active = 1">${e(props.query || '')}</textarea>
-  <span class="wf-field-hint">Variables : $ctx, $node_X, $loop</span>
+  <span class="wf-field-hint">${t('workflow.db.sqlVariables')}</span>
 </div>
 <div class="wf-field-row">
   <div class="wf-step-edit-field wf-field-half">
-    <label class="wf-step-edit-label">Limite</label>
+    <label class="wf-step-edit-label">${t('workflow.db.limit')}</label>
     <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="limit" type="number"
       min="1" max="10000" value="${e(String(props.limit || 100))}" placeholder="100" />
   </div>
   <div class="wf-step-edit-field wf-field-half">
-    <label class="wf-step-edit-label">Variable de sortie</label>
+    <label class="wf-step-edit-label">${t('workflow.db.outputVar')}</label>
     <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="outputVar"
       value="${e(props.outputVar || '')}" placeholder="dbResult" />
   </div>

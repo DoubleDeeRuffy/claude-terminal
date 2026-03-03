@@ -1786,9 +1786,11 @@ function _showConflictModal(conflicts) {
   });
 }
 
+let _uploadSpeedStart = null;
+let _uploadSpeedLastMB = 0;
 if (api.cloud?.onUploadProgress) {
   api.cloud.onUploadProgress((progress) => {
-    if (!_activeUploadToast) return;
+    if (!_activeUploadToast) { _uploadSpeedStart = null; return; }
     const msgEl = _activeUploadToast.querySelector('.toast-message');
     if (!msgEl) return;
     const phases = {
@@ -1797,7 +1799,20 @@ if (api.cloud?.onUploadProgress) {
       uploading: t('cloud.uploadPhaseUploading'),
       done: t('cloud.uploadSuccess'),
     };
-    if (phases[progress.phase]) msgEl.textContent = phases[progress.phase];
+    if (phases[progress.phase]) {
+      if (progress.phase === 'uploading' && progress.uploadedMB != null && progress.totalMB != null) {
+        const now = Date.now();
+        if (!_uploadSpeedStart) _uploadSpeedStart = now;
+        const elapsed = (now - _uploadSpeedStart) / 1000;
+        const speed = elapsed > 1 ? (progress.uploadedMB / elapsed).toFixed(1) : null;
+        const speedStr = speed ? ` — ${speed} MB/s` : '';
+        msgEl.textContent = `${progress.uploadedMB} / ${progress.totalMB} MB (${progress.percent}%)${speedStr}`;
+      } else {
+        _uploadSpeedStart = null;
+        const pct = typeof progress.percent === 'number' ? ` (${progress.percent}%)` : '';
+        msgEl.textContent = phases[progress.phase] + pct;
+      }
+    }
   });
 }
 
