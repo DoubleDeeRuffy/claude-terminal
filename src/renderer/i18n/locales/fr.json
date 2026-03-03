@@ -102,7 +102,9 @@
     "stopping": "Arrêt...",
     "disconnected": "Déconnecté",
     "stopped": "Arrêté",
-    "exitedWithCode": "Terminé avec le code {code}"
+    "exitedWithCode": "Terminé avec le code {code}",
+    "toolsUnavailable": "Outils non disponibles (serveur externe)",
+    "noTools": "Aucun outil trouvé"
   },
   "fileExplorer": {
     "title": "Explorer",
@@ -605,6 +607,13 @@
     "tabThemes": "Thèmes",
     "tabShortcuts": "Raccourcis",
     "tabLibrary": "Bibliothèque",
+    "tabAgents": "Agents",
+    "agentColorsBuiltin": "Outils intégrés",
+    "agentColorsAgents": "Agents personnalisés",
+    "agentColorsMcp": "Serveurs MCP",
+    "agentColorReset": "Supprimer la couleur",
+    "agentBadgeAgent": "agent",
+    "agentBadgeMcp": "mcp",
     "contextPacks": "Packs de Contexte",
     "contextPacksDesc": "Ensembles de fichiers, textes et règles à injecter en contexte dans le chat",
     "newContextPack": "Nouveau Pack",
@@ -766,6 +775,8 @@
     "mcpServers": "Serveurs MCP",
     "newMcp": "Nouveau MCP",
     "tabClaude": "Claude",
+    "separatorTools": "Outils",
+    "separatorAI": "AI",
     "separatorExtensions": "Extensions",
     "tabPlugins": "Plugins",
     "tabSkills": "Skills",
