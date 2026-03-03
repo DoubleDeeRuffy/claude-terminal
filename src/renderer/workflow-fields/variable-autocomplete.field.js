@@ -1,4 +1,5 @@
 const { escapeHtml, escapeAttr } = require('./_registry');
+const { t } = require('../i18n');
 
 module.exports = {
   type: 'variable-autocomplete',
@@ -7,7 +8,7 @@ module.exports = {
     return `<div class="wf-field-group" data-key="${escapeAttr(field.key)}">
   <label class="wf-field-label">${escapeHtml(field.label || field.key)}</label>
   <input type="text" class="wf-input wf-var-input" value="${escapeAttr(value || '')}"
-         placeholder="{{variable}} ou valeur" data-key="${escapeAttr(field.key)}" />
+         placeholder="${t('workflow.variable.placeholder')}" data-key="${escapeAttr(field.key)}" />
   <div class="wf-var-suggestions" style="display:none"></div>
 </div>`;
   },

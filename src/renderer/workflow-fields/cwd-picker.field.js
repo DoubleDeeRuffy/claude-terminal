@@ -29,7 +29,7 @@ module.exports = {
   <span class="wf-field-hint">${t('workflow.cwd.pathHint')}</span>
   <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="cwd"
     value="${escapeAttr(props.cwd || '')}"
-    placeholder="$item.path ou E:\\MonProjet" />
+    placeholder="${t('workflow.cwd.pathPlaceholder')}" />
 </div>` : '';
 
     return `<div class="wf-field-group" data-key="${escapeAttr(field.key)}">
@@ -65,7 +65,7 @@ ${customInput}
 <span class="wf-field-hint">${t('workflow.cwd.pathHint')}</span>
 <input class="wf-step-edit-input wf-node-prop wf-field-mono" data-key="cwd"
   value=""
-  placeholder="$item.path ou E:\\MonProjet" />`;
+  placeholder="${t('workflow.cwd.pathPlaceholder')}" />`;
           container.appendChild(div);
 
           const inp = div.querySelector('[data-key="cwd"]');

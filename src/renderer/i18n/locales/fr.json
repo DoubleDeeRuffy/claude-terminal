@@ -1541,7 +1541,11 @@
       "currentProject": "Projet courant (contexte workflow)",
       "customPath": "Chemin personnalisé…",
       "defaultLabel": "Exécuter dans",
-      "defaultHint": "Répertoire de travail"
+      "defaultHint": "Répertoire de travail",
+      "pathPlaceholder": "$item.path ou E:\\MonProjet"
+    },
+    "variable": {
+      "placeholder": "{{variable}} ou valeur"
     },
     "project": {
       "actionLabel": "Action",

@@ -30,7 +30,7 @@ function renderCwdSection(props) {
   <label class="wf-step-edit-label">${t('workflow.cwd.pathLabel')}</label>
   <span class="wf-field-hint">${t('workflow.cwd.pathHint')}</span>
   <input class="wf-step-edit-input wf-node-prop wf-field-mono wf-claude-cwd-input" data-key="cwd"
-    value="${esc(props.cwd || '')}" placeholder="$item.path ou E:\\MonProjet" />
+    value="${esc(props.cwd || '')}" placeholder="${t('workflow.cwd.pathPlaceholder')}" />
 </div>` : '';
   return `<div class="wf-step-edit-field">
   <label class="wf-step-edit-label">${t('workflow.claude.cwdLabel')}</label>
@@ -171,7 +171,7 @@ ${renderModelEffort(props)}
             div.innerHTML = `<label class="wf-step-edit-label">${t('workflow.cwd.pathLabel')}</label>
 <span class="wf-field-hint">${t('workflow.cwd.pathHint')}</span>
 <input class="wf-step-edit-input wf-node-prop wf-field-mono wf-claude-cwd-input" data-key="cwd"
-  value="" placeholder="$item.path ou E:\\MonProjet" />`;
+  value="" placeholder="${t('workflow.cwd.pathPlaceholder')}" />`;
             projSel.closest('.wf-step-edit-field').after(div);
             div.querySelector('.wf-claude-cwd-input').addEventListener('input', e => {
               node.properties.cwd = e.target.value;

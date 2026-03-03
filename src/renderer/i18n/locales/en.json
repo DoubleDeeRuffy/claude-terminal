@@ -1541,7 +1541,11 @@
       "currentProject": "Current project (workflow context)",
       "customPath": "Custom path…",
       "defaultLabel": "Run in",
-      "defaultHint": "Working directory"
+      "defaultHint": "Working directory",
+      "pathPlaceholder": "$item.path or C:\\MyProject"
+    },
+    "variable": {
+      "placeholder": "{{variable}} or value"
     },
     "project": {
       "actionLabel": "Action",
