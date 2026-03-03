@@ -121,6 +121,9 @@ function registerCloudHandlers() {
       const http = url.startsWith('https') ? require('https') : require('http');
       const urlObj = new URL(`${url}/api/projects`);
 
+      // Get total form length (needed because PassThrough breaks form-data's auto Content-Length)
+      const formLength = await new Promise((res, rej) => formData.getLength((err, len) => err ? rej(err) : res(len)));
+
       // Dynamic timeout: 5 min minimum, or based on zip size at 1 MB/s (slow connection baseline)
       const MIN_TIMEOUT_MS = 5 * 60 * 1000;
       const UPLOAD_TIMEOUT_MS = Math.max(MIN_TIMEOUT_MS, Math.round(zipSize / (1024 * 1024)) * 1000);
@@ -137,6 +140,7 @@ function registerCloudHandlers() {
           method: 'POST',
           headers: {
             ...formData.getHeaders(),
+            'Content-Length': formLength,
             'Authorization': `Bearer ${key}`,
           },
         }, (res) => {
