@@ -32,6 +32,30 @@ Both dialogs call `TerminalManager.resumeSession()` which:
 - Calls `updateTerminalTabName(id, sessionName)` after `addTerminal()` if sessionName is truthy
 - Creates the tab DOM with `sessionName || t('terminals.resuming')` as tab text
 
+## Session ID Lifecycle & `/clear` Rotation
+
+Session IDs are captured and persisted via two independent paths:
+
+### Terminal mode (hooks path)
+- `wireSessionIdCapture()` in `src/renderer/events/index.js` (~line 486)
+- Listens for `SESSION_START` hook events, resolves terminal via `findTerminalForSessionId()`
+- On **session rotation** (`/clear`): accepts the new session ID, resets tab name to project name
+- The old session's name remains in `session-names.json` — fully resumable from either dialog
+
+### Chat mode (SDK path)
+- `handleAssistantMessage()` in `ChatView.js` (~line 3065)
+- Captures `msg.session_id` from assistant messages, updates on change
+
+### Two name persistence stores
+- **`terminal-sessions.json`** — tab layout for app restart (has `name` + `claudeSessionId` per tab)
+- **`session-names.json`** — keyed by session ID, used by both resume dialogs for `displayTitle`
+
+`updateTerminalTabName()` writes to BOTH stores simultaneously (state + DOM + session-names.json + terminal-sessions.json).
+
+## Key Lesson (Session Rotation Bug)
+
+Before the fix, `wireSessionIdCapture()` had a guard that **blocked** any new session ID if the terminal already had one. This meant `/clear` was silently ignored — the old pre-`/clear` session ID stayed persisted, and app restart would resume the wrong (old) conversation. The fix flips the guard into a **rotation handler** that accepts the new ID and resets the tab name.
+
 ## Key Lesson (Phase 14.1)
 
 Plans 01-03 only patched the empty-state panel. The lightbulb modal was missed because:

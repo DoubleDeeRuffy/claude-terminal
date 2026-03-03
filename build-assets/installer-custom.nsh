@@ -42,10 +42,7 @@
     FileWrite $0 "1"
     FileClose $0
   ${endif}
-!macroend
 
-
-!macro customInstall
   ; Safety-net: recreate the desktop shortcut if it was deleted by the old uninstaller
   ; during a transition update (old uninstaller had no ${isUpdated} guard).
   ; This ensures the shortcut always exists after install, regardless of upgrade path.

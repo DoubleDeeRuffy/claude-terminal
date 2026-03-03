@@ -12,123 +12,102 @@ When merging upstream, conflicted files resolved with `--theirs` discard ALL loc
 - WIP changes in `en.json`, `fr.json`, and `SettingsPanel.js` were permanently lost
 - `settings.state.js` and `TerminalManager.js` survived only because the stash pop re-applied them
 
-## Safe Merge Procedure
+## Safe Merge Procedure (Revised 2026-03-03)
 
-### 1. Inventory WIP Changes BEFORE Anything Else
+### 1. Tag the Pre-Merge State
+
+Always create a recoverable tag before any merge work:
 
 ```bash
-git status                          # List all modified/untracked files
-git diff --stat                     # See what's changed (unstaged)
-git diff --cached --stat            # See what's staged
+git tag v<version>-pre-merge HEAD   # e.g., v0.9.8-pre-merge
 ```
 
-**Write down every file with WIP changes.** This is the checklist you'll verify against at the end.
+This is better than stashes or reflog hunting — the tag is permanent and explicit.
 
-### 2. Create a WIP Snapshot Commit (Not a Stash)
+### 2. Commit All WIP (Not Stash)
 
 Stashes are fragile during merges. Commit instead:
 
 ```bash
-git add -A
-git commit -m "WIP: snapshot before upstream merge"
+git status                          # List all modified/untracked files
+git diff --stat                     # See what's changed
+git add <specific-files>
+git commit -m "wip: <describe changes>"
 ```
 
-This makes your WIP part of the git history, so it survives the merge as "ours" side.
+This makes your WIP part of the git history, so it participates in merge as "ours" side.
 
-### 3. Fetch and Start the Merge
+### 3. Dry-Run First (Assess Conflict Scope)
+
+Before committing to the merge, preview what you're getting into:
 
 ```bash
 git fetch upstream
-git merge upstream/main
+# Use a temporary worktree to avoid touching your working tree:
+git worktree add --detach .claude/worktrees/merge-test HEAD
+cd .claude/worktrees/merge-test
+git merge --no-commit upstream/main
+# Count conflicts per file:
+for f in $(git diff --name-only --diff-filter=U); do
+  count=$(grep -c "^<<<<<<< HEAD" "$f" 2>/dev/null || echo 0)
+  echo "$count conflicts in $f"
+done
+# Inspect specific conflicts:
+grep -n "^<<<<<<< HEAD\|^=======\|^>>>>>>>" <file>
+# Clean up:
+cd -
+git worktree remove .claude/worktrees/merge-test --force
 ```
 
-### 4. Resolve Conflicts File-by-File (NEVER Bulk `--theirs`)
-
-For each conflicted file, check if it has WIP changes:
+### 4. Merge with `--no-commit`
 
 ```bash
-git diff HEAD~1 -- <conflicted-file>   # Did WIP commit touch this file?
+git merge --no-commit upstream/main
 ```
 
-- **File has NO WIP changes:** Safe to take theirs:
-  ```bash
-  git checkout --theirs <file>
-  ```
+Using `--no-commit` lets you resolve everything and verify before finalizing.
 
-- **File HAS WIP changes:** Must manually merge:
-  ```bash
-  # Open the file, resolve conflict markers keeping both sides
-  # Or use a merge tool:
-  git mergetool <file>
-  ```
+### 5. Resolve Conflicts — Delegate to a Subagent
 
-**Rule: NEVER use `git checkout --theirs` on a file that has your WIP changes.**
+For large merges (10+ conflicts), spawn a general-purpose Agent to resolve all conflicts in parallel. The principle for fork merges: **keep BOTH sides** — local features and upstream fixes are additive.
 
-### 5. Verify WIP Survived
+For each conflicted file, the agent should:
+1. Read conflict markers
+2. Understand what each side added
+3. Keep both sides merged together
+4. Verify zero conflict markers remain after resolution
 
-For every file from the Step 1 inventory, confirm changes are present:
+### 6. Fix Post-Merge Build Errors
 
-```bash
-# For each WIP file:
-git diff HEAD~1 -- <file>   # Should show your WIP additions
-grep -c "yourFunctionName" <file>
-grep -c "yourSettingKey" <file>
-grep -c "yourI18nKey" <file>
-```
+Common issues after merging both sides:
+- **Duplicate variable declarations** — both sides declared the same `const` (e.g., `tabActivationHistory`)
+- **Duplicate JSON keys** — both sides added keys to the same section (e.g., `"tabs"` appearing twice in i18n files)
+- **Duplicate imports** — both sides added the same module import
 
-### 6. Complete the Merge
+Always run `npm run build:renderer` before committing — esbuild catches these instantly.
+
+### 7. Verify and Commit
 
 ```bash
-git add <all-resolved-files>
-git commit --no-edit              # Merge commit
-```
-
-### 7. Optionally Undo the WIP Snapshot
-
-If you want to keep WIP uncommitted (as it was before):
-
-```bash
-git reset --soft HEAD~2           # Undo merge + WIP commits, keep changes staged
-git stash                         # Stash the WIP
-git merge upstream/main           # Redo merge (now no WIP conflicts)
-git stash pop                     # Reapply WIP
-```
-
-Or just leave the WIP commit — it's on your fork's `main`, not going to upstream.
-
-### 8. Protect Local-Only Files
-
-Before merging, back up files that should NEVER be overwritten by upstream:
-
-```bash
-# These are local-only, not in upstream:
-cp CLAUDE.md /tmp/CLAUDE.md.bak
-cp -r .planning /tmp/.planning.bak
-cp -r .claude /tmp/.claude.bak
-cp *.cmd /tmp/cmd.bak/
-```
-
-Restore after merge:
-
-```bash
-cp /tmp/CLAUDE.md.bak CLAUDE.md
-cp -r /tmp/.planning.bak/* .planning/
-cp -r /tmp/.claude.bak/* .claude/
-cp /tmp/cmd.bak/*.cmd .
+npm run build:renderer   # Must succeed (catches dupes, missing refs)
+npm test                 # All tests must pass
+git add -A
+git commit -m "merge upstream/main (vX.Y.Z) into local main"
 ```
 
 ## Quick Reference: Decision Tree
 
 ```
-For each conflicted file:
-  ├── Has WIP changes?
-  │   ├── YES → Manual merge (keep both sides)
-  │   └── NO  → git checkout --theirs <file>
-  │
-  After merge:
-  ├── For each file in WIP inventory:
-  │   ├── grep for expected artifacts
-  │   └── If missing → STOP, recover from WIP commit or stash
+Pre-merge:
+  ├── Tag current HEAD (v<X>-pre-merge)
+  ├── Commit all WIP (not stash)
+  └── Dry-run in worktree to assess scope
+
+Merge:
+  ├── git merge --no-commit upstream/main
+  ├── Resolve conflicts (keep both sides)
+  ├── Fix build errors (duplicate decls, JSON keys)
+  └── npm run build:renderer + npm test → commit
 ```
 
 ## Files Commonly at Risk
@@ -236,12 +215,16 @@ The dangerous part: the merge commit succeeds, tests pass, the app launches — 
 
 ## Lessons Learned
 
+### From the 2026-02-28 incident (silent data loss)
 1. **Stash + merge + stash pop is unsafe** — if the merge touches files in your stash, you get conflicts or silent data loss
 2. **Bulk `--theirs` is destructive** — it's only safe for files with zero local changes
-3. **Always inventory WIP before merging** — the 2 minutes spent listing files saves hours of recovery
-4. **Commit WIP, don't stash it** — commits participate in merge resolution, stashes don't
-5. **Verify after merge, not just during** — grep for expected artifact counts in every WIP file
-6. **Even "clean" merges destroy code** — if upstream rewrote a file you also modified (e.g., `renderer.js`, `TerminalManager.js`), git's 3-way merge may silently pick upstream's version and drop your additions — **no conflict markers, no warnings**
-7. **Always `git diff <pre-merge> HEAD -- <file>` after merge** — check EVERY file you've modified locally. If the diff shows negative lines for your features, the merge ate them
-8. **The reflog is your lifeline** — `git reflog` always has your pre-merge commit. You can restore any file from it with `git checkout <hash> -- <file>` even weeks later
-9. **Selective restore + layer-back is the safest recovery** — restore your files from the pre-merge hash, then manually add new upstream features on top. Never hard-reset (loses upstream), never re-merge (repeats the problem)
+3. **Even "clean" merges destroy code** — if upstream rewrote a file you also modified, git's 3-way merge may silently pick upstream's version and drop your additions — **no conflict markers, no warnings**
+4. **The reflog is your lifeline** — `git reflog` always has your pre-merge commit. You can restore any file from it with `git checkout <hash> -- <file>` even weeks later
+
+### From the 2026-03-03 merge (successful, 18 conflicts / 55 hunks)
+5. **Tag before merge, not just commit** — `git tag v<X>-pre-merge HEAD` is more reliable than reflog diving. Explicit, named, permanent.
+6. **Dry-run in a worktree first** — `git worktree add --detach` + `git merge --no-commit` lets you count conflicts and inspect them without touching your working tree. Invaluable for deciding whether to merge or cherry-pick.
+7. **Delegate large conflict resolution to a subagent** — 55 conflict hunks across 18 files is tedious but mechanical. An Agent with "keep both sides" instructions resolves them faster and more reliably than manual editing.
+8. **Build catches what eyes miss** — after resolving all markers, `npm run build:renderer` instantly found duplicate `const` declarations and duplicate JSON keys that the merge resolution introduced. Always build before committing.
+9. **Don't manually copy upstream fixes — just merge** — manually porting individual fixes creates double work: you apply them now, then git tries to re-apply them on the next merge causing new conflicts. A proper merge does 90% automatically.
+10. **Most fork conflicts are "keep both sides"** — when local and upstream are additive (features + bug fixes, not contradictory rewrites), nearly every conflict resolves to keeping both `<<<` and `>>>` content.

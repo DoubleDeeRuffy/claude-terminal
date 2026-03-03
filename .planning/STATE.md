@@ -5,7 +5,7 @@ milestone_name: Consolidations
 status: active
 last_updated: "2026-03-01T08:14:00.000Z"
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 0
   total_plans: 5
   completed_plans: 5
@@ -41,3 +41,4 @@ Last activity: 2026-03-01 — 31D complete (pane layout persistence, v2 session 
 - Phase 31C complete: Context menu Split Right/Move actions, drag-to-split with overlay, cross-pane tab reorder, auto-collapse
 - Phase 31D complete: v2 session format with paneLayout, pane-aware restore loop, backward-compatible v1 migration
 - Phase 32 added: Close-Warnings (warn before closing if Claude is actively working, show project + tab name)
+- Phase 33 added: Updater-Settings (configurable check interval, download mode, install mode)

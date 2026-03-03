@@ -35,12 +35,16 @@ function resolveProject(cwd) {
   try {
     const { projectsState } = require('../state/projects.state');
     const projects = projectsState.get().projects || [];
+    let best = null;
     for (const p of projects) {
       const pPath = normalizePath(p.path);
       if (pPath && normalized.startsWith(pPath)) {
-        return { projectId: p.id, projectPath: pPath };
+        if (!best || pPath.length > best.projectPath.length) {
+          best = { projectId: p.id, projectPath: pPath };
+        }
       }
     }
+    if (best) return best;
   } catch (e) { /* state not ready yet */ }
   return { projectId: null, projectPath: normalized };
 }

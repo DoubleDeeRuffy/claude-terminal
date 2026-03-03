@@ -403,6 +403,49 @@ function wireTabRenameConsumer() {
   );
 }
 
+// ── Staleness Check: reset tabs stuck in "working" when Claude is actually idle ──
+// If SESSION_END/Stop hook event is lost or never emitted, tabs stay "working" forever.
+// This interval uses claudeActivity (heartbeat-based) to detect and fix stale status.
+const STATUS_STALENESS_INTERVAL = 10 * 1000; // check every 10s
+const STATUS_STALENESS_TIMEOUT = 60 * 1000;  // 60s without activity = stale
+let stalenessTimer = null;
+
+function startStatusStalenessCheck() {
+  if (stalenessTimer) return;
+  stalenessTimer = setInterval(() => {
+    const { getClaudeActivityState } = require('../state/claudeActivity.state');
+    const { terminalsState } = require('../state/terminals.state');
+    const terminals = terminalsState.get().terminals;
+    const activityState = getClaudeActivityState();
+    const now = Date.now();
+
+    for (const [id, td] of terminals) {
+      if (td.status !== 'working') continue;
+      if (td.isBasic) continue;
+
+      // Check last claude activity for this terminal
+      const entry = activityState.get(id);
+      const lastActivity = entry?.lastActivity || 0;
+      const idleDuration = now - lastActivity;
+
+      if (idleDuration > STATUS_STALENESS_TIMEOUT) {
+        console.debug(`[Events] Staleness check: terminal ${id} ("${td.name}") stuck in working for ${Math.round(idleDuration / 1000)}s without activity — resetting to ready`);
+        try {
+          const TerminalManager = require('../ui/components/TerminalManager');
+          TerminalManager.updateTerminalStatus(id, 'ready');
+        } catch (err) { /* TerminalManager not ready */ }
+      }
+    }
+  }, STATUS_STALENESS_INTERVAL);
+}
+
+function stopStatusStalenessCheck() {
+  if (stalenessTimer) {
+    clearInterval(stalenessTimer);
+    stalenessTimer = null;
+  }
+}
+
 // ── Debug: wildcard listener (disabled by default to avoid log spam) ──
 // Enable via: window.__CLAUDE_EVENT_DEBUG = true
 function wireDebugListener() {
@@ -450,9 +493,21 @@ function wireSessionIdCapture() {
       if (!terminalId) return;
       const { terminalsState, updateTerminal } = require('../state/terminals.state');
       const td = terminalsState.get().terminals.get(terminalId) || terminalsState.get().terminals.get(Number(terminalId));
-      // Skip if this terminal already has a different session ID (don't overwrite)
+      // Session rotation (/clear): terminal already has a different session ID
+      // The old session's name is already persisted in session-names.json — it stays resumable.
+      // Accept the new session ID and reset the tab name to the project name.
       if (td && td.claudeSessionId && td.claudeSessionId !== e.data.sessionId) {
-        console.debug(`[Events] Skipped session ID ${e.data.sessionId.slice(0, 8)} — terminal ${terminalId} already has ${td.claudeSessionId.slice(0, 8)}`);
+        const projectName = td.project?.name || 'Terminal';
+        console.debug(`[Events] Session rotation: terminal ${terminalId} ${td.claudeSessionId.slice(0, 8)} → ${e.data.sessionId.slice(0, 8)}, resetting tab name to "${projectName}"`);
+        updateTerminal(terminalId, { claudeSessionId: e.data.sessionId, name: projectName });
+        // Update tab label in DOM
+        const tab = document.querySelector(`.terminal-tab[data-id="${terminalId}"]`);
+        if (tab) {
+          const nameSpan = tab.querySelector('.tab-name');
+          if (nameSpan) nameSpan.textContent = projectName;
+        }
+        const TerminalSessionService = require('../services/TerminalSessionService');
+        TerminalSessionService.saveTerminalSessionsImmediate();
         return;
       }
       updateTerminal(terminalId, { claudeSessionId: e.data.sessionId });
@@ -482,17 +537,23 @@ function initClaudeEvents() {
   wireDebugListener();
 
   // Listen for close-warning activity check from main process
+  // Uses both tab status AND claudeActivity heartbeat to avoid false positives
+  // from tabs stuck in "working" state after missed SESSION_END events.
   window.electron_api.lifecycle.onCheckClaudeActivity(() => {
     const { terminalsState } = require('../state/terminals.state');
+    const { isClaudeActive } = require('../state/claudeActivity.state');
     const terminals = terminalsState.get().terminals;
     const activeList = [];
     for (const [id, td] of terminals) {
-      if (!td.isBasic && td.status === 'working') {
+      if (!td.isBasic && td.status === 'working' && isClaudeActive(id)) {
         activeList.push({ terminalId: id, tabName: td.name, projectName: td.project?.name || 'Unknown' });
       }
     }
     window.electron_api.lifecycle.respondClaudeActivity(activeList);
   });
+
+  // Start staleness check (resets tabs stuck in "working" when Claude is idle)
+  startStatusStalenessCheck();
 
   // Activate provider
   activateProvider(hooksEnabled ? 'hooks' : 'scraping');
