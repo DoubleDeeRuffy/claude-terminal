@@ -395,6 +395,7 @@ async function loadAgentsColorPanel() {
       const key = input.closest('.agent-color-row').dataset.key;
       const newColors = { ...ctx.settingsState.get().agentColors, [key]: input.value };
       ctx.settingsState.set({ ...ctx.settingsState.get(), agentColors: newColors });
+      ctx.saveSettings();
       const dot = input.closest('.agent-color-row').querySelector('.agent-color-dot');
       if (dot) { dot.style.background = input.value; dot.style.borderColor = input.value; }
       delete input.dataset.unset;
@@ -420,6 +421,7 @@ async function loadAgentsColorPanel() {
     const newColors = { ...ctx.settingsState.get().agentColors };
     delete newColors[key];
     ctx.settingsState.set({ ...ctx.settingsState.get(), agentColors: newColors });
+    ctx.saveSettings();
     const dot = row.querySelector('.agent-color-dot');
     if (dot) { dot.style.background = ''; dot.style.borderColor = ''; }
     const input = row.querySelector('.agent-color-input');
