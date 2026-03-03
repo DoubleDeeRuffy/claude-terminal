@@ -400,7 +400,6 @@ class WorkflowGraphEngine {
     this._nextNodeId = 1;
     this._nextLinkId = 1;
     this._animatingCount = 0; // nodes currently animating (test running or run running)
-    this._canvasRect = null;  // cached getBoundingClientRect()
 
     // ── Canvas ──
     this.canvasElement = null;
@@ -460,7 +459,6 @@ class WorkflowGraphEngine {
   init(canvasElement) {
     this.canvasElement = canvasElement;
     this._ctx = canvasElement.getContext('2d');
-    this._canvasRect = canvasElement.getBoundingClientRect();
 
     // Event listeners
     this._onMouseDown = this._handleMouseDown.bind(this);
@@ -509,7 +507,6 @@ class WorkflowGraphEngine {
     if (!this.canvasElement) return;
     this.canvasElement.width = width;
     this.canvasElement.height = height;
-    this._canvasRect = this.canvasElement.getBoundingClientRect();
     this._dirty = true;
   }
 
@@ -2122,7 +2119,7 @@ class WorkflowGraphEngine {
   }
 
   _getMousePos(e) {
-    const rect = this._canvasRect || this.canvasElement.getBoundingClientRect();
+    const rect = this.canvasElement.getBoundingClientRect();
     return [e.clientX - rect.left, e.clientY - rect.top];
   }
 
