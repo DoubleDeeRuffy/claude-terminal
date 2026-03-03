@@ -1852,6 +1852,26 @@ function createTypeConsole(project, projectIndex) {
   setupRightClickHandler(consoleView, terminal, projectIndex, `${typeId}-input`);
   terminal.attachCustomKeyEventHandler(createTerminalKeyHandler(terminal, projectIndex, `${typeId}-input`));
 
+  // Direct Ctrl+C/V handler for project-type consoles (xterm with disableStdin blocks key events)
+  if (disableStdin) {
+    wrapper.addEventListener('keydown', (e) => {
+      if (!e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (e.key === 'c' || e.key === 'C') {
+        const selection = terminal.getSelection();
+        if (selection) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          navigator.clipboard.writeText(selection).catch(() => api.app.clipboardWrite(selection));
+          terminal.clearSelection();
+        }
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        performPaste(projectIndex, `${typeId}-input`);
+      }
+    }, true);
+  }
+
   // Write existing logs
   const existingLogs = config.getExistingLogs(projectIndex);
   if (existingLogs && existingLogs.length > 0) {
