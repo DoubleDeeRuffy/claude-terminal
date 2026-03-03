@@ -634,10 +634,10 @@ function cardHtml(wf) {
             ${runCount > 0 ? `<span class="wf-card-stat wf-card-stat--rate">${Math.round(successCount / runCount * 100)}%</span>` : ''}
             ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
-          <button class="wf-card-edit" title="Modifier"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="wf-card-edit" title="${t('workflow.editBtn')}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           ${lastRun?.status === 'running'
-            ? `<button class="wf-card-stop" data-run-id="${lastRun.id}" title="Arrêter le run"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> <span>Stop</span></button>`
-            : `<button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>`
+            ? `<button class="wf-card-stop" data-run-id="${lastRun.id}" title="${t('workflow.stopTitle')}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> <span>${t('workflow.stop')}</span></button>`
+            : `<button class="wf-card-run" title="${t('workflow.runTitle')}">${svgPlay(11)} <span>${t('workflow.run')}</span></button>`
           }
         </div>
       </div>
@@ -1074,7 +1074,7 @@ function openEditor(workflowId = null) {
             Retour
           </button>
           <div class="wf-editor-toolbar-sep"></div>
-          <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Sans titre…" />
+          <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="${t('workflow.untitled')}…" />
           <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
         </div>
 
@@ -1094,37 +1094,37 @@ function openEditor(workflowId = null) {
             <span id="wf-ed-zoom-label">100%</span>
             <button id="wf-ed-zoom-in" title="Zoom in (+)">+</button>
             <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
-            <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
+            <button id="wf-ed-zoom-fit" title="${t('workflow.fitView')} (F)">${t('workflow.fitView')}</button>
           </div>
           <div class="wf-editor-toolbar-sep"></div>
-          <button class="wf-ed-hist-btn" id="wf-ed-comment" title="Add comment zone (C)">
+          <button class="wf-ed-hist-btn" id="wf-ed-comment" title="${t('workflow.addComment')}">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg>
           </button>
-          <button class="wf-ed-hist-btn" id="wf-ed-minimap" title="Toggle minimap (M)">
+          <button class="wf-ed-hist-btn" id="wf-ed-minimap" title="${t('workflow.toggleMinimap')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
           </button>
         </div>
 
         <!-- Right: actions -->
         <div class="wf-editor-toolbar-right">
-          <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run" title="Lancer le workflow">
+          <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run" title="${t('workflow.runTitle')}">
             <span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>
-            Run
+            ${t('workflow.run')}
           </button>
-          <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="AI Workflow Builder">
+          <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="${t('workflow.aiBuilderTitle')}">
             <span class="wf-btn-icon wf-btn-icon--ai"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span>
             AI
           </button>
-          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="Sauvegarder (Ctrl+S)">
+          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="${t('workflow.save')} (Ctrl+S)">
             <span class="wf-btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
-            Save
+            ${t('workflow.save')}
           </button>
         </div>
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-left-panel">
           <div class="wf-lp-tabs">
-            <button class="wf-lp-tab active" data-lp-tab="nodes">Nodes</button>
+            <button class="wf-lp-tab active" data-lp-tab="nodes">${t('workflow.nodesTab')}</button>
             <button class="wf-lp-tab" data-lp-tab="vars">Variables</button>
           </div>
           <div class="wf-lp-content" data-lp-content="nodes">
@@ -1176,17 +1176,17 @@ function openEditor(workflowId = null) {
         </div>
       </div>
       <div class="wf-editor-statusbar">
-        <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 nodes</span>
+        <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 ${t('workflow.nodeLabel')}s</span>
         <span class="wf-sb-section wf-sb-selection" id="wf-ed-selection" style="display:none"></span>
         <span class="wf-sb-sep"></span>
-        <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || 'Sans titre'}</span>
-        <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">Modifié</span>
+        <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || t('workflow.untitled')}</span>
+        <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">${t('workflow.modified')}</span>
         <span class="wf-sb-spacer"></span>
         <span class="wf-sb-section" id="wf-ed-zoom-pct">100%</span>
       </div>
       <div class="wf-ai-panel" id="wf-ai-panel" style="display:none">
         <div class="wf-ai-panel-header">
-          <span class="wf-ai-panel-title">✨ AI Workflow Builder</span>
+          <span class="wf-ai-panel-title">${t('workflow.aiBuilderTitle')}</span>
           <button class="wf-ai-panel-close" id="wf-ai-panel-close" title="Fermer">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
@@ -1236,10 +1236,10 @@ function openEditor(workflowId = null) {
     const toolbarDirty = panel.querySelector('#wf-ed-dirty');
     const undoBtn = panel.querySelector('#wf-ed-undo');
     const redoBtn = panel.querySelector('#wf-ed-redo');
-    if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} node${count !== 1 ? 's' : ''}`;
+    if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} ${t('workflow.nodeLabel')}${count !== 1 ? 's' : ''}`;
     if (selEl) {
       if (selCount > 0) {
-        selEl.textContent = `${selCount} sélectionné${selCount > 1 ? 's' : ''}`;
+        selEl.textContent = t('workflow.selectedCount', { n: selCount });
         selEl.style.display = '';
       } else {
         selEl.style.display = 'none';
@@ -1248,7 +1248,7 @@ function openEditor(workflowId = null) {
     const pct = Math.round(graphService.getZoom() * 100);
     if (zoomEl) zoomEl.textContent = `${pct}%`;
     if (zoomLabel) zoomLabel.textContent = `${pct}%`;
-    if (sbName) sbName.textContent = editorDraft.name || 'Sans titre';
+    if (sbName) sbName.textContent = editorDraft.name || t('workflow.untitled');
     if (sbDirty) sbDirty.style.display = editorDraft.dirty ? '' : 'none';
     if (toolbarDirty) toolbarDirty.style.display = editorDraft.dirty ? '' : 'none';
     if (undoBtn) undoBtn.disabled = !graphService.canUndo();
@@ -1377,26 +1377,26 @@ function openEditor(workflowId = null) {
           <div class="wf-props-header wf-props-header--workflow">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <div class="wf-props-header-text">
-              <div class="wf-props-title">Configuration</div>
-              <div class="wf-props-subtitle">Options globales du workflow</div>
+              <div class="wf-props-title">${t('workflow.config')}</div>
+              <div class="wf-props-subtitle">${t('workflow.configSubtitle')}</div>
             </div>
           </div>
           <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${svgScope()} Scope d'exécution</label>
-            <span class="wf-field-hint">Sur quels projets ce workflow peut s'exécuter</span>
+            <label class="wf-step-edit-label">${svgScope()} ${t('workflow.scopeLabel')}</label>
+            <span class="wf-field-hint">${t('workflow.scopeHint')}</span>
             <select class="wf-step-edit-input wf-props-input" data-prop="scope">
-              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>Projet courant uniquement</option>
-              <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>Projet spécifique</option>
-              <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>Tous les projets</option>
+              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>${t('workflow.scopeCurrent')}</option>
+              <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>${t('workflow.scopeSpecific')}</option>
+              <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>${t('workflow.scopeAll')}</option>
             </select>
           </div>
           <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${svgConc()} Concurrence</label>
-            <span class="wf-field-hint">Comportement si le workflow est déjà en cours</span>
+            <label class="wf-step-edit-label">${svgConc()} ${t('workflow.concurrencyLabel')}</label>
+            <span class="wf-field-hint">${t('workflow.concurrencyHint')}</span>
             <select class="wf-step-edit-input wf-props-input" data-prop="concurrency">
-              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>Skip (ignorer si en cours)</option>
-              <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>Queue (file d'attente)</option>
-              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>Parallel (instances multiples)</option>
+              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>${t('workflow.concurrencySkip')}</option>
+              <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>${t('workflow.concurrencyQueue')}</option>
+              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>${t('workflow.concurrencyParallel')}</option>
             </select>
           </div>
         </div>
@@ -1471,7 +1471,7 @@ function openEditor(workflowId = null) {
             <span class="wf-lastrun-duration">${duration}</span>
           </div>
           ${error ? `<div class="wf-lastrun-error"><span class="wf-lastrun-error-label">Erreur</span><pre class="wf-lastrun-error-msg">${escapeHtml(error)}</pre></div>` : ''}
-          ${outputsHtml ? `<div class="wf-lastrun-section"><div class="wf-lastrun-section-title">Outputs</div>${outputsHtml}</div>` : '<div class="wf-lastrun-empty">Aucune donnée de sortie</div>'}
+          ${outputsHtml ? `<div class="wf-lastrun-section"><div class="wf-lastrun-section-title">${t('workflow.outputs')}</div>${outputsHtml}</div>` : `<div class="wf-lastrun-empty">${t('workflow.noOutputData')}</div>`}
         </div>`;
     }
 
@@ -1494,7 +1494,7 @@ function openEditor(workflowId = null) {
         ${nodeType !== 'trigger' ? `<div class="wf-node-id-badge"><code>$${nodeStepId}</code> <span>ID de ce node pour les variables</span></div>` : ''}
         ${nodeType !== 'trigger' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgEdit()} Nom personnalisé</label>
+          <label class="wf-step-edit-label">${svgEdit()} ${t('workflow.customName')}</label>
           <input class="wf-step-edit-input wf-node-prop" data-key="_customTitle" value="${escapeHtml(customTitle)}" placeholder="${typeInfo.label}" />
         </div>` : ''}
         ${fieldsHtml}
@@ -1502,7 +1502,7 @@ function openEditor(workflowId = null) {
         <div class="wf-props-divider"></div>
         <button class="wf-props-delete" id="wf-props-delete-node">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          Supprimer ce node
+          ${t('workflow.deleteNode')}
         </button>` : ''}
         `}
       </div>
@@ -2076,15 +2076,15 @@ function openEditor(workflowId = null) {
       btn.classList.add('wf-editor-btn--stop');
       btn.classList.remove('wf-editor-btn--run');
       btn.disabled = false;
-      btn.title = 'Arrêter le run';
-      btn.innerHTML = '<span class="wf-btn-icon"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>Stop';
+      btn.title = t('workflow.stopTitle');
+      btn.innerHTML = `<span class="wf-btn-icon"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>${t('workflow.stop')}`;
     } else {
       _edRunId = null;
       btn.classList.remove('wf-editor-btn--stop');
       btn.classList.add('wf-editor-btn--run');
       btn.disabled = false;
-      btn.title = 'Lancer le workflow';
-      btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
+      btn.title = t('workflow.runTitle');
+      btn.innerHTML = `<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>${t('workflow.run')}`;
     }
   }
 
@@ -2562,10 +2562,10 @@ function openDetail(id) {
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           ${runningRun
-            ? `<button class="wf-btn-danger wf-btn-sm" id="wf-run-now-stop" data-run-id="${runningRun.id}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Stop</button>`
-            : `<button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} Lancer</button>`
+            ? `<button class="wf-btn-danger wf-btn-sm" id="wf-run-now-stop" data-run-id="${runningRun.id}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>${t('workflow.stop')}</button>`
+            : `<button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} ${t('workflow.launchBtn')}</button>`
           }
-          <button class="wf-btn-ghost wf-btn-sm" id="wf-edit">Modifier</button>
+          <button class="wf-btn-ghost wf-btn-sm" id="wf-edit">${t('workflow.editBtn')}</button>
           <button class="wf-modal-x" id="wf-det-close">${svgX(12)}</button>
         </div>
       </div>
@@ -2574,28 +2574,28 @@ function openDetail(id) {
           <div class="wf-detail-meta-item">
             <span class="wf-detail-meta-icon wf-chip wf-chip--${cfg.color}">${cfg.icon}</span>
             <div>
-              <div class="wf-detail-meta-label">Trigger</div>
+              <div class="wf-detail-meta-label">${t('workflow.triggerLabel')}</div>
               <div class="wf-detail-meta-val">${cfg.label}${wf.trigger?.value ? ` · <code>${escapeHtml(wf.trigger.value)}</code>` : ''}${wf.hookType ? ` · <code>${escapeHtml(wf.hookType)}</code>` : ''}</div>
             </div>
           </div>
           <div class="wf-detail-meta-item">
             <span class="wf-detail-meta-icon wf-chip wf-chip--muted">${svgScope()}</span>
             <div>
-              <div class="wf-detail-meta-label">Scope</div>
+              <div class="wf-detail-meta-label">${t('workflow.scopeMeta')}</div>
               <div class="wf-detail-meta-val">${escapeHtml(wf.scope || 'current')}</div>
             </div>
           </div>
           <div class="wf-detail-meta-item">
             <span class="wf-detail-meta-icon wf-chip wf-chip--muted">${svgConc()}</span>
             <div>
-              <div class="wf-detail-meta-label">Concurrence</div>
+              <div class="wf-detail-meta-label">${t('workflow.concurrencyLabel')}</div>
               <div class="wf-detail-meta-val">${escapeHtml(wf.concurrency || 'skip')}</div>
             </div>
           </div>
         </div>
 
         <div class="wf-detail-section">
-          <div class="wf-detail-sec-title">Séquence</div>
+          <div class="wf-detail-sec-title">${t('workflow.sequence')}</div>
           <div class="wf-detail-steps">
             ${(wf.steps || []).map((s, i) => {
               const info = findStepType((s.type || '').split('.')[0]);
@@ -2615,7 +2615,7 @@ function openDetail(id) {
 
         ${runs.length ? `
           <div class="wf-detail-section">
-            <div class="wf-detail-sec-title">Derniers runs</div>
+            <div class="wf-detail-sec-title">${t('workflow.lastRuns')}</div>
             ${runs.slice(0, 3).map(run => `
               <div class="wf-run wf-run--sm">
                 <div class="wf-run-bar wf-run-bar--${run.status}"></div>
