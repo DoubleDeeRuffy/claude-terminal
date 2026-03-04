@@ -4046,6 +4046,27 @@ api.updates.onStatus((data) => {
       showUpdateBanner();
       break;
 
+    case 'available-manual':
+      // Manual download mode - show banner with Download button
+      if (updateState.version && data.version !== updateState.version) {
+        if (updateState.dismissedVersion !== data.version) {
+          updateState.dismissed = false;
+        }
+        updateState.downloaded = false;
+        updateState.downloadedVersion = null;
+      }
+      updateState.available = true;
+      updateState.version = data.version;
+      updateMessage.textContent = t('updates.newVersionAvailable', { version: data.version });
+      updateProgressContainer.style.display = 'none';
+      updateBtn.style.display = 'block';
+      updateBtn.disabled = false;
+      updateBtn.textContent = t('updates.download');
+      updateBtn.dataset.action = 'download';
+      updateBanner.classList.remove('downloaded');
+      showUpdateBanner();
+      break;
+
     case 'downloading':
       updateProgress(data.progress || 0);
       break;
@@ -4082,12 +4103,23 @@ api.updates.onStatus((data) => {
   }
 });
 
-// Restart and install button
-updateBtn.addEventListener('click', () => {
-  // Disable button and show installing state
-  updateBtn.disabled = true;
-  updateBtn.textContent = t('updates.installing');
-  api.app.installUpdate();
+// Restart/download button
+updateBtn.addEventListener('click', async () => {
+  if (updateBtn.dataset.action === 'download') {
+    // Manual download trigger
+    updateBtn.disabled = true;
+    updateBtn.textContent = t('updates.downloading');
+    updateProgressContainer.style.display = 'flex';
+    updateProgress(0);
+    delete updateBtn.dataset.action;
+    updateBtn.style.display = 'none';
+    await api.updates.downloadUpdate();
+  } else {
+    // Install/restart
+    updateBtn.disabled = true;
+    updateBtn.textContent = t('updates.installing');
+    api.app.installUpdate();
+  }
 });
 
 // Dismiss button

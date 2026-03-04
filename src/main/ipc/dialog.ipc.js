@@ -4,6 +4,7 @@
  */
 
 const { ipcMain, dialog, shell, app, clipboard } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const updaterService = require('../services/UpdaterService');
@@ -120,6 +121,17 @@ function registerDialogHandlers() {
   // Install update and restart
   ipcMain.on('update-install', () => {
     updaterService.quitAndInstall();
+  });
+
+  // Download update manually (when download mode is 'manual')
+  ipcMain.handle('download-update', async () => {
+    try {
+      updaterService.isDownloading = true;
+      await autoUpdater.downloadUpdate();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
   // Manually check for updates

@@ -7,9 +7,15 @@ const { autoUpdater } = require('electron-updater');
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { settingsFile } = require('../utils/paths');
 
-// Check interval: 30 minutes
-const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const CHECK_INTERVALS = {
+  '30min': 30 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '3h': 3 * 60 * 60 * 1000,
+  'startup': null,
+  'manual': null
+};
 
 class UpdaterService {
   constructor() {
@@ -70,13 +76,27 @@ class UpdaterService {
   }
 
   /**
+   * Load settings from settings.json
+   */
+  loadSettings() {
+    try {
+      if (!fs.existsSync(settingsFile)) return {};
+      return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    } catch { return {}; }
+  }
+
+  /**
    * Initialize the auto updater
    */
   initialize() {
-    if (this.isInitialized) return;
+    // Always re-read settings for download/install mode (user may change mid-session)
+    const settings = this.loadSettings();
+    const downloadMode = settings.updateDownloadMode || 'auto';
+    const installMode = settings.updateInstallMode || 'auto';
+    autoUpdater.autoDownload = (downloadMode === 'auto');
+    autoUpdater.autoInstallOnAppQuit = (installMode === 'auto');
 
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    if (this.isInitialized) return;
 
     // Force fresh update checks (don't use cached update info)
     autoUpdater.forceDevUpdateConfig = false;
@@ -84,8 +104,15 @@ class UpdaterService {
     // Handle update available
     autoUpdater.on('update-available', (info) => {
       this.lastKnownVersion = info.version;
-      this.isDownloading = true;
-      this.safeSend('update-status', { status: 'available', version: info.version });
+      const settings = this.loadSettings();
+      const downloadMode = settings.updateDownloadMode || 'auto';
+      if (downloadMode === 'auto') {
+        this.isDownloading = true;
+        this.safeSend('update-status', { status: 'available', version: info.version });
+      } else {
+        // Manual download mode - show banner with Download button
+        this.safeSend('update-status', { status: 'available-manual', version: info.version });
+      }
     });
 
     // Handle update downloaded
@@ -135,9 +162,16 @@ class UpdaterService {
     if (isPackaged) {
       this.clearStalePendingCache();
       this.initialize();
-      autoUpdater.checkForUpdatesAndNotify();
 
-      // Start periodic update checks
+      const settings = this.loadSettings();
+      const intervalKey = settings.updateCheckInterval || '30min';
+
+      // 'manual' means no auto-checking at all - user must click button
+      if (intervalKey !== 'manual') {
+        autoUpdater.checkForUpdatesAndNotify();
+      }
+
+      // Start periodic check (will be no-op for startup/manual)
       this.startPeriodicCheck();
     }
   }
@@ -146,21 +180,26 @@ class UpdaterService {
    * Start periodic update checks
    */
   startPeriodicCheck() {
-    // Clear any existing interval
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
+      this.checkInterval = null;
     }
 
-    // Check every 30 minutes for new versions
+    const settings = this.loadSettings();
+    const intervalKey = settings.updateCheckInterval || '30min';
+    const intervalMs = CHECK_INTERVALS[intervalKey];
+
+    // startup-only or manual = no periodic checks
+    if (!intervalMs) return;
+
     this.checkInterval = setInterval(() => {
-      // Only check if not currently downloading
       if (!this.isDownloading) {
         console.debug('Periodic update check...');
         autoUpdater.checkForUpdates().catch(err => {
           console.error('Periodic update check failed:', err);
         });
       }
-    }, CHECK_INTERVAL_MS);
+    }, intervalMs);
   }
 
   /**
