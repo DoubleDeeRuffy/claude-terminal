@@ -1289,6 +1289,8 @@
     "uploadPhaseScanning": "Scanning files...",
     "uploadPhaseCompressing": "Compressing...",
     "uploadPhaseUploading": "Uploading...",
+    "uploadPhaseCloning": "Cloning from GitHub...",
+    "uploadPhasePatching": "Applying local changes...",
     "noProjects": "No projects",
     "headlessReconnectTitle": "Cloud session active",
     "headlessReconnectMessage": "A cloud session is running on \"{project}\". What would you like to do?",
@@ -1325,6 +1327,9 @@
     "autoSyncFiles": "{count} file(s) synced to cloud",
     "autoSyncError": "Auto-sync failed",
     "autoSyncToggle": "Auto-sync",
+    "syncSkillsToggle": "Sync skills & agents",
+    "syncSkillsNow": "Sync now",
+    "syncSkillsSuccess": "{count} skill(s) and {agentCount} agent(s) synced",
     "conflictTitle": "{count} conflict(s) detected",
     "conflictDescription": "These files were modified both locally and in the cloud. Choose how to resolve each conflict.",
     "conflictUseCloud": "Use cloud",
@@ -1476,6 +1481,7 @@
     "errorLabel": "Error",
     "properties": "Properties",
     "lastRun": "Last Run",
+    "lastRuns": "Last runs",
     "commentDefault": "Comment",
     "saving": "Saving...",
     "starting": "Starting...",
@@ -1484,6 +1490,41 @@
     "expects": "expects {type}",
     "errorPreview": "Error: {msg}",
     "andMore": "+{n} more",
+    "run": "Run",
+    "stop": "Stop",
+    "save": "Save",
+    "nodesTab": "Nodes",
+    "nodeLabel": "node",
+    "untitled": "Untitled",
+    "modified": "Modified",
+    "aiBuilderTitle": "✨ AI Workflow Builder",
+    "fitView": "Fit",
+    "addComment": "Add comment zone (C)",
+    "toggleMinimap": "Toggle minimap (M)",
+    "runTitle": "Run workflow",
+    "stopTitle": "Stop run",
+    "outputs": "Outputs",
+    "noOutputData": "No output data",
+    "customName": "Custom name",
+    "deleteNode": "Delete this node",
+    "config": "Configuration",
+    "configSubtitle": "Global workflow options",
+    "scopeLabel": "Execution scope",
+    "scopeHint": "Which projects this workflow can run on",
+    "scopeCurrent": "Current project only",
+    "scopeSpecific": "Specific project",
+    "scopeAll": "All projects",
+    "concurrencyLabel": "Concurrency",
+    "concurrencyHint": "Behavior when the workflow is already running",
+    "concurrencySkip": "Skip (ignore if running)",
+    "concurrencyQueue": "Queue (wait in queue)",
+    "concurrencyParallel": "Parallel (multiple instances)",
+    "triggerLabel": "Trigger",
+    "scopeMeta": "Scope",
+    "sequence": "Sequence",
+    "launchBtn": "Launch",
+    "editBtn": "Edit",
+    "selectedCount": "{n} selected",
     "nodeDesc": {
       "trigger": "Workflow trigger",
       "claude": "Prompt, Agent or Skill",
@@ -1503,6 +1544,16 @@
       "subworkflow": "Call another workflow",
       "wait": "Delay",
       "log": "Write to log"
+    },
+    "webhook": {
+      "label": "Webhook (HTTP POST)",
+      "urlLabel": "Webhook URL",
+      "urlHint": "POST this URL with Authorization: Bearer <your-api-key>",
+      "copyBtn": "Copy",
+      "copied": "Copied!",
+      "noCloud": "Cloud relay not configured — connect in Settings → Cloud",
+      "payloadHint": "The request body is available as $trigger.payload in your workflow nodes.",
+      "saveForUrl": "Save the workflow to get the URL"
     },
     "db": {
       "connection": "Connection",
@@ -1528,6 +1579,300 @@
       "outputFirstRow": "first row (object)",
       "outputTables": "list of tables",
       "outputTableCount": "number of tables"
+    },
+    "cwd": {
+      "pathLabel": "Working directory",
+      "pathHint": "Absolute path or variable — e.g. $item.path",
+      "currentProject": "Current project (workflow context)",
+      "customPath": "Custom path…",
+      "defaultLabel": "Run in",
+      "defaultHint": "Working directory",
+      "pathPlaceholder": "$item.path or C:\\MyProject"
+    },
+    "variable": {
+      "placeholder": "{{variable}} or value"
+    },
+    "project": {
+      "actionLabel": "Action",
+      "actionHint": "Operation to perform",
+      "actionList": "List all projects",
+      "actionSetContext": "Set as active context",
+      "actionOpen": "Open in editor",
+      "actionBuild": "Run build",
+      "actionInstall": "Install dependencies",
+      "actionTest": "Run tests",
+      "projectLabel": "Project",
+      "projectHint": "Target project for this operation",
+      "selectProject": "-- Choose a project --",
+      "listHint": "Returns an array of all Claude Terminal projects. Connect the output to a Loop node's Items slot to iterate."
+    },
+    "claude": {
+      "cwdLabel": "Run in",
+      "cwdHint": "Working directory for the Claude session",
+      "modeLabel": "Execution mode",
+      "promptLabel": "Prompt",
+      "promptHint": "Instructions sent to Claude",
+      "promptPlaceholder": "Analyze this file and summarize the changes...",
+      "agentLabel": "Agent",
+      "agentHint": "Autonomous worker with isolated context",
+      "additionalLabel": "Additional instructions",
+      "additionalHint": "Additional context for the agent",
+      "skillLabel": "Skill",
+      "skillHint": "Specialized command to invoke",
+      "argsLabel": "Arguments",
+      "argsHint": "Text passed to the skill as argument",
+      "argsPlaceholder": "Optional arguments...",
+      "modelLabel": "Model",
+      "effortLabel": "Effort",
+      "noAgents": "No agents in ~/.claude/agents/",
+      "noSkills": "No skills in ~/.claude/skills/"
+    },
+    "trigger": {
+      "typeLabel": "Trigger",
+      "typeHint": "How this workflow starts",
+      "typeManual": "Manual (play button)",
+      "typeCron": "Scheduled (cron)",
+      "typeHook": "Claude Hook",
+      "typeOnWorkflow": "After a workflow",
+      "typeWebhook": "Webhook (HTTP POST)",
+      "cronLabel": "Cron expression",
+      "cronHint": "min hour day month weekday",
+      "hookTypeLabel": "Hook type",
+      "hookTypeHint": "Claude event that triggers the workflow",
+      "hookPreToolUse": "Pre Tool Use — Before each tool call",
+      "hookPostToolUse": "Post Tool Use — After each tool call",
+      "hookUserPrompt": "User Prompt — On each message",
+      "hookNotification": "Notification — On Claude notification",
+      "hookStop": "Stop — When Claude finishes",
+      "workflowSourceLabel": "Source workflow",
+      "workflowSourceHint": "Triggers after this workflow ends",
+      "selectWorkflow": "Select a workflow…"
+    },
+    "loop": {
+      "sourceLabel": "Iteration source",
+      "sourceHint": "Where the items to iterate come from",
+      "sourceAuto": "Automatic (from connected node)",
+      "sourceProjects": "All registered projects",
+      "sourceFiles": "Files (glob pattern)",
+      "sourceCustom": "Custom list",
+      "globLabel": "Glob pattern",
+      "globHint": "Expression to find files",
+      "itemsLabel": "Items",
+      "itemsHint": "One item per line, or variable $node_X.rows",
+      "modeLabel": "Mode",
+      "limitLabel": "Limit",
+      "modeSeqTitle": "One by one in order",
+      "modeParTitle": "All in parallel",
+      "modeSeq": "Seq.",
+      "modePar": "Par.",
+      "schemaTitle": "$item structure",
+      "schemaHint": "Use these paths in nodes inside the loop body",
+      "schemaEmpty": "Connect an array source or run once to see the schema",
+      "usageTitle": "Variables in Each",
+      "itemDesc": "Current item",
+      "indexDesc": "Current index (0, 1, 2…)",
+      "totalDesc": "Total number of items",
+      "usageTip": "Connect a node to the Each port to process each item"
+    },
+    "time": {
+      "actionLabel": "Action",
+      "actionHint": "Type of data to retrieve",
+      "actionToday": "Today — global total + active projects",
+      "actionWeek": "This week — daily breakdown",
+      "actionProject": "Project — stats for a specific project",
+      "actionAllProjects": "All projects — sorted by today's time",
+      "actionSessions": "Sessions — raw list (filterable)",
+      "projectIdLabel": "Project ID",
+      "optional": " (optional)",
+      "projectIdHint": "Project identifier (or variable — e.g. $item.id)",
+      "sessionsProjectHint": "Empty = global sessions, otherwise sessions for a project",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "availableOutputs": "Available outputs",
+      "msToday": "ms today",
+      "msWeek": "ms this week",
+      "msMonth": "ms this month",
+      "projectsToday": "active projects today",
+      "msTotalWeek": "ms total this week",
+      "weekDays": "array of 7 days [{date, ms, formatted}]",
+      "msTotal": "ms total",
+      "sessionCount": "number of sessions",
+      "allProjectsArr": "array of all projects",
+      "projectCount": "number of projects",
+      "sessionsArr": "array of sessions",
+      "totalMs": "total duration in ms"
+    },
+    "cron": {
+      "everyMinute": "Every minute",
+      "everyHour": "Every hour",
+      "everyDayMidnight": "Every day at midnight",
+      "everyMonday": "Every Monday"
+    },
+    "sql": {
+      "tip": "Tip: use {{variable}} to inject dynamic values"
+    },
+    "subworkflow": {
+      "workflowLabel": "Workflow",
+      "workflowHint": "Workflow to run as a subprocess",
+      "selectWorkflow": "-- Choose a workflow --",
+      "inputVarsLabel": "Input variables",
+      "inputVarsHint": "JSON of variables to pass (optional)",
+      "waitLabel": "Wait for completion",
+      "waitHint": "Block execution until the subworkflow ends",
+      "waitYes": "Yes — wait for completion",
+      "waitNo": "No — run in background"
+    }
+  },
+  "wfn": {
+    "file": {
+      "action": {
+        "label": "Action",
+        "read": "Read file",
+        "write": "Write (replace)",
+        "append": "Append",
+        "copy": "Copy",
+        "move": "Move / Rename",
+        "delete": "Delete",
+        "exists": "Check existence",
+        "list": "List (glob)"
+      },
+      "path": {
+        "label": "Path",
+        "hint": "Relative or absolute file path"
+      },
+      "folder": {
+        "label": "Folder",
+        "hint": "Base directory to explore (empty = current project)"
+      },
+      "pattern": {
+        "label": "Glob pattern",
+        "hint": "File filter — e.g. *.ts, **/*.test.js"
+      },
+      "type": {
+        "label": "Type",
+        "files": "Files only",
+        "dirs": "Directories only",
+        "all": "Files and directories"
+      },
+      "recursive": {
+        "label": "Recursive (subdirectories)"
+      },
+      "destination": {
+        "label": "Destination",
+        "hint": "Target path for copy or move"
+      },
+      "content": {
+        "label": "Content",
+        "hint": "Text or data to write to the file"
+      }
+    },
+    "git": {
+      "projectId": {
+        "label": "Target project",
+        "hint": "Git repository to operate on"
+      },
+      "action": {
+        "label": "Action",
+        "pull": "Pull — Fetch remote changes",
+        "push": "Push — Send local commits",
+        "commit": "Commit — Create a commit",
+        "checkout": "Checkout — Switch branch",
+        "merge": "Merge — Merge a branch",
+        "stash": "Stash — Save changes",
+        "stashpop": "Stash Pop — Restore changes",
+        "reset": "Reset — Discard uncommitted changes"
+      },
+      "message": {
+        "label": "Commit message",
+        "hint": "Convention: type(scope): description"
+      },
+      "branch": {
+        "label": "Branch",
+        "hint": "Git branch name"
+      }
+    },
+    "http": {
+      "method": {
+        "label": "Method"
+      },
+      "url": {
+        "label": "URL"
+      },
+      "headers": {
+        "label": "Headers",
+        "hint": "JSON object of HTTP headers"
+      },
+      "body": {
+        "label": "Body",
+        "hint": "Request body (JSON)"
+      }
+    },
+    "shell": {
+      "projectId": {
+        "label": "Run in",
+        "hint": "Working directory for the command"
+      },
+      "command": {
+        "label": "Command"
+      }
+    },
+    "notify": {
+      "title": {
+        "label": "Title"
+      },
+      "message": {
+        "label": "Message",
+        "hint": "Variables: $ctx.project, $ctx.branch, $node_X.output"
+      }
+    },
+    "wait": {
+      "mode": {
+        "label": "Mode"
+      },
+      "duration": {
+        "label": "Duration"
+      },
+      "timeout": {
+        "label": "Timeout (approval)"
+      }
+    },
+    "webhook": {
+      "url": {
+        "label": "Webhook URL"
+      },
+      "text": {
+        "label": "Message",
+        "hint": "Supports variables $ctx, $node_X, $loop"
+      },
+      "username": {
+        "label": "Display name (optional)"
+      },
+      "icon": {
+        "label": "Icon emoji (optional)"
+      }
+    },
+    "claude": {
+      "label": "Claude configuration"
+    },
+    "loop": {
+      "source": {
+        "label": "Loop configuration"
+      }
+    },
+    "db": {
+      "label": "Database configuration"
+    },
+    "project": {
+      "label": "Project configuration"
+    },
+    "subworkflow": {
+      "label": "Sub-workflow configuration"
+    },
+    "time": {
+      "label": "Time tracking configuration"
+    },
+    "trigger": {
+      "label": "Trigger"
     }
   }
 }

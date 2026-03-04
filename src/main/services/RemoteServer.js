@@ -351,30 +351,38 @@ function _sendProjectsAndSessions(ws) {
     // Envoyer les projets + hiérarchie via projects:updated
     _wsSend(ws, 'projects:updated', { projects, folders, rootOrder });
 
-    // Envoyer les sessions actives une par une via session:started
-    // + replay buffered messages so late-joining clients see conversation history
+    // Collect all sessions to replay: active sessions + any with buffered messages
     const chatService = require('./ChatService');
     const activeSessions = chatService.getActiveSessions();
-    let totalBuffered = 0;
-    console.debug(`[Remote] Sending init data — ${projects.length} project(s), ${activeSessions.length} active session(s)`);
+    const activeIds = new Set(activeSessions.map(s => s.sessionId));
+
+    // Build unified session list: active sessions first, then buffered-only sessions
+    const sessionsToSend = [];
     for (const { sessionId, cwd } of activeSessions) {
       const project = projects.find(p => p.path && cwd && (
         cwd.replace(/\\/g, '/').startsWith(p.path.replace(/\\/g, '/'))
       ));
-      const projectId = project?.id || null;
+      const projectId = project?.id || _sessionProjectMap.get(sessionId) || null;
       if (projectId) _sessionProjectMap.set(sessionId, projectId);
-      // Use stored tab name (from broadcastSessionStarted/broadcastTabRenamed),
-      // falling back to project name, then 'Chat'
       const tabName = _sessionTabNames.get(sessionId) || project?.name || 'Chat';
-      _wsSend(ws, 'session:started', {
-        sessionId,
-        projectId,
-        tabName,
-      });
+      sessionsToSend.push({ sessionId, projectId, tabName });
+    }
+    // Add buffered sessions that are no longer active (completed but still in buffer)
+    for (const sessionId of _sessionMessageBuffer.keys()) {
+      if (!activeIds.has(sessionId)) {
+        const projectId = _sessionProjectMap.get(sessionId) || null;
+        const tabName = _sessionTabNames.get(sessionId) || 'Chat';
+        sessionsToSend.push({ sessionId, projectId, tabName });
+      }
+    }
+
+    let totalBuffered = 0;
+    console.debug(`[Remote] Sending init data — ${projects.length} project(s), ${sessionsToSend.length} session(s) (${activeSessions.length} active, ${sessionsToSend.length - activeSessions.length} buffered)`);
+    for (const { sessionId, projectId, tabName } of sessionsToSend) {
+      _wsSend(ws, 'session:started', { sessionId, projectId, tabName });
 
       // Replay buffered chat events for this session
       const buffer = _sessionMessageBuffer.get(sessionId);
-      console.debug(`[Remote] Session ${sessionId}: buffer has ${buffer?.length || 0} event(s), all buffers: ${[..._sessionMessageBuffer.keys()].join(', ') || 'none'}`);
       if (buffer && buffer.length > 0) {
         totalBuffered += buffer.length;
         for (const { channel, data } of buffer) {
@@ -591,6 +599,31 @@ function _handleClientMessage(ws, token, raw) {
             mainWindow.webContents.send('remote:request-time-push');
           }
         });
+        break;
+      }
+
+      case 'webhook:trigger': {
+        const { workflowId, payload, triggeredAt } = data || {};
+        if (!workflowId || typeof workflowId !== 'string') {
+          console.warn('[Remote] webhook:trigger: missing or invalid workflowId');
+          break;
+        }
+        try {
+          const workflowService = require('./WorkflowService');
+          console.log(`[Remote] webhook:trigger workflowId=${workflowId}`);
+          workflowService.trigger(workflowId, {
+            source: 'webhook',
+            triggerData: {
+              source: 'webhook',
+              payload: payload || {},
+              triggeredAt: triggeredAt || new Date().toISOString(),
+            },
+          }).catch(err => {
+            console.error(`[Remote] webhook:trigger failed for ${workflowId}:`, err.message);
+          });
+        } catch (e) {
+          console.warn('[Remote] webhook:trigger: WorkflowService not available:', e.message);
+        }
         break;
       }
 
@@ -866,8 +899,8 @@ function _ensureChatBridge() {
           console.debug(`[Remote] Buffered ${channel} for session ${sid} (buffer size: ${buf.length})`);
         }
       }
-      // Clean up buffers on session end
-      if (channel === 'session:closed' || channel === 'chat-error') {
+      // Clean up maps only on explicit session close (keep buffer for reconnecting clients)
+      if (channel === 'session:closed') {
         _sessionMessageBuffer.delete(sid);
         _sessionProjectMap.delete(sid);
         _sessionTabNames.delete(sid);

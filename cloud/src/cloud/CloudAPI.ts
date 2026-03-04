@@ -8,6 +8,7 @@ import { store } from '../store/store';
 import { projectManager } from './ProjectManager';
 import { sessionManager } from './SessionManager';
 import { config } from '../config';
+import { RelayServer } from '../relay/RelayServer';
 
 // Extend Request with user info
 interface AuthRequest extends Request {
@@ -46,8 +47,84 @@ const upload = multer({
   }
 });
 
-export function createCloudRouter(): Router {
+// ── Webhook rate limiter (per user, 60 req/min) ──
+const WEBHOOK_RATE_LIMIT = 60;
+const WEBHOOK_RATE_WINDOW_MS = 60_000;
+const MAX_WEBHOOK_PAYLOAD = 256 * 1024; // 256 KB
+const _webhookRates = new Map<string, { count: number; resetAt: number }>();
+
+function isWebhookRateLimited(userName: string): boolean {
+  const now = Date.now();
+  let entry = _webhookRates.get(userName);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + WEBHOOK_RATE_WINDOW_MS };
+    _webhookRates.set(userName, entry);
+  }
+  entry.count++;
+  return entry.count > WEBHOOK_RATE_LIMIT;
+}
+
+export function createCloudRouter(relay?: RelayServer): Router {
   const router = Router();
+
+  // ── Webhook endpoint (auth via Bearer token, before general authMiddleware) ──
+  // Placed before authMiddleware so we can return fast with appropriate status codes
+
+  router.post('/webhook/:workflowId', authMiddleware as any, async (req: AuthRequest, res: Response) => {
+    try {
+      const userName = req.userName!;
+      const workflowId = req.params.workflowId as string;
+
+      if (!workflowId || workflowId.length > 128) {
+        res.status(400).json({ error: 'Invalid workflowId' });
+        return;
+      }
+
+      // Payload size check (express.json() already parsed, check stringified size)
+      const payloadStr = JSON.stringify(req.body || {});
+      if (payloadStr.length > MAX_WEBHOOK_PAYLOAD) {
+        res.status(413).json({ error: 'Payload too large (max 256 KB)' });
+        return;
+      }
+
+      // Rate limit
+      if (isWebhookRateLimited(userName)) {
+        res.status(429).json({ error: 'Rate limit exceeded (60 req/min)' });
+        return;
+      }
+
+      // Find user's room and forward to desktop
+      if (!relay) {
+        res.status(503).json({ error: 'Relay server not available' });
+        return;
+      }
+
+      const room = relay.getRoomForUser(userName);
+      if (!room || !room.hasDesktop) {
+        res.status(503).json({ error: 'Desktop not connected' });
+        return;
+      }
+
+      const sent = room.sendToDesktop({
+        type: 'webhook:trigger',
+        data: {
+          workflowId,
+          payload: req.body || {},
+          triggeredAt: new Date().toISOString(),
+        },
+      });
+
+      if (sent) {
+        console.log(`[Webhook] ${userName} → workflow ${workflowId} (forwarded to desktop)`);
+        res.json({ ok: true, workflowId });
+      } else {
+        res.status(503).json({ error: 'Failed to send to desktop' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.use(authMiddleware as any);
 
   // ── User Profile ──
@@ -117,6 +194,99 @@ export function createCloudRouter(): Router {
       res.json({ projects });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Clone a GitHub repo into a project (faster than ZIP upload)
+  router.post('/projects/clone', async (req: AuthRequest, res: Response) => {
+    try {
+      const { name, cloneUrl } = req.body;
+      if (!name || !cloneUrl) {
+        res.status(400).json({ error: 'Missing name or cloneUrl' });
+        return;
+      }
+      projectManager.validateProjectName(name);
+      await projectManager.checkProjectLimit(req.userName!);
+
+      const projectPath = await store.createProjectDir(req.userName!, name);
+      const { execFile } = require('child_process');
+      const { promisify } = require('util');
+      const execFileAsync = promisify(execFile);
+
+      // Clone into a tmp dir then move contents so folder name = project name
+      const tmpDest = projectPath + '__clone_tmp';
+      try {
+        await execFileAsync('git', ['clone', '--depth=1', cloneUrl, tmpDest], { timeout: 5 * 60 * 1000 });
+        const entries = await fs.promises.readdir(tmpDest);
+        for (const entry of entries) {
+          await fs.promises.rename(path.join(tmpDest, entry), path.join(projectPath, entry));
+        }
+      } catch (err: any) {
+        await store.deleteProjectDir(req.userName!, name);
+        throw new Error(`Clone failed: ${err.message}`);
+      } finally {
+        await fs.promises.rm(tmpDest, { recursive: true, force: true }).catch(() => {});
+      }
+
+      // Register in user.json
+      const user = await store.getUser(req.userName!);
+      if (user) {
+        const existing = user.projects.findIndex((p: any) => p.name === name);
+        const entry = { name, createdAt: Date.now(), lastActivity: null };
+        if (existing >= 0) user.projects[existing] = entry;
+        else user.projects.push(entry);
+        await store.saveUser(req.userName!, user);
+      }
+
+      res.status(201).json({ name, path: projectPath });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Apply a git patch + untracked files sent as multipart form
+  const patchUpload = multer({
+    dest: path.join(os.tmpdir(), 'ct-cloud-patches'),
+    limits: { fileSize: 50 * 1024 * 1024 },
+  });
+  router.post('/projects/:name/patch', patchUpload.fields([
+    { name: 'patch', maxCount: 1 },
+    { name: 'untracked', maxCount: 500 },
+  ]), async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const projectPath = store.getProjectPath(req.userName!, name);
+      const files = req.files as Record<string, Express.Multer.File[]>;
+
+      // Apply git patch if present
+      if (files?.patch?.[0]) {
+        const patchFile = files.patch[0].path;
+        const { execFile } = require('child_process');
+        const { promisify } = require('util');
+        const execFileAsync = promisify(execFile);
+        try {
+          await execFileAsync('git', ['apply', '--whitespace=nowarn', patchFile], { cwd: projectPath, timeout: 30000 });
+        } catch (err: any) {
+          // Non-fatal: patch may fail if already applied or no changes
+          console.warn(`[Cloud] git apply warning for ${name}: ${err.message}`);
+        } finally {
+          await fs.promises.unlink(patchFile).catch(() => {});
+        }
+      }
+
+      // Write untracked files
+      if (files?.untracked) {
+        for (const file of files.untracked) {
+          const dest = path.join(projectPath, file.originalname);
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+          await fs.promises.copyFile(file.path, dest);
+          await fs.promises.unlink(file.path).catch(() => {});
+        }
+      }
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
   });
 

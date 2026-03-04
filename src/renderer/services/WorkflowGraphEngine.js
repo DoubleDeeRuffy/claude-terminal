@@ -39,12 +39,20 @@ const STATUS_COLORS = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const _hexRgbaCache = new Map();
 function hexToRgba(hex, a) {
+  const key = hex + a;
+  if (_hexRgbaCache.has(key)) return _hexRgbaCache.get(key);
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${a})`;
+  const result = `rgba(${r},${g},${b},${a})`;
+  _hexRgbaCache.set(key, result);
+  return result;
 }
+
+// Module-level constant — avoids re-creating a Set on every _drawNode call
+const UNTESTABLE_NODE_TYPES = new Set(['trigger', 'loop', 'condition', 'switch', 'subworkflow', 'wait', 'get_variable']);
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -106,9 +114,9 @@ const NODE_TYPES = {
   'workflow/trigger': {
     title: 'Trigger', desc: 'Point de départ',
     inputs: [],
-    outputs: [{ name: 'Start', type: 'exec' }],
+    outputs: addDataOutputDefs([{ name: 'Start', type: 'exec' }], 'trigger'),
     props: { triggerType: 'manual', triggerValue: '', hookType: 'PostToolUse' },
-    widgets: [{ type: 'combo', name: 'Type', key: 'triggerType', values: ['manual', 'cron', 'hook', 'on_workflow'] }],
+    widgets: [],
     width: 200, removable: false,
     badge: (n) => (n.properties.triggerType || 'manual').toUpperCase(),
   },
@@ -387,9 +395,11 @@ class WorkflowGraphEngine {
   constructor() {
     // ── Model ──
     this._nodes = [];         // flat array of node objects
+    this._nodeMap = new Map(); // id → node (O(1) lookup)
     this._links = new Map();  // linkId → { id, origin_id, origin_slot, target_id, target_slot, type }
     this._nextNodeId = 1;
     this._nextLinkId = 1;
+    this._animatingCount = 0; // nodes currently animating (test running or run running)
 
     // ── Canvas ──
     this.canvasElement = null;
@@ -512,8 +522,7 @@ class WorkflowGraphEngine {
     let lastFrameTime = 0;
     let idleFrames = 0;
     const loop = (now) => {
-      const hasRunning = this._nodes.some(n => n._testState === 'running');
-      if (hasRunning) this._dirty = true;
+      if (this._animatingCount > 0) this._dirty = true;
 
       if (this._dirty && (now - lastFrameTime >= FRAME_MS)) {
         this._render();
@@ -579,6 +588,7 @@ class WorkflowGraphEngine {
 
     node.size[1] = computeNodeHeight(node);
     this._nodes.push(node);
+    this._nodeMap.set(node.id, node);
 
     // Select the new node
     this._selectNode(node, false);
@@ -695,6 +705,7 @@ class WorkflowGraphEngine {
     }
     const idx = this._nodes.indexOf(node);
     if (idx >= 0) this._nodes.splice(idx, 1);
+    this._nodeMap.delete(node.id);
   }
 
   _removeLink(linkId) {
@@ -718,7 +729,7 @@ class WorkflowGraphEngine {
   }
 
   _getNodeById(id) {
-    return this._nodes.find(n => n.id === id) || null;
+    return this._nodeMap.get(id) || null;
   }
 
   selectAll() {
@@ -905,9 +916,11 @@ class WorkflowGraphEngine {
 
   _configure(data) {
     this._nodes = [];
+    this._nodeMap.clear();
     this._links.clear();
     this._selectedNodes.clear();
     this._comments = [];
+    this._animatingCount = 0;
 
     if (!data) return;
 
@@ -943,11 +956,19 @@ class WorkflowGraphEngine {
           type: s.type === -1 ? 'exec' : (s.type || 'exec'),
           link: s.link != null ? s.link : null,
         })),
-        outputs: (sn.outputs || []).map(s => ({
-          name: s.name,
-          type: s.type === -1 ? 'exec' : (s.type || 'exec'),
-          links: Array.isArray(s.links) ? [...s.links] : [],
-        })),
+        outputs: (() => {
+          const saved = (sn.outputs || []).map(s => ({
+            name: s.name,
+            type: s.type === -1 ? 'exec' : (s.type || 'exec'),
+            links: Array.isArray(s.links) ? [...s.links] : [],
+          }));
+          // Add any outputs from the type definition that are missing in the saved data
+          const defOuts = def.outputs || [];
+          for (let i = saved.length; i < defOuts.length; i++) {
+            saved.push({ name: defOuts[i].name, type: defOuts[i].type, links: [] });
+          }
+          return saved;
+        })(),
         widgets: (def.widgets || []).map(w => ({
           type: w.type,
           name: w.name,
@@ -978,6 +999,7 @@ class WorkflowGraphEngine {
       if (node.size[1] < h) node.size[1] = h;
 
       this._nodes.push(node);
+      this._nodeMap.set(node.id, node);
       if (sn.id >= this._nextNodeId) this._nextNodeId = sn.id + 1;
     }
 
@@ -1267,11 +1289,19 @@ class WorkflowGraphEngine {
 
   setNodeStatus(nodeId, status) {
     const node = this._getNodeById(nodeId);
-    if (node) { node._runStatus = status; this._markDirty(); }
+    if (node) {
+      if (node._runStatus !== 'running' && status === 'running') this._animatingCount++;
+      else if (node._runStatus === 'running' && status !== 'running') this._animatingCount--;
+      node._runStatus = status;
+      this._markDirty();
+    }
   }
 
   clearAllStatuses() {
-    for (const n of this._nodes) n._runStatus = null;
+    for (const n of this._nodes) {
+      if (n._runStatus === 'running') this._animatingCount--;
+      n._runStatus = null;
+    }
     this._markDirty();
   }
 
@@ -1758,8 +1788,7 @@ class WorkflowGraphEngine {
 
     // ── Test button ──
     const nodeType = (node.type || '').replace('workflow/', '');
-    const UNTESTABLE = new Set(['trigger', 'loop', 'condition', 'switch', 'subworkflow', 'wait', 'get_variable']);
-    if (!UNTESTABLE.has(nodeType)) {
+    if (!UNTESTABLE_NODE_TYPES.has(nodeType)) {
       this._drawTestButton(ctx, node, x, y, w);
     }
 
@@ -1871,8 +1900,9 @@ class WorkflowGraphEngine {
           ctx.beginPath();
           ctx.arc(px, py, r, 0, Math.PI * 2);
           if (hasLinks || isHovered) {
-            ctx.shadowColor = pinColor; ctx.shadowBlur = isHovered ? 12 : 6;
+            if (isHovered) { ctx.shadowColor = pinColor; ctx.shadowBlur = 12; }
             ctx.fillStyle = pinColor; ctx.fill();
+            ctx.shadowBlur = 0;
           } else {
             ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
           }
@@ -1932,8 +1962,9 @@ class WorkflowGraphEngine {
           ctx.beginPath();
           ctx.arc(px, py, r, 0, Math.PI * 2);
           if (hasLink || isHovered) {
-            ctx.shadowColor = pinColor; ctx.shadowBlur = isHovered ? 12 : 6;
+            if (isHovered) { ctx.shadowColor = pinColor; ctx.shadowBlur = 12; }
             ctx.fillStyle = pinColor; ctx.fill();
+            ctx.shadowBlur = 0;
           } else {
             ctx.strokeStyle = hexToRgba(pinColor, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
           }
@@ -3025,18 +3056,18 @@ class WorkflowGraphEngine {
     const ox = mapX + (mapW - graphW * s) / 2 - (minX - 40) * s;
     const oy = mapY + (mapH - graphH * s) / 2 - (minY - 40) * s;
 
-    // Draw links
+    // Draw links — single batched stroke
     ctx.strokeStyle = 'rgba(255,255,255,.1)';
     ctx.lineWidth = 0.5;
+    ctx.beginPath();
     for (const [, link] of this._links) {
-      const src = this._getNodeById(link.origin_id);
-      const dst = this._getNodeById(link.target_id);
+      const src = this._nodeMap.get(link.origin_id);
+      const dst = this._nodeMap.get(link.target_id);
       if (!src || !dst) continue;
-      ctx.beginPath();
       ctx.moveTo(ox + (src.pos[0] + src.size[0]) * s, oy + (src.pos[1] + TITLE_H * 0.5) * s);
       ctx.lineTo(ox + dst.pos[0] * s, oy + (dst.pos[1] + TITLE_H * 0.5) * s);
-      ctx.stroke();
     }
+    ctx.stroke();
 
     // Draw nodes
     for (const n of this._nodes) {
@@ -3073,16 +3104,19 @@ class WorkflowGraphEngine {
 
     node._testState = 'running';
     node._testResult = null;
+    this._animatingCount++;
     this._markDirty();
 
     const step = { id: `node_${node.id}`, type: (node.type || '').replace('workflow/', ''), ...(node.properties || {}) };
     api.workflow.testNode(step, {}).then(result => {
+      this._animatingCount--;
       node._testState = result.success ? 'success' : 'error';
       node._testResult = result;
       this._markDirty();
       setTimeout(() => { node._testState = 'idle'; this._markDirty(); }, 5000);
       if (result.success && result.output) this.setNodeOutput(node.id, result.output);
     }).catch(err => {
+      this._animatingCount--;
       node._testState = 'error';
       node._testResult = { success: false, error: err.message };
       this._markDirty();

@@ -48,6 +48,8 @@ const state = {
 const _agentLogs = new Map(); // stepId → [{ type, text, ts }]
 const MAX_LOG_ENTRIES = 50;
 
+let _activeEditorWorkflowId = null; // tracks current open editor's workflowId
+
 let _panelInitialized = false;
 
 function init(context) {
@@ -198,8 +200,8 @@ function registerLiveListeners() {
     const graphService = getGraphService();
     if (graphService) {
       const editorEl = document.querySelector('.wf-editor');
-      if (workflowId && workflows) {
-        const updated = workflows.find(w => w.id === workflowId);
+      if (_activeEditorWorkflowId && workflows) {
+        const updated = workflows.find(w => w.id === _activeEditorWorkflowId);
         if (updated) graphService.loadFromWorkflow(updated);
       }
     }
@@ -487,6 +489,7 @@ function renderContent() {
   state.viewingRunId = null;
   const el = document.getElementById('wf-content');
   if (!el) return;
+  _activeEditorWorkflowId = null;
   // Update badge counts
   const panel = document.getElementById('workflow-panel');
   if (panel) {
@@ -631,10 +634,10 @@ function cardHtml(wf) {
             ${runCount > 0 ? `<span class="wf-card-stat wf-card-stat--rate">${Math.round(successCount / runCount * 100)}%</span>` : ''}
             ${lastRun ? `<span class="wf-card-stat">${svgClock(9)} ${fmtDuration(lastRun.duration)}</span>` : ''}
           </div>
-          <button class="wf-card-edit" title="Modifier"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="wf-card-edit" title="${t('workflow.editBtn')}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           ${lastRun?.status === 'running'
-            ? `<button class="wf-card-stop" data-run-id="${lastRun.id}" title="Arrêter le run"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> <span>Stop</span></button>`
-            : `<button class="wf-card-run" title="Lancer maintenant">${svgPlay(11)} <span>Run</span></button>`
+            ? `<button class="wf-card-stop" data-run-id="${lastRun.id}" title="${t('workflow.stopTitle')}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> <span>${t('workflow.stop')}</span></button>`
+            : `<button class="wf-card-run" title="${t('workflow.runTitle')}">${svgPlay(11)} <span>${t('workflow.run')}</span></button>`
           }
         </div>
       </div>
@@ -1031,6 +1034,7 @@ function _renderWfDiagramBlock(block, text) {
 }
 
 function openEditor(workflowId = null) {
+  _activeEditorWorkflowId = workflowId;
   const wf = workflowId ? state.workflows.find(w => w.id === workflowId) : null;
   const editorDraft = {
     name: wf?.name || '',
@@ -1070,7 +1074,7 @@ function openEditor(workflowId = null) {
             Retour
           </button>
           <div class="wf-editor-toolbar-sep"></div>
-          <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="Sans titre…" />
+          <input class="wf-editor-name wf-input" id="wf-ed-name" value="${escapeHtml(editorDraft.name)}" placeholder="${t('workflow.untitled')}…" />
           <span class="wf-editor-dirty" id="wf-ed-dirty" style="display:none" title="Modifications non sauvegardées"></span>
         </div>
 
@@ -1090,37 +1094,37 @@ function openEditor(workflowId = null) {
             <span id="wf-ed-zoom-label">100%</span>
             <button id="wf-ed-zoom-in" title="Zoom in (+)">+</button>
             <button id="wf-ed-zoom-reset" title="Reset zoom (1:1)">1:1</button>
-            <button id="wf-ed-zoom-fit" title="Fit all nodes (F)">Fit</button>
+            <button id="wf-ed-zoom-fit" title="${t('workflow.fitView')} (F)">${t('workflow.fitView')}</button>
           </div>
           <div class="wf-editor-toolbar-sep"></div>
-          <button class="wf-ed-hist-btn" id="wf-ed-comment" title="Add comment zone (C)">
+          <button class="wf-ed-hist-btn" id="wf-ed-comment" title="${t('workflow.addComment')}">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg>
           </button>
-          <button class="wf-ed-hist-btn" id="wf-ed-minimap" title="Toggle minimap (M)">
+          <button class="wf-ed-hist-btn" id="wf-ed-minimap" title="${t('workflow.toggleMinimap')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
           </button>
         </div>
 
         <!-- Right: actions -->
         <div class="wf-editor-toolbar-right">
-          <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run" title="Lancer le workflow">
+          <button class="wf-editor-btn wf-editor-btn--run" id="wf-ed-run" title="${t('workflow.runTitle')}">
             <span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>
-            Run
+            ${t('workflow.run')}
           </button>
-          <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="AI Workflow Builder">
+          <button class="wf-editor-btn wf-editor-btn--ai" id="wf-ed-ai" title="${t('workflow.aiBuilderTitle')}">
             <span class="wf-btn-icon wf-btn-icon--ai"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span>
             AI
           </button>
-          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="Sauvegarder (Ctrl+S)">
+          <button class="wf-editor-btn wf-editor-btn--primary" id="wf-ed-save" title="${t('workflow.save')} (Ctrl+S)">
             <span class="wf-btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
-            Save
+            ${t('workflow.save')}
           </button>
         </div>
       </div>
       <div class="wf-editor-body">
         <div class="wf-editor-left-panel">
           <div class="wf-lp-tabs">
-            <button class="wf-lp-tab active" data-lp-tab="nodes">Nodes</button>
+            <button class="wf-lp-tab active" data-lp-tab="nodes">${t('workflow.nodesTab')}</button>
             <button class="wf-lp-tab" data-lp-tab="vars">Variables</button>
           </div>
           <div class="wf-lp-content" data-lp-content="nodes">
@@ -1172,17 +1176,17 @@ function openEditor(workflowId = null) {
         </div>
       </div>
       <div class="wf-editor-statusbar">
-        <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 nodes</span>
+        <span class="wf-sb-section" id="wf-ed-nodecount"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> 0 ${t('workflow.nodeLabel')}s</span>
         <span class="wf-sb-section wf-sb-selection" id="wf-ed-selection" style="display:none"></span>
         <span class="wf-sb-sep"></span>
-        <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || 'Sans titre'}</span>
-        <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">Modifié</span>
+        <span class="wf-sb-section wf-sb-name" id="wf-ed-sb-name">${escapeHtml(editorDraft.name) || t('workflow.untitled')}</span>
+        <span class="wf-sb-section wf-sb-dirty" id="wf-ed-sb-dirty" style="display:none">${t('workflow.modified')}</span>
         <span class="wf-sb-spacer"></span>
         <span class="wf-sb-section" id="wf-ed-zoom-pct">100%</span>
       </div>
       <div class="wf-ai-panel" id="wf-ai-panel" style="display:none">
         <div class="wf-ai-panel-header">
-          <span class="wf-ai-panel-title">✨ AI Workflow Builder</span>
+          <span class="wf-ai-panel-title">${t('workflow.aiBuilderTitle')}</span>
           <button class="wf-ai-panel-close" id="wf-ai-panel-close" title="Fermer">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
@@ -1232,10 +1236,10 @@ function openEditor(workflowId = null) {
     const toolbarDirty = panel.querySelector('#wf-ed-dirty');
     const undoBtn = panel.querySelector('#wf-ed-undo');
     const redoBtn = panel.querySelector('#wf-ed-redo');
-    if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} node${count !== 1 ? 's' : ''}`;
+    if (countEl) countEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg> ${count} ${t('workflow.nodeLabel')}${count !== 1 ? 's' : ''}`;
     if (selEl) {
       if (selCount > 0) {
-        selEl.textContent = `${selCount} sélectionné${selCount > 1 ? 's' : ''}`;
+        selEl.textContent = t('workflow.selectedCount', { n: selCount });
         selEl.style.display = '';
       } else {
         selEl.style.display = 'none';
@@ -1244,7 +1248,7 @@ function openEditor(workflowId = null) {
     const pct = Math.round(graphService.getZoom() * 100);
     if (zoomEl) zoomEl.textContent = `${pct}%`;
     if (zoomLabel) zoomLabel.textContent = `${pct}%`;
-    if (sbName) sbName.textContent = editorDraft.name || 'Sans titre';
+    if (sbName) sbName.textContent = editorDraft.name || t('workflow.untitled');
     if (sbDirty) sbDirty.style.display = editorDraft.dirty ? '' : 'none';
     if (toolbarDirty) toolbarDirty.style.display = editorDraft.dirty ? '' : 'none';
     if (undoBtn) undoBtn.disabled = !graphService.canUndo();
@@ -1304,14 +1308,16 @@ function openEditor(workflowId = null) {
 
       // Renderers built-in
       const value = props[field.key] ?? (field.default ?? '');
-      const label = field.label || field.key;
       const key = field.key;
+      // tField: translate if value looks like an i18n key (word chars + dots), else use raw
+      const tField = v => (v && /^[\w]+\.[\w.]+$/.test(v)) ? t(v) : (v || '');
+      const label = tField(field.label || field.key);
 
       switch (field.type) {
         case 'text':
           return `<div class="wf-step-edit-field">
             <label class="wf-step-edit-label">${escapeHtml(label)}</label>
-            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(tField(field.hint))}</span>` : ''}
             <input class="wf-step-edit-input wf-node-prop${field.mono ? ' wf-field-mono' : ''}"
               data-key="${key}" value="${escapeHtml(String(value))}"
               placeholder="${escapeHtml(field.placeholder || '')}" />
@@ -1320,7 +1326,7 @@ function openEditor(workflowId = null) {
         case 'textarea':
           return `<div class="wf-step-edit-field">
             <label class="wf-step-edit-label">${escapeHtml(label)}</label>
-            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(tField(field.hint))}</span>` : ''}
             <textarea class="wf-step-edit-input wf-node-prop${field.mono ? ' wf-field-mono' : ''}"
               data-key="${key}" rows="${field.rows || 3}"
               placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(String(value))}</textarea>
@@ -1329,12 +1335,12 @@ function openEditor(workflowId = null) {
         case 'select': {
           const options = (field.options || []).map(opt => {
             const optVal = typeof opt === 'object' ? opt.value : opt;
-            const optLabel = typeof opt === 'object' ? opt.label : opt;
+            const optLabel = tField(typeof opt === 'object' ? opt.label : opt);
             return `<option value="${escapeHtml(String(optVal))}" ${String(value) === String(optVal) ? 'selected' : ''}>${escapeHtml(String(optLabel))}</option>`;
           }).join('');
           return `<div class="wf-step-edit-field">
             <label class="wf-step-edit-label">${escapeHtml(label)}</label>
-            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(field.hint)}</span>` : ''}
+            ${field.hint ? `<span class="wf-field-hint">${escapeHtml(tField(field.hint))}</span>` : ''}
             <select class="wf-step-edit-input wf-node-prop" data-key="${key}">${options}</select>
           </div>`;
         }
@@ -1348,7 +1354,7 @@ function openEditor(workflowId = null) {
 
         case 'hint':
           return `<div class="wf-step-edit-field">
-            <span class="wf-field-hint">${escapeHtml(field.text || label)}</span>
+            <span class="wf-field-hint">${escapeHtml(tField(field.text || field.label || ''))}</span>
           </div>`;
 
         default:
@@ -1373,26 +1379,26 @@ function openEditor(workflowId = null) {
           <div class="wf-props-header wf-props-header--workflow">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <div class="wf-props-header-text">
-              <div class="wf-props-title">Configuration</div>
-              <div class="wf-props-subtitle">Options globales du workflow</div>
+              <div class="wf-props-title">${t('workflow.config')}</div>
+              <div class="wf-props-subtitle">${t('workflow.configSubtitle')}</div>
             </div>
           </div>
           <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${svgScope()} Scope d'exécution</label>
-            <span class="wf-field-hint">Sur quels projets ce workflow peut s'exécuter</span>
+            <label class="wf-step-edit-label">${svgScope()} ${t('workflow.scopeLabel')}</label>
+            <span class="wf-field-hint">${t('workflow.scopeHint')}</span>
             <select class="wf-step-edit-input wf-props-input" data-prop="scope">
-              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>Projet courant uniquement</option>
-              <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>Projet spécifique</option>
-              <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>Tous les projets</option>
+              <option value="current" ${editorDraft.scope === 'current' ? 'selected' : ''}>${t('workflow.scopeCurrent')}</option>
+              <option value="specific" ${editorDraft.scope === 'specific' ? 'selected' : ''}>${t('workflow.scopeSpecific')}</option>
+              <option value="all" ${editorDraft.scope === 'all' ? 'selected' : ''}>${t('workflow.scopeAll')}</option>
             </select>
           </div>
           <div class="wf-step-edit-field">
-            <label class="wf-step-edit-label">${svgConc()} Concurrence</label>
-            <span class="wf-field-hint">Comportement si le workflow est déjà en cours</span>
+            <label class="wf-step-edit-label">${svgConc()} ${t('workflow.concurrencyLabel')}</label>
+            <span class="wf-field-hint">${t('workflow.concurrencyHint')}</span>
             <select class="wf-step-edit-input wf-props-input" data-prop="concurrency">
-              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>Skip (ignorer si en cours)</option>
-              <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>Queue (file d'attente)</option>
-              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>Parallel (instances multiples)</option>
+              <option value="skip" ${editorDraft.concurrency === 'skip' ? 'selected' : ''}>${t('workflow.concurrencySkip')}</option>
+              <option value="queue" ${editorDraft.concurrency === 'queue' ? 'selected' : ''}>${t('workflow.concurrencyQueue')}</option>
+              <option value="parallel" ${editorDraft.concurrency === 'parallel' ? 'selected' : ''}>${t('workflow.concurrencyParallel')}</option>
             </select>
           </div>
         </div>
@@ -1413,6 +1419,8 @@ function openEditor(workflowId = null) {
     const nodeType = node.type.replace('workflow/', '');
     const typeInfo = findStepType(nodeType) || { label: nodeType, color: 'muted', icon: '' };
     const props = node.properties || {};
+    // Inject current workflowId so trigger-config field can build the webhook URL
+    props._workflowId = workflowId || '';
 
     let fieldsHtml = '';
 
@@ -1465,7 +1473,7 @@ function openEditor(workflowId = null) {
             <span class="wf-lastrun-duration">${duration}</span>
           </div>
           ${error ? `<div class="wf-lastrun-error"><span class="wf-lastrun-error-label">Erreur</span><pre class="wf-lastrun-error-msg">${escapeHtml(error)}</pre></div>` : ''}
-          ${outputsHtml ? `<div class="wf-lastrun-section"><div class="wf-lastrun-section-title">Outputs</div>${outputsHtml}</div>` : '<div class="wf-lastrun-empty">Aucune donnée de sortie</div>'}
+          ${outputsHtml ? `<div class="wf-lastrun-section"><div class="wf-lastrun-section-title">${t('workflow.outputs')}</div>${outputsHtml}</div>` : `<div class="wf-lastrun-empty">${t('workflow.noOutputData')}</div>`}
         </div>`;
     }
 
@@ -1488,7 +1496,7 @@ function openEditor(workflowId = null) {
         ${nodeType !== 'trigger' ? `<div class="wf-node-id-badge"><code>$${nodeStepId}</code> <span>ID de ce node pour les variables</span></div>` : ''}
         ${nodeType !== 'trigger' ? `
         <div class="wf-step-edit-field">
-          <label class="wf-step-edit-label">${svgEdit()} Nom personnalisé</label>
+          <label class="wf-step-edit-label">${svgEdit()} ${t('workflow.customName')}</label>
           <input class="wf-step-edit-input wf-node-prop" data-key="_customTitle" value="${escapeHtml(customTitle)}" placeholder="${typeInfo.label}" />
         </div>` : ''}
         ${fieldsHtml}
@@ -1496,7 +1504,7 @@ function openEditor(workflowId = null) {
         <div class="wf-props-divider"></div>
         <button class="wf-props-delete" id="wf-props-delete-node">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          Supprimer ce node
+          ${t('workflow.deleteNode')}
         </button>` : ''}
         `}
       </div>
@@ -2048,6 +2056,7 @@ function openEditor(workflowId = null) {
       await refreshData();
       if (!workflowId && res.id) {
         workflowId = res.id;
+        _activeEditorWorkflowId = res.id;
       }
       return true;
     }
@@ -2069,15 +2078,15 @@ function openEditor(workflowId = null) {
       btn.classList.add('wf-editor-btn--stop');
       btn.classList.remove('wf-editor-btn--run');
       btn.disabled = false;
-      btn.title = 'Arrêter le run';
-      btn.innerHTML = '<span class="wf-btn-icon"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>Stop';
+      btn.title = t('workflow.stopTitle');
+      btn.innerHTML = `<span class="wf-btn-icon"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>${t('workflow.stop')}`;
     } else {
       _edRunId = null;
       btn.classList.remove('wf-editor-btn--stop');
       btn.classList.add('wf-editor-btn--run');
       btn.disabled = false;
-      btn.title = 'Lancer le workflow';
-      btn.innerHTML = '<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>Run';
+      btn.title = t('workflow.runTitle');
+      btn.innerHTML = `<span class="wf-btn-icon"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9"/></svg></span>${t('workflow.run')}`;
     }
   }
 
@@ -2130,73 +2139,88 @@ function openEditor(workflowId = null) {
   const aiPanelChat = panel.querySelector('#wf-ai-panel-chat');
   let aiChatInitialized = false;
 
-  const WORKFLOW_SYSTEM_PROMPT = `You are the AI assistant built into the Workflow Builder of Claude Terminal.
+  const WORKFLOW_SYSTEM_PROMPT = `You are an expert workflow architect built into the Workflow Builder of Claude Terminal. You build production-quality, robust automation workflows — not just functional ones.
 
 Claude Terminal is an Electron desktop app for managing development projects. It includes a visual workflow editor (LiteGraph.js) for automating tasks: git, shell commands, AI tasks, HTTP requests, file operations, databases, notifications, and more.
 
 YOUR ONLY ROLE: help the user build and modify the workflow currently open in the visual editor, using the MCP tools available. You do nothing else — no code help, no project advice, nothing outside of workflow building.
 
+QUALITY STANDARD — every workflow you build must be:
+- Robust: every fallible node (shell/http/git/db/claude/file/transform) must have its Error slot connected
+- Observable: use Log nodes at key steps (start, end, errors, loop iterations)
+- Clean: descriptive node titles, variables for repeated values, auto_layout after building
+- Efficient: prefer data pins over $var syntax; prefer transform over shell for data manipulation; use haiku model for simple AI tasks
+
 AVAILABLE MCP TOOLS:
-- workflow_get_graph(workflow) — read current nodes and links
-- workflow_get_variables(workflow) — list all variables defined and referenced in the workflow
-- workflow_add_node(workflow, type, pos, properties, title) — add a node
+- workflow_get_graph(workflow) — read current nodes and links (ALWAYS call first)
+- workflow_get_variables(workflow) — list all variables defined in the workflow
+- workflow_add_node(workflow, type, properties, title) — add a node (omit pos, call auto_layout after)
 - workflow_connect_nodes(workflow, from_node, from_slot, to_node, to_slot) — connect two nodes
-- workflow_update_node(workflow, node_id, properties, title) — update node properties
-- workflow_delete_node(workflow, node_id) — delete a node
+- workflow_update_node(workflow, node_id, properties, title) — update node properties or title
+- workflow_delete_node(workflow, node_id) — delete a node and its connections
+- workflow_add_variable(workflow, name, varType) — declare a workflow-level variable (string|number|boolean|array|object|any)
+- workflow_auto_layout(workflow) — auto-arrange all nodes cleanly (call after adding nodes)
 
 The "workflow" parameter is the name shown in the editor toolbar.
 
 PIN SYSTEM (Blueprint-style typed data pins):
 Each node has exec pins (flow control) AND data pins (typed values).
-Exec pins connect flow: slot0=Done/True, slot1=Error/False.
-Data pins carry values: string, number, boolean, array, object, any.
-Data pins can be connected directly between nodes — the runtime resolves values automatically.
+Exec pins connect flow: input slot0=In, output slot0=Done/True, slot1=Error/False.
+Data pins carry typed values and are connected separately from exec pins.
+Prefer data pin connections over $var string references — they are more reliable and visual.
 You do NOT need $node_X.stdout syntax when using data pin connections.
 
 NODE TYPES:
 
-workflow/trigger — Entry point (always the first node, required)
-  triggerType: manual | cron | hook | on_workflow
-  triggerValue: cron expression e.g. "0 9 * * 1-5"
+workflow/trigger — Entry point (always first, always required)
+  triggerType: manual | cron | hook | on_workflow | webhook
+  triggerValue: cron expression e.g. "0 9 * * 1-5" (weekdays at 9am)
+  hookType: PreToolUse | PostToolUse | UserPromptSubmit | Notification | Stop
+  webhook: triggered by external HTTP POST via cloud relay (GitHub, Stripe, Slack, etc.)
+    The request body is available as $trigger.payload (e.g. $trigger.payload.event)
   Exec outputs: slot0=Start
 
-workflow/claude — AI task
+workflow/claude — AI task (prefer haiku for simple summaries, sonnet for reasoning, opus for complex)
   mode: prompt | agent | skill
-  prompt, model (e.g. "sonnet", "haiku", "opus"), effort (low | medium | high | max)
-  maxTurns (default 30), cwd (working directory, defaults to project context)
+  prompt (supports $vars), model: "haiku" | "sonnet" | "opus"
+  effort: low | medium | high | max (controls extended thinking)
+  maxTurns (default 30), cwd (working directory)
   skillId (skill name when mode=skill)
-  outputSchema (array of {name, type} for structured JSON output)
+  outputSchema (array of {name, type} for structured JSON output — use this for extracting structured data)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: output (string)
+  Data outputs: output (string, slot2)
 
 workflow/shell — Terminal command
-  command (supports $vars)
+  command (supports $vars), projectId or cwd for working directory
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: stdout (string), stderr (string), exitCode (number)
+  Data outputs: stdout (slot2), stderr (slot3), exitCode (slot4)
+  TIP: set a descriptive title so the graph is readable
 
 workflow/git — Git operation
   action: pull | push | commit | checkout | merge | stash | stash-pop | reset
-  branch, message
+  branch, message (for commit)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: output (string)
+  Data outputs: output (string, slot2)
 
 workflow/http — HTTP request
   method: GET | POST | PUT | PATCH | DELETE
-  url, headers (JSON string), body (JSON string)
+  url, headers (JSON string e.g. '{"Authorization":"Bearer $token"}'), body (JSON string)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: body (object), status (number), ok (boolean)
+  Data outputs: body (object, slot2), status (number, slot3), ok (boolean, slot4)
+  TIP: after http, use a Condition on ok==true to branch on success vs failure
 
 workflow/db — SQL query
-  connection (connection name), query (SQL with $vars)
+  connection (connection name from Claude Terminal), query (SQL with $vars)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: rows (array), rowCount (number), firstRow (object)
+  Data outputs: rows (array, slot2), rowCount (number, slot3), firstRow (object, slot4)
 
 workflow/file — File operation
   action: read | write | append | copy | delete | exists | move | list
-  path, content, destination (for copy/move), pattern (glob for list), recursive (bool), type (files|dirs|all)
+  path, content (for write/append), destination (for copy/move)
+  pattern (glob for list e.g. "**/*.ts"), recursive (bool), type (files|dirs|all)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: content (string, slot2), exists (boolean, slot3), files (array, slot4), count (number, slot5)
-  list action: set path=directory, pattern="**/*.js", recursive=true — returns files array (ideal to connect to Loop)
+  Data outputs: content (slot2), exists (slot3), files (array, slot4), count (slot5)
+  list: connect files array (slot4) to Loop node Items (slot1) to process each file
 
 workflow/notify — Desktop notification
   title, message
@@ -2206,84 +2230,82 @@ workflow/wait — Pause execution
   duration: "5s" | "2m" | "1h"
   Exec output: slot0=Done
 
-workflow/log — Log a message
+workflow/log — Log a message (use liberally for observability)
   level: debug | info | warn | error
-  message (supports $vars)
+  message (supports $vars — e.g. "Processing $loop.index: $loop.item.name")
   Exec output: slot0=Done
 
 workflow/condition — Conditional branch
-  variable (dot-path to value), operator: == | != | > | < | >= | <= | contains | starts_with | matches | is_empty | is_not_empty
+  variable (dot-path), operator: == | != | > | < | >= | <= | contains | starts_with | ends_with | matches | is_empty | is_not_empty
   value
   Exec outputs: slot0=TRUE path, slot1=FALSE path
 
-workflow/loop — Iterate over a list
+workflow/loop — Iterate over an array
   source: auto | projects | files | custom
   items ($var pointing to an array)
-  Exec outputs: slot0=Each iteration (loop body), slot1=Done (after loop)
-  Data outputs: item (any), index (number)
+  Exec outputs: slot0=Each (first node INSIDE the loop body), slot1=Done (first node AFTER the loop)
+  Data outputs: item (slot2), index (slot3)
+  CRITICAL: nodes inside the loop body connect to Loop slot0 (Each), NOT to each other's exec output flowing back to trigger. The loop body nodes form an internal chain connected via their own exec slots. The LAST node in the loop body does NOT connect back to the Loop node.
 
-workflow/variable — Store/set a variable
+workflow/variable — Store/modify a variable
   action: set | get | increment | append
-  name, value
+  name, value (supports $vars)
   Exec output: slot0=Done
-  Data output: value (any)
+  Data output: value (slot1)
 
-workflow/get_variable — Read a variable (pure data node, NO exec pins)
-  name: variable name to read
-  varType: string | number | boolean | array | object | any
-  Data output: value (typed)
-  NOTE: This node has no exec input/output. Connect its data output directly to another node's data input.
-  Use workflow_get_variables to discover existing variables before adding this node.
+workflow/get_variable — Read a variable (pure data node — NO exec pins at all)
+  name: variable name, varType: string | number | boolean | array | object | any
+  Data output: value (slot0)
+  CRITICAL: this node has ZERO exec pins. Never try to connect exec slots to/from it. Connect its slot0 data output directly to any data input of another node.
 
-workflow/transform — Data transformation
+workflow/transform — Data transformation (prefer over shell for data processing)
   operation: map | filter | find | reduce | pluck | count | sort | unique | flatten | json_parse | json_stringify
-  input ($var pointing to data), expression (JS expression with item/index)
+  input ($var or data pin), expression (JS expression: item=element, index=position, acc=accumulator for reduce)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: result (any)
+  Data outputs: result (slot2)
+  Examples: filter → "item.status === 'active'", pluck → "name", map → "item.name.toUpperCase()"
 
 workflow/subworkflow — Trigger another workflow
-  workflow (name or ID of the target workflow)
-  inputVars (JSON object or key=value pairs to pass as variables)
-  waitForCompletion: true | false (default true, waits up to 10min)
+  workflow (name or ID), inputVars (JSON object of variables to pass)
+  waitForCompletion: true | false (default true)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: outputs (object)
+  Data outputs: outputs (object, slot2)
 
-workflow/switch — Multi-branch routing (like switch/case)
-  variable ($var to evaluate), cases (comma-separated values e.g. "success,warning,error")
-  Each case creates an exec output slot (slot0=first case, slot1=second, etc.), last slot=default
+workflow/switch — Multi-branch routing
+  variable ($var to evaluate), cases (comma-separated e.g. "success,warning,error")
+  Exec outputs: slot0=first case, slot1=second, ..., last slot=default
   No data outputs
 
-workflow/project — Set project context or list projects
+workflow/project — Project context or list
   action: list | set_context | open | build | install | test
-  projectId (project to target, not needed for list)
+  projectId (not needed for list)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs: projects (array, slot2) — only populated for action=list
-  list action: returns all Claude Terminal projects array — connect slot2 to Loop node Items (slot1) to iterate
+  Data outputs: projects (array, slot2) — for action=list only
+  TIP: project list → Loop is the canonical pattern to iterate all projects
 
 workflow/time — Read time tracking data
   action: get_today | get_week | get_project | get_all_projects | get_sessions
-  projectId (required for get_project, optional for get_sessions — can also be connected via data input pin)
-  startDate, endDate (ISO date strings, for get_sessions filtering)
+  projectId (for get_project — can also be connected via data input pin slot1)
+  startDate, endDate (ISO strings, for get_sessions)
   Exec outputs: slot0=Done, slot1=Error
-  Data outputs vary by action:
-    get_today: today=slot2 (ms), week=slot3 (ms), month=slot4 (ms), projects=slot5 (array of active projects)
+  Data outputs:
+    get_today: today=slot2 (ms), week=slot3, month=slot4, projects=slot5 (array)
     get_week: total=slot2 (ms), days=slot3 (array [{date, dayOfWeek, ms, formatted}])
-    get_project: today=slot2, week=slot3, month=slot4, total=slot5, sessionCount=slot6 (all ms except count)
-    get_all_projects: projects=slot2 (array sorted by today desc), count=slot3
-    get_sessions: sessions=slot2 (array), count=slot3, totalMs=slot4
-  NOTE: get_project and get_sessions expose a projectId data INPUT pin (slot1) — connect any string output to it
-  TIP: get_all_projects → Loop → get_project pattern to build per-project reports
-  TIP: divide ms by 3600000 to get hours, by 60000 to get minutes
+    get_project: today=slot2, week=slot3, month=slot4, total=slot5, sessionCount=slot6
+    get_all_projects: projects=slot2 (sorted by today desc), count=slot3
+    get_sessions: sessions=slot2, count=slot3, totalMs=slot4
+  TIP: get_all_projects → Loop → get_project per-project is the standard reporting pattern
+  TIP: divide ms by 3600000 for hours
 
-DATA PIN CONNECTION SLOTS (for workflow_connect_nodes):
-When connecting data pins, slot indices start AFTER the exec slots:
+DATA PIN SLOT REFERENCE (for workflow_connect_nodes):
+Data pin slots start AFTER exec slots (exec input=slot0, exec outputs=slot0/slot1):
   shell: stdout=slot2, stderr=slot3, exitCode=slot4
   db: rows=slot2, rowCount=slot3, firstRow=slot4
   http: body=slot2, status=slot3, ok=slot4
   file: content=slot2, exists=slot3, files=slot4, count=slot5
   loop: item=slot2, index=slot3
   variable: value=slot1
-  get_variable: value=slot0
+  get_variable: value=slot0 (only slot — no exec)
   claude: output=slot2
   transform: result=slot2
   subworkflow: outputs=slot2
@@ -2294,46 +2316,70 @@ When connecting data pins, slot indices start AFTER the exec slots:
   time/get_all_projects: projects=slot2, count=slot3
   time/get_sessions: sessions=slot2, count=slot3, totalMs=slot4
 
-AVAILABLE VARIABLES IN PROPERTIES (legacy $var syntax, still works):
-$ctx.project — current project name
-$ctx.branch — active git branch
-$node_X.stdout — stdout output of node X (shell/git)
-$node_X.body — HTTP response body of node X
-$node_X.rows — SQL result rows of node X
-$node_X.result — boolean result of condition node X
-$loop.item — current item in loop iteration
-$loop.index — current index (0-based)
+$VAR SYNTAX (works in property strings when data pins aren't used):
+$ctx.project, $ctx.branch — project context
+$trigger.payload, $trigger.payload.field — webhook payload
+$loop.item, $loop.index — loop iteration
+$node_X.stdout, $node_X.body, $node_X.rows — node outputs by ID
 
-NODE POSITIONING (top-to-bottom, 160px spacing):
-Trigger: [100, 100] → next nodes: [100, 260] → [100, 420] → etc.
-TRUE branch: same X column, FALSE branch: shift X by +260
+PRODUCTION PATTERNS:
+
+Error handling (connect Error slot of every fallible node):
+  [Shell/HTTP/Git/...] slot1(Error) → [Log level=error, message="Step failed"] → [Notify title="Workflow error"]
+
+Loop body (3-node example inside a loop):
+  [Loop] slot0(Each) → [Log "Processing $loop.item.name"] slot0 → [Shell command="..."] slot0 → [Notify]
+  [Loop] slot1(Done) → [Log "All items processed"]
+  NEVER connect the last loop-body node back to the Loop. The runtime handles iteration automatically.
+
+HTTP + Condition guard:
+  [HTTP GET] slot0 → [Condition ok==true] slot0(TRUE) → [next step]
+                                          slot1(FALSE) → [Log error] → [Notify]
+
+Cron report:
+  [Trigger cron] → [Time get_all_projects] → [Loop] → [Time get_project (connect item.id→projectId pin)]
+                                                      → [Claude summarize] → [Log]
+                                             [Loop Done] → [Notify "Report ready"]
+
+COMMON MISTAKES TO AVOID:
+- ❌ Connecting exec pins to get_variable (it has none — data only)
+- ❌ Leaving Error slots disconnected (always handle errors)
+- ❌ Using $node_X.stdout when a data pin connection is cleaner
+- ❌ Using sonnet/opus for simple text formatting (haiku is sufficient and faster)
+- ❌ Connecting loop body's last node back to the Loop node (infinite loop)
+- ❌ Forgetting to call workflow_auto_layout after building (graph looks messy)
 
 APPROACH:
-1. ALWAYS start by calling workflow_get_graph to see the current state
-2. If the graph is empty, ask the user what they want to automate
-3. Build node by node, briefly explaining each step
-4. Connect each node immediately after adding it
-5. Proactively suggest error handling where relevant
-6. Reply in the user's language (French if they write in French, English otherwise)
-7. NEVER discuss anything outside of workflow building
+1. ALWAYS call workflow_get_graph first to see the current state
+2. For empty graphs: briefly confirm the plan with a diagram BEFORE building
+3. Build in logical order: trigger → main flow → error handlers → layout
+4. Add descriptive titles to nodes (title parameter in workflow_add_node)
+5. Connect each node immediately after adding it
+6. Add Log nodes at key steps for observability
+7. Always handle Error slots — connect them to a Log+Notify chain
+8. Call workflow_auto_layout at the end to clean up the visual layout
+9. Reply in the user's language (French if they write in French)
+10. NEVER discuss anything outside of workflow building
 
 DIAGRAM FORMAT (MANDATORY):
-Whenever you describe, summarize, or list the nodes of a workflow — whether showing the current state, a proposed plan, or the result after modifications — you MUST use this exact format in a plain code block (no language tag):
+Whenever you describe, summarize, plan, or show a workflow — use this exact format:
 
 \`\`\`
 [Node Name] → key detail
 ↓
 [Node Name] → key detail
+  ↳ ERROR → [Log] → [Notify]
 ↓
 [Node Name] → key detail
 \`\`\`
 
 Rules:
-- One line per node, starting with [Node Name] (using the node type label, e.g. [Trigger], [Shell], [Condition], [Notify])
-- After → write the most relevant property (command, title, condition, etc.)
+- One line per node: [Node Name] → most relevant property
 - Separate nodes with ↓ on its own line
-- NEVER use bullet points, numbered lists, or prose to describe the node structure
-- Always show this diagram when the user asks "what does this workflow do", "show me the graph", or after any modification`;
+- Show error branches with ↳ ERROR → indented
+- Show loop body with indented lines under [Loop]
+- NEVER use bullet points or prose to describe node structure
+- Always show this diagram when asked "what does this do", "show the graph", or after any modification`;
 
   panel.querySelector('#wf-ed-ai').addEventListener('click', () => {
     const isOpen = aiPanel.style.display !== 'none';
@@ -2518,10 +2564,10 @@ function openDetail(id) {
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           ${runningRun
-            ? `<button class="wf-btn-danger wf-btn-sm" id="wf-run-now-stop" data-run-id="${runningRun.id}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>Stop</button>`
-            : `<button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} Lancer</button>`
+            ? `<button class="wf-btn-danger wf-btn-sm" id="wf-run-now-stop" data-run-id="${runningRun.id}"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>${t('workflow.stop')}</button>`
+            : `<button class="wf-btn-primary wf-btn-sm" id="wf-run-now">${svgPlay()} ${t('workflow.launchBtn')}</button>`
           }
-          <button class="wf-btn-ghost wf-btn-sm" id="wf-edit">Modifier</button>
+          <button class="wf-btn-ghost wf-btn-sm" id="wf-edit">${t('workflow.editBtn')}</button>
           <button class="wf-modal-x" id="wf-det-close">${svgX(12)}</button>
         </div>
       </div>
@@ -2530,28 +2576,28 @@ function openDetail(id) {
           <div class="wf-detail-meta-item">
             <span class="wf-detail-meta-icon wf-chip wf-chip--${cfg.color}">${cfg.icon}</span>
             <div>
-              <div class="wf-detail-meta-label">Trigger</div>
+              <div class="wf-detail-meta-label">${t('workflow.triggerLabel')}</div>
               <div class="wf-detail-meta-val">${cfg.label}${wf.trigger?.value ? ` · <code>${escapeHtml(wf.trigger.value)}</code>` : ''}${wf.hookType ? ` · <code>${escapeHtml(wf.hookType)}</code>` : ''}</div>
             </div>
           </div>
           <div class="wf-detail-meta-item">
             <span class="wf-detail-meta-icon wf-chip wf-chip--muted">${svgScope()}</span>
             <div>
-              <div class="wf-detail-meta-label">Scope</div>
+              <div class="wf-detail-meta-label">${t('workflow.scopeMeta')}</div>
               <div class="wf-detail-meta-val">${escapeHtml(wf.scope || 'current')}</div>
             </div>
           </div>
           <div class="wf-detail-meta-item">
             <span class="wf-detail-meta-icon wf-chip wf-chip--muted">${svgConc()}</span>
             <div>
-              <div class="wf-detail-meta-label">Concurrence</div>
+              <div class="wf-detail-meta-label">${t('workflow.concurrencyLabel')}</div>
               <div class="wf-detail-meta-val">${escapeHtml(wf.concurrency || 'skip')}</div>
             </div>
           </div>
         </div>
 
         <div class="wf-detail-section">
-          <div class="wf-detail-sec-title">Séquence</div>
+          <div class="wf-detail-sec-title">${t('workflow.sequence')}</div>
           <div class="wf-detail-steps">
             ${(wf.steps || []).map((s, i) => {
               const info = findStepType((s.type || '').split('.')[0]);
@@ -2571,7 +2617,7 @@ function openDetail(id) {
 
         ${runs.length ? `
           <div class="wf-detail-section">
-            <div class="wf-detail-sec-title">Derniers runs</div>
+            <div class="wf-detail-sec-title">${t('workflow.lastRuns')}</div>
             ${runs.slice(0, 3).map(run => `
               <div class="wf-run wf-run--sm">
                 <div class="wf-run-bar wf-run-bar--${run.status}"></div>
