@@ -115,4 +115,4 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 33-01-PLAN.md — Updater settings UI, persistence, and UpdaterService wiring
+- [x] 33-01-PLAN.md — Updater settings UI, persistence, and UpdaterService wiring

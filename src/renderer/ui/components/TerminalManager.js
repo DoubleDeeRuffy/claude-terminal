@@ -45,6 +45,8 @@ const {
 const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
 const { showContextMenu } = require('./ContextMenu');
+const { showConfirm } = require('./Modal');
+const { isClaudeActive } = require('../../state/claudeActivity.state');
 const PaneManager = require('./PaneManager');
 const ContextPromptService = require('../../services/ContextPromptService');
 
@@ -355,12 +357,25 @@ const slashRenameTimestamps = new Map();
 const SLASH_RENAME_COOLDOWN = 30000; // 30s — protect slash name for this long
 
 /**
+ * Track when a tab was restored with a custom name from a previous session.
+ * Used to prevent the post-resume OSC title (✳ project-folder-name) from
+ * overwriting the restored name.
+ */
+const restoreRenameTimestamps = new Map();
+const RESTORE_RENAME_COOLDOWN = 30000; // 30s — protect restored name for this long
+
+/**
  * Returns true when an OSC title rename should be skipped because the tab was
- * renamed to a slash command by the user's setting.
+ * renamed to a slash command by the user's setting, or was restored with a
+ * custom name from a previous session.
  * Uses the module-level getSetting import to avoid any circular dependency issues.
  * @param {string|number} id - Terminal ID
  */
 function shouldSkipOscRename(id) {
+  // Check restore protection first (independent of tabRenameOnSlashCommand setting)
+  const restoreTs = restoreRenameTimestamps.get(id);
+  if (restoreTs && Date.now() - restoreTs < RESTORE_RENAME_COOLDOWN) return true;
+
   if (!getSetting('tabRenameOnSlashCommand')) return false;
   const td = getTerminal(id);
   // Check 1: tab name starts with / (slash command name)
@@ -1560,9 +1575,21 @@ function cleanupTerminalResources(termData) {
 /**
  * Close terminal
  */
-function closeTerminal(id) {
+async function closeTerminal(id) {
   // Get terminal info before closing
   const termData = getTerminal(id);
+
+  // Gate: confirm before closing a tab where Claude is actively working
+  if (termData && !termData.isBasic && termData.status === 'working' && isClaudeActive(id)) {
+    const confirmed = await showConfirm({
+      title: t('closeWarning.title'),
+      message: t('tabCloseWarning.message', { name: termData.name || 'Terminal' }),
+      confirmLabel: t('tabCloseWarning.closeAnyway'),
+      danger: true
+    });
+    if (!confirmed) return;
+  }
+
   const closedProjectIndex = termData?.projectIndex;
   const closedProjectPath = termData?.project?.path;
   const closedProjectId = termData?.project?.id;
@@ -1756,6 +1783,11 @@ async function createTerminal(project, options = {}) {
   };
 
   addTerminal(id, termData);
+
+  // Protect restored custom names from being overwritten by post-resume OSC titles
+  if (resumeSessionId && customName) {
+    restoreRenameTimestamps.set(id, Date.now());
+  }
 
   // Start time tracking for this project
   heartbeat(project.id, 'terminal');
@@ -3339,6 +3371,11 @@ async function resumeSession(project, sessionId, options = {}) {
 
   addTerminal(id, termData);
 
+  // Protect restored custom names from being overwritten by post-resume OSC titles
+  if (sessionName) {
+    restoreRenameTimestamps.set(id, Date.now());
+  }
+
   // If a saved name was passed, persist it immediately — --resume does not emit
   // a new OSC task name, so handleClaudeTitleChange will not call updateTerminalTabName.
   if (sessionName) {
@@ -4250,6 +4287,12 @@ async function createChatTerminal(project, options = {}) {
   };
 
   addTerminal(id, termData);
+
+  // Protect restored custom names from being overwritten by post-resume OSC titles
+  if (resumeSessionId && customName) {
+    restoreRenameTimestamps.set(id, Date.now());
+  }
+
   heartbeat(parentProjectId || project.id, 'terminal');
 
   // Create tab
