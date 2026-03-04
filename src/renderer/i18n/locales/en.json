@@ -35,6 +35,10 @@
     "quitAnyway": "Quit Anyway",
     "cancel": "Cancel"
   },
+  "tabCloseWarning": {
+    "message": "Claude is actively working in \"{name}\". Closing this tab will interrupt the current task.",
+    "closeAnyway": "Close Anyway"
+  },
   "projects": {
     "title": "Projects",
     "noProjects": "No projects",
@@ -460,7 +464,9 @@
     "newVersionAvailable": "New version available: v{version}",
     "readyToInstall": "v{version} ready to install",
     "restartToUpdate": "Restart to update",
-    "installing": "Installing..."
+    "installing": "Installing...",
+    "download": "Download",
+    "downloading": "Downloading..."
   },
   "ci": {
     "passed": "Passed",
@@ -517,6 +523,22 @@
     "reduceMotionDesc": "Remove all transitions and animations from the interface",
     "aiCommitMessages": "AI commit messages",
     "aiCommitMessagesDesc": "Use GitHub Models (GPT-4o-mini) to generate commit messages. Requires GitHub connection.",
+    "updatesGroup": "Updates",
+    "updateCheckInterval": "Check for updates",
+    "updateCheckIntervalDesc": "How often to automatically check for new versions",
+    "updateCheckInterval30min": "Every 30 minutes",
+    "updateCheckInterval1h": "Every hour",
+    "updateCheckInterval3h": "Every 3 hours",
+    "updateCheckIntervalStartup": "At startup only",
+    "updateCheckIntervalManual": "Manual only",
+    "updateDownloadMode": "Download updates",
+    "updateDownloadModeDesc": "Whether to download updates automatically when found",
+    "updateDownloadModeAuto": "Automatically",
+    "updateDownloadModeManual": "Manually",
+    "updateInstallMode": "Install updates",
+    "updateInstallModeDesc": "Whether to install downloaded updates automatically when closing",
+    "updateInstallModeAuto": "When closing app",
+    "updateInstallModeManual": "Manually",
     "checkForUpdates": "Updates",
     "checkForUpdatesDesc": "Check if a new version is available",
     "checkForUpdatesBtn": "Check",

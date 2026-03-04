@@ -35,6 +35,10 @@
     "quitAnyway": "Quitter quand même",
     "cancel": "Annuler"
   },
+  "tabCloseWarning": {
+    "message": "Claude travaille activement dans « {name} ». Fermer cet onglet interrompra la tâche en cours.",
+    "closeAnyway": "Fermer quand même"
+  },
   "projects": {
     "title": "Projets",
     "noProjects": "Aucun projet",
@@ -530,7 +534,9 @@
     "newVersionAvailable": "Nouvelle version disponible : v{version}",
     "readyToInstall": "v{version} prête à installer",
     "restartToUpdate": "Redémarrer pour mettre à jour",
-    "installing": "Installation..."
+    "installing": "Installation...",
+    "download": "Télécharger",
+    "downloading": "Téléchargement..."
   },
   "ci": {
     "passed": "Réussi",
@@ -587,6 +593,22 @@
     "reduceMotionDesc": "Supprimer toutes les transitions et animations de l'interface",
     "aiCommitMessages": "Messages de commit IA",
     "aiCommitMessagesDesc": "Utiliser GitHub Models (GPT-4o-mini) pour générer les messages de commit. Nécessite une connexion GitHub.",
+    "updatesGroup": "Mises à jour",
+    "updateCheckInterval": "Recherche de mises à jour",
+    "updateCheckIntervalDesc": "Fréquence de vérification automatique des nouvelles versions",
+    "updateCheckInterval30min": "Toutes les 30 minutes",
+    "updateCheckInterval1h": "Toutes les heures",
+    "updateCheckInterval3h": "Toutes les 3 heures",
+    "updateCheckIntervalStartup": "Au démarrage uniquement",
+    "updateCheckIntervalManual": "Manuellement uniquement",
+    "updateDownloadMode": "Télécharger les mises à jour",
+    "updateDownloadModeDesc": "Télécharger automatiquement les mises à jour trouvées",
+    "updateDownloadModeAuto": "Automatiquement",
+    "updateDownloadModeManual": "Manuellement",
+    "updateInstallMode": "Installer les mises à jour",
+    "updateInstallModeDesc": "Installer automatiquement les mises à jour lors de la fermeture",
+    "updateInstallModeAuto": "À la fermeture de l'application",
+    "updateInstallModeManual": "Manuellement",
     "checkForUpdates": "Mises à jour",
     "checkForUpdatesDesc": "Vérifier si une nouvelle version est disponible",
     "checkForUpdatesBtn": "Vérifier",

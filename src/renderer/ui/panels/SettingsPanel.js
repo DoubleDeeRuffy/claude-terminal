@@ -625,15 +625,80 @@ async function renderSettingsTab(initialTab = 'general') {
                 </div>
               </div>
             </div>
-            <div class="settings-row">
-              <div class="settings-label">
-                <div>${t('settings.checkForUpdates')}</div>
-                <div class="settings-desc">${t('settings.checkForUpdatesDesc')}</div>
-              </div>
-              <button type="button" class="btn-outline" id="btn-check-updates">
-                ${t('settings.checkForUpdatesBtn')}
-              </button>
             </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">${t('settings.updatesGroup')}</div>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-label">
+                  <div>${t('settings.updateCheckInterval')}</div>
+                  <div class="settings-desc">${t('settings.updateCheckIntervalDesc')}</div>
+                </div>
+                <div class="settings-dropdown" id="update-check-interval-dropdown" data-value="${settings.updateCheckInterval || '30min'}">
+                  <div class="settings-dropdown-trigger">
+                    <span>${{'30min':t('settings.updateCheckInterval30min'),'1h':t('settings.updateCheckInterval1h'),'3h':t('settings.updateCheckInterval3h'),'startup':t('settings.updateCheckIntervalStartup'),'manual':t('settings.updateCheckIntervalManual')}[settings.updateCheckInterval || '30min']}</span>
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                  </div>
+                  <div class="settings-dropdown-menu">
+                    ${[{v:'30min',l:t('settings.updateCheckInterval30min')},{v:'1h',l:t('settings.updateCheckInterval1h')},{v:'3h',l:t('settings.updateCheckInterval3h')},{v:'startup',l:t('settings.updateCheckIntervalStartup')},{v:'manual',l:t('settings.updateCheckIntervalManual')}].map(o =>
+                      `<div class="settings-dropdown-option ${(settings.updateCheckInterval || '30min') === o.v ? 'selected' : ''}" data-value="${o.v}">
+                        <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                        ${o.l}
+                      </div>`
+                    ).join('')}
+                  </div>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-label">
+                  <div>${t('settings.updateDownloadMode')}</div>
+                  <div class="settings-desc">${t('settings.updateDownloadModeDesc')}</div>
+                </div>
+                <div class="settings-dropdown" id="update-download-mode-dropdown" data-value="${settings.updateDownloadMode || 'auto'}">
+                  <div class="settings-dropdown-trigger">
+                    <span>${{'auto':t('settings.updateDownloadModeAuto'),'manual':t('settings.updateDownloadModeManual')}[settings.updateDownloadMode || 'auto']}</span>
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                  </div>
+                  <div class="settings-dropdown-menu">
+                    ${[{v:'auto',l:t('settings.updateDownloadModeAuto')},{v:'manual',l:t('settings.updateDownloadModeManual')}].map(o =>
+                      `<div class="settings-dropdown-option ${(settings.updateDownloadMode || 'auto') === o.v ? 'selected' : ''}" data-value="${o.v}">
+                        <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                        ${o.l}
+                      </div>`
+                    ).join('')}
+                  </div>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-label">
+                  <div>${t('settings.updateInstallMode')}</div>
+                  <div class="settings-desc">${t('settings.updateInstallModeDesc')}</div>
+                </div>
+                <div class="settings-dropdown" id="update-install-mode-dropdown" data-value="${settings.updateInstallMode || 'auto'}">
+                  <div class="settings-dropdown-trigger">
+                    <span>${{'auto':t('settings.updateInstallModeAuto'),'manual':t('settings.updateInstallModeManual')}[settings.updateInstallMode || 'auto']}</span>
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                  </div>
+                  <div class="settings-dropdown-menu">
+                    ${[{v:'auto',l:t('settings.updateInstallModeAuto')},{v:'manual',l:t('settings.updateInstallModeManual')}].map(o =>
+                      `<div class="settings-dropdown-option ${(settings.updateInstallMode || 'auto') === o.v ? 'selected' : ''}" data-value="${o.v}">
+                        <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                        ${o.l}
+                      </div>`
+                    ).join('')}
+                  </div>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-label">
+                  <div>${t('settings.checkForUpdates')}</div>
+                  <div class="settings-desc">${t('settings.checkForUpdatesDesc')}</div>
+                </div>
+                <button type="button" class="btn-outline" id="btn-check-updates">
+                  ${t('settings.checkForUpdatesBtn')}
+                </button>
+              </div>
             </div>
           </div>
           <div class="settings-group">
@@ -1374,6 +1439,10 @@ async function renderSettingsTab(initialTab = 'general') {
     const autoScrollOnSwitchToggle = document.getElementById('auto-scroll-on-switch-toggle');
     const newAutoScrollOnSwitch = autoScrollOnSwitchToggle ? autoScrollOnSwitchToggle.checked : true;
 
+    const updateCheckIntervalDropdown = document.getElementById('update-check-interval-dropdown');
+    const updateDownloadModeDropdown = document.getElementById('update-download-mode-dropdown');
+    const updateInstallModeDropdown = document.getElementById('update-install-mode-dropdown');
+
     const idleTimeoutDropdown = document.getElementById('idle-timeout-dropdown');
     const newIdleTimeout = idleTimeoutDropdown ? parseInt(idleTimeoutDropdown.dataset.value) : (settings.idleTimeout || 120);
     const telemetryEnabledToggle = document.getElementById('telemetry-enabled-toggle');
@@ -1411,7 +1480,10 @@ async function renderSettingsTab(initialTab = 'general') {
       tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
       idleTimeout: newIdleTimeout,
       telemetryEnabled: newTelemetryEnabled,
-      telemetryCategories: newTelemetryCategories
+      telemetryCategories: newTelemetryCategories,
+      updateCheckInterval: updateCheckIntervalDropdown?.dataset.value || '30min',
+      updateDownloadMode: updateDownloadModeDropdown?.dataset.value || 'auto',
+      updateInstallMode: updateInstallModeDropdown?.dataset.value || 'auto'
     };
 
     container.querySelectorAll('.dynamic-setting-toggle').forEach(toggle => {
