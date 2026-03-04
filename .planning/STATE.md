@@ -3,22 +3,22 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Consolidations
 status: active
-last_updated: "2026-03-01T08:14:00.000Z"
+last_updated: "2026-03-04T06:09:46.000Z"
 progress:
   total_phases: 10
   completed_phases: 0
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 31 (Tab-Splitview) — COMPLETE
-Plan: 31D of 31A-31D — 4 plans in 4 waves (all complete)
-Status: Phase 31 complete, all 4 plans executed
-Last activity: 2026-03-01 — 31D complete (pane layout persistence, v2 session format)
+Phase: 33 (Updater-Settings) — COMPLETE
+Plan: 33-01 of 33-01 — 1 plan (complete)
+Status: Phase 33 complete, updater settings with manual download flow
+Last activity: 2026-03-04 — 33-01 complete (updater settings UI + service wiring)
 
 ## Accumulated Context
 
@@ -42,3 +42,4 @@ Last activity: 2026-03-01 — 31D complete (pane layout persistence, v2 session 
 - Phase 31D complete: v2 session format with paneLayout, pane-aware restore loop, backward-compatible v1 migration
 - Phase 32 added: Close-Warnings (warn before closing if Claude is actively working, show project + tab name)
 - Phase 33 added: Updater-Settings (configurable check interval, download mode, install mode)
+- Phase 33 complete: 3 updater settings dropdowns, settings-driven UpdaterService, manual download banner flow
