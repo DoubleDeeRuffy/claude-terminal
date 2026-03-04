@@ -125,7 +125,7 @@ function getToolDisplayInfo(toolName, input) {
 // ── Create Chat View ──
 
 function createChatView(wrapperEl, project, options = {}) {
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null, builtinSystemPrompt = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -1535,8 +1535,21 @@ function createChatView(wrapperEl, project, options = {}) {
           effort: selectedEffort,
           enable1MContext: getSetting('enable1MContext') || false
         };
+        // Built-in prompt (global/project-type): appends to claude_code preset, keeps CLAUDE.md
+        if (builtinSystemPrompt) {
+          startOpts.systemPrompt = builtinSystemPrompt;
+        }
+        // User-defined system prompt: merged into append, skips project/local CLAUDE.md
         if (systemPrompt) {
-          startOpts.systemPrompt = systemPrompt;
+          const userText = typeof systemPrompt === 'string' ? systemPrompt : (systemPrompt.text || '');
+          if (startOpts.systemPrompt) {
+            startOpts.systemPrompt = {
+              ...startOpts.systemPrompt,
+              append: (startOpts.systemPrompt.append ? startOpts.systemPrompt.append + '\n\n' : '') + userText
+            };
+          } else {
+            startOpts.systemPrompt = systemPrompt;
+          }
           // Keep 'user' to load ~/.claude.json MCP config, but skip project/local CLAUDE.md
           startOpts.settingSources = ['user'];
         }
