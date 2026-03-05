@@ -33,6 +33,11 @@ const {
   getVisualProjectOrder,
   setSelectedProjectFilter,
   setOpenedProjectId,
+  generateTaskId,
+  getTasks,
+  addTask,
+  updateTask,
+  deleteTask,
 } = require('../../src/renderer/state/projects.state');
 
 // Helper to reset state before each test
@@ -637,5 +642,87 @@ describe('getVisualProjectOrder', () => {
     expect(order).toHaveLength(2); // p2 (inside f1) + p1
     expect(order[0].id).toBe('p2'); // folder children first
     expect(order[1].id).toBe('p1');
+  });
+});
+
+// ── Tasks ──
+
+describe('tasks', () => {
+  beforeEach(() => {
+    resetState({
+      projects: [{ id: 'p1', name: 'A', path: '/a', folderId: null }],
+    });
+  });
+
+  test('generateTaskId returns string starting with "task-"', () => {
+    expect(generateTaskId().startsWith('task-')).toBe(true);
+  });
+
+  test('generateTaskId generates unique IDs', () => {
+    const ids = new Set(Array.from({ length: 10 }, () => generateTaskId()));
+    expect(ids.size).toBe(10);
+  });
+
+  test('getTasks returns empty array by default', () => {
+    expect(getTasks('p1')).toEqual([]);
+  });
+
+  test('getTasks returns empty array for unknown project', () => {
+    expect(getTasks('nonexistent')).toEqual([]);
+  });
+
+  test('addTask creates task with correct defaults', () => {
+    const task = addTask('p1', { title: 'Fix bug' });
+    expect(task.id).toMatch(/^task-/);
+    expect(task.title).toBe('Fix bug');
+    expect(task.status).toBe('todo');
+    expect(task.sessionId).toBeNull();
+    expect(typeof task.createdAt).toBe('number');
+    expect(typeof task.updatedAt).toBe('number');
+    expect(task.createdAt).toBe(task.updatedAt);
+  });
+
+  test('addTask persists task to project state', () => {
+    addTask('p1', { title: 'Fix bug' });
+    expect(getTasks('p1')).toHaveLength(1);
+    expect(getTasks('p1')[0].title).toBe('Fix bug');
+  });
+
+  test('addTask does nothing for unknown project', () => {
+    const result = addTask('nonexistent', { title: 'Test' });
+    expect(result).toBeNull();
+  });
+
+  test('updateTask changes status and bumps updatedAt', () => {
+    const task = addTask('p1', { title: 'Test' });
+    jest.advanceTimersByTime(100);
+    updateTask('p1', task.id, { status: 'in_progress' });
+    const updated = getTasks('p1')[0];
+    expect(updated.status).toBe('in_progress');
+    expect(updated.updatedAt).toBeGreaterThan(updated.createdAt);
+  });
+
+  test('updateTask can set sessionId', () => {
+    const task = addTask('p1', { title: 'Test' });
+    updateTask('p1', task.id, { sessionId: 'abc-123' });
+    expect(getTasks('p1')[0].sessionId).toBe('abc-123');
+  });
+
+  test('updateTask does nothing for unknown taskId', () => {
+    addTask('p1', { title: 'Test' });
+    updateTask('p1', 'nonexistent', { status: 'done' });
+    expect(getTasks('p1')[0].status).toBe('todo');
+  });
+
+  test('deleteTask removes task', () => {
+    const task = addTask('p1', { title: 'Test' });
+    deleteTask('p1', task.id);
+    expect(getTasks('p1')).toHaveLength(0);
+  });
+
+  test('deleteTask does nothing for unknown taskId', () => {
+    addTask('p1', { title: 'Test' });
+    deleteTask('p1', 'nonexistent');
+    expect(getTasks('p1')).toHaveLength(1);
   });
 });
