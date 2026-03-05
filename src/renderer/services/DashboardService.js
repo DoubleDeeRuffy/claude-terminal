@@ -6,13 +6,17 @@
 // Use preload API instead of direct ipcRenderer
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
-const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive, getTasks, addTask, updateTask, deleteTask } = require('../state');
+const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive } = require('../state');
 const { showConfirm, createModal, showModal, closeModal } = require('../ui/components/Modal');
 const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
+const KanbanPanel = require('../ui/panels/KanbanPanel');
+
+// Per-project active view: 'overview' | 'kanban'
+const _dashViews = new Map();
 
 // ========== CACHE SYSTEM (LRU with size limit) ==========
 const MAX_CACHE_SIZE = 50; // Max cached projects
@@ -685,62 +689,16 @@ function buildChangedFilesHtml(files) {
 }
 
 /**
- * Build Tasks section HTML
- * @param {Object} project
+ * Build the view tabs HTML (Overview / Kanban switcher)
+ * @param {string} projectId
  * @returns {string}
  */
-function buildTasksHtml(project) {
-  const tasks = getTasks(project.id);
-
-  const taskItems = tasks.length > 0
-    ? tasks.map(task => {
-        const statusClass = task.status === 'done' ? 'done' : 'in-progress';
-        const sessionBadge = task.sessionId
-          ? `<span class="task-session-badge" data-task-session="${escapeHtml(task.sessionId)}" title="${t('tasks.openSession')}">${task.sessionId.slice(0, 8)}…</span>`
-          : '';
-
-        const completeBtn = task.status !== 'done'
-          ? `<button class="btn-task-action btn-task-complete" data-task-id="${escapeHtml(task.id)}" data-action="complete" title="${t('tasks.complete')}">✓</button>`
-          : '';
-
-        const linkBtn = task.status !== 'done' && !task.sessionId
-          ? `<button class="btn-task-action btn-task-link" data-task-id="${escapeHtml(task.id)}" data-action="link" title="${t('tasks.linkSession')}">🔗</button>`
-          : '';
-
-        const deleteBtn = `<button class="btn-task-action btn-task-delete" data-task-id="${escapeHtml(task.id)}" data-action="delete" title="${t('tasks.delete')}">✕</button>`;
-
-        return `
-          <div class="task-item ${statusClass}" data-task-id="${escapeHtml(task.id)}">
-            <span class="task-item-status"></span>
-            <span class="task-item-title">${escapeHtml(task.title)}</span>
-            ${sessionBadge}
-            <div class="task-item-actions">
-              ${completeBtn}${linkBtn}${deleteBtn}
-            </div>
-          </div>
-        `;
-      }).join('')
-    : `<div class="tasks-empty">${t('tasks.noTasks')}</div>`;
-
+function buildViewTabsHtml(projectId) {
+  const view = _dashViews.get(projectId) || 'overview';
   return `
-    <div class="dashboard-section">
-      <div class="tasks-header">
-        <h3>
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-          ${t('tasks.title')}
-        </h3>
-        <button class="btn-task-add" id="task-btn-add">
-          + ${t('tasks.add')}
-        </button>
-      </div>
-      <div id="task-add-form" class="task-add-form" style="display:none">
-        <input class="task-add-input" id="task-add-input" type="text" placeholder="${t('tasks.addPlaceholder')}" maxlength="120">
-        <button class="task-add-confirm" id="task-add-confirm">↵</button>
-        <button class="task-add-cancel" id="task-add-cancel">✕</button>
-      </div>
-      <div class="task-list" id="task-list">
-        ${taskItems}
-      </div>
+    <div class="dashboard-view-tabs">
+      <button class="dashboard-view-tab${view === 'overview' ? ' active' : ''}" data-view="overview">${t('kanban.overview')}</button>
+      <button class="dashboard-view-tab${view === 'kanban' ? ' active' : ''}" data-view="kanban">${t('kanban.tab')}</button>
     </div>
   `;
 }
@@ -1390,9 +1348,26 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     onGitPush,
     onMergeAbort,
     onCopyPath,
-    onTaskSessionOpen,
-    onTaskRender
   } = options;
+
+  const currentView = _dashViews.get(project.id) || 'overview';
+
+  if (currentView === 'kanban') {
+    container.innerHTML = buildViewTabsHtml(project.id);
+    const kanbanWrap = document.createElement('div');
+    kanbanWrap.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0';
+    container.appendChild(kanbanWrap);
+    KanbanPanel.render(kanbanWrap, project, {
+      onSessionOpen: options.onTaskSessionOpen,
+    });
+    container.querySelectorAll('.dashboard-view-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _dashViews.set(project.id, btn.dataset.view);
+        renderDashboardHtml(container, project, data, options, isRefreshing);
+      });
+    });
+    return;
+  }
 
   const { gitInfo, stats, workflowRuns, pullRequests, commitHistory30d } = data;
   const typeHandler = registry.get(project.type);
@@ -1403,6 +1378,7 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
 
   // Build HTML
   container.innerHTML = `
+    ${buildViewTabsHtml(project.id)}
     ${isRefreshing ? `<div class="dashboard-refresh-indicator"><span class="refresh-spinner"></span> ${t('dashboard.refreshing')}</div>` : ''}
     ${hasMergeConflict ? `
     <div class="dashboard-merge-alert">
@@ -1479,7 +1455,6 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
 
     <div class="dashboard-grid" data-animate="3">
       <div class="dashboard-col">
-        ${buildTasksHtml(project)}
         ${buildGitStatusHtml(gitInfo)}
         ${buildWorkflowRunsHtml(workflowRuns)}
         ${buildPullRequestsHtml(pullRequests)}
@@ -1563,10 +1538,13 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     if (onCopyPath) onCopyPath(project.path);
   });
 
-  // Attach task listeners after HTML is rendered
-  if (onTaskSessionOpen || onTaskRender) {
-    attachTaskListeners(container, project, onTaskSessionOpen, onTaskRender);
-  }
+  // View tab switcher
+  container.querySelectorAll('.dashboard-view-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _dashViews.set(project.id, btn.dataset.view);
+      renderDashboardHtml(container, project, data, options, isRefreshing);
+    });
+  });
 }
 
 /**
@@ -2089,197 +2067,6 @@ function renderOverview(container, projects, options = {}) {
   });
 }
 
-/**
- * Show a session picker modal and return the selected session ID.
- * @param {Array} sessions - Array of session objects with source info
- * @returns {Promise<string|null>} - Selected session ID or null
- */
-function showSessionPicker(sessions) {
-  return new Promise((resolve) => {
-    const formatDate = (iso) => {
-      const d = new Date(iso);
-      const now = new Date();
-      const diffMs = now - d;
-      const diffMin = Math.floor(diffMs / 60000);
-      if (diffMin < 1) return t('tasks.sessionJustNow');
-      if (diffMin < 60) return t('tasks.sessionMinutesAgo', { count: diffMin });
-      const diffH = Math.floor(diffMin / 60);
-      if (diffH < 24) return t('tasks.sessionHoursAgo', { count: diffH });
-      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    };
-
-    const listHtml = sessions.slice(0, 20).map(s => {
-      const label = s.summary || s.firstPrompt || s.sessionId.slice(0, 12) + '…';
-      const truncatedLabel = label.length > 80 ? label.slice(0, 77) + '…' : label;
-      return `
-        <div class="session-picker-item" data-session-id="${escapeHtml(s.sessionId)}">
-          <div class="session-picker-item-main">
-            <span class="session-picker-item-label">${escapeHtml(truncatedLabel)}</span>
-            <span class="session-picker-item-source">${escapeHtml(s.source)}${s.branch ? ' · ' + escapeHtml(s.branch) : ''}</span>
-          </div>
-          <div class="session-picker-item-meta">
-            <span class="session-picker-item-date">${formatDate(s.modified)}</span>
-            <span class="session-picker-item-id">${s.sessionId.slice(0, 8)}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    const modal = createModal({
-      id: 'session-picker-modal',
-      title: t('tasks.selectSession'),
-      content: `<div class="session-picker-list">${listHtml}</div>`,
-      buttons: [
-        {
-          label: t('common.cancel'),
-          action: 'cancel',
-          onClick: (m) => { closeModal(m); resolve(null); }
-        }
-      ],
-      size: 'medium',
-      onClose: () => resolve(null)
-    });
-
-    // Click handler on session items
-    modal.querySelector('.session-picker-list')?.addEventListener('click', (e) => {
-      const item = e.target.closest('[data-session-id]');
-      if (!item) return;
-      const sessionId = item.dataset.sessionId;
-      closeModal(modal);
-      resolve(sessionId);
-    });
-
-    showModal(modal);
-  });
-}
-
-/**
- * Attach event listeners to the task section in the dashboard container.
- * @param {HTMLElement} container
- * @param {Object} project
- * @param {Function} onSessionOpen - Called with (project, sessionId) when clicking a session badge
- * @param {Function} onRender
- */
-function attachTaskListeners(container, project, onSessionOpen, onRender) {
-  // Show add form
-  container.querySelector('#task-btn-add')?.addEventListener('click', () => {
-    const form = container.querySelector('#task-add-form');
-    const input = container.querySelector('#task-add-input');
-    if (form) { form.style.display = 'flex'; input?.focus(); }
-  });
-
-  // Confirm add
-  const confirmAdd = () => {
-    const input = container.querySelector('#task-add-input');
-    const title = input?.value?.trim();
-    if (!title) return;
-    addTask(project.id, { title });
-    if (onRender) onRender();
-  };
-
-  container.querySelector('#task-add-confirm')?.addEventListener('click', confirmAdd);
-
-  container.querySelector('#task-add-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') confirmAdd();
-    if (e.key === 'Escape') {
-      const form = container.querySelector('#task-add-form');
-      const input = container.querySelector('#task-add-input');
-      if (form) form.style.display = 'none';
-      if (input) input.value = '';
-    }
-  });
-
-  // Cancel add
-  container.querySelector('#task-add-cancel')?.addEventListener('click', () => {
-    const form = container.querySelector('#task-add-form');
-    const input = container.querySelector('#task-add-input');
-    if (form) form.style.display = 'none';
-    if (input) input.value = '';
-  });
-
-  // Task action buttons via event delegation on #task-list
-  container.querySelector('#task-list')?.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) {
-      // Click on session badge → open or resume session
-      const badge = e.target.closest('[data-task-session]');
-      if (badge) {
-        const sessionId = badge.dataset.taskSession;
-        if (onSessionOpen) onSessionOpen(project, sessionId);
-      }
-      return;
-    }
-
-    const taskId = btn.dataset.taskId;
-    const action = btn.dataset.action;
-
-    if (action === 'complete') {
-      updateTask(project.id, taskId, { status: 'done' });
-      if (onRender) onRender();
-    }
-
-    if (action === 'link') {
-      try {
-        // Gather sessions from main project + worktrees
-        const allSessions = [];
-        const mainSessions = await api.claude.sessions(project.path);
-        if (mainSessions) {
-          for (const s of mainSessions) allSessions.push({ ...s, source: path.basename(project.path) });
-        }
-
-        // Try to get worktree sessions
-        try {
-          const worktrees = await api.git.worktreeList({ projectPath: project.path });
-          if (worktrees && worktrees.length > 0) {
-            const wtPromises = worktrees
-              .filter(wt => !wt.bare && wt.path !== project.path)
-              .map(async (wt) => {
-                try {
-                  const wtSessions = await api.claude.sessions(wt.path);
-                  if (wtSessions) {
-                    for (const s of wtSessions) allSessions.push({ ...s, source: path.basename(wt.path), branch: wt.branch });
-                  }
-                } catch { /* worktree may not have sessions */ }
-              });
-            await Promise.all(wtPromises);
-          }
-        } catch { /* no worktree support or error, ignore */ }
-
-        // Sort all sessions by date
-        allSessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-
-        if (allSessions.length === 0) {
-          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.noActiveSession') } }));
-          return;
-        }
-
-        // Show session picker modal
-        const selectedId = await showSessionPicker(allSessions);
-        if (selectedId) {
-          updateTask(project.id, taskId, { sessionId: selectedId });
-          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.sessionLinked', { sessionId: selectedId.slice(0, 8) + '…' }) } }));
-          if (onRender) onRender();
-        }
-      } catch (err) {
-        console.error('[tasks] Failed to link session:', err);
-      }
-    }
-
-    if (action === 'delete') {
-      const task = getTasks(project.id).find(t => t.id === taskId);
-      const confirmed = await showConfirm({
-        title: t('tasks.deleteConfirmTitle'),
-        message: t('tasks.deleteConfirmMessage', { title: task?.title || '' }),
-        confirmLabel: t('tasks.delete'),
-        danger: true
-      });
-      if (!confirmed) return;
-      deleteTask(project.id, taskId);
-      if (onRender) onRender();
-    }
-  });
-}
-
 module.exports = {
   getGitInfo,
   getGitInfoFull,
@@ -2302,5 +2089,4 @@ module.exports = {
   clearAllCache,
   loadAllDiskCaches,
   preloadAllProjects,
-  attachTaskListeners
 };
