@@ -93,6 +93,94 @@ function unescapeHtml(html) {
   return html.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 }
 
+// ── Context Suggestions ──
+
+function createContextSuggestions(project, inputEl, getDefaultPlaceholder) {
+  const CACHE_TTL = 30_000;
+  const ROTATION_INTERVAL = 4_000;
+
+  let suggestions = [];
+  let currentIndex = 0;
+  let rotationTimer = null;
+  let cache = null; // { suggestions: string[], timestamp: number }
+
+  function buildSuggestions(todos, gitStatus) {
+    const result = [];
+    const todoCount = Array.isArray(todos) ? todos.length : 0;
+    const gitCount = gitStatus
+      ? (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0)
+      : 0;
+    if (todoCount > 0) result.push(t('chat.suggestTodos', { count: todoCount }));
+    if (gitCount > 0) result.push(t('chat.suggestGit', { count: gitCount }));
+    return result;
+  }
+
+  async function refresh() {
+    if (!project?.path) return;
+    const now = Date.now();
+    if (cache && now - cache.timestamp < CACHE_TTL) {
+      suggestions = cache.suggestions;
+      _start();
+      return;
+    }
+    try {
+      const [todos, gitStatus] = await Promise.all([
+        api.project.scanTodos(project.path).catch(() => []),
+        api.git.statusDetailed({ projectPath: project.path }).catch(() => null),
+      ]);
+      suggestions = buildSuggestions(todos, gitStatus);
+      cache = { suggestions, timestamp: Date.now() };
+    } catch {
+      suggestions = [];
+    }
+    _start();
+  }
+
+  function _start() {
+    stop();
+    if (!suggestions.length) return;
+    currentIndex = 0;
+    _apply();
+    if (suggestions.length > 1) {
+      rotationTimer = setInterval(() => {
+        if (inputEl.value !== '') { stop(); return; }
+        currentIndex = (currentIndex + 1) % suggestions.length;
+        _apply();
+      }, ROTATION_INTERVAL);
+    }
+  }
+
+  function _apply() {
+    // Don't overwrite if user has typed something
+    if (inputEl.value !== '') return;
+    inputEl.placeholder = suggestions[currentIndex] || getDefaultPlaceholder();
+  }
+
+  function stop() {
+    if (rotationTimer) { clearInterval(rotationTimer); rotationTimer = null; }
+  }
+
+  function reset() {
+    stop();
+    suggestions = [];
+    inputEl.placeholder = getDefaultPlaceholder();
+  }
+
+  function handleTab(event) {
+    if (inputEl.value !== '' || !suggestions.length) return false;
+    event.preventDefault();
+    // Strip the " [Tab]" hint from the raw i18n string and insert clean text
+    const raw = suggestions[currentIndex] || '';
+    const clean = raw.replace(/\s*\[Tab\]\s*$/, '');
+    inputEl.value = clean;
+    inputEl.selectionStart = inputEl.selectionEnd = clean.length;
+    reset();
+    return true;
+  }
+
+  return { refresh, stop, reset, handleTab };
+}
+
 // ── Tool Icons ──
 
 function getToolIcon(toolName) {
@@ -377,6 +465,11 @@ function createChatView(wrapperEl, project, options = {}) {
   initModelSelector();
   initEffortSelector();
 
+  // ── Context suggestions ──
+  const contextSuggestions = createContextSuggestions(project, inputEl, () => t('chat.placeholder'));
+  // Defer initial scan to let the component finish mounting
+  setTimeout(() => { if (project?.path) contextSuggestions.refresh(); }, 500);
+
   attachBtn.addEventListener('click', () => fileInput.click());
 
   fileInput.addEventListener('change', () => {
@@ -460,6 +553,7 @@ function createChatView(wrapperEl, project, options = {}) {
   inputEl.addEventListener('input', () => {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+    if (inputEl.value !== '') contextSuggestions.stop();
     // Slash commands take precedence (/ at start of line)
     if (inputEl.value.startsWith('/')) {
       hideMentionDropdown();
@@ -551,6 +645,11 @@ function createChatView(wrapperEl, project, options = {}) {
         hideSlashDropdown();
         return;
       }
+    }
+
+    // Context suggestion — Tab to accept
+    if (e.key === 'Tab' && mentionDropdown.style.display === 'none' && slashDropdown.style.display === 'none') {
+      if (contextSuggestions.handleTab(e)) return;
     }
 
     if (e.key === 'Enter' && !shiftHeld && !e.shiftKey && !e.getModifierState('Shift')) {
@@ -2872,7 +2971,8 @@ function createChatView(wrapperEl, project, options = {}) {
       inputEl.placeholder = t('chat.queuePlaceholder') || 'Queue a follow-up message...';
       setStatus('thinking', t('chat.thinking'));
     } else {
-      inputEl.placeholder = t('chat.placeholder');
+      // Refresh contextual suggestions after streaming ends
+      setTimeout(() => contextSuggestions.refresh(), 300);
       setStatus('idle', t('chat.ready') || 'Ready');
       inputEl.focus();
     }
@@ -3658,6 +3758,7 @@ function createChatView(wrapperEl, project, options = {}) {
   return {
     destroy() {
       if (sessionId) api.chat.close({ sessionId });
+      contextSuggestions.reset();
       for (const unsub of unsubscribers) {
         if (typeof unsub === 'function') unsub();
       }
