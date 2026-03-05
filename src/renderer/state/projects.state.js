@@ -939,7 +939,8 @@ function addTask(projectId, taskData) {
     description: taskData.description || '',
     labels: taskData.labels || [],
     columnId: colId,
-    sessionId: taskData.sessionId || null,
+    worktreePath: taskData.worktreePath || null,
+    sessionIds: taskData.sessionIds || [],
     order: taskData.order ?? getTasks(projectId).filter(t => t.columnId === colId).length,
     createdAt: now,
     updatedAt: now,
@@ -1131,9 +1132,31 @@ function migrateTasksToKanban(projectId) {
     const colId = statusToColumnId[t.status] || 'col-todo';
     if (colCounters[colId] === undefined) colCounters[colId] = 0;
     const order = colCounters[colId]++;
-    return { ...t, columnId: colId, description: t.description || '', labels: t.labels || [], order };
+    // Migrate sessionId (singular) → sessionIds (plural)
+    const sessionIds = t.sessionIds ?? (t.sessionId ? [t.sessionId] : []);
+    const { sessionId: _removed, ...rest } = t;
+    return { ...rest, columnId: colId, description: t.description || '', labels: t.labels || [], worktreePath: t.worktreePath || null, sessionIds, order };
   });
   updateProject(projectId, { kanbanColumns: [...DEFAULT_COLUMNS], kanbanLabels: [], tasks });
+}
+
+/**
+ * Normalize kanban task fields for any project (runs even if migration already done).
+ * Migrates sessionId → sessionIds and ensures worktreePath exists.
+ * @param {string} projectId
+ */
+function normalizeKanbanTaskFields(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+  const tasks = project.tasks || [];
+  const needsNorm = tasks.some(t => t.sessionId !== undefined || t.sessionIds === undefined || t.worktreePath === undefined);
+  if (!needsNorm) return;
+  const normalized = tasks.map(t => {
+    const sessionIds = t.sessionIds ?? (t.sessionId ? [t.sessionId] : []);
+    const { sessionId: _removed, ...rest } = t;
+    return { ...rest, sessionIds, worktreePath: rest.worktreePath ?? null };
+  });
+  updateProject(projectId, { tasks: normalized });
 }
 
 /**
@@ -1249,6 +1272,7 @@ module.exports = {
   deleteKanbanLabel,
   moveTask,
   migrateTasksToKanban,
+  normalizeKanbanTaskFields,
   // Visual order
   getVisualProjectOrder
 };
