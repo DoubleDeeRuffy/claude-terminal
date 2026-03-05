@@ -75,6 +75,8 @@
     "notifPlan": "Claude is proposing a plan",
     "notifPermission": "Claude needs your permission",
     "notifBtnShow": "Show",
+    "notifBtnAllow": "Allow",
+    "notifBtnDeny": "Deny",
     "resumeConversation": "Resume a conversation",
     "resuming": "Resuming...",
     "newConversation": "New conversation",

@@ -116,12 +116,25 @@ function wireNotificationConsumer() {
 
 /**
  * Build a rich notification body from session context.
+ * Shows tool count, unique tool names, and session duration.
  */
 function buildNotificationBody(ctx, t) {
   if (ctx.toolCount > 0) {
-    const uniqueTools = [...ctx.toolNames].slice(0, 3).join(', ');
-    const extra = ctx.toolNames.size > 3 ? ` +${ctx.toolNames.size - 3}` : '';
-    return t('terminals.notifToolsDone', { count: ctx.toolCount }) + ` (${uniqueTools}${extra})`;
+    const uniqueNames = [...ctx.toolNames];
+    const displayed = uniqueNames.slice(0, 3).join(', ');
+    const extra = uniqueNames.length > 3 ? ` +${uniqueNames.length - 3}` : '';
+    let body = t('terminals.notifToolsDone', { count: ctx.toolCount });
+    body += ` (${displayed}${extra})`;
+    // Append duration if session lasted more than a few seconds
+    if (ctx.startTime) {
+      const secs = Math.round((Date.now() - ctx.startTime) / 1000);
+      if (secs >= 5) {
+        const mins = Math.floor(secs / 60);
+        const s = secs % 60;
+        body += mins > 0 ? ` • ${mins}m${s > 0 ? s + 's' : ''}` : ` • ${s}s`;
+      }
+    }
+    return body;
   }
   return t('terminals.notifDone');
 }
@@ -233,21 +246,59 @@ function wireAttentionConsumer() {
       const projectName = resolveProjectName(e.projectId);
       const terminalId = resolveTerminalId(e.projectId);
 
+      // AskUserQuestion: build interactive answer buttons from Claude's options
+      if (toolName.toLowerCase() === 'askuserquestion' && e.data?.toolInput) {
+        const { question, options } = e.data.toolInput;
+        const body = question || t(`terminals.${match.key}`);
+        const opts = Array.isArray(options) ? options.slice(0, 4) : [];
+        const buttons = opts.length > 0
+          ? opts.map((opt, i) => ({
+              label: String(opt).slice(0, 32),
+              action: 'answer',
+              value: String(opt),
+              style: i === 0 ? 'primary' : 'secondary'
+            }))
+          : [{ label: t('terminals.notifBtnShow'), action: 'show', style: 'primary' }];
+
+        if (notificationFn) {
+          notificationFn(match.type, projectName || 'Claude Terminal', body, terminalId, {
+            buttons,
+            autoDismiss: 0 // don't auto-dismiss while waiting for an answer
+          });
+        }
+        return;
+      }
+
       if (notificationFn) {
         notificationFn(match.type, projectName || 'Claude Terminal', t(`terminals.${match.key}`), terminalId);
       }
     }),
 
-    // PermissionRequest → Claude needs permission (skipped if question already notified)
+    // PermissionRequest → Claude needs permission (Allow / Deny buttons)
     eventBus.on(EVENT_TYPES.CLAUDE_PERMISSION, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
       if (!shouldNotify(e.projectId)) return;
 
       const projectName = resolveProjectName(e.projectId);
       const terminalId = resolveTerminalId(e.projectId);
+      const requestId = e.data?.requestId || null;
+      const tool = e.data?.tool || null;
+
+      const body = tool
+        ? `${t('terminals.notifPermission')} — ${tool}`
+        : t('terminals.notifPermission');
+
+      const buttons = [
+        { label: t('terminals.notifBtnAllow'), action: 'allow', style: 'primary' },
+        { label: t('terminals.notifBtnDeny'),  action: 'deny',  style: 'danger'  }
+      ];
 
       if (notificationFn) {
-        notificationFn('permission', projectName || 'Claude Terminal', t('terminals.notifPermission'), terminalId);
+        notificationFn('permission', projectName || 'Claude Terminal', body, terminalId, {
+          buttons,
+          autoDismiss: requestId ? 0 : 15000, // no auto-dismiss when we can block Claude
+          meta: { requestId }
+        });
       }
     })
   );
