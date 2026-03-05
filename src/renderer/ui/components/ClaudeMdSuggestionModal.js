@@ -83,7 +83,10 @@ function showClaudeMdSuggestionModal(suggestions, claudeMdExists, projectPath) {
   });
 
   // Apply
-  document.getElementById('claude-md-modal-apply').addEventListener('click', async () => {
+  document.getElementById('claude-md-modal-apply').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
     const selected = [];
     overlay.querySelectorAll('.claude-md-suggestion-check').forEach(cb => {
       if (cb.checked) {

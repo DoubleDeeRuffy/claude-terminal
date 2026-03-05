@@ -3663,7 +3663,6 @@ function createChatView(wrapperEl, project, options = {}) {
     destroy() {
       if (sessionId) api.chat.close({ sessionId });
       // Trigger CLAUDE.md analysis if enabled and session had exchanges
-      const { getSetting } = require('../../state/settings.state');
       if (getSetting('autoClaudeMdUpdate') !== false && conversationHistory.length >= 2 && project?.path) {
         const { showClaudeMdSuggestionModal } = require('./ClaudeMdSuggestionModal');
         api.chat.analyzeSession({ messages: conversationHistory, projectPath: project.path })

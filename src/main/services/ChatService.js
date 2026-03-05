@@ -1058,7 +1058,7 @@ class ChatService {
       existingContent = require('fs').readFileSync(claudeMdPath, 'utf8');
     } catch { /* file doesn't exist */ }
 
-    const claudeMdExists = existingContent.length > 0;
+    const claudeMdExists = existingContent.trim().length > 0;
 
     // Truncate to last 50 messages to stay within token limits
     const truncated = messages.slice(-50);
@@ -1104,11 +1104,20 @@ If there are no new useful discoveries, return exactly: []`;
 
     try {
       // Use the Anthropic API key from Claude CLI credentials
-      const credPath = require('path').join(require('os').homedir(), '.claude', '.credentials.json');
+      const claudeDir = process.env.CLAUDE_CONFIG_DIR || require('path').join(require('os').homedir(), '.claude');
+      const credPath = require('path').join(claudeDir, '.credentials.json');
       let apiKey = null;
       try {
         const creds = JSON.parse(require('fs').readFileSync(credPath, 'utf8'));
-        apiKey = creds.claudeAiOauth?.accessToken || creds.accessToken || null;
+        const oauthCreds = creds.claudeAiOauth;
+        if (oauthCreds?.accessToken) {
+          // Check token expiry (with 60s buffer)
+          if (!oauthCreds.expiresAt || oauthCreds.expiresAt > Date.now() + 60000) {
+            apiKey = oauthCreds.accessToken;
+          }
+        } else {
+          apiKey = creds.accessToken || null;
+        }
       } catch { /* no credentials */ }
 
       if (!apiKey) {
@@ -1116,12 +1125,16 @@ If there are no new useful discoveries, return exactly: []`;
         return { suggestions: [], claudeMdExists };
       }
 
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 15000);
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: abortController.signal,
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKey,
+          'Authorization': `Bearer ${apiKey}`,
           'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'oauth-2025-04-20',
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
@@ -1129,6 +1142,7 @@ If there are no new useful discoveries, return exactly: []`;
           messages: [{ role: 'user', content: prompt }],
         }),
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         console.warn(`[ChatService] CLAUDE.md analysis API error: ${response.status}`);
@@ -1179,7 +1193,9 @@ If there are no new useful discoveries, return exactly: []`;
         ? existing.trimEnd() + '\n' + toAppend + '\n'
         : toAppend.trimStart() + '\n';
 
-      fs.writeFileSync(claudeMdPath, newContent, 'utf8');
+      const tempPath = claudeMdPath + '.tmp';
+      fs.writeFileSync(tempPath, newContent, 'utf8');
+      fs.renameSync(tempPath, claudeMdPath);
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
