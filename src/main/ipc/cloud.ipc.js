@@ -180,6 +180,8 @@ function registerCloudHandlers() {
     _uploadLocks.add(projectName);
 
     const { url, key } = _getCloudConfig();
+    const cloudKey = _getCloudProjectKey(projectName);
+    await _migrateProjectIfNeeded(url, key, cloudKey, projectName);
     const zipPath = path.join(os.tmpdir(), `ct-upload-${Date.now()}.zip`);
 
     try {
@@ -194,8 +196,8 @@ function registerCloudHandlers() {
       const FormData = require('form-data');
       const { PassThrough } = require('stream');
       const formData = new FormData();
-      formData.append('name', projectName);
-      formData.append('zip', fs.createReadStream(zipPath), { filename: `${projectName}.zip`, contentType: 'application/zip' });
+      formData.append('name', cloudKey);
+      formData.append('zip', fs.createReadStream(zipPath), { filename: `${cloudKey}.zip`, contentType: 'application/zip' });
 
       const zipSize = fs.statSync(zipPath).size;
       const totalMB = Math.round(zipSize / 1024 / 1024);
@@ -305,6 +307,8 @@ function registerCloudHandlers() {
 
     try {
       const { url, key } = _getCloudConfig();
+      const cloudKey = _getCloudProjectKey(projectName);
+      await _migrateProjectIfNeeded(url, key, cloudKey, projectName);
 
       // Get GitHub token
       const token = await getTokenForGit();
@@ -332,7 +336,7 @@ function registerCloudHandlers() {
       const cloneResp = await _fetchCloud(`${url}/api/projects/clone`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({ name: projectName, cloneUrl }),
+        body: JSON.stringify({ name: cloudKey, cloneUrl }),
       }, 5 * 60 * 1000);
 
       if (!cloneResp.ok) {
@@ -378,7 +382,7 @@ function registerCloudHandlers() {
         }
 
         const http = url.startsWith('https') ? require('https') : require('http');
-        const urlObj = new URL(`${url}/api/projects/${encodeURIComponent(projectName)}/patch`);
+        const urlObj = new URL(`${url}/api/projects/${encodeURIComponent(cloudKey)}/patch`);
         const formLength = await new Promise((res, rej) => formData.getLength((err, len) => err ? rej(err) : res(len)));
 
         await new Promise((resolve, reject) => {
