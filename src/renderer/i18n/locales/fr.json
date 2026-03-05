@@ -1829,5 +1829,20 @@
     "trigger": {
       "label": "Déclencheur"
     }
+  },
+  "tasks": {
+    "title": "Tâches",
+    "add": "Ajouter",
+    "addPlaceholder": "Titre de la tâche...",
+    "noTasks": "Aucune tâche",
+    "statusTodo": "À faire",
+    "statusInProgress": "En cours",
+    "statusDone": "Terminé",
+    "start": "Démarrer",
+    "complete": "Terminer",
+    "delete": "Supprimer",
+    "linkSession": "Lier session",
+    "sessionLinked": "Session liée",
+    "noActiveSession": "Aucune session trouvée pour ce projet"
   }
 }

@@ -1829,5 +1829,20 @@
     "trigger": {
       "label": "Trigger"
     }
+  },
+  "tasks": {
+    "title": "Tasks",
+    "add": "Add",
+    "addPlaceholder": "Task title...",
+    "noTasks": "No tasks",
+    "statusTodo": "To do",
+    "statusInProgress": "In progress",
+    "statusDone": "Done",
+    "start": "Start",
+    "complete": "Complete",
+    "delete": "Delete",
+    "linkSession": "Link session",
+    "sessionLinked": "Session linked",
+    "noActiveSession": "No session found for this project"
   }
 }
