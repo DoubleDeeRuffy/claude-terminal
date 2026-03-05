@@ -735,6 +735,7 @@
     "tabSkills": "Skills",
     "tabAgents": "Agents",
     "tabWorkflows": "Workflows",
+    "tabControlTower": "Control Tower",
     "tabMcp": "MCP",
     "tabDatabase": "Database",
     "tabGit": "Git",
@@ -1221,6 +1222,24 @@
     "backupFailed": "Could not create backup. Your projects have been reset.",
     "saveError": "Save error",
     "saveErrorDetail": "Could not save projects: {message}"
+  },
+  "controlTower": {
+    "activeAgents": "Active agents",
+    "costToday": "Cost (session)",
+    "spawnAgent": "Spawn agent",
+    "spawnTitle": "Select a project",
+    "noProjectsToSpawn": "No projects available.",
+    "statusThinking": "THINKING",
+    "statusRunningTool": "RUNNING TOOL",
+    "statusIdle": "IDLE",
+    "statusDone": "DONE",
+    "statusError": "ERROR",
+    "activityWaiting": "Waiting…",
+    "tokens": "tokens",
+    "focus": "Focus",
+    "interrupt": "Interrupt",
+    "emptyTitle": "No active Claude sessions",
+    "emptyDesc": "Open a terminal or start a chat to begin."
   },
   "remote": {
     "tabTitle": "Remote",

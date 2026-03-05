@@ -805,6 +805,7 @@
     "tabSkills": "Skills",
     "tabAgents": "Agents",
     "tabWorkflows": "Workflows",
+    "tabControlTower": "Tour de contrôle",
     "tabMcp": "MCP",
     "tabDatabase": "Base de données",
     "tabGit": "Git",
@@ -1221,6 +1222,24 @@
     "backupFailed": "Impossible de créer un backup. Vos projets ont été réinitialisés.",
     "saveError": "Erreur de sauvegarde",
     "saveErrorDetail": "Impossible de sauvegarder les projets : {message}"
+  },
+  "controlTower": {
+    "activeAgents": "Agents actifs",
+    "costToday": "Coût (session)",
+    "spawnAgent": "Lancer un agent",
+    "spawnTitle": "Sélectionner un projet",
+    "noProjectsToSpawn": "Aucun projet disponible.",
+    "statusThinking": "RÉFLEXION",
+    "statusRunningTool": "OUTIL EN COURS",
+    "statusIdle": "INACTIF",
+    "statusDone": "TERMINÉ",
+    "statusError": "ERREUR",
+    "activityWaiting": "En attente…",
+    "tokens": "tokens",
+    "focus": "Focaliser",
+    "interrupt": "Interrompre",
+    "emptyTitle": "Aucune session Claude active",
+    "emptyDesc": "Ouvrez un terminal ou démarrez un chat pour commencer."
   },
   "remote": {
     "tabTitle": "Télécommande",
