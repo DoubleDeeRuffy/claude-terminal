@@ -1844,7 +1844,12 @@
     "deleteConfirmTitle": "Supprimer la tâche",
     "deleteConfirmMessage": "Supprimer \"{title}\" ?",
     "linkSession": "Lier session",
+    "openSession": "Ouvrir la session",
+    "selectSession": "Sélectionner une session",
     "sessionLinked": "Session liée : {sessionId}",
-    "noActiveSession": "Aucune session active à lier"
+    "noActiveSession": "Aucune session active à lier",
+    "sessionJustNow": "À l'instant",
+    "sessionMinutesAgo": "Il y a {count} min",
+    "sessionHoursAgo": "Il y a {count}h"
   }
 }

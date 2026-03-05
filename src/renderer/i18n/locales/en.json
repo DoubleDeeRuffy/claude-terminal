@@ -1844,7 +1844,12 @@
     "deleteConfirmTitle": "Delete task",
     "deleteConfirmMessage": "Delete \"{title}\"?",
     "linkSession": "Link session",
+    "openSession": "Open session",
+    "selectSession": "Select a session",
     "sessionLinked": "Session linked: {sessionId}",
-    "noActiveSession": "No active session to link"
+    "noActiveSession": "No active session to link",
+    "sessionJustNow": "Just now",
+    "sessionMinutesAgo": "{count} min ago",
+    "sessionHoursAgo": "{count}h ago"
   }
 }

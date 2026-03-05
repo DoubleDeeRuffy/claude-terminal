@@ -2445,11 +2445,6 @@
   flex-shrink: 0;
 }
 
-.task-item.todo .task-item-status {
-  border: 2px solid var(--text-muted);
-  background: transparent;
-}
-
 .task-item.in-progress .task-item-status {
   background: var(--accent);
 }
@@ -2501,10 +2496,6 @@
   color: var(--text-primary);
 }
 
-.btn-task-action.btn-task-start:hover {
-  color: var(--accent);
-}
-
 .btn-task-action.btn-task-complete:hover {
   color: var(--success);
 }
@@ -2537,4 +2528,70 @@
   color: var(--text-muted);
   text-align: center;
   padding: 10px 0;
+}
+
+/* ========== SESSION PICKER ========== */
+
+.session-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.session-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.session-picker-item:hover {
+  background: var(--bg-hover);
+}
+
+.session-picker-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-picker-item-label {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-picker-item-source {
+  font-size: var(--font-2xs);
+  color: var(--accent);
+}
+
+.session-picker-item-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.session-picker-item-date {
+  font-size: var(--font-2xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.session-picker-item-id {
+  font-size: var(--font-2xs);
+  color: var(--text-muted);
+  font-family: monospace;
 }

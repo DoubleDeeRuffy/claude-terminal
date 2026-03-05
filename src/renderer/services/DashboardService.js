@@ -7,7 +7,7 @@
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive, getTasks, addTask, updateTask, deleteTask } = require('../state');
-const { showConfirm } = require('../ui/components/Modal');
+const { showConfirm, createModal, showModal, closeModal } = require('../ui/components/Modal');
 const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
@@ -694,20 +694,16 @@ function buildTasksHtml(project) {
 
   const taskItems = tasks.length > 0
     ? tasks.map(task => {
-        const statusClass = task.status === 'in_progress' ? 'in-progress' : task.status;
+        const statusClass = task.status === 'done' ? 'done' : 'in-progress';
         const sessionBadge = task.sessionId
-          ? `<span class="task-session-badge" data-task-session="${escapeHtml(task.sessionId)}" title="${escapeHtml(task.sessionId)}">${task.sessionId.slice(0, 8)}…</span>`
+          ? `<span class="task-session-badge" data-task-session="${escapeHtml(task.sessionId)}" title="${t('tasks.openSession')}">${task.sessionId.slice(0, 8)}…</span>`
           : '';
 
-        const startBtn = task.status === 'todo'
-          ? `<button class="btn-task-action btn-task-start" data-task-id="${escapeHtml(task.id)}" data-action="start" title="${t('tasks.start')}">▶</button>`
-          : '';
-
-        const completeBtn = task.status === 'in_progress'
+        const completeBtn = task.status !== 'done'
           ? `<button class="btn-task-action btn-task-complete" data-task-id="${escapeHtml(task.id)}" data-action="complete" title="${t('tasks.complete')}">✓</button>`
           : '';
 
-        const linkBtn = task.status === 'in_progress' && !task.sessionId
+        const linkBtn = task.status !== 'done' && !task.sessionId
           ? `<button class="btn-task-action btn-task-link" data-task-id="${escapeHtml(task.id)}" data-action="link" title="${t('tasks.linkSession')}">🔗</button>`
           : '';
 
@@ -719,7 +715,7 @@ function buildTasksHtml(project) {
             <span class="task-item-title">${escapeHtml(task.title)}</span>
             ${sessionBadge}
             <div class="task-item-actions">
-              ${startBtn}${completeBtn}${linkBtn}${deleteBtn}
+              ${completeBtn}${linkBtn}${deleteBtn}
             </div>
           </div>
         `;
@@ -1393,7 +1389,9 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     onGitPull,
     onGitPush,
     onMergeAbort,
-    onCopyPath
+    onCopyPath,
+    onTaskSessionOpen,
+    onTaskRender
   } = options;
 
   const { gitInfo, stats, workflowRuns, pullRequests, commitHistory30d } = data;
@@ -1564,6 +1562,11 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     navigator.clipboard.writeText(project.path);
     if (onCopyPath) onCopyPath(project.path);
   });
+
+  // Attach task listeners after HTML is rendered
+  if (onTaskSessionOpen || onTaskRender) {
+    attachTaskListeners(container, project, onTaskSessionOpen, onTaskRender);
+  }
 }
 
 /**
@@ -2087,13 +2090,77 @@ function renderOverview(container, projects, options = {}) {
 }
 
 /**
+ * Show a session picker modal and return the selected session ID.
+ * @param {Array} sessions - Array of session objects with source info
+ * @returns {Promise<string|null>} - Selected session ID or null
+ */
+function showSessionPicker(sessions) {
+  return new Promise((resolve) => {
+    const formatDate = (iso) => {
+      const d = new Date(iso);
+      const now = new Date();
+      const diffMs = now - d;
+      const diffMin = Math.floor(diffMs / 60000);
+      if (diffMin < 1) return t('tasks.sessionJustNow');
+      if (diffMin < 60) return t('tasks.sessionMinutesAgo', { count: diffMin });
+      const diffH = Math.floor(diffMin / 60);
+      if (diffH < 24) return t('tasks.sessionHoursAgo', { count: diffH });
+      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    };
+
+    const listHtml = sessions.slice(0, 20).map(s => {
+      const label = s.summary || s.firstPrompt || s.sessionId.slice(0, 12) + '…';
+      const truncatedLabel = label.length > 80 ? label.slice(0, 77) + '…' : label;
+      return `
+        <div class="session-picker-item" data-session-id="${escapeHtml(s.sessionId)}">
+          <div class="session-picker-item-main">
+            <span class="session-picker-item-label">${escapeHtml(truncatedLabel)}</span>
+            <span class="session-picker-item-source">${escapeHtml(s.source)}${s.branch ? ' · ' + escapeHtml(s.branch) : ''}</span>
+          </div>
+          <div class="session-picker-item-meta">
+            <span class="session-picker-item-date">${formatDate(s.modified)}</span>
+            <span class="session-picker-item-id">${s.sessionId.slice(0, 8)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const modal = createModal({
+      id: 'session-picker-modal',
+      title: t('tasks.selectSession'),
+      content: `<div class="session-picker-list">${listHtml}</div>`,
+      buttons: [
+        {
+          label: t('common.cancel'),
+          action: 'cancel',
+          onClick: (m) => { closeModal(m); resolve(null); }
+        }
+      ],
+      size: 'medium',
+      onClose: () => resolve(null)
+    });
+
+    // Click handler on session items
+    modal.querySelector('.session-picker-list')?.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-session-id]');
+      if (!item) return;
+      const sessionId = item.dataset.sessionId;
+      closeModal(modal);
+      resolve(sessionId);
+    });
+
+    showModal(modal);
+  });
+}
+
+/**
  * Attach event listeners to the task section in the dashboard container.
  * @param {HTMLElement} container
  * @param {Object} project
- * @param {Function} onOpenClaude
+ * @param {Function} onSessionOpen - Called with (project, sessionId) when clicking a session badge
  * @param {Function} onRender
  */
-function attachTaskListeners(container, project, onOpenClaude, onRender) {
+function attachTaskListeners(container, project, onSessionOpen, onRender) {
   // Show add form
   container.querySelector('#task-btn-add')?.addEventListener('click', () => {
     const form = container.querySelector('#task-add-form');
@@ -2134,24 +2201,17 @@ function attachTaskListeners(container, project, onOpenClaude, onRender) {
   container.querySelector('#task-list')?.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) {
-      // Click on session badge → copy + toast
+      // Click on session badge → open or resume session
       const badge = e.target.closest('[data-task-session]');
       if (badge) {
         const sessionId = badge.dataset.taskSession;
-        navigator.clipboard?.writeText(sessionId).catch(() => {});
-        window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.sessionLinked', { sessionId }) } }));
+        if (onSessionOpen) onSessionOpen(project, sessionId);
       }
       return;
     }
 
     const taskId = btn.dataset.taskId;
     const action = btn.dataset.action;
-
-    if (action === 'start') {
-      updateTask(project.id, taskId, { status: 'in_progress' });
-      if (onOpenClaude) onOpenClaude(project);
-      if (onRender) onRender();
-    }
 
     if (action === 'complete') {
       updateTask(project.id, taskId, { status: 'done' });
@@ -2160,14 +2220,45 @@ function attachTaskListeners(container, project, onOpenClaude, onRender) {
 
     if (action === 'link') {
       try {
-        const sessions = await api.claude.sessions(project.path);
-        if (sessions && sessions.length > 0) {
-          const latestSessionId = sessions[0].sessionId;
-          updateTask(project.id, taskId, { sessionId: latestSessionId });
-          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.sessionLinked', { sessionId: latestSessionId.slice(0, 8) + '…' }) } }));
-          if (onRender) onRender();
-        } else {
+        // Gather sessions from main project + worktrees
+        const allSessions = [];
+        const mainSessions = await api.claude.sessions(project.path);
+        if (mainSessions) {
+          for (const s of mainSessions) allSessions.push({ ...s, source: path.basename(project.path) });
+        }
+
+        // Try to get worktree sessions
+        try {
+          const worktrees = await api.git.worktreeList({ projectPath: project.path });
+          if (worktrees && worktrees.length > 0) {
+            const wtPromises = worktrees
+              .filter(wt => !wt.bare && wt.path !== project.path)
+              .map(async (wt) => {
+                try {
+                  const wtSessions = await api.claude.sessions(wt.path);
+                  if (wtSessions) {
+                    for (const s of wtSessions) allSessions.push({ ...s, source: path.basename(wt.path), branch: wt.branch });
+                  }
+                } catch { /* worktree may not have sessions */ }
+              });
+            await Promise.all(wtPromises);
+          }
+        } catch { /* no worktree support or error, ignore */ }
+
+        // Sort all sessions by date
+        allSessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+
+        if (allSessions.length === 0) {
           window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.noActiveSession') } }));
+          return;
+        }
+
+        // Show session picker modal
+        const selectedId = await showSessionPicker(allSessions);
+        if (selectedId) {
+          updateTask(project.id, taskId, { sessionId: selectedId });
+          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.sessionLinked', { sessionId: selectedId.slice(0, 8) + '…' }) } }));
+          if (onRender) onRender();
         }
       } catch (err) {
         console.error('[tasks] Failed to link session:', err);

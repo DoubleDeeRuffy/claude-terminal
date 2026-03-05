@@ -896,7 +896,7 @@ function addTask(projectId, taskData) {
   const task = {
     id: generateTaskId(),
     title: taskData.title,
-    status: 'todo',
+    status: taskData.status || 'in_progress',
     sessionId: null,
     createdAt: now,
     updatedAt: now

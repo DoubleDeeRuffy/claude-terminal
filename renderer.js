@@ -631,16 +631,23 @@ function refreshDashboardAsync(projectId) {
         onGitPull: (pid) => gitPull(pid),
         onGitPush: (pid) => gitPush(pid),
         onMergeAbort: (pid) => gitMergeAbort(pid),
-        onCopyPath: () => {}
-      });
-      DashboardService.attachTaskListeners(content, project,
-        (proj) => {
-          const mode = settingsState.get().defaultTerminalMode || 'terminal';
-          TerminalManager.createTerminal(proj, { skipPermissions: settingsState.get().skipPermissions, mode });
+        onCopyPath: () => {},
+        onTaskSessionOpen: (proj, sessionId) => {
+          // Find existing terminal with this session
+          const terminals = terminalsState.get().terminals;
+          for (const [id, td] of terminals) {
+            if (td.claudeSessionId === sessionId) {
+              TerminalManager.setActiveTerminal(id);
+              document.querySelector('[data-tab="claude"]')?.click();
+              return;
+            }
+          }
+          // No terminal found → resume session
+          TerminalManager.resumeSession(proj, sessionId, { skipPermissions: settingsState.get().skipPermissions });
           document.querySelector('[data-tab="claude"]')?.click();
         },
-        () => { refreshDashboardAsync(projectId); }
-      );
+        onTaskRender: () => { refreshDashboardAsync(projectId); }
+      });
     }
   }
 }
@@ -2752,16 +2759,21 @@ async function renderDashboardContent(projectIndex) {
     onGitPull: (projectId) => gitPull(projectId),
     onGitPush: (projectId) => gitPush(projectId),
     onMergeAbort: (projectId) => gitMergeAbort(projectId),
-    onCopyPath: () => {}
-  });
-  DashboardService.attachTaskListeners(content, project,
-    (proj) => {
-      const mode = settingsState.get().defaultTerminalMode || 'terminal';
-      TerminalManager.createTerminal(proj, { skipPermissions: settingsState.get().skipPermissions, mode });
+    onCopyPath: () => {},
+    onTaskSessionOpen: (proj, sessionId) => {
+      const terminals = terminalsState.get().terminals;
+      for (const [id, td] of terminals) {
+        if (td.claudeSessionId === sessionId) {
+          TerminalManager.setActiveTerminal(id);
+          document.querySelector('[data-tab="claude"]')?.click();
+          return;
+        }
+      }
+      TerminalManager.resumeSession(proj, sessionId, { skipPermissions: settingsState.get().skipPermissions });
       document.querySelector('[data-tab="claude"]')?.click();
     },
-    () => { renderDashboardContent(projectIndex); }
-  );
+    onTaskRender: () => { renderDashboardContent(projectIndex); }
+  });
 }
 
 // ========== NEW PROJECT ==========
