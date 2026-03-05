@@ -100,6 +100,20 @@ function registerQuickPickerHandlers() {
     }, 200);
   });
 
+  // Handle command selection (navigate to tab in main window)
+  ipcMain.on('quick-pick-command', (event, { tabId, action }) => {
+    hideQuickPicker();
+
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+
+    showMainWindow();
+
+    setTimeout(() => {
+      mainWindow.webContents.send('navigate-to-tab', { tabId, action });
+    }, 200);
+  });
+
   // Handle close
   ipcMain.on('quick-pick-close', () => {
     hideQuickPicker();

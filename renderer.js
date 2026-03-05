@@ -3896,6 +3896,15 @@ api.quickPicker.onOpenProject((project) => {
   }
 });
 
+// Quick picker command: navigate to a tab or trigger an action
+api.quickPicker.onNavigateTab(({ tabId, action }) => {
+  if (action === 'new-project') {
+    document.getElementById('btn-new-project')?.click();
+  } else if (tabId) {
+    document.querySelector(`.nav-tab[data-tab="${tabId}"]`)?.click();
+  }
+});
+
 // Remote Control: ouvrir un tab chat depuis mobile
 api.remote.onOpenChatTab(({ cwd, prompt, images, model, effort }) => {
   const projects = projectsState.get().projects;
