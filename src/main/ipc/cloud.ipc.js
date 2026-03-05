@@ -419,7 +419,8 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:delete-project', async (_event, { projectId, projectName }) => {
     const { url, key } = _getCloudConfig();
-    const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}`, {
+    const cloudKey = _getCloudProjectKey(projectName);
+    const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(cloudKey)}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${key}` },
     });
@@ -516,10 +517,11 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:download-changes', async (_event, { projectName, localProjectPath }) => {
     const { url, key } = _getCloudConfig();
+    const cloudKey = _getCloudProjectKey(projectName);
     const headers = { 'Authorization': `Bearer ${key}` };
 
     // Download changes zip (longer timeout for file transfer)
-    const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`, { headers }, FETCH_DOWNLOAD_TIMEOUT_MS);
+    const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(cloudKey)}/changes/download`, { headers }, FETCH_DOWNLOAD_TIMEOUT_MS);
     if (!resp.ok) throw new Error('Failed to download changes');
 
     const zipPath = path.join(os.tmpdir(), `ct-sync-${Date.now()}.zip`);
@@ -541,7 +543,7 @@ function registerCloudHandlers() {
 
     // Only acknowledge AFTER verified successful extraction
     if (extracted) {
-      await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+      await _fetchCloud(`${url}/api/projects/${encodeURIComponent(cloudKey)}/changes/ack`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
       });
@@ -554,6 +556,7 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:takeover-session', async (_event, { sessionId, projectName, localProjectPath }) => {
     const { url, key } = _getCloudConfig();
+    const cloudKey = _getCloudProjectKey(projectName);
     const headers = { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' };
 
     // Interrupt the cloud session
@@ -563,13 +566,13 @@ function registerCloudHandlers() {
 
     // Download any file changes
     try {
-      const changesResp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes`, {
+      const changesResp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(cloudKey)}/changes`, {
         headers: { 'Authorization': `Bearer ${key}` },
       });
       const { changes } = await changesResp.json();
 
       if (changes && changes.length > 0 && localProjectPath) {
-        const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`, {
+        const resp = await _fetchCloud(`${url}/api/projects/${encodeURIComponent(cloudKey)}/changes/download`, {
           headers: { 'Authorization': `Bearer ${key}` },
         }, FETCH_DOWNLOAD_TIMEOUT_MS);
         if (resp.ok) {
@@ -589,7 +592,7 @@ function registerCloudHandlers() {
 
           // Only ack after verified successful extraction
           if (extracted) {
-            await _fetchCloud(`${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`, {
+            await _fetchCloud(`${url}/api/projects/${encodeURIComponent(cloudKey)}/changes/ack`, {
               method: 'POST', headers,
             });
           }
@@ -636,10 +639,11 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:compare-files', async (_event, { projectName, localProjectPath }) => {
     const { url, key } = _getCloudConfig();
+    const cloudKey = _getCloudProjectKey(projectName);
 
     // Fetch cloud file list
     const resp = await _fetchCloud(
-      `${url}/api/projects/${encodeURIComponent(projectName)}/files`,
+      `${url}/api/projects/${encodeURIComponent(cloudKey)}/files`,
       { headers: { 'Authorization': `Bearer ${key}` } }
     );
     if (!resp.ok) throw new Error('Failed to fetch cloud files');
@@ -680,10 +684,11 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:check-conflicts', async (_event, { projectName, localProjectPath }) => {
     const { url, key } = _getCloudConfig();
+    const cloudKey = _getCloudProjectKey(projectName);
     const headers = { 'Authorization': `Bearer ${key}` };
 
     const changesResp = await _fetchCloud(
-      `${url}/api/projects/${encodeURIComponent(projectName)}/changes`,
+      `${url}/api/projects/${encodeURIComponent(cloudKey)}/changes`,
       { headers }
     );
     if (!changesResp.ok) throw new Error('Failed to check changes');
@@ -718,10 +723,11 @@ function registerCloudHandlers() {
 
   ipcMain.handle('cloud:download-with-resolutions', async (_event, { projectName, localProjectPath, resolutions }) => {
     const { url, key } = _getCloudConfig();
+    const cloudKey = _getCloudProjectKey(projectName);
     const headers = { 'Authorization': `Bearer ${key}` };
 
     const resp = await _fetchCloud(
-      `${url}/api/projects/${encodeURIComponent(projectName)}/changes/download`,
+      `${url}/api/projects/${encodeURIComponent(cloudKey)}/changes/download`,
       { headers }, FETCH_DOWNLOAD_TIMEOUT_MS
     );
     if (!resp.ok) throw new Error('Failed to download changes');
@@ -777,7 +783,7 @@ function registerCloudHandlers() {
 
       // Acknowledge
       await _fetchCloud(
-        `${url}/api/projects/${encodeURIComponent(projectName)}/changes/ack`,
+        `${url}/api/projects/${encodeURIComponent(cloudKey)}/changes/ack`,
         { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' } }
       );
 
