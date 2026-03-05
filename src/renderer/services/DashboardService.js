@@ -7,6 +7,7 @@
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive, getTasks, addTask, updateTask, deleteTask } = require('../state');
+const { showConfirm } = require('../ui/components/Modal');
 const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
@@ -2138,7 +2139,7 @@ function attachTaskListeners(container, project, onOpenClaude, onRender) {
       if (badge) {
         const sessionId = badge.dataset.taskSession;
         navigator.clipboard?.writeText(sessionId).catch(() => {});
-        window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: `${t('tasks.sessionLinked')}: ${sessionId}` } }));
+        window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.sessionLinked', { sessionId }) } }));
       }
       return;
     }
@@ -2163,7 +2164,7 @@ function attachTaskListeners(container, project, onOpenClaude, onRender) {
         if (sessions && sessions.length > 0) {
           const latestSessionId = sessions[0].sessionId;
           updateTask(project.id, taskId, { sessionId: latestSessionId });
-          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: `${t('tasks.sessionLinked')}: ${latestSessionId.slice(0, 8)}…` } }));
+          window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.sessionLinked', { sessionId: latestSessionId.slice(0, 8) + '…' }) } }));
           if (onRender) onRender();
         } else {
           window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: t('tasks.noActiveSession') } }));
@@ -2174,6 +2175,14 @@ function attachTaskListeners(container, project, onOpenClaude, onRender) {
     }
 
     if (action === 'delete') {
+      const task = getTasks(project.id).find(t => t.id === taskId);
+      const confirmed = await showConfirm({
+        title: t('tasks.deleteConfirmTitle'),
+        message: t('tasks.deleteConfirmMessage', { title: task?.title || '' }),
+        confirmLabel: t('tasks.delete'),
+        danger: true
+      });
+      if (!confirmed) return;
       deleteTask(project.id, taskId);
       if (onRender) onRender();
     }

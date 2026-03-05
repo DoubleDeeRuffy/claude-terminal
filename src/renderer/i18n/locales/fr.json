@@ -1841,8 +1841,10 @@
     "start": "Démarrer",
     "complete": "Terminer",
     "delete": "Supprimer",
+    "deleteConfirmTitle": "Supprimer la tâche",
+    "deleteConfirmMessage": "Supprimer \"{title}\" ?",
     "linkSession": "Lier session",
-    "sessionLinked": "Session liée",
-    "noActiveSession": "Aucune session trouvée pour ce projet"
+    "sessionLinked": "Session liée : {sessionId}",
+    "noActiveSession": "Aucune session active à lier"
   }
 }

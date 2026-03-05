@@ -635,7 +635,8 @@ function refreshDashboardAsync(projectId) {
       });
       DashboardService.attachTaskListeners(content, project,
         (proj) => {
-          createTerminalForProject(proj);
+          const mode = settingsState.get().defaultTerminalMode || 'terminal';
+          TerminalManager.createTerminal(proj, { skipPermissions: settingsState.get().skipPermissions, mode });
           document.querySelector('[data-tab="claude"]')?.click();
         },
         () => { refreshDashboardAsync(projectId); }
@@ -2755,7 +2756,8 @@ async function renderDashboardContent(projectIndex) {
   });
   DashboardService.attachTaskListeners(content, project,
     (proj) => {
-      createTerminalForProject(proj);
+      const mode = settingsState.get().defaultTerminalMode || 'terminal';
+      TerminalManager.createTerminal(proj, { skipPermissions: settingsState.get().skipPermissions, mode });
       document.querySelector('[data-tab="claude"]')?.click();
     },
     () => { renderDashboardContent(projectIndex); }

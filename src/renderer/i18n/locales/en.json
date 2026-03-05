@@ -1841,8 +1841,10 @@
     "start": "Start",
     "complete": "Complete",
     "delete": "Delete",
+    "deleteConfirmTitle": "Delete task",
+    "deleteConfirmMessage": "Delete \"{title}\"?",
     "linkSession": "Link session",
-    "sessionLinked": "Session linked",
-    "noActiveSession": "No session found for this project"
+    "sessionLinked": "Session linked: {sessionId}",
+    "noActiveSession": "No active session to link"
   }
 }
