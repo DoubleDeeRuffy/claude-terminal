@@ -1,6 +1,6 @@
 /**
  * ControlTowerPanel
- * Real-time overview of all running Claude agents across all projects and worktrees.
+ * Real-time overview of all running Claude chats across all projects and worktrees.
  * Wires into eventBus (terminal hooks) + chat IPC events + terminalsState.
  */
 
@@ -18,10 +18,20 @@ let _chatMessageUnlistener = null;
 let _chatDoneUnlistener = null;
 let _chatErrorUnlistener = null;
 let _chatIdleUnlistener = null;
+let _chatPermissionUnlistener = null;
 let _isLoaded = false;
 
 // Cumulative cost across all sessions this app run
 let _sessionCosts = new Map(); // agentKey -> cost
+
+// Pending permission requests per chat session: sessionId -> permission data
+const _pendingPermissions = new Map();
+
+// Last assistant response per session (for "show last response")
+const _lastResponses = new Map();
+
+// Expanded "last response" state per agent card
+const _expandedResponses = new Set();
 
 /**
  * @typedef {Object} AgentInfo
@@ -30,7 +40,7 @@ let _sessionCosts = new Map(); // agentKey -> cost
  * @property {string} projectName
  * @property {string} projectPath
  * @property {string|null} branch
- * @property {'THINKING'|'RUNNING_TOOL'|'IDLE'|'DONE'|'ERROR'} status
+ * @property {'THINKING'|'RUNNING_TOOL'|'WAITING'|'IDLE'|'DONE'|'ERROR'} status
  * @property {string|null} currentTool
  * @property {string|null} currentFile
  * @property {number} startTime
@@ -319,6 +329,10 @@ function _wireChatEvents() {
           a.currentTool = block.name || null;
           a.currentFile = _extractFile(block.input) || a.currentFile;
         }
+        // Capture last assistant text response
+        if (block.type === 'text' && block.text) {
+          _lastResponses.set(sessionId, block.text.slice(0, 800));
+        }
       }
     }
 
@@ -346,9 +360,12 @@ function _wireChatEvents() {
     if (a) {
       _sessionCosts.set(key, (_sessionCosts.get(key) || 0) + (a.cost || 0));
       a.status = aborted ? 'ERROR' : 'DONE';
+      _pendingPermissions.delete(sessionId);
       _render();
       setTimeout(() => {
         _agents.delete(key);
+        _lastResponses.delete(sessionId);
+        _expandedResponses.delete(key);
         _render();
       }, 5000);
     }
@@ -359,6 +376,22 @@ function _wireChatEvents() {
     const a = _agents.get(key);
     if (a) {
       a.status = 'ERROR';
+      _pendingPermissions.delete(sessionId);
+      _render();
+    }
+  });
+
+  // Listen for permission requests to set WAITING state
+  _chatPermissionUnlistener = api.chat.onPermissionRequest((data) => {
+    const { sessionId, requestId, toolName, input } = data;
+    if (!sessionId) return;
+
+    const key = `chat:${sessionId}`;
+    const a = _agents.get(key);
+    if (a) {
+      a.status = 'WAITING';
+      // Store pending permission data for inline actions
+      _pendingPermissions.set(sessionId, { requestId, toolName, input, data });
       _render();
     }
   });
@@ -449,7 +482,6 @@ function _openSpawnModal() {
   }
 
   // Build a simple project picker modal
-  const { showConfirm } = require('../components/Modal');
   const listHtml = projects.map((p, i) =>
     `<div class="ct-spawn-project" data-idx="${i}" style="padding:8px 12px;cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:10px;transition:background 0.15s">
       <div style="width:8px;height:8px;border-radius:50%;background:${p.color || 'var(--accent)'};flex-shrink:0"></div>
@@ -516,6 +548,7 @@ async function _spawnTerminalForProject(project) {
 const STATUS_COLORS = {
   THINKING:     '#818cf8',
   RUNNING_TOOL: 'var(--accent)',
+  WAITING:      '#f59e0b',
   IDLE:         'var(--text-muted)',
   DONE:         'var(--success)',
   ERROR:        'var(--danger)'
@@ -524,10 +557,102 @@ const STATUS_COLORS = {
 const STATUS_LABELS = {
   THINKING:     () => t('controlTower.statusThinking'),
   RUNNING_TOOL: () => t('controlTower.statusRunningTool'),
+  WAITING:      () => t('controlTower.statusWaiting'),
   IDLE:         () => t('controlTower.statusIdle'),
   DONE:         () => t('controlTower.statusDone'),
   ERROR:        () => t('controlTower.statusError')
 };
+
+function _buildInlineActions(agent) {
+  // Only chat sessions can have inline actions (permission requests)
+  if (agent.type !== 'chat' || agent.status !== 'WAITING' || !agent.chatSessionId) return '';
+
+  const perm = _pendingPermissions.get(agent.chatSessionId);
+  if (!perm) return '';
+
+  const { toolName, input } = perm;
+
+  // AskUserQuestion: show text input + send button
+  if (toolName === 'AskUserQuestion') {
+    const question = input?.question ? escapeHtml(input.question) : '';
+    return `
+      <div class="ct-inline-action" data-agent-id="${escapeHtml(agent.id)}">
+        ${question ? `<div class="ct-inline-question">${question}</div>` : ''}
+        <div class="ct-inline-reply-row">
+          <input type="text" class="ct-reply-input" placeholder="${escapeHtml(t('controlTower.replyPlaceholder'))}" data-agent-id="${escapeHtml(agent.id)}" />
+          <button class="ct-btn ct-btn-approve ct-btn-reply" data-agent-id="${escapeHtml(agent.id)}">
+            ${escapeHtml(t('controlTower.sendReply'))}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ExitPlanMode: accept plan button
+  if (toolName === 'ExitPlanMode') {
+    return `
+      <div class="ct-inline-action" data-agent-id="${escapeHtml(agent.id)}">
+        <div class="ct-inline-hint">${escapeHtml(t('controlTower.statusWaiting'))}: ${escapeHtml(toolName)}</div>
+        <div class="ct-inline-btn-row">
+          <button class="ct-btn ct-btn-approve ct-btn-accept-plan" data-agent-id="${escapeHtml(agent.id)}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            ${escapeHtml(t('controlTower.acceptPlan'))}
+          </button>
+          <button class="ct-btn ct-btn-deny ct-btn-deny-plan" data-agent-id="${escapeHtml(agent.id)}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            ${escapeHtml(t('controlTower.deny'))}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // Default permission request: Approve / Deny buttons
+  return `
+    <div class="ct-inline-action" data-agent-id="${escapeHtml(agent.id)}">
+      <div class="ct-inline-hint">${escapeHtml(t('controlTower.statusWaiting'))}: ${escapeHtml(toolName)}</div>
+      <div class="ct-inline-btn-row">
+        <button class="ct-btn ct-btn-approve ct-btn-perm-approve" data-agent-id="${escapeHtml(agent.id)}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          ${escapeHtml(t('controlTower.approve'))}
+        </button>
+        <button class="ct-btn ct-btn-deny ct-btn-perm-deny" data-agent-id="${escapeHtml(agent.id)}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+          ${escapeHtml(t('controlTower.deny'))}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function _buildLastResponseSection(agent) {
+  if (agent.type !== 'chat' || !agent.chatSessionId) return '';
+  const lastResponse = _lastResponses.get(agent.chatSessionId);
+  if (!lastResponse) return '';
+
+  const isExpanded = _expandedResponses.has(agent.id);
+  return `
+    <div class="ct-last-response">
+      <button class="ct-btn-toggle-response" data-agent-id="${escapeHtml(agent.id)}">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transition:transform 0.2s;transform:rotate(${isExpanded ? '90' : '0'}deg)">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+        ${escapeHtml(t('controlTower.showLastResponse'))}
+      </button>
+      ${isExpanded
+        ? `<div class="ct-response-text">${escapeHtml(lastResponse)}${lastResponse.length >= 800 ? '…' : ''}</div>`
+        : ''}
+    </div>
+  `;
+}
 
 function _buildAgentCard(agent) {
   const elapsed = Date.now() - agent.startTime;
@@ -552,15 +677,16 @@ function _buildAgentCard(agent) {
     : '';
 
   const pulseClass = (agent.status === 'THINKING' || agent.status === 'RUNNING_TOOL') ? ' ct-status-pulse' : '';
+  const waitingClass = agent.status === 'WAITING' ? ' ct-status-waiting' : '';
 
   return `
-    <div class="ct-agent-card${agent.status === 'DONE' ? ' ct-agent-done' : ''}${agent.status === 'ERROR' ? ' ct-agent-error' : ''}" data-agent-id="${escapeHtml(agent.id)}">
+    <div class="ct-agent-card${agent.status === 'DONE' ? ' ct-agent-done' : ''}${agent.status === 'ERROR' ? ' ct-agent-error' : ''}${agent.status === 'WAITING' ? ' ct-agent-waiting' : ''}" data-agent-id="${escapeHtml(agent.id)}">
       <div class="ct-agent-header">
         <div class="ct-agent-project">
           <span class="ct-project-name">${escapeHtml(agent.projectName)}</span>
           ${branchBadge}
         </div>
-        <span class="ct-status-badge${pulseClass}" style="--status-color:${statusColor}">
+        <span class="ct-status-badge${pulseClass}${waitingClass}" style="--status-color:${statusColor}">
           ${escapeHtml(statusLabel)}
         </span>
       </div>
@@ -584,6 +710,9 @@ function _buildAgentCard(agent) {
           ? `<span class="ct-meta-item ct-meta-tokens">${(agent.totalTokens / 1000).toFixed(1)}k ${t('controlTower.tokens')}</span>`
           : ''}
       </div>
+
+      ${_buildInlineActions(agent)}
+      ${_buildLastResponseSection(agent)}
 
       <div class="ct-agent-actions">
         <button class="ct-btn ct-btn-focus" data-agent-id="${escapeHtml(agent.id)}" title="${escapeHtml(t('controlTower.focus'))}">
@@ -655,6 +784,52 @@ function _render() {
   container.querySelectorAll('.ct-btn-interrupt').forEach(btn => {
     btn.onclick = () => _interruptAgent(btn.dataset.agentId);
   });
+
+  // Inline action: reply to AskUserQuestion
+  container.querySelectorAll('.ct-btn-reply').forEach(btn => {
+    btn.onclick = () => {
+      const agentId = btn.dataset.agentId;
+      const input = container.querySelector(`.ct-reply-input[data-agent-id="${CSS.escape(agentId)}"]`);
+      if (input) _sendReply(agentId, input.value);
+    };
+  });
+  container.querySelectorAll('.ct-reply-input').forEach(input => {
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        _sendReply(input.dataset.agentId, input.value);
+      }
+    };
+  });
+
+  // Inline action: approve permission
+  container.querySelectorAll('.ct-btn-perm-approve').forEach(btn => {
+    btn.onclick = () => _respondPermission(btn.dataset.agentId, true);
+  });
+  container.querySelectorAll('.ct-btn-perm-deny').forEach(btn => {
+    btn.onclick = () => _respondPermission(btn.dataset.agentId, false);
+  });
+
+  // Inline action: accept / deny plan (ExitPlanMode)
+  container.querySelectorAll('.ct-btn-accept-plan').forEach(btn => {
+    btn.onclick = () => _respondPermission(btn.dataset.agentId, true);
+  });
+  container.querySelectorAll('.ct-btn-deny-plan').forEach(btn => {
+    btn.onclick = () => _respondPermission(btn.dataset.agentId, false);
+  });
+
+  // Toggle last response visibility
+  container.querySelectorAll('.ct-btn-toggle-response').forEach(btn => {
+    btn.onclick = () => {
+      const agentId = btn.dataset.agentId;
+      if (_expandedResponses.has(agentId)) {
+        _expandedResponses.delete(agentId);
+      } else {
+        _expandedResponses.add(agentId);
+      }
+      _render();
+    };
+  });
 }
 
 function _updateTimers() {
@@ -709,7 +884,8 @@ function _interruptAgent(agentId) {
 
   if (agent.type === 'chat' && agent.chatSessionId) {
     try {
-      window.electron_api.chat.interrupt(agent.chatSessionId);
+      // FIX: pass { sessionId } object instead of raw string
+      window.electron_api.chat.interrupt({ sessionId: agent.chatSessionId });
     } catch { /* ignore */ }
   } else if (agent.terminalId != null) {
     // Send Ctrl+C to the terminal
@@ -717,6 +893,65 @@ function _interruptAgent(agentId) {
       window.electron_api.terminal.input({ id: agent.terminalId, data: '\x03' });
     } catch { /* ignore */ }
   }
+}
+
+/**
+ * Respond to a pending permission request (approve or deny).
+ */
+function _respondPermission(agentId, allow) {
+  const agent = _agents.get(agentId);
+  if (!agent || !agent.chatSessionId) return;
+
+  const perm = _pendingPermissions.get(agent.chatSessionId);
+  if (!perm) return;
+
+  const { requestId } = perm;
+
+  try {
+    window.electron_api.chat.respondPermission({
+      requestId,
+      result: allow
+        ? { behavior: 'allow', updatedInput: perm.input }
+        : { behavior: 'deny', message: 'Denied from Control Tower' }
+    });
+  } catch (e) {
+    console.error('[ControlTower] Failed to respond to permission:', e);
+  }
+
+  // Clear pending permission and revert to THINKING
+  _pendingPermissions.delete(agent.chatSessionId);
+  agent.status = 'THINKING';
+  _render();
+}
+
+/**
+ * Send a text reply to an AskUserQuestion permission request.
+ */
+function _sendReply(agentId, text) {
+  if (!text || !text.trim()) return;
+
+  const agent = _agents.get(agentId);
+  if (!agent || !agent.chatSessionId) return;
+
+  const perm = _pendingPermissions.get(agent.chatSessionId);
+  if (!perm) return;
+
+  try {
+    // Reply via respondPermission with the answer embedded in updatedInput
+    window.electron_api.chat.respondPermission({
+      requestId: perm.requestId,
+      result: {
+        behavior: 'allow',
+        updatedInput: { ...perm.input, answer: text.trim() }
+      }
+    });
+  } catch (e) {
+    console.error('[ControlTower] Failed to send reply:', e);
+  }
+
+  _pendingPermissions.delete(agent.chatSessionId);
+  agent.status = 'THINKING';
+  _render();
 }
 
 // ── Panel lifecycle ──────────────────────────────────────────────────────────
