@@ -691,7 +691,7 @@ describe('tasks', () => {
     expect(task.description).toBe('');
     expect(task.labels).toEqual([]);
     expect(task.order).toBe(0);
-    expect(task.sessionId).toBeNull();
+    expect(task.sessionIds).toEqual([]);
     expect(typeof task.createdAt).toBe('number');
     expect(typeof task.updatedAt).toBe('number');
     expect(task.createdAt).toBe(task.updatedAt);
