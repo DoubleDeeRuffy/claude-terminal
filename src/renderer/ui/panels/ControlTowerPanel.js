@@ -703,6 +703,21 @@ function _buildLastResponseSection(agent) {
   return `<div class="ct-response-preview">${escapeHtml(lastResponse)}${lastResponse.length >= 800 ? '…' : ''}</div>`;
 }
 
+function _buildReplyInput(agent) {
+  if (agent.type !== 'chat' || !agent.chatSessionId) return '';
+  if (agent.status !== 'IDLE') return '';
+  return `
+    <div class="ct-inline-reply-row" style="margin-top:2px">
+      <input type="text" class="ct-reply-input ct-reply-idle" placeholder="${escapeHtml(t('controlTower.replyPlaceholder'))}" data-agent-id="${escapeHtml(agent.id)}" />
+      <button class="ct-btn ct-btn-approve ct-btn-send-idle" data-agent-id="${escapeHtml(agent.id)}">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  `;
+}
+
 function _buildAgentCard(agent) {
   const elapsed = Date.now() - agent.startTime;
   const duration = _formatDuration(elapsed);
@@ -747,6 +762,7 @@ function _buildAgentCard(agent) {
 
       ${_buildLastResponseSection(agent)}
       ${_buildInlineActions(agent)}
+      ${_buildReplyInput(agent)}
 
       <div class="ct-agent-footer">
         <div class="ct-agent-meta">
@@ -855,8 +871,21 @@ function _render() {
     input.onkeydown = (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        _sendReply(input.dataset.agentId, input.value);
+        if (input.classList.contains('ct-reply-idle')) {
+          _sendChatMessage(input.dataset.agentId, input.value);
+        } else {
+          _sendReply(input.dataset.agentId, input.value);
+        }
       }
+    };
+  });
+
+  // Idle reply: send message to active chat session
+  container.querySelectorAll('.ct-btn-send-idle').forEach(btn => {
+    btn.onclick = () => {
+      const agentId = btn.dataset.agentId;
+      const input = container.querySelector(`.ct-reply-idle[data-agent-id="${CSS.escape(agentId)}"]`);
+      if (input) _sendChatMessage(agentId, input.value);
     };
   });
 
@@ -967,6 +996,27 @@ function _respondPermission(agentId, allow) {
   // Clear pending permission and revert to THINKING
   _pendingPermissions.delete(agent.chatSessionId);
   agent.status = 'THINKING';
+  _render();
+}
+
+/**
+ * Send a follow-up message to an IDLE chat session.
+ */
+function _sendChatMessage(agentId, text) {
+  if (!text || !text.trim()) return;
+
+  const agent = _agents.get(agentId);
+  if (!agent || !agent.chatSessionId) return;
+
+  try {
+    window.electron_api.chat.send({ sessionId: agent.chatSessionId, text: text.trim() });
+  } catch (e) {
+    console.error('[ControlTower] Failed to send chat message:', e);
+    return;
+  }
+
+  agent.status = 'THINKING';
+  agent.currentTool = null;
   _render();
 }
 

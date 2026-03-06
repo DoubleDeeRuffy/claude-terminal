@@ -208,16 +208,12 @@
   font-size: var(--font-xs);
   color: var(--text-secondary);
   line-height: 1.55;
-  max-height: 48px;
-  overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
   padding: 5px 8px;
   background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
   border-radius: var(--radius-sm);
   border-left: 2px solid color-mix(in srgb, var(--ct-status-color, var(--accent)) 35%, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
 }
 
 /* ── Footer: meta + actions ────────────────────────────────── */
