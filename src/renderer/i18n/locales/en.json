@@ -875,7 +875,22 @@
     "input": "Input",
     "output": "Output",
     "truncated": "(truncated — input too large)",
-    "noOutput": "No output"
+    "noOutput": "No output",
+    "groupedCalls": "{count} calls",
+    "paramCommand": "Command",
+    "paramFile": "File",
+    "paramContent": "Content",
+    "paramOldString": "Replace",
+    "paramNewString": "With",
+    "paramPattern": "Pattern",
+    "paramPath": "Path",
+    "paramPrompt": "Prompt",
+    "paramQuery": "Query",
+    "paramQuestion": "Question",
+    "paramDescription": "Task",
+    "paramOffset": "Offset",
+    "paramLimit": "Limit",
+    "paramTimeout": "Timeout"
   },
   "timetracking": {
     "title": "Time Tracking",

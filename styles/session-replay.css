@@ -46,26 +46,42 @@
 }
 
 .sr-select {
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--font-sm);
-  padding: 6px 10px;
+  padding: 6px 30px 6px 10px;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
   min-width: 0;
   flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='%23888'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.sr-select:hover:not(:disabled) {
+  border-color: var(--accent);
+  background-color: var(--bg-hover);
 }
 
 .sr-select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .sr-select:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.sr-select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .sr-load-btn {
@@ -438,4 +454,246 @@
   font-size: 11px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* ── Grouped (collapsed) agent steps ─────────────────────────── */
+.sr-step--grouped .sr-step-card {
+  border-style: dashed;
+}
+
+.sr-step-group-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sr-group-accordion {
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--bg-primary);
+}
+
+.sr-group-accordion-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.sr-group-accordion-item:hover {
+  background: var(--bg-hover);
+}
+
+.sr-group-accordion-item .sr-step-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.sr-group-accordion-item .sr-step-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.sr-group-accordion-item-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Skill chip ───────────────────────────────────────────────── */
+.sr-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 7px;
+  border-radius: 20px;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #a78bfa;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  max-width: 100%;
+}
+
+.sr-skill-chip svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.sr-skill-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr-prompt-with-skill {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sr-prompt-rest {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Tool friendly card ───────────────────────────────────────── */
+.sr-tool-friendly {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sr-tool-param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sr-tool-param-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.sr-tool-param-value {
+  font-family: 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.sr-tool-param-value::-webkit-scrollbar { width: 3px; }
+.sr-tool-param-value::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+.sr-tool-output-row {
+  margin-top: 4px;
+}
+
+/* ── TodoWrite mini list ──────────────────────────────────────── */
+.sr-todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sr-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  font-size: var(--font-sm);
+}
+
+.sr-todo-item--pending {
+  border-left: 3px solid var(--text-muted);
+}
+
+.sr-todo-item--in_progress {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-dim);
+}
+
+.sr-todo-item--completed {
+  border-left: 3px solid var(--success);
+  opacity: 0.7;
+}
+
+.sr-todo-checkbox {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  border: 1.5px solid var(--border-color);
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sr-todo-item--in_progress .sr-todo-checkbox {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.sr-todo-item--completed .sr-todo-checkbox {
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.sr-todo-checkbox svg {
+  width: 10px;
+  height: 10px;
+  color: var(--success);
+  display: none;
+}
+
+.sr-todo-item--completed .sr-todo-checkbox svg {
+  display: block;
+}
+
+.sr-todo-text {
+  flex: 1;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.sr-todo-item--completed .sr-todo-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.sr-todo-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+.sr-todo-item--in_progress .sr-todo-status-dot {
+  background: var(--accent);
+}
+
+.sr-todo-item--completed .sr-todo-status-dot {
+  background: var(--success);
 }

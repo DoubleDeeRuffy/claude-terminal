@@ -875,7 +875,22 @@
     "input": "Entrée",
     "output": "Sortie",
     "truncated": "(tronqué — entrée trop volumineuse)",
-    "noOutput": "Aucune sortie"
+    "noOutput": "Aucune sortie",
+    "groupedCalls": "{count} appels",
+    "paramCommand": "Commande",
+    "paramFile": "Fichier",
+    "paramContent": "Contenu",
+    "paramOldString": "Remplacer",
+    "paramNewString": "Par",
+    "paramPattern": "Motif",
+    "paramPath": "Chemin",
+    "paramPrompt": "Prompt",
+    "paramQuery": "Requête",
+    "paramQuestion": "Question",
+    "paramDescription": "Tâche",
+    "paramOffset": "Décalage",
+    "paramLimit": "Limite",
+    "paramTimeout": "Délai"
   },
   "timetracking": {
     "title": "Time Tracking",

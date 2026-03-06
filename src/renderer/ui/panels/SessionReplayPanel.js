@@ -34,6 +34,13 @@ const TOOL_CATEGORIES = {
   plan:    ['ExitPlanMode', 'AskUserQuestion', 'EnterPlanMode', 'TodoWrite'],
 };
 
+// Tools that have a friendly card renderer (Fix 4)
+const FRIENDLY_TOOLS = new Set([
+  'Bash', 'Read', 'Write', 'Edit', 'NotebookEdit',
+  'Glob', 'Grep', 'WebFetch', 'WebSearch',
+  'AskUserQuestion', 'Task', 'TodoWrite',
+]);
+
 function getToolCategory(toolName) {
   for (const [cat, tools] of Object.entries(TOOL_CATEGORIES)) {
     if (tools.includes(toolName)) return cat;
@@ -85,6 +92,70 @@ function truncate(str, max = 120) {
   return str.slice(0, max) + '…';
 }
 
+// ── Fix 3: Skill detection ────────────────────────────────────────────────────
+/**
+ * Returns { hasSkill: true, skillName: string, rest: string } if prompt starts
+ * with or contains a slash-command skill reference, else { hasSkill: false }.
+ * A skill reference is /word at the start or in the body of the text.
+ */
+function detectSkillInPrompt(text) {
+  if (!text) return { hasSkill: false };
+  // Match /skill-name at start or after whitespace, capturing word chars and dashes
+  const match = text.match(/(?:^|\n)\s*(\/[\w-]+)/);
+  if (!match) return { hasSkill: false };
+  const skillName = match[1];
+  // The "rest" is what remains after removing the skill invocation line(s)
+  const rest = text.replace(match[0], '').trim();
+  return { hasSkill: true, skillName, rest };
+}
+
+// ── Fix 2: Group consecutive identical tool calls ─────────────────────────────
+/**
+ * Merges runs of consecutive steps that call the same tool into a single "group"
+ * step. Returns a new array where each element is either a normal step or a
+ * group step ({ type: 'group', toolName, steps[], count }).
+ */
+function groupConsecutiveAgents(steps) {
+  const grouped = [];
+  let i = 0;
+  while (i < steps.length) {
+    const step = steps[i];
+    // Only group tool steps (not prompt/response/thinking)
+    if (step.type !== 'tool') {
+      grouped.push(step);
+      i++;
+      continue;
+    }
+    // Look ahead for consecutive identical tool calls
+    let j = i + 1;
+    while (
+      j < steps.length &&
+      steps[j].type === 'tool' &&
+      steps[j].toolName === step.toolName
+    ) {
+      j++;
+    }
+    const runLength = j - i;
+    if (runLength >= 3) {
+      // Collapse into a group
+      grouped.push({
+        type: 'group',
+        toolName: step.toolName,
+        count: runLength,
+        steps: steps.slice(i, j),
+        // Carry tokens and category from first
+        estimatedInputTokens: steps.slice(i, j).reduce((s, x) => s + (x.estimatedInputTokens || 0), 0),
+        estimatedOutputTokens: steps.slice(i, j).reduce((s, x) => s + (x.estimatedOutputTokens || 0), 0),
+      });
+      i = j;
+    } else {
+      grouped.push(step);
+      i++;
+    }
+  }
+  return grouped;
+}
+
 // ── Render helpers ────────────────────────────────────────────────────────────
 
 function renderSummary(summary) {
@@ -123,39 +194,18 @@ function renderTimeline(steps) {
     return;
   }
 
-  timeline.innerHTML = steps.map((step, i) => {
-    const tokens = getStepTokens(step);
-    const cat = step.type === 'tool' ? getToolCategory(step.toolName) : step.type;
-    const subtitle = buildStepSubtitle(step);
+  // Fix 2: group consecutive identical tool calls
+  const displaySteps = groupConsecutiveAgents(steps);
 
-    return `
-    <div class="sr-step sr-step--${escapeHtml(step.type)} sr-step--cat-${escapeHtml(cat)}"
-         data-step-index="${i}" tabindex="0" role="button" aria-expanded="false">
-      <div class="sr-step-connector">
-        <div class="sr-step-line"></div>
-        <div class="sr-step-dot"></div>
-      </div>
-      <div class="sr-step-card">
-        <div class="sr-step-header">
-          <div class="sr-step-icon">${getStepIcon(step)}</div>
-          <div class="sr-step-meta">
-            <span class="sr-step-label">${escapeHtml(getStepLabel(step))}</span>
-            ${subtitle ? `<span class="sr-step-subtitle" title="${escapeHtml(subtitle)}">${escapeHtml(truncate(subtitle, 80))}</span>` : ''}
-          </div>
-          <div class="sr-step-right">
-            ${tokens > 0 ? `<span class="sr-step-tokens">${formatTokens(tokens)}</span>` : ''}
-            <svg class="sr-step-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
-          </div>
-        </div>
-        <div class="sr-step-body" style="display:none">
-          ${buildStepBody(step)}
-        </div>
-      </div>
-    </div>`;
+  timeline.innerHTML = displaySteps.map((step, i) => {
+    if (step.type === 'group') {
+      return renderGroupStep(step, i);
+    }
+    return renderNormalStep(step, i);
   }).join('');
 
-  // Attach click handlers
-  timeline.querySelectorAll('.sr-step').forEach(el => {
+  // Attach click handlers for normal steps
+  timeline.querySelectorAll('.sr-step:not(.sr-step--grouped)').forEach(el => {
     el.addEventListener('click', () => toggleStep(el));
     el.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStep(el); }
@@ -163,6 +213,88 @@ function renderTimeline(steps) {
       if (e.key === 'ArrowUp') { e.preventDefault(); focusStep(+el.dataset.stepIndex - 1); }
     });
   });
+
+  // Attach click handlers for grouped steps (toggle accordion)
+  timeline.querySelectorAll('.sr-step--grouped').forEach(el => {
+    el.addEventListener('click', () => toggleGroupStep(el));
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroupStep(el); }
+    });
+  });
+}
+
+function renderNormalStep(step, i) {
+  const tokens = getStepTokens(step);
+  const cat = step.type === 'tool' ? getToolCategory(step.toolName) : step.type;
+  const subtitle = buildStepSubtitle(step);
+
+  return `
+  <div class="sr-step sr-step--${escapeHtml(step.type)} sr-step--cat-${escapeHtml(cat)}"
+       data-step-index="${i}" tabindex="0" role="button" aria-expanded="false">
+    <div class="sr-step-connector">
+      <div class="sr-step-line"></div>
+      <div class="sr-step-dot"></div>
+    </div>
+    <div class="sr-step-card">
+      <div class="sr-step-header">
+        <div class="sr-step-icon">${getStepIcon(step)}</div>
+        <div class="sr-step-meta">
+          <span class="sr-step-label">${escapeHtml(getStepLabel(step))}</span>
+          ${subtitle ? `<span class="sr-step-subtitle" title="${escapeHtml(subtitle)}">${escapeHtml(truncate(subtitle, 80))}</span>` : ''}
+        </div>
+        <div class="sr-step-right">
+          ${tokens > 0 ? `<span class="sr-step-tokens">${formatTokens(tokens)}</span>` : ''}
+          <svg class="sr-step-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+        </div>
+      </div>
+      <div class="sr-step-body" style="display:none">
+        ${buildStepBody(step)}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderGroupStep(group, i) {
+  const cat = getToolCategory(group.toolName);
+  const tokens = (group.estimatedInputTokens || 0) + (group.estimatedOutputTokens || 0);
+  const icon = getToolIcon(group.toolName);
+
+  // Build accordion items from individual steps
+  const accordionItems = group.steps.map((step, idx) => {
+    const subtitle = buildStepSubtitle(step);
+    return `<div class="sr-group-accordion-item" data-group-step="${idx}">
+      <div class="sr-step-icon sr-step--cat-${escapeHtml(cat)}">${icon}</div>
+      <span class="sr-group-accordion-item-subtitle" title="${escapeHtml(subtitle || '')}">
+        ${escapeHtml(truncate(subtitle || `${group.toolName} #${idx + 1}`, 90))}
+      </span>
+    </div>`;
+  }).join('');
+
+  return `
+  <div class="sr-step sr-step--tool sr-step--cat-${escapeHtml(cat)} sr-step--grouped"
+       data-step-index="${i}" tabindex="0" role="button" aria-expanded="false">
+    <div class="sr-step-connector">
+      <div class="sr-step-line"></div>
+      <div class="sr-step-dot"></div>
+    </div>
+    <div class="sr-step-card">
+      <div class="sr-step-header">
+        <div class="sr-step-icon">${icon}</div>
+        <div class="sr-step-meta">
+          <span class="sr-step-label">${escapeHtml(group.toolName)}</span>
+          <span class="sr-step-subtitle">${t('sessionReplay.groupedCalls', { count: group.count }) || `${group.count} calls`}</span>
+        </div>
+        <div class="sr-step-right">
+          ${tokens > 0 ? `<span class="sr-step-tokens">${formatTokens(tokens)}</span>` : ''}
+          <span class="sr-step-group-badge">${group.count}</span>
+          <svg class="sr-step-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+        </div>
+      </div>
+      <div class="sr-group-accordion" style="display:none">
+        ${accordionItems}
+      </div>
+    </div>
+  </div>`;
 }
 
 function getStepLabel(step) {
@@ -173,26 +305,157 @@ function getStepLabel(step) {
 }
 
 function buildStepSubtitle(step) {
-  if (step.type === 'prompt' || step.type === 'response') return truncate(step.text, 100);
+  if (step.type === 'prompt') {
+    // Fix 3: show skill name as subtitle for skill prompts
+    const detected = detectSkillInPrompt(step.text);
+    if (detected.hasSkill) return detected.skillName;
+    return truncate(step.text, 100);
+  }
+  if (step.type === 'response') return truncate(step.text, 100);
   if (step.type === 'thinking') return t('sessionReplay.hiddenThinking');
   if (step.filePath) return step.filePath;
   if (step.type === 'tool' && step.toolInput) {
     if (step.toolInput.command) return truncate(step.toolInput.command, 80);
+    if (step.toolInput.file_path) return truncate(step.toolInput.file_path, 80);
+    if (step.toolInput.path) return truncate(step.toolInput.path, 80);
     if (step.toolInput.query) return truncate(step.toolInput.query, 80);
     if (step.toolInput.pattern) return truncate(step.toolInput.pattern, 80);
     if (step.toolInput.prompt) return truncate(step.toolInput.prompt, 80);
+    if (step.toolInput.url) return truncate(step.toolInput.url, 80);
   }
   return '';
 }
 
-function buildStepBody(step) {
-  if (step.type === 'prompt' || step.type === 'response') {
-    return `<div class="sr-body-text">${escapeHtml(step.text || '')}</div>`;
+// ── Fix 3: Render prompt body with skill chip ─────────────────────────────────
+function buildPromptBody(step) {
+  const detected = detectSkillInPrompt(step.text || '');
+  if (detected.hasSkill) {
+    const skillSvg = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>`;
+    return `<div class="sr-prompt-with-skill">
+      <span class="sr-skill-chip">
+        ${skillSvg}
+        <span class="sr-skill-chip-name">${escapeHtml(detected.skillName)}</span>
+      </span>
+      ${detected.rest ? `<div class="sr-prompt-rest">${escapeHtml(detected.rest)}</div>` : ''}
+    </div>`;
   }
-  if (step.type === 'thinking') {
-    return `<div class="sr-body-text sr-body-text--thinking">${escapeHtml(step.text || '')}</div>`;
+  return `<div class="sr-body-text">${escapeHtml(step.text || '')}</div>`;
+}
+
+// ── Fix 4: Friendly tool cards ────────────────────────────────────────────────
+function buildFriendlyToolBody(step) {
+  const { toolName, toolInput, toolOutput } = step;
+  const parts = [];
+
+  if (toolName === 'TodoWrite') {
+    // Fix 5: special TodoWrite renderer
+    return buildTodoWriteBody(step);
   }
-  // Tool step
+
+  if (toolName === 'Bash') {
+    if (toolInput?.command) {
+      parts.push(buildParamRow(t('sessionReplay.paramCommand') || 'Command', toolInput.command, true));
+    }
+    if (toolInput?.timeout !== undefined) {
+      parts.push(buildParamRow(t('sessionReplay.paramTimeout') || 'Timeout', String(toolInput.timeout)));
+    }
+  } else if (toolName === 'Read') {
+    if (toolInput?.file_path) parts.push(buildParamRow(t('sessionReplay.paramFile') || 'File', toolInput.file_path));
+    if (toolInput?.offset !== undefined) parts.push(buildParamRow(t('sessionReplay.paramOffset') || 'Offset', String(toolInput.offset)));
+    if (toolInput?.limit !== undefined) parts.push(buildParamRow(t('sessionReplay.paramLimit') || 'Limit', String(toolInput.limit)));
+  } else if (toolName === 'Write') {
+    if (toolInput?.file_path) parts.push(buildParamRow(t('sessionReplay.paramFile') || 'File', toolInput.file_path));
+    if (toolInput?.content) parts.push(buildParamRow(t('sessionReplay.paramContent') || 'Content', truncate(toolInput.content, 300), true));
+  } else if (toolName === 'Edit') {
+    if (toolInput?.file_path) parts.push(buildParamRow(t('sessionReplay.paramFile') || 'File', toolInput.file_path));
+    if (toolInput?.old_string) parts.push(buildParamRow(t('sessionReplay.paramOldString') || 'Replace', truncate(toolInput.old_string, 200), true));
+    if (toolInput?.new_string) parts.push(buildParamRow(t('sessionReplay.paramNewString') || 'With', truncate(toolInput.new_string, 200), true));
+  } else if (toolName === 'NotebookEdit') {
+    if (toolInput?.notebook_path) parts.push(buildParamRow(t('sessionReplay.paramFile') || 'File', toolInput.notebook_path));
+    if (toolInput?.new_source) parts.push(buildParamRow(t('sessionReplay.paramContent') || 'Content', truncate(toolInput.new_source, 200), true));
+  } else if (toolName === 'Glob' || toolName === 'Grep') {
+    if (toolInput?.pattern) parts.push(buildParamRow(t('sessionReplay.paramPattern') || 'Pattern', toolInput.pattern));
+    if (toolInput?.path) parts.push(buildParamRow(t('sessionReplay.paramPath') || 'Path', toolInput.path));
+  } else if (toolName === 'WebFetch') {
+    if (toolInput?.url) parts.push(buildParamRow('URL', toolInput.url));
+    if (toolInput?.prompt) parts.push(buildParamRow(t('sessionReplay.paramPrompt') || 'Prompt', truncate(toolInput.prompt, 150)));
+  } else if (toolName === 'WebSearch') {
+    if (toolInput?.query) parts.push(buildParamRow(t('sessionReplay.paramQuery') || 'Query', toolInput.query));
+  } else if (toolName === 'AskUserQuestion') {
+    if (toolInput?.question) parts.push(buildParamRow(t('sessionReplay.paramQuestion') || 'Question', toolInput.question));
+  } else if (toolName === 'Task') {
+    if (toolInput?.description) parts.push(buildParamRow(t('sessionReplay.paramDescription') || 'Task', truncate(toolInput.description, 200)));
+    if (toolInput?.prompt) parts.push(buildParamRow(t('sessionReplay.paramPrompt') || 'Prompt', truncate(toolInput.prompt, 200)));
+  } else {
+    // Fallback for other friendly tools — show all input params
+    if (toolInput && !toolInput._truncated) {
+      Object.entries(toolInput).forEach(([k, v]) => {
+        const valStr = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+        parts.push(buildParamRow(k, truncate(valStr, 200), typeof v === 'string' && v.includes('\n')));
+      });
+    }
+  }
+
+  // Output section
+  const outputHtml = buildOutputSection(step);
+
+  return `<div class="sr-tool-friendly">${parts.join('')}${outputHtml}</div>`;
+}
+
+function buildParamRow(label, value, isCode = false) {
+  return `<div class="sr-tool-param-row">
+    <div class="sr-tool-param-label">${escapeHtml(label)}</div>
+    <div class="sr-tool-param-value">${escapeHtml(value || '')}</div>
+  </div>`;
+}
+
+function buildOutputSection(step) {
+  if (step.toolOutput !== null && step.toolOutput !== undefined) {
+    return `<div class="sr-body-section sr-tool-output-row">
+      <div class="sr-body-label">${t('sessionReplay.output')}</div>
+      <pre class="sr-code">${escapeHtml(step.toolOutput || '(empty)')}</pre>
+    </div>`;
+  }
+  return `<div class="sr-body-section sr-tool-output-row">
+    <span class="sr-truncated">${t('sessionReplay.noOutput')}</span>
+  </div>`;
+}
+
+// ── Fix 5: TodoWrite renderer ─────────────────────────────────────────────────
+function buildTodoWriteBody(step) {
+  const { toolInput, toolOutput } = step;
+  let todos = null;
+
+  // Try to get todos from toolInput.todos
+  if (toolInput?.todos && Array.isArray(toolInput.todos)) {
+    todos = toolInput.todos;
+  } else if (toolInput?.todos && typeof toolInput.todos === 'string') {
+    try { todos = JSON.parse(toolInput.todos); } catch (e) { /* ignore */ }
+  }
+
+  if (!todos || todos.length === 0) {
+    // Fallback to generic display
+    return buildGenericToolBody(step);
+  }
+
+  const checkSvg = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+  const todoItems = todos.map(todo => {
+    const status = todo.status || 'pending';
+    const content = todo.content || todo.text || '';
+    return `<div class="sr-todo-item sr-todo-item--${escapeHtml(status)}">
+      <div class="sr-todo-checkbox">${status === 'completed' ? checkSvg : ''}</div>
+      <span class="sr-todo-text">${escapeHtml(content)}</span>
+      <div class="sr-todo-status-dot"></div>
+    </div>`;
+  }).join('');
+
+  return `<div class="sr-tool-friendly">
+    <div class="sr-todo-list">${todoItems}</div>
+    ${buildOutputSection(step)}
+  </div>`;
+}
+
+function buildGenericToolBody(step) {
   const parts = [];
   if (step.toolInput && !step.toolInput._truncated) {
     const inputStr = JSON.stringify(step.toolInput, null, 2);
@@ -220,6 +483,23 @@ function buildStepBody(step) {
   return parts.join('');
 }
 
+function buildStepBody(step) {
+  if (step.type === 'prompt') {
+    return buildPromptBody(step);
+  }
+  if (step.type === 'response') {
+    return `<div class="sr-body-text">${escapeHtml(step.text || '')}</div>`;
+  }
+  if (step.type === 'thinking') {
+    return `<div class="sr-body-text sr-body-text--thinking">${escapeHtml(step.text || '')}</div>`;
+  }
+  // Tool step
+  if (FRIENDLY_TOOLS.has(step.toolName)) {
+    return buildFriendlyToolBody(step);
+  }
+  return buildGenericToolBody(step);
+}
+
 function toggleStep(el) {
   const body = el.querySelector('.sr-step-body');
   const chevron = el.querySelector('.sr-step-chevron');
@@ -230,13 +510,25 @@ function toggleStep(el) {
   const idx = +el.dataset.stepIndex;
   selectedStepIndex = isOpen ? -1 : idx;
   // Deselect others
-  timeline.querySelectorAll('.sr-step').forEach(other => {
+  timeline.querySelectorAll('.sr-step:not(.sr-step--grouped)').forEach(other => {
     if (other !== el) {
-      other.querySelector('.sr-step-body').style.display = 'none';
-      other.querySelector('.sr-step-chevron').style.transform = '';
+      const otherBody = other.querySelector('.sr-step-body');
+      const otherChevron = other.querySelector('.sr-step-chevron');
+      if (otherBody) otherBody.style.display = 'none';
+      if (otherChevron) otherChevron.style.transform = '';
       other.setAttribute('aria-expanded', 'false');
     }
   });
+}
+
+function toggleGroupStep(el) {
+  const accordion = el.querySelector('.sr-group-accordion');
+  const chevron = el.querySelector('.sr-step-chevron');
+  if (!accordion) return;
+  const isOpen = accordion.style.display !== 'none';
+  accordion.style.display = isOpen ? 'none' : 'block';
+  el.setAttribute('aria-expanded', String(!isOpen));
+  if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
 }
 
 function focusStep(idx) {
