@@ -48,6 +48,7 @@ const _expandedResponses = new Set();
  * @property {number} totalTokens
  * @property {number|null} terminalId
  * @property {string|null} chatSessionId
+ * @property {string|null} sessionName
  */
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -298,6 +299,7 @@ function _wireChatEvents() {
         type: 'chat',
         projectName: chatInfo?.projectName || 'Chat',
         projectPath: chatInfo?.projectPath || '',
+        sessionName: chatInfo?.sessionName || null,
         branch: null,
         status: 'THINKING',
         currentTool: null,
@@ -402,11 +404,12 @@ function _findChatSession(sessionId) {
     const { terminalsState } = require('../../state/terminals.state');
     const terminals = terminalsState.get().terminals;
     for (const [id, td] of terminals) {
-      if (td.chatSessionId === sessionId || td.mode === 'chat') {
+      if (td.chatSessionId === sessionId) {
         return {
           projectName: td.projectName || td.project?.name || 'Chat',
           projectPath: td.projectPath || td.project?.path || '',
-          terminalId: id
+          terminalId: id,
+          sessionName: td.name || null
         };
       }
     }
@@ -683,7 +686,7 @@ function _buildAgentCard(agent) {
     <div class="ct-agent-card${agent.status === 'DONE' ? ' ct-agent-done' : ''}${agent.status === 'ERROR' ? ' ct-agent-error' : ''}${agent.status === 'WAITING' ? ' ct-agent-waiting' : ''}" data-agent-id="${escapeHtml(agent.id)}" style="--ct-status-color:${statusColor}">
       <div class="ct-agent-header">
         <div class="ct-agent-project">
-          <span class="ct-project-name">${escapeHtml(agent.projectName)}</span>
+          <span class="ct-project-name">${escapeHtml(agent.projectName)}${agent.sessionName ? `<span class="ct-session-sep"> – </span><span class="ct-session-name">${escapeHtml(agent.sessionName)}</span>` : ''}</span>
           ${branchBadge}
         </div>
         <span class="ct-status-badge${pulseClass}${waitingClass}" style="--status-color:${statusColor}">

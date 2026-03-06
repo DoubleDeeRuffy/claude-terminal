@@ -194,10 +194,21 @@
   50%       { opacity: 0.4; transform: scale(0.7); }
 }
 
+/* ── Session name in header ────────────────────────────────── */
+.ct-session-sep {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.ct-session-name {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 /* ── Activity line ─────────────────────────────────────────── */
 .ct-agent-activity {
   font-size: var(--font-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-family: 'Consolas', 'Courier New', monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -244,7 +255,7 @@
   align-items: center;
   gap: 3px;
   font-size: var(--font-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
