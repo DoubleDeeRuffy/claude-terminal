@@ -1128,6 +1128,7 @@
     "mentionNoProjects": "No projects found",
     "mentionContext": "Inject a context pack",
     "mentionPrompt": "Insert a prompt template",
+    "mentionParallelTask": "Open Parallel Task Manager",
     "mentionNoContextPacks": "No context packs found. Create one in Settings > Library.",
     "mentionNoPrompts": "No prompt templates found. Create one in Settings > Library.",
     "queued": "Queued",

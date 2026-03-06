@@ -120,6 +120,16 @@ class ParallelTaskService {
     this._send('parallel-run-status', { runId, phase: 'creating-worktrees' });
 
     const worktreeBase = this._worktreeBase(runId);
+
+    // Ensure the parent directory for worktrees exists
+    try {
+      fs.mkdirSync(worktreeBase, { recursive: true });
+    } catch (mkdirErr) {
+      this._send('parallel-run-status', { runId, phase: 'failed', error: `Failed to create worktree directory: ${mkdirErr.message}` });
+      this._active.delete(runId);
+      return;
+    }
+
     const enrichedTasks = [];
 
     for (let i = 0; i < tasks.length; i++) {
@@ -191,39 +201,9 @@ class ParallelTaskService {
   }
 
   async _decomposeTasks({ projectPath, goal, maxTasks, model, effort }) {
-    const outputFormat = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'task_decomposition',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            tasks: {
-              type: 'array',
-              description: 'List of independent parallel sub-tasks',
-              items: {
-                type: 'object',
-                properties: {
-                  title: { type: 'string', description: 'Short task title (max 50 chars)' },
-                  description: { type: 'string', description: 'One-sentence description of what this task does' },
-                  branchSuffix: { type: 'string', description: 'lowercase-kebab-case branch suffix, max 30 chars' },
-                  prompt: { type: 'string', description: 'Self-contained implementation prompt for Claude Code' }
-                },
-                required: ['title', 'description', 'branchSuffix', 'prompt'],
-                additionalProperties: false
-              },
-              minItems: 1,
-              maxItems: maxTasks
-            }
-          },
-          required: ['tasks'],
-          additionalProperties: false
-        }
-      }
-    };
-
     const prompt = this._buildDecomposePrompt(goal, maxTasks);
+
+    // Run decomposition — parse JSON from the text output (more reliable than structured output)
     const result = await chatService.runSinglePrompt({
       cwd: projectPath,
       prompt,
@@ -231,15 +211,73 @@ class ParallelTaskService {
       effort: effort || 'high',
       maxTurns: 3,
       permissionMode: 'bypassPermissions',
-      outputFormat
     });
 
-    if (!result.success) throw new Error(result.error || 'Decomposition failed');
+    if (!result.success && !result.output) {
+      throw new Error(result.error || 'Decomposition failed');
+    }
 
-    // Structured output is merged into result by runSinglePrompt
-    const taskList = result.tasks;
-    if (!Array.isArray(taskList)) throw new Error('Invalid task list from decomposition');
-    return taskList;
+    // Extract JSON from the output — Claude wraps it in a markdown code block or outputs raw JSON
+    const output = result.output || '';
+    const taskList = this._parseTasksFromOutput(output);
+    if (!Array.isArray(taskList) || taskList.length === 0) {
+      throw new Error(`Could not parse task list from Claude output. Raw output: ${output.slice(0, 500)}`);
+    }
+
+    // Validate and cap at maxTasks
+    const validated = taskList.slice(0, maxTasks).map(t => ({
+      title: String(t.title || 'Task').slice(0, 50),
+      description: String(t.description || ''),
+      branchSuffix: String(t.branchSuffix || t.title || 'task').slice(0, 30),
+      prompt: String(t.prompt || ''),
+    })).filter(t => t.prompt.length > 0);
+
+    if (validated.length === 0) {
+      throw new Error('No valid tasks found in decomposition output');
+    }
+
+    return validated;
+  }
+
+  /**
+   * Parse a tasks array from Claude's text output.
+   * Handles: raw JSON, JSON in ```json code block, JSON in ``` block.
+   */
+  _parseTasksFromOutput(output) {
+    if (!output) return null;
+
+    // Try to extract JSON from code block first
+    const codeBlockMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : output.trim();
+
+    // Try parsing the extracted string as JSON
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.tasks)) return parsed.tasks;
+    } catch (_) {
+      // Fall through to regex extraction
+    }
+
+    // Last resort: find a JSON array anywhere in the output
+    const arrayMatch = output.match(/\[[\s\S]*?\]/);
+    if (arrayMatch) {
+      try {
+        const parsed = JSON.parse(arrayMatch[0]);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {}
+    }
+
+    // Find a JSON object with a tasks array
+    const objectMatch = output.match(/\{[\s\S]*?"tasks"[\s\S]*?\}/);
+    if (objectMatch) {
+      try {
+        const parsed = JSON.parse(objectMatch[0]);
+        if (parsed && Array.isArray(parsed.tasks)) return parsed.tasks;
+      } catch (_) {}
+    }
+
+    return null;
   }
 
   async _runTask({ runId, task, model, effort }) {
@@ -302,7 +340,21 @@ Rules:
 - title must be concise (max 50 chars)
 - description is one sentence describing the outcome
 
-Return the task decomposition JSON.`;
+Return ONLY a JSON array of task objects, no other text. Each object must have these fields:
+- title: string (max 50 chars)
+- description: string (one sentence)
+- branchSuffix: string (lowercase-kebab-case, max 30 chars)
+- prompt: string (self-contained implementation prompt for Claude Code)
+
+Example format:
+[
+  {
+    "title": "Add JWT middleware",
+    "description": "Create JWT validation middleware for Express routes.",
+    "branchSuffix": "add-jwt-middleware",
+    "prompt": "Create a JWT authentication middleware in src/middleware/auth.js that validates Bearer tokens using the jsonwebtoken package. Export it as a default function. Do not modify any other files."
+  }
+]`;
   }
 
   _sanitizeBranchSuffix(raw) {

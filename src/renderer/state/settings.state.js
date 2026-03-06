@@ -44,6 +44,7 @@ const defaultSettings = {
   telemetryCategories: { app: true, features: true, errors: true }, // Granular event categories
   telemetryConsentShown: false, // Whether consent prompt was shown
   agentColors: {}, // Custom colors per tool/agent name: { 'Grep': '#ff0000', 'my-agent': '#00ff00' }
+  parallelMaxAgents: 3, // Default number of parallel agents for Parallel Task Manager (1-10)
 };
 
 const settingsState = new State({ ...defaultSettings });
