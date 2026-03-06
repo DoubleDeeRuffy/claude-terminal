@@ -348,19 +348,22 @@ function _wireChatEvents() {
       }
     }
 
-    // Reset to THINKING when a new message arrives on an idle agent
-    if (a.status === 'IDLE') {
+    // Reset to THINKING only when the USER sends a new message (not for result/assistant replies)
+    if (a.status === 'IDLE' && message.type === 'user') {
       a.status = 'THINKING';
       a.currentTool = null;
       a.currentFile = null;
     }
 
-    // Update cost and tokens from result messages
+    // Update cost and tokens from result messages — and mark IDLE (turn complete)
     if (message.type === 'result') {
       if (message.total_cost_usd != null) a.cost = message.total_cost_usd;
       if (message.usage) {
         a.totalTokens = (message.usage.input_tokens || 0) + (message.usage.output_tokens || 0);
       }
+      a.status = 'IDLE';
+      a.currentTool = null;
+      a.currentFile = null;
     }
 
     // Track tool usage from assistant messages
