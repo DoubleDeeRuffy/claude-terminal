@@ -55,6 +55,9 @@ temp/
 brand/
 website/
 
+# Docs / plans
+docs/
+
 # External projects
 remotion-apple/
 

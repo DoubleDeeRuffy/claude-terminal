@@ -23,7 +23,7 @@ function createQuickPickerWindow() {
 
   quickPickerWindow = new BrowserWindow({
     width: 600,
-    height: 400,
+    height: 460,
     frame: false,
     transparent: true,
     resizable: false,
@@ -97,6 +97,35 @@ function registerQuickPickerHandlers() {
     // Send project to open
     setTimeout(() => {
       mainWindow.webContents.send('open-project', project);
+    }, 200);
+  });
+
+  // Handle command selection (navigate to tab in main window)
+  ipcMain.on('quick-pick-command', (event, { tabId, action }) => {
+    hideQuickPicker();
+
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+
+    showMainWindow();
+
+    setTimeout(() => {
+      mainWindow.webContents.send('navigate-to-tab', { tabId, action });
+    }, 200);
+  });
+
+  // Handle workflow trigger (navigate to workflows panel and trigger the workflow)
+  ipcMain.on('quick-pick-workflow', (event, { workflowId }) => {
+    hideQuickPicker();
+
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return;
+
+    showMainWindow();
+
+    setTimeout(() => {
+      mainWindow.webContents.send('navigate-to-tab', { tabId: 'workflows' });
+      mainWindow.webContents.send('workflow-trigger', { workflowId });
     }, 200);
   });
 

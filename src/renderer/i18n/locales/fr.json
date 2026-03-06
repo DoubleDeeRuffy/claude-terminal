@@ -536,7 +536,42 @@
   },
   "quickPicker": {
     "searchProjects": "Rechercher un projet...",
-    "noProjectFound": "Aucun projet trouvé"
+    "noProjectFound": "Aucun projet trouvé",
+    "placeholder": "Rechercher partout...",
+    "noResult": "Aucun résultat",
+    "loading": "Chargement...",
+    "branch": {
+      "current": "actuelle"
+    },
+    "section": {
+      "projects": "Projets",
+      "commands": "Commandes",
+      "branches": "Branches Git",
+      "sessions": "Sessions récentes",
+      "mcp": "Serveurs MCP",
+      "quickActions": "Actions rapides"
+    },
+    "mode": {
+      "commands": "commandes",
+      "branches": "branches",
+      "sessions": "sessions",
+      "mcp": "mcp"
+    },
+    "nav": {
+      "navigate": "naviguer",
+      "open": "ouvrir"
+    },
+    "cmd": {
+      "settings": "Ouvrir les paramètres",
+      "newProject": "Nouveau projet",
+      "newTerminal": "Nouveau terminal",
+      "openGit": "Panneau Git",
+      "openMcp": "Panneau MCP",
+      "openSkills": "Panneau Skills",
+      "openAgents": "Panneau Agents",
+      "openDashboard": "Tableau de bord",
+      "openMemory": "Éditeur mémoire"
+    }
   },
   "modal": {
     "confirm": "Confirmer",
@@ -1841,5 +1876,65 @@
     "trigger": {
       "label": "Déclencheur"
     }
+  },
+  "tasks": {
+    "title": "Tâches",
+    "add": "Ajouter",
+    "addPlaceholder": "Titre de la tâche...",
+    "noTasks": "Aucune tâche",
+    "statusTodo": "À faire",
+    "statusInProgress": "En cours",
+    "statusDone": "Terminé",
+    "start": "Démarrer",
+    "complete": "Terminer",
+    "delete": "Supprimer",
+    "deleteConfirmTitle": "Supprimer la tâche",
+    "deleteConfirmMessage": "Supprimer \"{title}\" ?",
+    "linkSession": "Lier session",
+    "openSession": "Ouvrir la session",
+    "selectSession": "Sélectionner une session",
+    "sessionLinked": "Session liée : {sessionId}",
+    "noActiveSession": "Aucune session active à lier",
+    "sessionJustNow": "À l'instant",
+    "sessionMinutesAgo": "Il y a {count} min",
+    "sessionHoursAgo": "Il y a {count}h"
+  },
+  "kanban": {
+    "tab": "Kanban",
+    "overview": "Aperçu",
+    "addColumn": "+ Colonne",
+    "manageLabels": "Labels",
+    "addCard": "+ Ajouter",
+    "noCards": "Aucune carte",
+    "editCard": "Modifier la carte",
+    "cardTitle": "Titre",
+    "cardTitlePlaceholder": "Titre de la carte...",
+    "cardDescription": "Description",
+    "cardDescriptionPlaceholder": "Description (optionnel)...",
+    "cardLabels": "Labels",
+    "cardSession": "Session Claude",
+    "cardSessionLink": "Lier session",
+    "cardSessionOpen": "Ouvrir la session",
+    "columnTitle": "Titre de la colonne",
+    "columnTitlePlaceholder": "Nom de la colonne...",
+    "deleteColumn": "Supprimer la colonne",
+    "deleteColumnDisabled": "Videz la colonne avant de la supprimer",
+    "deleteColumnConfirm": "Supprimer la colonne \"{title}\" ?",
+    "addColumnTitle": "Nouvelle colonne",
+    "labelName": "Nom du label",
+    "labelNamePlaceholder": "Ex: bug, feature...",
+    "labelColor": "Couleur",
+    "addLabel": "+ Label",
+    "deleteLabel": "Supprimer",
+    "manageLabelsTitle": "Gérer les labels",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "confirmDeleteCard": "Supprimer la carte \"{title}\" ?",
+    "worktree": "Worktree",
+    "worktreeNone": "Aucun worktree",
+    "sessions": "Sessions",
+    "sessionsLoading": "Chargement...",
+    "sessionsEmpty": "Aucune session trouvée"
   }
 }

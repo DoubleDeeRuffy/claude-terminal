@@ -7,11 +7,16 @@
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive } = require('../state');
+const { showConfirm, createModal, showModal, closeModal } = require('../ui/components/Modal');
 const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
+const KanbanPanel = require('../ui/panels/KanbanPanel');
+
+// Per-project active view: 'overview' | 'kanban'
+const _dashViews = new Map();
 
 // ========== CACHE SYSTEM (LRU with size limit) ==========
 const MAX_CACHE_SIZE = 50; // Max cached projects
@@ -684,6 +689,21 @@ function buildChangedFilesHtml(files) {
 }
 
 /**
+ * Build the view tabs HTML (Overview / Kanban switcher)
+ * @param {string} projectId
+ * @returns {string}
+ */
+function buildViewTabsHtml(projectId) {
+  const view = _dashViews.get(projectId) || 'overview';
+  return `
+    <div class="dashboard-view-tabs">
+      <button class="dashboard-view-tab${view === 'overview' ? ' active' : ''}" data-view="overview">${t('kanban.overview')}</button>
+      <button class="dashboard-view-tab${view === 'kanban' ? ' active' : ''}" data-view="kanban">${t('kanban.tab')}</button>
+    </div>
+  `;
+}
+
+/**
  * Build git status section HTML
  * @param {Object} gitInfo
  * @returns {string}
@@ -1327,8 +1347,27 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     onGitPull,
     onGitPush,
     onMergeAbort,
-    onCopyPath
+    onCopyPath,
   } = options;
+
+  const currentView = _dashViews.get(project.id) || 'overview';
+
+  if (currentView === 'kanban') {
+    container.innerHTML = buildViewTabsHtml(project.id);
+    const kanbanWrap = document.createElement('div');
+    kanbanWrap.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0';
+    container.appendChild(kanbanWrap);
+    KanbanPanel.render(kanbanWrap, project, {
+      onSessionOpen: options.onTaskSessionOpen,
+    });
+    container.querySelectorAll('.dashboard-view-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _dashViews.set(project.id, btn.dataset.view);
+        renderDashboardHtml(container, project, data, options, isRefreshing);
+      });
+    });
+    return;
+  }
 
   const { gitInfo, stats, workflowRuns, pullRequests, commitHistory30d } = data;
   const typeHandler = registry.get(project.type);
@@ -1339,6 +1378,7 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
 
   // Build HTML
   container.innerHTML = `
+    ${buildViewTabsHtml(project.id)}
     ${isRefreshing ? `<div class="dashboard-refresh-indicator"><span class="refresh-spinner"></span> ${t('dashboard.refreshing')}</div>` : ''}
     ${hasMergeConflict ? `
     <div class="dashboard-merge-alert">
@@ -1496,6 +1536,14 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
   container.querySelector('.btn-copy-path')?.addEventListener('click', () => {
     navigator.clipboard.writeText(project.path);
     if (onCopyPath) onCopyPath(project.path);
+  });
+
+  // View tab switcher
+  container.querySelectorAll('.dashboard-view-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _dashViews.set(project.id, btn.dataset.view);
+      renderDashboardHtml(container, project, data, options, isRefreshing);
+    });
   });
 }
 
@@ -2040,5 +2088,5 @@ module.exports = {
   invalidateCache,
   clearAllCache,
   loadAllDiskCaches,
-  preloadAllProjects
+  preloadAllProjects,
 };

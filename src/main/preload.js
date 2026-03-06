@@ -397,7 +397,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     select: (project) => ipcRenderer.send('quick-pick-select', project),
     close: () => ipcRenderer.send('quick-pick-close'),
     onReloadProjects: createListener('reload-projects'),
-    onOpenProject: createListener('open-project')
+    onOpenProject: createListener('open-project'),
+    onNavigateTab: createListener('navigate-to-tab')
   },
 
   // ==================== TRAY ====================

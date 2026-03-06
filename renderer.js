@@ -631,7 +631,28 @@ function refreshDashboardAsync(projectId) {
         onGitPull: (pid) => gitPull(pid),
         onGitPush: (pid) => gitPush(pid),
         onMergeAbort: (pid) => gitMergeAbort(pid),
-        onCopyPath: () => {}
+        onCopyPath: () => {},
+        onTaskSessionOpen: async (proj, sessionId) => {
+          const switchToClaude = () => {
+            document.querySelector('[data-tab="claude"]')?.click();
+            setSelectedProjectFilter(projectIndex);
+            ProjectList.render();
+            TerminalManager.filterByProject(projectIndex);
+          };
+          // Find existing terminal with this session
+          const terms = terminalsState.get().terminals;
+          for (const [id, td] of terms) {
+            if (td.claudeSessionId === sessionId) {
+              switchToClaude();
+              TerminalManager.setActiveTerminal(id);
+              return;
+            }
+          }
+          // No terminal found → resume session
+          await TerminalManager.resumeSession(proj, sessionId, { skipPermissions: settingsState.get().skipPermissions });
+          switchToClaude();
+        },
+        onTaskRender: () => { refreshDashboardAsync(projectId); }
       });
     }
   }
@@ -2747,7 +2768,26 @@ async function renderDashboardContent(projectIndex) {
     onGitPull: (projectId) => gitPull(projectId),
     onGitPush: (projectId) => gitPush(projectId),
     onMergeAbort: (projectId) => gitMergeAbort(projectId),
-    onCopyPath: () => {}
+    onCopyPath: () => {},
+    onTaskSessionOpen: async (proj, sessionId) => {
+      const switchToClaude = () => {
+        document.querySelector('[data-tab="claude"]')?.click();
+        setSelectedProjectFilter(projectIndex);
+        ProjectList.render();
+        TerminalManager.filterByProject(projectIndex);
+      };
+      const terms = terminalsState.get().terminals;
+      for (const [id, td] of terms) {
+        if (td.claudeSessionId === sessionId) {
+          switchToClaude();
+          TerminalManager.setActiveTerminal(id);
+          return;
+        }
+      }
+      await TerminalManager.resumeSession(proj, sessionId, { skipPermissions: settingsState.get().skipPermissions });
+      switchToClaude();
+    },
+    onTaskRender: () => { renderDashboardContent(projectIndex); }
   });
 }
 
@@ -3856,6 +3896,15 @@ api.quickPicker.onOpenProject((project) => {
     setSelectedProjectFilter(projectIndex);
     ProjectList.render();
     createTerminalForProject(existingProject);
+  }
+});
+
+// Quick picker command: navigate to a tab or trigger an action
+api.quickPicker.onNavigateTab(({ tabId, action }) => {
+  if (action === 'new-project') {
+    document.getElementById('btn-new-project')?.click();
+  } else if (tabId) {
+    document.querySelector(`.nav-tab[data-tab="${tabId}"]`)?.click();
   }
 });
 
