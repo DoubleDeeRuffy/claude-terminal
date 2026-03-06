@@ -1036,12 +1036,17 @@ function _sendReply(agentId, text) {
   if (!perm) return;
 
   try {
-    // Reply via respondPermission with the answer embedded in updatedInput
+    // Match ChatView format: { questions: [...], answers: { "question text": "answer" } }
+    const questionsData = perm.input?.questions || [];
+    const firstQuestion = questionsData[0]?.question || '';
+    const answers = firstQuestion
+      ? { [firstQuestion]: text.trim() }
+      : { answer: text.trim() };
     window.electron_api.chat.respondPermission({
       requestId: perm.requestId,
       result: {
         behavior: 'allow',
-        updatedInput: { ...perm.input, answer: text.trim() }
+        updatedInput: { questions: questionsData, answers }
       }
     });
   } catch (e) {
