@@ -315,6 +315,24 @@ function _wireChatEvents() {
     const a = _agents.get(key);
     if (!a) return;
 
+    // Retry project resolution if it failed at creation (timing race)
+    if (a.projectName === 'Chat' || !a.projectPath) {
+      const chatInfo = _findChatSession(sessionId);
+      if (chatInfo && chatInfo.projectName !== 'Chat') {
+        a.projectName = chatInfo.projectName;
+        a.projectPath = chatInfo.projectPath;
+        if (chatInfo.terminalId) a.terminalId = chatInfo.terminalId;
+        if (chatInfo.sessionName) a.sessionName = chatInfo.sessionName;
+      }
+    }
+
+    // Reset to THINKING when a new message arrives on an idle agent
+    if (a.status === 'IDLE') {
+      a.status = 'THINKING';
+      a.currentTool = null;
+      a.currentFile = null;
+    }
+
     // Update cost and tokens from result messages
     if (message.type === 'result') {
       if (message.total_cost_usd != null) a.cost = message.total_cost_usd;
@@ -404,10 +422,12 @@ function _findChatSession(sessionId) {
     const { terminalsState } = require('../../state/terminals.state');
     const terminals = terminalsState.get().terminals;
     for (const [id, td] of terminals) {
-      if (td.chatSessionId === sessionId) {
+      // claudeSessionId is set by ChatView: updateTerminal(id, { claudeSessionId: sessionId })
+      // Also match directly on the terminal id (same format: chat-TIMESTAMP-RANDOM)
+      if (td.claudeSessionId === sessionId || id === sessionId) {
         return {
-          projectName: td.projectName || td.project?.name || 'Chat',
-          projectPath: td.projectPath || td.project?.path || '',
+          projectName: td.project?.name || 'Chat',
+          projectPath: td.project?.path || '',
           terminalId: id,
           sessionName: td.name || null
         };
@@ -667,7 +687,10 @@ function _buildAgentCard(agent) {
 
   const activityLine = agent.currentTool
     ? `${escapeHtml(agent.currentTool)}${agent.currentFile ? ` → ${escapeHtml(agent.currentFile)}` : ''}`
-    : (isActive ? t('controlTower.activityWaiting') : '—');
+    : agent.status === 'THINKING'     ? t('controlTower.activityThinking')
+    : agent.status === 'RUNNING_TOOL' ? t('controlTower.activityThinking')
+    : agent.status === 'WAITING'      ? t('controlTower.activityWaiting')
+    : '—';
 
   const branchBadge = agent.branch
     ? `<span class="ct-branch-badge">

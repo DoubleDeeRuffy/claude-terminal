@@ -1235,7 +1235,7 @@
     "statusIdle": "IDLE",
     "statusDone": "DONE",
     "statusError": "ERROR",
-    "activityWaiting": "Waiting…",
+    "activityWaiting": "Waiting for approval…",
     "tokens": "tokens",
     "focus": "Focus",
     "interrupt": "Interrupt",
@@ -1246,7 +1246,8 @@
     "replyPlaceholder": "Your reply…",
     "showLastResponse": "See response",
     "emptyTitle": "No active Claude sessions",
-    "emptyDesc": "Open a terminal or start a chat to begin."
+    "emptyDesc": "Open a terminal or start a chat to begin.",
+    "activityThinking": "Thinking…"
   },
   "remote": {
     "tabTitle": "Remote",

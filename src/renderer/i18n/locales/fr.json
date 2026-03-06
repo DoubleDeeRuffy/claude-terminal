@@ -1235,7 +1235,7 @@
     "statusIdle": "INACTIF",
     "statusDone": "TERMINÉ",
     "statusError": "ERREUR",
-    "activityWaiting": "En attente…",
+    "activityWaiting": "En attente d'approbation…",
     "tokens": "tokens",
     "focus": "Focaliser",
     "interrupt": "Interrompre",
@@ -1246,7 +1246,8 @@
     "replyPlaceholder": "Votre réponse…",
     "showLastResponse": "Voir la réponse",
     "emptyTitle": "Aucune session Claude active",
-    "emptyDesc": "Ouvrez un terminal ou démarrez un chat pour commencer."
+    "emptyDesc": "Ouvrez un terminal ou démarrez un chat pour commencer.",
+    "activityThinking": "Réflexion en cours…"
   },
   "remote": {
     "tabTitle": "Télécommande",
