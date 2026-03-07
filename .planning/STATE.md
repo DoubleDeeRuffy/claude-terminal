@@ -43,3 +43,4 @@ Last activity: 2026-03-04 — 33-01 complete (updater settings UI + service wiri
 - Phase 32 added: Close-Warnings (warn before closing if Claude is actively working, show project + tab name)
 - Phase 33 added: Updater-Settings (configurable check interval, download mode, install mode)
 - Phase 33 complete: 3 updater settings dropdowns, settings-driven UpdaterService, manual download banner flow
+- Phase 34 added: AI-Rename-Menuitem in the tab contextmenu based on the existing ai-rename mechanism
