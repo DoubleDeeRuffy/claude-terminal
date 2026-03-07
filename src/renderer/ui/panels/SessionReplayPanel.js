@@ -24,12 +24,14 @@ let playerIsPlaying = false;
 let playerSpeed = 1;
 let playerTimer = null;
 let _playerDragCleanup = null;
+let currentView = 'timeline'; // 'timeline' | 'player'
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 let projectSelect = null;
 let sessionSelect = null;
 let loadBtn = null;
 let summaryBar = null;
+let viewToggleEl = null;
 let timeline = null;
 let playerChatEl = null;
 let playerBarEl = null;
@@ -678,7 +680,9 @@ async function loadReplay() {
     currentSessionId = sessionId;
     selectedStepIndex = -1;
     renderSummary(currentSummary);
-    initPlayer(currentSteps);
+    currentView = 'timeline';
+    renderTimeline(currentSteps);
+    _renderViewToggle();
   } catch (e) {
     timeline.innerHTML = `<div class="sr-empty sr-empty--error">${t('sessionReplay.errorLoading')}: ${escapeHtml(e.message)}</div>`;
   } finally {
@@ -974,6 +978,39 @@ function playerSeekTo(idx) {
   requestAnimationFrame(() => { playerChatEl.scrollTop = playerChatEl.scrollHeight; });
 }
 
+// ── View toggle helpers ───────────────────────────────────────────────────────
+function _renderViewToggle() {
+  if (!viewToggleEl) return;
+  const playSvg = `<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M8 5v14l11-7z"/></svg>`;
+  const listSvg = `<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>`;
+  if (currentView === 'timeline') {
+    viewToggleEl.innerHTML = `<button class="sr-view-btn sr-view-btn--player">${playSvg} Lecture</button>`;
+  } else {
+    viewToggleEl.innerHTML = `<button class="sr-view-btn sr-view-btn--timeline">${listSvg} Timeline</button>`;
+  }
+  viewToggleEl.querySelector('.sr-view-btn').addEventListener('click', () => {
+    if (currentView === 'timeline') _switchToPlayer();
+    else _switchToTimeline();
+  });
+  viewToggleEl.hidden = false;
+}
+
+function _switchToTimeline() {
+  _playerPause();
+  currentView = 'timeline';
+  playerChatEl.hidden = true;
+  playerBarEl.hidden = true;
+  timeline.hidden = false;
+  renderTimeline(currentSteps);
+  _renderViewToggle();
+}
+
+function _switchToPlayer() {
+  currentView = 'player';
+  initPlayer(currentSteps);
+  _renderViewToggle();
+}
+
 function initPlayer(rawSteps) {
   // Filter system-injected noise: skill base-directory reminders
   const filtered = rawSteps.filter(step => {
@@ -1021,13 +1058,7 @@ function initPlayer(rawSteps) {
     _updatePlayerBar();
   });
 
-  playerBarEl.querySelector('#sr-pbar-timeline').addEventListener('click', () => {
-    _playerPause();
-    playerChatEl.hidden = true;
-    playerBarEl.hidden = true;
-    timeline.hidden = false;
-    renderTimeline(rawSteps);
-  });
+  playerBarEl.querySelector('#sr-pbar-timeline').addEventListener('click', () => _switchToTimeline());
 
   playerBarEl.querySelectorAll('.sr-pbar-speed').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1162,7 +1193,10 @@ function buildHtml() {
           <button class="sr-load-btn" id="sr-load-btn" disabled>${t('sessionReplay.load')}</button>
         </div>
       </div>
-      <div class="sr-summary" id="sr-summary"></div>
+      <div class="sr-meta">
+        <div class="sr-summary" id="sr-summary"></div>
+        <div id="sr-view-toggle" class="sr-view-toggle" hidden></div>
+      </div>
       <div class="sr-timeline" id="sr-timeline">
         ${buildEmptyStateHtml()}
       </div>
@@ -1180,6 +1214,7 @@ function init(containerEl, opts = {}) {
   // Bind basic DOM refs
   loadBtn = container.querySelector('#sr-load-btn');
   summaryBar = container.querySelector('#sr-summary');
+  viewToggleEl = container.querySelector('#sr-view-toggle');
   timeline = container.querySelector('#sr-timeline');
   playerChatEl = container.querySelector('#sr-player-chat');
   playerBarEl = container.querySelector('#sr-player-bar');
@@ -1225,6 +1260,8 @@ function init(containerEl, opts = {}) {
     if (playerBarEl)  playerBarEl.hidden = true;
     playerSteps = [];
     playerCurrentStep = -1;
+    currentView = 'timeline';
+    if (viewToggleEl) viewToggleEl.hidden = true;
     timeline.hidden = false;
     timeline.innerHTML = buildEmptyStateHtml();
     summaryBar.innerHTML = '';

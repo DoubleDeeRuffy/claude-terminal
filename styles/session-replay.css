@@ -196,11 +196,54 @@
 }
 
 /* ── Summary bar ─────────────────────────────────────────────── */
-.sr-summary {
-  padding: 8px 20px;
+.sr-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   min-height: 0;
+}
+
+.sr-summary {
+  padding: 8px 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.sr-view-toggle {
+  flex-shrink: 0;
+  padding-left: 12px;
+}
+
+.sr-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.sr-view-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sr-view-btn--player {
+  border-color: rgba(217, 119, 6, 0.35);
+  color: var(--accent);
+}
+
+.sr-view-btn--player:hover {
+  background: var(--accent-dim);
 }
 
 .sr-summary-items {
@@ -1054,6 +1097,11 @@
 }
 
 /* ── Player chat view ─────────────────────────────────────────── */
+.sr-player-chat[hidden],
+.sr-player-bar[hidden] {
+  display: none !important;
+}
+
 .sr-player-chat {
   flex: 1;
   overflow-y: auto;
