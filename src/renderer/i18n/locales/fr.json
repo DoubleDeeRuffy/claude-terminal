@@ -1452,6 +1452,7 @@
   },
   "tabs": {
     "rename": "Renommer",
+    "aiRename": "Renommer par IA",
     "close": "Fermer",
     "closeOthers": "Fermer les autres",
     "closeToRight": "Fermer les onglets à droite",

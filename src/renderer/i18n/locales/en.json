@@ -1452,6 +1452,7 @@
   },
   "tabs": {
     "rename": "Rename",
+    "aiRename": "AI Rename",
     "close": "Close",
     "closeOthers": "Close Others",
     "closeToRight": "Close Tabs to Right",

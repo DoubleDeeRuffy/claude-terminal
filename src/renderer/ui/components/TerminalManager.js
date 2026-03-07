@@ -361,8 +361,7 @@ const SLASH_RENAME_COOLDOWN = 30000; // 30s — protect slash name for this long
  * Used to prevent the post-resume OSC title (✳ project-folder-name) from
  * overwriting the restored name.
  */
-const restoreRenameTimestamps = new Map();
-const RESTORE_RENAME_COOLDOWN = 30000; // 30s — protect restored name for this long
+const restoreNameProtected = new Set();
 
 /**
  * Returns true when an OSC title rename should be skipped because the tab was
@@ -373,8 +372,8 @@ const RESTORE_RENAME_COOLDOWN = 30000; // 30s — protect restored name for this
  */
 function shouldSkipOscRename(id) {
   // Check restore protection first (independent of tabRenameOnSlashCommand setting)
-  const restoreTs = restoreRenameTimestamps.get(id);
-  if (restoreTs && Date.now() - restoreTs < RESTORE_RENAME_COOLDOWN) return true;
+  // Cleared on first user Enter keypress — see terminal.onData handler
+  if (restoreNameProtected.has(id)) return true;
 
   if (!getSetting('tabRenameOnSlashCommand')) return false;
   const td = getTerminal(id);
@@ -1286,6 +1285,33 @@ function startRenameTab(id) {
 }
 
 /**
+ * Trigger AI-based tab renaming using the existing generateTabName mechanism.
+ * Shows '...' as a loading indicator, reverts to the original name on failure.
+ * @param {string} id - Tab/terminal ID
+ */
+async function handleAiRename(id) {
+  const termData = getTerminal(id);
+  if (!termData) return;
+
+  const originalName = termData.name || '';
+
+  // Show loading indicator immediately
+  updateTerminalTabName(id, '...');
+
+  try {
+    const input = originalName || 'terminal';
+    const res = await api.chat.generateTabName({ userMessage: input });
+    if (res?.success && res.name) {
+      updateTerminalTabName(id, res.name);
+    } else {
+      updateTerminalTabName(id, originalName);
+    }
+  } catch (err) {
+    updateTerminalTabName(id, originalName);
+  }
+}
+
+/**
  * Show right-click context menu on a tab (Rename, Close, Close Others, Close to Right, Split)
  * @param {MouseEvent} e - The contextmenu event
  * @param {string} id - Tab/terminal ID
@@ -1309,6 +1335,12 @@ function showTabContextMenu(e, id) {
         shortcut: 'Double-click',
         icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
         onClick: () => startRenameTab(id)
+      },
+      {
+        label: t('tabs.aiRename'),
+        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.5 14H13v-3.5L9.5 17l-1-1 3.5-3.5H8.5V11h6v6z"/></svg>',
+        disabled: getSetting('aiTabNaming') === false,
+        onClick: () => handleAiRename(id)
       },
       { separator: true },
       {
@@ -1791,7 +1823,7 @@ async function createTerminal(project, options = {}) {
 
   // Protect restored custom names from being overwritten by post-resume OSC titles
   if (resumeSessionId && customName) {
-    restoreRenameTimestamps.set(id, Date.now());
+    restoreNameProtected.add(id);
   }
 
   // Start time tracking for this project
@@ -1938,6 +1970,8 @@ async function createTerminal(project, options = {}) {
     const td = getTerminal(id);
     if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
+      // User sent new input — allow OSC title renames again for this terminal
+      restoreNameProtected.delete(id);
       cancelScheduledReady(id);
       updateTerminalStatus(id, 'working');
       if (scrapingEventCallback) scrapingEventCallback(id, 'input', {});
@@ -3381,7 +3415,7 @@ async function resumeSession(project, sessionId, options = {}) {
 
   // Protect restored custom names from being overwritten by post-resume OSC titles
   if (sessionName) {
-    restoreRenameTimestamps.set(id, Date.now());
+    restoreNameProtected.add(id);
   }
 
   // If a saved name was passed, persist it immediately — --resume does not emit
@@ -3458,6 +3492,8 @@ async function resumeSession(project, sessionId, options = {}) {
     const td = getTerminal(id);
     if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
+      // User sent new input — allow OSC title renames again for this terminal
+      restoreNameProtected.delete(id);
       cancelScheduledReady(id);
       updateTerminalStatus(id, 'working');
       if (td && td.inputBuffer.trim().length > 0) {
@@ -4298,7 +4334,7 @@ async function createChatTerminal(project, options = {}) {
 
   // Protect restored custom names from being overwritten by post-resume OSC titles
   if (resumeSessionId && customName) {
-    restoreRenameTimestamps.set(id, Date.now());
+    restoreNameProtected.add(id);
   }
 
   heartbeat(parentProjectId || project.id, 'terminal');
