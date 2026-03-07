@@ -125,4 +125,4 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 34-01-PLAN.md — AI Rename context menu item with async Haiku naming
+- [x] 34-01-PLAN.md — AI Rename context menu item with async Haiku naming
