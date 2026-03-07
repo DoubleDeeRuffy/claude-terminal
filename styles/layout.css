@@ -603,6 +603,12 @@ body.platform-darwin .titlebar-drag {
   margin: 0 8px;
 }
 
+.sidebar.collapsed .nav-separator--bare {
+  border-top: none;
+  margin-top: 0;
+  padding: 0;
+}
+
 .sidebar.collapsed .nav-tab {
   justify-content: center;
   padding: 10px;
