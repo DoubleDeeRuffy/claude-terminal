@@ -334,55 +334,113 @@ function wireTabRenameConsumer() {
   );
 }
 
-// ── Consumer: Session Recap (hooks-only — generates AI summary after session ends) ──
+// ── Consumer: Session Recap ──
+// For hooks: accumulates data across ALL turns of a conversation (multiple Stop events).
+// Recap is generated when the session truly ends (reason:'end') OR after 5min of inactivity.
+// For chat: recap is generated immediately when the tab is closed (destroy()).
 function wireSessionRecapConsumer() {
+  // Own accumulation per project — survives across multiple turns
+  // projectId -> { toolCounts: {}, prompts: [], startTime, toolCount }
+  const recapCtx = new Map();
+  // Debounce timers: after a Stop event, wait 5min before generating (cancel if new turn starts)
+  const recapTimers = new Map();
+  const DEBOUNCE_MS = 5 * 60 * 1000;
+
+  function callRecapService(projectId, enrichedCtx) {
+    try {
+      const SessionRecapService = require('../services/SessionRecapService');
+      SessionRecapService.handleSessionEnd(projectId, enrichedCtx).catch(err => {
+        console.warn('[Events] SessionRecap error:', err.message);
+      });
+    } catch (err) {
+      console.warn('[Events] SessionRecapService not available:', err.message);
+    }
+  }
+
+  function flushRecap(projectId) {
+    const accum = recapCtx.get(projectId);
+    recapCtx.delete(projectId);
+    if (!accum || accum.toolCount < 2) return;
+    callRecapService(projectId, {
+      toolCounts: accum.toolCounts,
+      prompts: accum.prompts,
+      durationMs: Date.now() - accum.startTime,
+      toolCount: accum.toolCount
+    });
+  }
+
+  function cancelTimer(projectId) {
+    if (recapTimers.has(projectId)) {
+      clearTimeout(recapTimers.get(projectId));
+      recapTimers.delete(projectId);
+    }
+  }
+
   consumerUnsubscribers.push(
-    // Collect user prompts into session context
-    eventBus.on(EVENT_TYPES.PROMPT_SUBMIT, (e) => {
+    // New turn starting: cancel pending debounce timer (user is still working)
+    eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      const ctx = sessionContext.get(e.projectId);
-      if (!ctx) return;
-      const prompt = e.data?.prompt;
-      if (prompt && ctx.prompts.length < 5) {
-        ctx.prompts.push(prompt);
+      cancelTimer(e.projectId);
+      if (!recapCtx.has(e.projectId)) {
+        recapCtx.set(e.projectId, { toolCounts: {}, prompts: [], startTime: Date.now(), toolCount: 0 });
       }
     }),
 
-    // On session end: generate recap if session was meaningful (hooks or chat)
+    // Accumulate user prompts (first 5)
+    eventBus.on(EVENT_TYPES.PROMPT_SUBMIT, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      if (!recapCtx.has(e.projectId)) {
+        recapCtx.set(e.projectId, { toolCounts: {}, prompts: [], startTime: Date.now(), toolCount: 0 });
+      }
+      const accum = recapCtx.get(e.projectId);
+      const prompt = e.data?.prompt;
+      if (prompt && accum.prompts.length < 5) accum.prompts.push(prompt);
+    }),
+
+    // Accumulate tool usage across turns
+    eventBus.on(EVENT_TYPES.TOOL_START, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      if (!recapCtx.has(e.projectId)) {
+        recapCtx.set(e.projectId, { toolCounts: {}, prompts: [], startTime: Date.now(), toolCount: 0 });
+      }
+      const accum = recapCtx.get(e.projectId);
+      const toolName = e.data?.toolName;
+      if (toolName) accum.toolCounts[toolName] = (accum.toolCounts[toolName] || 0) + 1;
+      accum.toolCount++;
+    }),
+
+    // Session end
     eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
       if ((e.source !== 'hooks' && e.source !== 'chat') || !e.projectId) return;
 
-      let enrichedCtx;
       if (e.source === 'chat') {
-        // Data comes directly from ChatView.destroy()
+        // Chat: generate immediately on tab close (data comes from ChatView.destroy())
         if (!e.data?.toolCount || e.data.toolCount < 2) return;
-        enrichedCtx = {
+        callRecapService(e.projectId, {
           toolCounts: e.data.toolCounts || {},
           prompts: e.data.prompts || [],
           durationMs: e.data.durationMs || 0,
           toolCount: e.data.toolCount
-        };
-      } else {
-        // hooks source: read from sessionContext
-        const ctx = sessionContext.get(e.projectId);
-        if (!ctx || ctx.toolCount < 2) return;
-        const durationMs = Date.now() - (ctx.startTime || Date.now());
-        enrichedCtx = {
-          toolCounts: Object.fromEntries(ctx.toolCounts),
-          prompts: ctx.prompts || [],
-          durationMs,
-          toolCount: ctx.toolCount
-        };
+        });
+        return;
       }
 
-      // Non-blocking async call
-      try {
-        const SessionRecapService = require('../services/SessionRecapService');
-        SessionRecapService.handleSessionEnd(e.projectId, enrichedCtx).catch(err => {
-          console.warn('[Events] SessionRecap error:', err.message);
-        });
-      } catch (err) {
-        console.warn('[Events] SessionRecapService not available:', err.message);
+      // Hooks: check we have enough data
+      const accum = recapCtx.get(e.projectId);
+      if (!accum || accum.toolCount < 2) return;
+
+      if (e.data?.reason === 'end') {
+        // Real session end (SessionEnd hook): generate immediately
+        cancelTimer(e.projectId);
+        flushRecap(e.projectId);
+      } else {
+        // Turn end (Stop hook): debounce — user may send another prompt
+        cancelTimer(e.projectId);
+        const timerId = setTimeout(() => {
+          recapTimers.delete(e.projectId);
+          flushRecap(e.projectId);
+        }, DEBOUNCE_MS);
+        recapTimers.set(e.projectId, timerId);
       }
     })
   );
