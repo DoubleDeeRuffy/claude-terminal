@@ -45,6 +45,7 @@ const defaultSettings = {
   telemetryConsentShown: false, // Whether consent prompt was shown
   agentColors: {}, // Custom colors per tool/agent name: { 'Grep': '#ff0000', 'my-agent': '#00ff00' }
   pinnedTabs: ['claude', 'git', 'database', 'mcp', 'plugins', 'skills', 'agents', 'workflows', 'dashboard', 'timetracking', 'memory', 'cloud-panel'], // Pinned sidebar tabs (rest go to More menu)
+  tabsOrder: null, // null = canonical order, otherwise array of all tabIds in custom order
 };
 
 const settingsState = new State({ ...defaultSettings });
