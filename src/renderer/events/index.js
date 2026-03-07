@@ -348,20 +348,32 @@ function wireSessionRecapConsumer() {
       }
     }),
 
-    // On session end: generate recap if session was meaningful
+    // On session end: generate recap if session was meaningful (hooks or chat)
     eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
-      if (e.source !== 'hooks' || !e.projectId) return;
-      const ctx = sessionContext.get(e.projectId);
-      // Skip trivial sessions (< 2 tool uses)
-      if (!ctx || ctx.toolCount < 2) return;
+      if ((e.source !== 'hooks' && e.source !== 'chat') || !e.projectId) return;
 
-      const durationMs = Date.now() - (ctx.startTime || Date.now());
-      const enrichedCtx = {
-        toolCounts: Object.fromEntries(ctx.toolCounts),
-        prompts: ctx.prompts || [],
-        durationMs,
-        toolCount: ctx.toolCount
-      };
+      let enrichedCtx;
+      if (e.source === 'chat') {
+        // Data comes directly from ChatView.destroy()
+        if (!e.data?.toolCount || e.data.toolCount < 2) return;
+        enrichedCtx = {
+          toolCounts: e.data.toolCounts || {},
+          prompts: e.data.prompts || [],
+          durationMs: e.data.durationMs || 0,
+          toolCount: e.data.toolCount
+        };
+      } else {
+        // hooks source: read from sessionContext
+        const ctx = sessionContext.get(e.projectId);
+        if (!ctx || ctx.toolCount < 2) return;
+        const durationMs = Date.now() - (ctx.startTime || Date.now());
+        enrichedCtx = {
+          toolCounts: Object.fromEntries(ctx.toolCounts),
+          prompts: ctx.prompts || [],
+          durationMs,
+          toolCount: ctx.toolCount
+        };
+      }
 
       // Non-blocking async call
       try {
