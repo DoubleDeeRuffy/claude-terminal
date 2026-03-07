@@ -122,7 +122,7 @@ Plans:
 **Goal:** Add an "AI Rename" menu item to the tab context menu that triggers the existing Haiku-based generateTabName on demand.
 **Requirements**: [TAB-RENAME-CTX-01] Add AI Rename context menu item with loading indicator, error revert, and i18n keys.
 **Depends on:** Phase 33
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [x] 34-01-PLAN.md — AI Rename context menu item with async Haiku naming
