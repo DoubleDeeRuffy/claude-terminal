@@ -1200,7 +1200,8 @@ async function detectWorktree(projectPath) {
 async function diffWorktreeBranches(projectPath, branch1, branch2, filePath = '') {
   const fileArg = filePath ? ` -- "${filePath}"` : '';
   const diff = await execGit(projectPath, `diff ${branch1}...${branch2}${fileArg}`, 15000);
-  return diff || '';
+  if (diff === null) throw new Error(`git diff failed for ${branch1}...${branch2}`);
+  return diff;
 }
 
 /**

@@ -428,6 +428,9 @@ class ParallelTaskService {
         }
       });
 
+      // Auto-commit any uncommitted changes so git diff branch1...branch2 works
+      await this._autoCommitWorktree(task.worktreePath, task.title);
+
       this._send('parallel-task-update', {
         runId, taskId: task.id, status: 'done',
         branch: task.branch, worktreePath: task.worktreePath
@@ -446,6 +449,23 @@ class ParallelTaskService {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Auto-commit any uncommitted changes in a worktree so branch diff works.
+   * Non-blocking — silently skips if nothing to commit.
+   */
+  _autoCommitWorktree(worktreePath, taskTitle) {
+    return new Promise((resolve) => {
+      // git add -A && git diff --cached --quiet || git commit -m "..."
+      // If diff --cached --quiet exits 0 = nothing staged, skip commit
+      const msg = `parallel: ${(taskTitle || 'task').slice(0, 60)}`;
+      const cmd = `git add -A && (git diff --cached --quiet || git commit -m "${msg.replace(/"/g, '\\"')}")`;
+      require('child_process').exec(cmd, { cwd: worktreePath, timeout: 15000 }, (err) => {
+        if (err) console.log(`[ParallelTaskService] Auto-commit skipped: ${err.message}`);
+        resolve();
+      });
+    });
+  }
 
   _buildDecomposePrompt(goal, maxTasks, autoTasks, feedback) {
     const taskCountInstruction = autoTasks
