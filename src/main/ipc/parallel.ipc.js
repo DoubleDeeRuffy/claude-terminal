@@ -12,9 +12,9 @@ function registerParallelHandlers(mainWindow) {
   parallelTaskService.setMainWindow(mainWindow);
 
   // Start a new parallel run (async — returns runId immediately)
-  ipcMain.handle('parallel-run-start', async (_e, { projectPath, mainBranch, goal, maxTasks, model, effort }) => {
+  ipcMain.handle('parallel-run-start', async (_e, { projectPath, mainBranch, goal, maxTasks, autoTasks, model, effort }) => {
     try {
-      return parallelTaskService.startRun({ projectPath, mainBranch, goal, maxTasks, model, effort });
+      return parallelTaskService.startRun({ projectPath, mainBranch, goal, maxTasks, autoTasks, model, effort });
     } catch (err) {
       console.error('[parallel-run-start]', err.message);
       return { success: false, error: err.message };

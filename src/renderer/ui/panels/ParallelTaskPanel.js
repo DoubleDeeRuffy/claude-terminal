@@ -145,6 +145,7 @@ function _wireEvents() {
 
 function _buildNewRunModal() {
   const savedMaxTasks = getSetting('parallelMaxAgents') || 3;
+  const savedAutoTasks = getSetting('parallelAutoTasks') || false;
   return `
     <div class="pt-modal-overlay" id="pt-modal-overlay">
       <div class="pt-modal" role="dialog" aria-modal="true">
@@ -193,20 +194,24 @@ function _buildNewRunModal() {
           <!-- Config row: agents + model + effort -->
           <div class="pm-config-row">
             <div class="pm-field">
-              <label class="pm-label">${t('parallel.form.maxTasksLabel')}</label>
-              <div class="parallel-agents-control">
+              <label class="pm-label">
+                ${t('parallel.form.maxTasksLabel')}
+                <button class="pm-auto-chip${savedAutoTasks ? ' is-active' : ''}" id="pm-auto-chip" type="button">Auto</button>
+              </label>
+              <div class="parallel-agents-control${savedAutoTasks ? ' is-auto' : ''}" id="pm-agents-control">
                 <input
                   type="range"
                   id="pm-agents-slider"
                   class="parallel-agents-slider"
                   min="1" max="10" value="${escapeHtml(String(savedMaxTasks))}" step="1"
+                  ${savedAutoTasks ? 'disabled' : ''}
                 />
                 <div class="parallel-agents-display">
-                  <span id="pm-agents-value" class="parallel-agents-value">${savedMaxTasks}</span>
-                  <span class="parallel-agents-unit">agents</span>
+                  <span id="pm-agents-value" class="parallel-agents-value">${savedAutoTasks ? 'Auto' : savedMaxTasks}</span>
+                  <span class="parallel-agents-unit" id="pm-agents-unit" ${savedAutoTasks ? 'style="display:none"' : ''}>agents</span>
                 </div>
               </div>
-              <div class="parallel-agents-ticks">
+              <div class="parallel-agents-ticks" id="pm-agents-ticks" ${savedAutoTasks ? 'style="opacity:0.3"' : ''}>
                 <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
               </div>
             </div>
@@ -274,9 +279,28 @@ function _openNewRunModal() {
   // Init custom selects inside modal
   _initCustomSelects(modalOverlay);
 
-  // Agents slider
+  // Auto chip toggle
+  const autoChip = modalOverlay.querySelector('#pm-auto-chip');
   const slider = modalOverlay.querySelector('#pm-agents-slider');
   const valueDisplay = modalOverlay.querySelector('#pm-agents-value');
+  const unitEl = modalOverlay.querySelector('#pm-agents-unit');
+  const controlEl = modalOverlay.querySelector('#pm-agents-control');
+  const ticksEl = modalOverlay.querySelector('#pm-agents-ticks');
+
+  const _applyAutoState = (isAuto) => {
+    autoChip?.classList.toggle('is-active', isAuto);
+    if (slider) slider.disabled = isAuto;
+    if (controlEl) controlEl.classList.toggle('is-auto', isAuto);
+    if (valueDisplay) valueDisplay.textContent = isAuto ? 'Auto' : (slider?.value || '3');
+    if (unitEl) unitEl.style.display = isAuto ? 'none' : '';
+    if (ticksEl) ticksEl.style.opacity = isAuto ? '0.3' : '';
+    setSetting('parallelAutoTasks', isAuto);
+  };
+
+  autoChip?.addEventListener('click', () => {
+    _applyAutoState(!autoChip.classList.contains('is-active'));
+  });
+
   if (slider && valueDisplay) {
     slider.addEventListener('input', () => {
       valueDisplay.textContent = slider.value;
@@ -357,11 +381,12 @@ async function _handleStart(modalEl) {
     return;
   }
 
-  const maxTasks = parseInt(modalEl?.querySelector('#pm-agents-slider')?.value || '3', 10);
+  const autoTasks = modalEl?.querySelector('#pm-auto-chip')?.classList.contains('is-active') || false;
+  const maxTasks = autoTasks ? null : parseInt(modalEl?.querySelector('#pm-agents-slider')?.value || '3', 10);
   const model = modalEl?.querySelector('#pm-model-select')?.dataset?.value || 'claude-sonnet-4-6';
   const effort = modalEl?.querySelector('#pm-effort-select')?.dataset?.value || 'high';
 
-  setSetting('parallelMaxAgents', maxTasks);
+  if (!autoTasks) setSetting('parallelMaxAgents', maxTasks);
 
   const branchResult = await ctx.api.git.currentBranch({ projectPath }).catch(() => null);
   const mainBranch = (branchResult?.branch || branchResult) || 'main';
@@ -369,7 +394,7 @@ async function _handleStart(modalEl) {
   const btn = modalEl?.querySelector('#pm-start-btn');
   if (btn) { btn.disabled = true; btn.textContent = t('parallel.form.startingBtn'); }
 
-  const result = await ctx.api.parallel.startRun({ projectPath, mainBranch, goal, maxTasks, model, effort });
+  const result = await ctx.api.parallel.startRun({ projectPath, mainBranch, goal, maxTasks, autoTasks, model, effort });
 
   if (btn) {
     btn.disabled = false;

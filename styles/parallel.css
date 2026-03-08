@@ -279,7 +279,28 @@
   font-weight: 500;
   color: var(--text-secondary);
   font-family: var(--pt-sys);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+
+.pm-auto-chip {
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--pt-sys);
+  letter-spacing: 0.04em;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.pm-auto-chip:hover { border-color: var(--accent); color: var(--accent); }
+.pm-auto-chip.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.parallel-agents-control.is-auto .parallel-agents-slider { opacity: 0.3; pointer-events: none; }
 
 .pm-textarea {
   width: 100%;

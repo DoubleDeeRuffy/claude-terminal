@@ -34,7 +34,7 @@ class ParallelTaskService {
   /**
    * Start a parallel run. Returns immediately with runId; executes async.
    */
-  async startRun({ projectPath, mainBranch, goal, maxTasks = 4, model, effort }) {
+  async startRun({ projectPath, mainBranch, goal, maxTasks = 4, autoTasks = false, model, effort }) {
 
     const runId = `ptask-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     const startedAt = parseInt(runId.split('-')[1], 10);
@@ -42,7 +42,7 @@ class ParallelTaskService {
     this._runStates.set(runId, { projectPath, mainBranch, goal, model, effort, startedAt, tasks: new Map() });
 
     // Fire and forget — errors are caught internally
-    this._executeRun({ runId, projectPath, mainBranch, goal, maxTasks, model, effort })
+    this._executeRun({ runId, projectPath, mainBranch, goal, maxTasks, autoTasks, model, effort })
       .catch(err => {
         console.error('[ParallelTaskService] Unexpected run error:', err);
         this._send('parallel-run-status', { runId, phase: 'failed', error: err.message });
@@ -158,7 +158,7 @@ class ParallelTaskService {
 
   // ─── Private orchestration ──────────────────────────────────────────────────
 
-  async _executeRun({ runId, projectPath, mainBranch, goal, maxTasks, model, effort }) {
+  async _executeRun({ runId, projectPath, mainBranch, goal, maxTasks, autoTasks, model, effort }) {
     let tasks;
     let featureName = null;
     let feedback = null;
@@ -168,7 +168,7 @@ class ParallelTaskService {
       this._send('parallel-run-status', { runId, phase: 'decomposing' });
 
       try {
-        const decomposed = await this._decomposeTasks({ projectPath, goal, maxTasks, model, effort, feedback });
+        const decomposed = await this._decomposeTasks({ projectPath, goal, maxTasks, autoTasks, model, effort, feedback });
         tasks = decomposed.tasks;
         featureName = decomposed.featureName;
       } catch (err) {
@@ -287,8 +287,8 @@ class ParallelTaskService {
     });
   }
 
-  async _decomposeTasks({ projectPath, goal, maxTasks, model, effort, feedback }) {
-    const prompt = this._buildDecomposePrompt(goal, maxTasks, feedback);
+  async _decomposeTasks({ projectPath, goal, maxTasks, autoTasks, model, effort, feedback }) {
+    const prompt = this._buildDecomposePrompt(goal, maxTasks, autoTasks, feedback);
 
     // JSON schema for structured output — guarantees valid, parseable JSON without regex hacks
     const outputFormat = {
@@ -343,9 +343,10 @@ class ParallelTaskService {
       throw new Error(`Could not parse task list from Claude output. Raw output: ${(result.output || '').slice(0, 500)}`);
     }
 
-    // Validate and cap at maxTasks
+    // Validate and cap at maxTasks (skip cap if autoTasks — Claude decided)
     const featureName = this._sanitizeBranchSuffix(String(result.featureName || '').slice(0, 20)) || null;
-    const validated = taskList.slice(0, maxTasks).map(t => ({
+    const cappedList = autoTasks ? taskList : taskList.slice(0, maxTasks);
+    const validated = cappedList.map(t => ({
       title: String(t.title || 'Task').slice(0, 50),
       description: String(t.description || ''),
       branchSuffix: String(t.branchSuffix || t.title || 'task').slice(0, 30),
@@ -446,12 +447,16 @@ class ParallelTaskService {
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
-  _buildDecomposePrompt(goal, maxTasks, feedback) {
+  _buildDecomposePrompt(goal, maxTasks, autoTasks, feedback) {
+    const taskCountInstruction = autoTasks
+      ? `Decompose this into the OPTIMAL number of INDEPENDENT sub-tasks (typically 2–5, never more than 8 — use your judgment to pick the right granularity for this goal)`
+      : `Decompose this into ${maxTasks} or fewer INDEPENDENT sub-tasks`;
+
     return `You are a senior software architect helping decompose a feature into parallel implementation tasks.
 
 Feature goal: ${goal}${feedback ? `\n\nRevision request from the user: ${feedback}\n\nRevise the task breakdown according to this feedback.` : ''}
 
-Decompose this into ${maxTasks} or fewer INDEPENDENT sub-tasks that can be implemented simultaneously without conflicting file edits (no two tasks should write to the same file).
+${taskCountInstruction} that can be implemented simultaneously without conflicting file edits (no two tasks should write to the same file).
 
 Rules:
 - Each sub-task must be independently implementable in isolation
