@@ -678,7 +678,6 @@ function _buildTaskCard(task) {
       </div>
     ` : ''}
     <div class="parallel-task-output-wrap" id="output-wrap-${task.id}">
-      ${isRunning ? '<div class="parallel-task-running-indicator"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>' : ''}
       <div class="parallel-task-output" id="output-${task.id}"><pre>${escapeHtml(outputLines)}</pre></div>
     </div>
     ${task.error ? `<div class="parallel-task-error">${escapeHtml(task.error)}</div>` : ''}
@@ -702,20 +701,6 @@ function _patchTaskCard(card, task) {
   if (badge) {
     badge.textContent = t(`parallel.status.${task.status}`) || task.status;
     badge.className = `parallel-task-badge badge-${task.status}`;
-  }
-
-  const outputWrap = card.querySelector(`#output-wrap-${task.id}`);
-  if (outputWrap) {
-    const runningInd = outputWrap.querySelector('.parallel-task-running-indicator');
-    const isRunning = task.status === 'running';
-    if (isRunning && !runningInd) {
-      const ind = document.createElement('div');
-      ind.className = 'parallel-task-running-indicator';
-      ind.innerHTML = '<span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>';
-      outputWrap.prepend(ind);
-    } else if (!isRunning && runningInd) {
-      runningInd.remove();
-    }
   }
 
   const outputEl = card.querySelector(`#output-${task.id} pre`);
