@@ -1043,7 +1043,7 @@ function _formatOutput(output) {
 }
 
 function _showToast(msg, type) {
-  if (ctx?.showToast) ctx.showToast(msg, type);
+  if (ctx?.showToast) ctx.showToast({ type: type || 'info', title: msg });
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
