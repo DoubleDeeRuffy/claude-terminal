@@ -706,7 +706,7 @@ function _buildTaskCard(task) {
   const isRunning = task.status === 'running';
 
   const idxMatch = task.id && task.id.match(/task-(\d+)/);
-  const taskIndex = idxMatch ? String(parseInt(idxMatch[1], 10)).padStart(2, '0') : '--';
+  const taskIndex = idxMatch ? String(parseInt(idxMatch[1], 10) + 1).padStart(2, '0') : '--';
 
   return `
     <div class="parallel-task-card-header">
@@ -799,7 +799,7 @@ function _buildReviewPanel(run) {
       <div class="pt-review-task-list">
         ${proposed.map((task, i) => `
           <div class="pt-review-task-item">
-            <div class="pt-review-task-num">${String(i).padStart(2, '0')}</div>
+            <div class="pt-review-task-num">${String(i + 1).padStart(2, '0')}</div>
             <div class="pt-review-task-body">
               <div class="pt-review-task-title">${escapeHtml(task.title)}</div>
               <div class="pt-review-task-desc">${escapeHtml(task.description || '')}</div>
