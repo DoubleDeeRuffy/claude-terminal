@@ -1205,6 +1205,46 @@ async function diffWorktreeBranches(projectPath, branch1, branch2, filePath = ''
 }
 
 /**
+ * Get diff stats (file list with status, additions, deletions) between two branches.
+ * @param {string} projectPath
+ * @param {string} branch1
+ * @param {string} branch2
+ * @returns {Promise<Array<{path: string, status: string, additions: number, deletions: number}>>}
+ */
+async function diffWorktreeBranchesWithStats(projectPath, branch1, branch2) {
+  const [numstatRaw, nameStatusRaw] = await Promise.all([
+    execGit(projectPath, `diff --numstat ${branch1}...${branch2}`, 15000),
+    execGit(projectPath, `diff --name-status ${branch1}...${branch2}`, 15000),
+  ]);
+
+  const numstat = parseDiffNumstat(numstatRaw);
+
+  // Parse name-status: "M\tpath" or "R100\told\tnew"
+  const statusMap = new Map();
+  if (nameStatusRaw) {
+    for (const line of nameStatusRaw.split('\n')) {
+      if (!line.trim()) continue;
+      const parts = line.split('\t');
+      const code = (parts[0] || '').charAt(0); // M, A, D, R, C
+      const filePath = parts.length >= 3 ? parts[2] : parts[1]; // renamed: use new path
+      if (filePath) statusMap.set(filePath, code);
+    }
+  }
+
+  const files = [];
+  for (const [filePath, stats] of numstat) {
+    files.push({
+      path: filePath,
+      status: statusMap.get(filePath) || 'M',
+      additions: stats.additions,
+      deletions: stats.deletions,
+    });
+  }
+
+  return files;
+}
+
+/**
  * Kill all active git child processes.
  * Called during app shutdown to prevent orphaned git processes.
  */
@@ -1267,5 +1307,6 @@ module.exports = {
   unlockWorktree,
   pruneWorktrees,
   detectWorktree,
-  diffWorktreeBranches
+  diffWorktreeBranches,
+  diffWorktreeBranchesWithStats
 };

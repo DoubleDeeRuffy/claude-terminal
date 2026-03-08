@@ -931,34 +931,105 @@ async function _handleViewDiff(runId, taskId) {
   if (!task) { _showToast('Task not found', 'error'); return; }
   if (!task.branch) { _showToast('No branch associated with this task', 'error'); return; }
 
-  let result;
+  const diffParams = { projectPath: run.projectPath, branch1: run.mainBranch, branch2: task.branch };
+
+  // Fetch file stats
+  let statsResult;
   try {
-    result = await ctx.api.git.worktreeDiff({
-      projectPath: run.projectPath,
-      branch1: run.mainBranch,
-      branch2: task.branch
-    });
+    statsResult = await ctx.api.git.worktreeDiffStats(diffParams);
   } catch (err) {
     _showToast(err.message || 'Diff failed', 'error');
     return;
   }
 
-  if (!result.success) {
-    _showToast(result.error || t('parallel.errors.noDiff'), 'error');
-    return;
-  }
-
-  if (!result.diff) {
+  if (!statsResult.success || !statsResult.files?.length) {
     _showToast('No changes found between branches', 'warning');
     return;
   }
 
-  const diffHtml = _renderDiff(result.diff);
+  const files = statsResult.files;
+  const statusLabels = { A: 'New', M: 'Modified', D: 'Deleted', R: 'Renamed', C: 'Copied' };
+  const statusColors = { A: 'add', M: 'mod', D: 'del', R: 'ren' };
+
+  // Build split-panel HTML
+  const totalAdd = files.reduce((s, f) => s + f.additions, 0);
+  const totalDel = files.reduce((s, f) => s + f.deletions, 0);
+
+  const fileListHtml = files.map((f, i) => {
+    const basename = f.path.split('/').pop();
+    const dirname = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
+    return `
+      <div class="pd-file-item ${i === 0 ? 'is-active' : ''}" data-file-idx="${i}" data-file-path="${escapeHtml(f.path)}">
+        <span class="pd-file-badge pd-badge-${statusColors[f.status] || 'mod'}">${f.status}</span>
+        <div class="pd-file-name-wrap">
+          <span class="pd-file-basename">${escapeHtml(basename)}</span>
+          ${dirname ? `<span class="pd-file-dirname">${escapeHtml(dirname)}</span>` : ''}
+        </div>
+        <span class="pd-file-stats">
+          ${f.additions ? `<span class="pd-stat-add">+${f.additions}</span>` : ''}
+          ${f.deletions ? `<span class="pd-stat-del">-${f.deletions}</span>` : ''}
+        </span>
+      </div>`;
+  }).join('');
+
+  const modalHtml = `
+    <div class="pd-split">
+      <div class="pd-files">
+        <div class="pd-files-header">
+          <span class="pd-files-count">${files.length} file${files.length > 1 ? 's' : ''}</span>
+          <span class="pd-files-total">
+            <span class="pd-stat-add">+${totalAdd}</span>
+            <span class="pd-stat-del">-${totalDel}</span>
+          </span>
+        </div>
+        <div class="pd-files-list">${fileListHtml}</div>
+      </div>
+      <div class="pd-content">
+        <div class="pd-content-header" id="pd-content-header">${escapeHtml(files[0].path)}</div>
+        <pre class="pd-diff-view" id="pd-diff-view"><span class="pd-loading">Loading...</span></pre>
+      </div>
+    </div>`;
+
   ctx.showModal(
     `${t('parallel.diff.title')} — ${task.branch}`,
-    `<div class="parallel-diff-modal"><pre class="diff-view">${diffHtml}</pre></div>`,
+    modalHtml,
     `<button onclick="document.getElementById('modal-overlay').click()">${t('parallel.diff.close')}</button>`
   );
+
+  // Wire file list clicks
+  const filesContainer = document.querySelector('.pd-files-list');
+  if (filesContainer) {
+    filesContainer.addEventListener('click', (e) => {
+      const item = e.target.closest('.pd-file-item');
+      if (!item) return;
+      filesContainer.querySelectorAll('.pd-file-item').forEach(el => el.classList.remove('is-active'));
+      item.classList.add('is-active');
+      _loadFileDiff(diffParams, item.dataset.filePath);
+    });
+  }
+
+  // Auto-load first file
+  _loadFileDiff(diffParams, files[0].path);
+}
+
+async function _loadFileDiff(diffParams, filePath) {
+  const header = document.getElementById('pd-content-header');
+  const viewer = document.getElementById('pd-diff-view');
+  if (!viewer) return;
+
+  if (header) header.textContent = filePath;
+  viewer.innerHTML = '<span class="pd-loading">Loading...</span>';
+
+  try {
+    const result = await ctx.api.git.worktreeDiff({ ...diffParams, filePath });
+    if (!result.success || !result.diff) {
+      viewer.innerHTML = '<span class="pd-empty">No changes</span>';
+      return;
+    }
+    viewer.innerHTML = _renderDiff(result.diff);
+  } catch {
+    viewer.innerHTML = '<span class="pd-empty">Failed to load diff</span>';
+  }
 }
 
 function _renderDiff(diff) {

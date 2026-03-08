@@ -4,7 +4,7 @@
  */
 
 const { ipcMain } = require('electron');
-const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch, getCommitHistory, getFileDiff, getCommitDetail, cherryPick, revertCommit, gitUnstageFiles, stashApply, stashDrop, gitStashSave, getWorktrees, createWorktree, removeWorktree, lockWorktree, unlockWorktree, pruneWorktrees, detectWorktree, diffWorktreeBranches } = require('../utils/git');
+const { execGit, getGitInfo, getGitInfoFull, getGitStatusQuick, getGitStatusDetailed, gitPull, gitPush, gitMerge, gitMergeAbort, gitMergeContinue, getMergeConflicts, isMergeInProgress, gitClone, gitStageFiles, gitCommit, getProjectStats, getBranches, getCurrentBranch, checkoutBranch, createBranch, deleteBranch, getCommitHistory, getFileDiff, getCommitDetail, cherryPick, revertCommit, gitUnstageFiles, stashApply, stashDrop, gitStashSave, getWorktrees, createWorktree, removeWorktree, lockWorktree, unlockWorktree, pruneWorktrees, detectWorktree, diffWorktreeBranches, diffWorktreeBranchesWithStats } = require('../utils/git');
 const { generateCommitMessage, generateSessionRecap } = require('../utils/commitMessageGenerator');
 const GitHubAuthService = require('../services/GitHubAuthService');
 const { sendFeaturePing } = require('../services/TelemetryService');
@@ -280,6 +280,16 @@ function registerGitHandlers() {
     try {
       const diff = await diffWorktreeBranches(projectPath, branch1, branch2, filePath);
       return { success: true, diff };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Diff stats (file list with status, additions, deletions) between worktree branches
+  ipcMain.handle('git-worktree-diff-stats', async (event, { projectPath, branch1, branch2 }) => {
+    try {
+      const files = await diffWorktreeBranchesWithStats(projectPath, branch1, branch2);
+      return { success: true, files };
     } catch (err) {
       return { success: false, error: err.message };
     }
