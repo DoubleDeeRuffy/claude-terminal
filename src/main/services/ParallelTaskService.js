@@ -314,33 +314,34 @@ class ParallelTaskService {
   _parseTasksFromOutput(output) {
     if (!output) return null;
 
-    // Try to extract JSON from code block first
-    const codeBlockMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : output.trim();
+    // Strip opening code fence (```json or ```)
+    let text = output.replace(/^```(?:json)?\s*\n?/, '').trim();
 
-    // Try parsing the extracted string as JSON
+    // Remove closing fence using lastIndexOf — skips any nested ``` in prompt fields
+    const closingFence = text.lastIndexOf('\n```');
+    if (closingFence > 0) text = text.slice(0, closingFence).trim();
+
+    // Try direct parse of the cleaned text
     try {
-      const parsed = JSON.parse(jsonStr);
+      const parsed = JSON.parse(text);
       if (Array.isArray(parsed)) return parsed;
       if (parsed && Array.isArray(parsed.tasks)) return parsed.tasks;
-    } catch (_) {
-      // Fall through to regex extraction
-    }
+    } catch (_) {}
 
-    // Last resort: find a JSON array anywhere in the output
-    const arrayMatch = output.match(/\[[\s\S]*?\]/);
-    if (arrayMatch) {
+    // Find first '[' and parse from there (handles leading prose)
+    const arrayStart = text.indexOf('[');
+    if (arrayStart >= 0) {
       try {
-        const parsed = JSON.parse(arrayMatch[0]);
+        const parsed = JSON.parse(text.slice(arrayStart));
         if (Array.isArray(parsed)) return parsed;
       } catch (_) {}
     }
 
-    // Find a JSON object with a tasks array
-    const objectMatch = output.match(/\{[\s\S]*?"tasks"[\s\S]*?\}/);
-    if (objectMatch) {
+    // Find first '{' for object with tasks array
+    const objectStart = text.indexOf('{');
+    if (objectStart >= 0) {
       try {
-        const parsed = JSON.parse(objectMatch[0]);
+        const parsed = JSON.parse(text.slice(objectStart));
         if (parsed && Array.isArray(parsed.tasks)) return parsed.tasks;
       } catch (_) {}
     }
