@@ -3,23 +3,23 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Consolidations
 status: completed
-last_updated: "2026-03-07T18:17:52.506Z"
-last_activity: 2026-03-07 — 34-01 complete (AI Rename menu item, handleAiRename handler, i18n keys)
+last_updated: "2026-03-08T10:33:16Z"
+last_activity: 2026-03-08 — 35-01 complete (Fix API utilization decimal-to-percentage conversion)
 progress:
-  total_phases: 11
-  completed_phases: 6
-  total_plans: 12
-  completed_plans: 9
+  total_phases: 12
+  completed_phases: 7
+  total_plans: 13
+  completed_plans: 10
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 34 (Tab-Rename-Contextmenu) — COMPLETE
-Plan: 34-01 of 34-01 — 1 plan (complete)
-Status: Phase 34 complete, AI Rename context menu item with async Haiku naming
-Last activity: 2026-03-07 — 34-01 complete (AI Rename menu item, handleAiRename handler, i18n keys)
+Phase: 35 (Fix-Usage) — COMPLETE
+Plan: 35-01 of 35-01 — 1 plan (complete)
+Status: Phase 35 complete, fixed API utilization decimal-to-percentage conversion
+Last activity: 2026-03-08 — 35-01 complete (Fix API utilization decimal-to-percentage conversion)
 
 ## Accumulated Context
 
@@ -46,3 +46,5 @@ Last activity: 2026-03-07 — 34-01 complete (AI Rename menu item, handleAiRenam
 - Phase 33 complete: 3 updater settings dropdowns, settings-driven UpdaterService, manual download banner flow
 - Phase 34 added: AI-Rename-Menuitem in the tab contextmenu based on the existing ai-rename mechanism
 - Phase 34 complete: AI Rename context menu item with loading indicator and error revert, EN/FR i18n
+- Phase 35 added: Fix-Usage — Usage display shows incorrect percentages
+- Phase 35 complete: Fixed API utilization decimal-to-percentage conversion (* 100) in UsageService

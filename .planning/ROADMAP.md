@@ -132,7 +132,7 @@ Plans:
 **Goal:** Fix usage display showing incorrect percentages — API returns decimal fractions (0.41) but code treats them as whole percentages, needs multiply by 100.
 **Requirements**: Convert API utilization decimals to percentages in UsageService.js.
 **Depends on:** Phase 34
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 35-01-PLAN.md — Fix utilization decimal-to-percentage conversion
