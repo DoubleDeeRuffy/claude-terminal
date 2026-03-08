@@ -3805,6 +3805,7 @@ function createChatView(wrapperEl, project, options = {}) {
       divider.className = 'chat-history-divider';
       divider.innerHTML = `<span>${escapeHtml(dividerText)}</span>`;
       messagesEl.appendChild(divider);
+      userHasScrolled = false;
       scrollToBottom();
     }).catch(() => {
       if (welcomeEl) {
@@ -3953,6 +3954,7 @@ function createChatView(wrapperEl, project, options = {}) {
           setTimeout(renderBatch, 0);
         }
       } else {
+        userHasScrolled = false;
         scrollToBottom();
       }
     }
