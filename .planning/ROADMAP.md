@@ -126,3 +126,13 @@ Plans:
 
 Plans:
 - [x] 34-01-PLAN.md — AI Rename context menu item with async Haiku naming
+
+### Phase 35: Fix-Usage
+
+**Goal:** Fix usage display showing incorrect percentages — API returns decimal fractions (0.41) but code treats them as whole percentages, needs multiply by 100.
+**Requirements**: Convert API utilization decimals to percentages in UsageService.js.
+**Depends on:** Phase 34
+**Plans:** 1 plan
+
+Plans:
+- [ ] 35-01-PLAN.md — Fix utilization decimal-to-percentage conversion
