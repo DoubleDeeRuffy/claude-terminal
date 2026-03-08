@@ -130,6 +130,17 @@ class ParallelTaskService {
   async cleanupRun(runId, projectPath) {
     const worktreeBase = this._worktreeBase(runId);
     try {
+      // Collect branch names from history before removing worktrees
+      const branches = [];
+      const history = this.getHistory();
+      const run = history.find(r => r.id === runId);
+      if (run?.tasks) {
+        for (const task of run.tasks) {
+          if (task.branch) branches.push(task.branch);
+        }
+      }
+
+      // Remove worktrees
       if (fs.existsSync(worktreeBase)) {
         const entries = fs.readdirSync(worktreeBase);
         for (const entry of entries) {
@@ -138,6 +149,14 @@ class ParallelTaskService {
         }
         fs.rmSync(worktreeBase, { recursive: true, force: true });
       }
+
+      // Delete associated branches
+      for (const branch of branches) {
+        await new Promise(resolve => {
+          require('child_process').execFile('git', ['-c', `safe.directory=${projectPath.replace(/\\/g, '/')}`, 'branch', '-D', branch], { cwd: projectPath, timeout: 10000 }, () => resolve());
+        });
+      }
+
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
