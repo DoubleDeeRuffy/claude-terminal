@@ -221,8 +221,12 @@ class ParallelTaskService {
         return;
       }
 
+      // Store featureName for history persistence
+      const runState = this._runStates.get(runId);
+      if (runState && featureName) runState.featureName = featureName;
+
       // Pause for user review
-      this._send('parallel-run-status', { runId, phase: 'reviewing', proposedTasks: tasks });
+      this._send('parallel-run-status', { runId, phase: 'reviewing', proposedTasks: tasks, featureName });
 
       const decision = await this._waitForReview(runId);
 
@@ -575,6 +579,7 @@ Field guide:
         projectPath,
         mainBranch,
         goal,
+        featureName: state?.featureName || null,
         model: state?.model || null,
         effort: state?.effort || null,
         phase,

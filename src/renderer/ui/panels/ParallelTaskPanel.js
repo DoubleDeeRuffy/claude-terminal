@@ -25,7 +25,6 @@ let _initialized = false;
 let _unsubscribe = null;
 let _runCounter = 0;
 let _runNumbers = new Map();
-let _runNames = new Map(); // runId → generated short name
 
 // ─── Init & Load ──────────────────────────────────────────────────────────────
 
@@ -422,18 +421,6 @@ async function _handleStart(modalEl) {
   });
 
   _closeNewRunModal();
-
-  // Generate short display name async via haiku
-  if (ctx.api?.chat?.generateTabName) {
-    const runId = result.runId;
-    ctx.api.chat.generateTabName({ userMessage: goal }).then(res => {
-      if (res?.success && res.name) {
-        _runNames.set(runId, res.name);
-        const nameEl = document.querySelector(`#pt-run-card-${runId} .pt-run-goal-text`);
-        if (nameEl) nameEl.textContent = res.name;
-      }
-    }).catch(() => {});
-  }
 }
 
 // ─── Board update ──────────────────────────────────────────────────────────────
@@ -501,7 +488,7 @@ function _createRunCard(run) {
   card.dataset.runId = run.id;
 
   const num = String(_runNumbers.get(run.id) || 1).padStart(2, '0');
-  const displayName = _runNames.get(run.id) || _deriveNameFromGoal(run.goal || '');
+  const displayName = _formatFeatureName(run.featureName) || _deriveNameFromGoal(run.goal || '');
 
   card.innerHTML = `
     <div class="pt-run-header">
@@ -563,6 +550,15 @@ function _updateRunCard(run) {
 function _updateRunHeader(run) {
   const card = document.getElementById(`pt-run-card-${run.id}`);
   if (!card) return;
+
+  // Update display name when featureName arrives
+  if (run.featureName) {
+    const nameEl = card.querySelector('.pt-run-goal-text');
+    const formatted = _formatFeatureName(run.featureName);
+    if (nameEl && formatted && nameEl.textContent !== formatted) {
+      nameEl.textContent = formatted;
+    }
+  }
 
   const tasks = run.tasks || [];
   const done = tasks.filter(t => t.status === 'done').length;
@@ -1018,24 +1014,16 @@ async function _loadHistory() {
     }
   });
 
-  // Generate short names
-  if (ctx.api?.chat?.generateTabName) {
-    historyRuns.forEach(run => {
-      if (!_runNames.has(run.id) && run.goal) {
-        ctx.api.chat.generateTabName({ userMessage: run.goal }).then(res => {
-          if (res?.success && res.name) {
-            _runNames.set(run.id, res.name);
-            const nameEl = document.querySelector(`#pt-run-card-${run.id} .pt-run-goal-text`);
-            if (nameEl) nameEl.textContent = res.name;
-          }
-        }).catch(() => {});
-      }
-    });
-  }
 }
 
 function _deriveNameFromGoal(goal) {
   return goal.trim().split(/\s+/).slice(0, 5).join(' ').slice(0, 40);
+}
+
+/** Convert kebab-case featureName to Title Case (e.g. "win-animation" → "Win Animation") */
+function _formatFeatureName(name) {
+  if (!name) return '';
+  return name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 function _formatOutput(output) {
