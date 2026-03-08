@@ -76,16 +76,23 @@ function fetchUsageFromAPI(token) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode !== 200) {
+          console.log('[Usage] API error response:', res.statusCode, body.slice(0, 500));
           return reject(new Error(`API ${res.statusCode}: ${body.slice(0, 200)}`));
         }
         try {
           const json = JSON.parse(body);
+          console.log('[Usage] Raw API response:', JSON.stringify(json, null, 2));
+          const session = json.five_hour?.utilization != null ? json.five_hour.utilization * 100 : null;
+          const weekly = json.seven_day?.utilization != null ? json.seven_day.utilization * 100 : null;
+          const sonnet = json.seven_day_sonnet?.utilization != null ? json.seven_day_sonnet.utilization * 100 : null;
+          const opus = json.seven_day_opus?.utilization != null ? json.seven_day_opus.utilization * 100 : null;
+          console.log('[Usage] Converted utilization:', { session, weekly, sonnet, opus });
           resolve({
             timestamp: new Date().toISOString(),
-            session: json.five_hour?.utilization ?? null,
-            weekly: json.seven_day?.utilization ?? null,
-            sonnet: json.seven_day_sonnet?.utilization ?? null,
-            opus: json.seven_day_opus?.utilization ?? null,
+            session,
+            weekly,
+            sonnet,
+            opus,
             sessionReset: json.five_hour?.resets_at ?? null,
             weeklyReset: json.seven_day?.resets_at ?? null,
             sonnetReset: json.seven_day_sonnet?.resets_at ?? null,
