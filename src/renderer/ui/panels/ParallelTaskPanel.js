@@ -999,7 +999,7 @@ async function _handleViewDiff(runId, taskId) {
   ctx.showModal(
     `${t('parallel.diff.title')} — ${task.branch}`,
     modalHtml,
-    `<button onclick="document.getElementById('modal-overlay').click()">${t('parallel.diff.close')}</button>`
+    `<button class="modal-btn secondary" onclick="document.getElementById('modal-overlay').click()">${t('parallel.diff.close')}</button>`
   );
 
   // Wire file list clicks
