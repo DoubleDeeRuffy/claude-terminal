@@ -1302,6 +1302,15 @@
 .parallel-merge-btn-diff {
   gap: 5px;
 }
+.parallel-merge-btn-cancel {
+  gap: 5px;
+  color: var(--text-muted);
+}
+.parallel-merge-btn-cancel:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgba(239,68,68,0.08);
+  color: var(--danger);
+}
 
 /* Spinner for merging phase */
 .parallel-merge-spinner {

@@ -2384,7 +2384,11 @@
     "merge": {
       "title": "Merge Assistance",
       "hint": "Review each branch, then merge them one by one into {mainBranch}.",
-      "viewDiff": "View diff"
+      "viewDiff": "View diff",
+      "viewCombinedDiff": "View combined diff",
+      "cancel": "Cancel & cleanup",
+      "cancelling": "Cancelling...",
+      "finalHint": "To merge into {mainBranch}: git checkout {mainBranch} && git merge {mergeBranch}"
     },
     "diff": {
       "title": "Diff",

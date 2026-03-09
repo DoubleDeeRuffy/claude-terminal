@@ -2384,7 +2384,11 @@
     "merge": {
       "title": "Aide à la fusion",
       "hint": "Vérifiez chaque branche, puis fusionnez-les une par une dans {mainBranch}.",
-      "viewDiff": "Voir le diff"
+      "viewDiff": "Voir le diff",
+      "viewCombinedDiff": "Voir le diff combiné",
+      "cancel": "Annuler & nettoyer",
+      "cancelling": "Annulation...",
+      "finalHint": "Pour fusionner dans {mainBranch} : git checkout {mainBranch} && git merge {mergeBranch}"
     },
     "diff": {
       "title": "Diff",

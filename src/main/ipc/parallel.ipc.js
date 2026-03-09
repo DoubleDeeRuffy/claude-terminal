@@ -71,6 +71,16 @@ function registerParallelHandlers(mainWindow) {
     }
   });
 
+  // Cancel a completed merge (delete merge branch + full cleanup)
+  ipcMain.handle('parallel-merge-cancel', async (_e, { runId }) => {
+    try {
+      return parallelTaskService.cancelMerge(runId);
+    } catch (err) {
+      console.error('[parallel-merge-cancel]', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   // Remove a run from disk history
   ipcMain.handle('parallel-history-remove', async (_e, { runId }) => {
     try {

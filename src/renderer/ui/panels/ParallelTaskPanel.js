@@ -923,7 +923,11 @@ function _updateRunMerge(run) {
         <div class="parallel-merge-actions">
           <button class="parallel-merge-btn parallel-merge-btn-diff" id="pt-merge-diff-${run.id}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            View combined diff
+            ${t('parallel.merge.viewCombinedDiff')}
+          </button>
+          <button class="parallel-merge-btn parallel-merge-btn-cancel" id="pt-merge-cancel-${run.id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            ${t('parallel.merge.cancel')}
           </button>
         </div>
         <p class="parallel-merge-final-hint">
@@ -935,6 +939,20 @@ function _updateRunMerge(run) {
     const diffBtn = document.getElementById(`pt-merge-diff-${run.id}`);
     if (diffBtn) {
       diffBtn.addEventListener('click', () => _handleBranchDiff(run.projectPath, run.mainBranch, mb));
+    }
+    // Wire cancel button
+    const cancelBtn = document.getElementById(`pt-merge-cancel-${run.id}`);
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', async () => {
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = t('parallel.merge.cancelling');
+        try {
+          const result = await ctx.api.parallel.cancelMerge({ runId: run.id });
+          if (!result.success) _showToast(result.error || 'Cancel failed', 'error');
+        } catch (err) {
+          _showToast(err.message || 'Cancel failed', 'error');
+        }
+      });
     }
     return;
   }

@@ -600,6 +600,38 @@ class ParallelTaskService {
   }
 
   /**
+   * Cancel a completed merge: delete merge branch, task branches, worktrees, and history.
+   * Full cleanup — everything related to this run is removed.
+   */
+  async cancelMerge(runId) {
+    const history = this.getHistory();
+    const run = history.find(r => r.id === runId);
+    if (!run) return { success: false, error: 'Run not found' };
+
+    const { projectPath, mainBranch, mergeBranch } = run;
+
+    try {
+      // Checkout main so we can delete branches
+      await checkoutBranch(projectPath, mainBranch);
+
+      // Delete merge branch if it exists
+      if (mergeBranch) {
+        await execGit(projectPath, `branch -D ${mergeBranch}`, 10000).catch(() => {});
+      }
+
+      // Full cleanup: worktrees + task branches + history removal
+      await this.cleanupRun(runId, projectPath);
+
+      // Notify renderer
+      this._send('parallel-run-status', { runId, phase: 'cancelled' });
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
    * Try to resolve merge conflicts via Claude agent.
    * Returns true if conflicts were resolved, false otherwise.
    */
