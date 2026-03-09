@@ -120,6 +120,7 @@ const localState = {
   fivemServers: new Map(),
   gitOperations: new Map(),
   gitRepoStatus: new Map(),
+  gitStatusInitialized: false,
   selectedDashboardProject: -1
 };
 
@@ -470,26 +471,13 @@ async function checkAllProjectsGitStatus() {
       }
     }));
   }
+  localState.gitStatusInitialized = true;
   ProjectList.render();
 
   // Update filter git actions if a project is selected
   const selectedFilter = projectsState.get().selectedProjectFilter;
   if (selectedFilter !== null && projects[selectedFilter]) {
-    // Will be called by showFilterGitActions
-    const filterGitActions = document.getElementById('filter-git-actions');
-    if (filterGitActions) {
-      const project = projects[selectedFilter];
-      const gitStatus = localState.gitRepoStatus.get(project.id);
-      if (gitStatus && gitStatus.isGitRepo) {
-        filterGitActions.style.display = 'flex';
-        // Update branch name
-        try {
-          const branch = await api.git.currentBranch({ projectPath: project.path });
-          const branchNameEl = document.getElementById('filter-branch-name');
-          if (branchNameEl) branchNameEl.textContent = branch || 'main';
-        } catch (e) { /* ignore */ }
-      }
-    }
+    showFilterGitActions(projects[selectedFilter].id);
   }
 }
 
@@ -3689,7 +3677,11 @@ function handleActiveTerminalChange(id, termData) {
   }
 }
 
+let _showFilterGitActionsVersion = 0;
+
 async function showFilterGitActions(projectId) {
+  const callVersion = ++_showFilterGitActionsVersion;
+
   const project = getProject(projectId);
   if (!project) {
     hideFilterGitActions();
@@ -3726,8 +3718,11 @@ async function showFilterGitActions(projectId) {
   // Get current branch (use worktree path if active tab is a worktree)
   try {
     const branch = await api.git.currentBranch({ projectPath: getEffectiveGitPath() || project.path });
+    // Stale check: if user switched projects while we awaited, discard this result
+    if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = branch || 'main';
   } catch (e) {
+    if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = '...';
   }
 }
@@ -4039,7 +4034,10 @@ projectsState.subscribe(() => {
   const projects = projectsState.get().projects;
 
   if (selectedFilter !== null && projects[selectedFilter]) {
-    showFilterGitActions(projects[selectedFilter].id);
+    const projectId = projects[selectedFilter].id;
+    // Skip if git status hasn't been loaded yet — checkAllProjectsGitStatus will handle it
+    if (!localState.gitStatusInitialized && !localState.gitRepoStatus.has(projectId)) return;
+    showFilterGitActions(projectId);
   } else {
     hideFilterGitActions();
   }
