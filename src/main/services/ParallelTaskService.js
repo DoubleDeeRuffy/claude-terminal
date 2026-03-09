@@ -10,7 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { createWorktree, removeWorktree } = require('../utils/git');
+const { createWorktree, removeWorktree, gitMerge, gitMergeAbort, getMergeConflicts, checkoutBranch, createBranch, isMergeInProgress, execGit } = require('../utils/git');
 const chatService = require('./ChatService');
 
 const HISTORY_FILE = path.join(os.homedir(), '.claude-terminal', 'parallel-runs.json');
@@ -507,6 +507,161 @@ class ParallelTaskService {
     } finally {
       if (active) active.abortControllers.delete(task.id);
     }
+  }
+
+  // ─── Merge ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Merge all task branches into a unified branch `parallel/{feature}/all`.
+   * Resolves conflicts via Claude agent when possible, skips on failure.
+   */
+  async mergeRun(runId) {
+    // Load run from disk history
+    const history = this.getHistory();
+    const run = history.find(r => r.id === runId);
+    if (!run) return { success: false, error: 'Run not found in history' };
+
+    const { projectPath, mainBranch, featureName, model, effort } = run;
+    const doneTasks = (run.tasks || []).filter(t => t.status === 'done' && t.branch);
+    if (doneTasks.length === 0) return { success: false, error: 'No completed tasks to merge' };
+
+    const featureSlug = this._sanitizeBranchSuffix(featureName || 'feature').slice(0, 20);
+    const mergeBranch = `parallel/${featureSlug}/all`;
+
+    // Emit merging phase
+    this._send('parallel-run-status', { runId, phase: 'merging', mergeBranch });
+
+    try {
+      // Checkout main branch first
+      const coResult = await checkoutBranch(projectPath, mainBranch);
+      if (!coResult.success) {
+        this._send('parallel-run-status', { runId, phase: 'done', error: `Failed to checkout ${mainBranch}: ${coResult.error}` });
+        return { success: false, error: coResult.error };
+      }
+
+      // Create the unified branch
+      const brResult = await createBranch(projectPath, mergeBranch);
+      if (!brResult.success) {
+        // Branch may already exist — try checkout instead
+        const co2 = await checkoutBranch(projectPath, mergeBranch);
+        if (!co2.success) {
+          this._send('parallel-run-status', { runId, phase: 'done', error: `Failed to create branch ${mergeBranch}` });
+          return { success: false, error: `Failed to create branch: ${brResult.error}` };
+        }
+      }
+
+      const merged = [];
+      const skipped = [];
+
+      for (let i = 0; i < doneTasks.length; i++) {
+        const task = doneTasks[i];
+
+        // Emit progress
+        this._send('parallel-run-status', {
+          runId, phase: 'merging', mergeBranch,
+          mergeProgress: { current: i + 1, total: doneTasks.length, branch: task.branch }
+        });
+
+        // Attempt merge
+        const mergeResult = await gitMerge(projectPath, task.branch);
+        if (mergeResult.success) {
+          merged.push(task.branch);
+          continue;
+        }
+
+        // Conflict — try auto-resolve with Claude
+        if (mergeResult.hasConflicts) {
+          const resolved = await this._resolveConflicts(projectPath, task.branch, model || 'claude-sonnet-4-6', effort || 'high');
+          if (resolved) {
+            merged.push(task.branch);
+            continue;
+          }
+        }
+
+        // Failed — abort and skip
+        await gitMergeAbort(projectPath).catch(() => {});
+        skipped.push({ branch: task.branch, error: mergeResult.error || 'Merge failed' });
+      }
+
+      // Emit merged phase
+      this._send('parallel-run-status', {
+        runId, phase: 'merged', mergeBranch,
+        mergeResult: { merged: merged.length, skipped }
+      });
+
+      // Update history on disk
+      this._updateHistoryPhase(runId, 'merged', { mergeBranch });
+
+      return { success: true, mergeBranch, merged: merged.length, skipped };
+    } catch (err) {
+      this._send('parallel-run-status', { runId, phase: 'done', error: `Merge failed: ${err.message}` });
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Try to resolve merge conflicts via Claude agent.
+   * Returns true if conflicts were resolved, false otherwise.
+   */
+  async _resolveConflicts(projectPath, branchName, model, effort) {
+    try {
+      const conflicts = await getMergeConflicts(projectPath);
+      if (conflicts.length === 0) return true;
+
+      await chatService.runSinglePrompt({
+        cwd: projectPath,
+        prompt: `Resolve the merge conflicts from merging branch "${branchName}". Conflicted files: ${conflicts.join(', ')}. Read each file, resolve all conflict markers, then run: git add -A && git commit --no-edit`,
+        model,
+        effort,
+        maxTurns: 20,
+        permissionMode: 'bypassPermissions',
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: [
+            '## Merge Conflict Resolution',
+            '',
+            'You are resolving git merge conflicts in a repository.',
+            '',
+            'RULES:',
+            '- Read each conflicted file and resolve the conflict markers (<<<<<<, ======, >>>>>>)',
+            '- Keep ALL changes from both sides — integrate both features',
+            '- After resolving all files, stage them with git add -A and complete the merge with git commit --no-edit',
+            '- Do NOT discard functionality from either side',
+            '- Be concise, focus on correct resolution',
+            '- Never mention AI or Claude in commit messages',
+          ].join('\n'),
+        },
+        disallowedTools: ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'],
+      });
+
+      // Check if conflicts are actually resolved
+      const remaining = await getMergeConflicts(projectPath);
+      if (remaining.length === 0 && !(await isMergeInProgress(projectPath))) {
+        return true;
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Update a run's phase in the history file without deleting runState.
+   */
+  _updateHistoryPhase(runId, phase, extra = {}) {
+    try {
+      if (!fs.existsSync(HISTORY_FILE)) return;
+      const all = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+      const idx = all.findIndex(r => r.id === runId);
+      if (idx >= 0) {
+        all[idx] = { ...all[idx], phase, ...extra };
+        const tmp = HISTORY_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(all, null, 2), 'utf8');
+        fs.renameSync(tmp, HISTORY_FILE);
+      }
+    } catch (_) {}
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────

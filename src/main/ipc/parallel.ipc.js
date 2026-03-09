@@ -61,6 +61,16 @@ function registerParallelHandlers(mainWindow) {
     }
   });
 
+  // Auto-merge all task branches into a unified branch
+  ipcMain.handle('parallel-merge-run', async (_e, { runId }) => {
+    try {
+      return parallelTaskService.mergeRun(runId);
+    } catch (err) {
+      console.error('[parallel-merge-run]', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   // Remove a run from disk history
   ipcMain.handle('parallel-history-remove', async (_e, { runId }) => {
     try {

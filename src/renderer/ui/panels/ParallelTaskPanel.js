@@ -877,18 +877,69 @@ function _updateRunMerge(run) {
   const mergeSection = document.getElementById(`pt-merge-${run.id}`);
   if (!mergeSection) return;
 
-  if (run.phase !== 'done') {
+  const showPhases = ['done', 'merging', 'merged'];
+  if (!showPhases.includes(run.phase)) {
     mergeSection.style.display = 'none';
     return;
   }
 
   const doneTasks = (run.tasks || []).filter(t => t.status === 'done');
-  if (doneTasks.length === 0) {
+  if (doneTasks.length === 0 && run.phase === 'done') {
     mergeSection.style.display = 'none';
     return;
   }
 
   mergeSection.style.display = '';
+
+  // ── Phase: merging (progress) ─────────────────────────────────
+  if (run.phase === 'merging') {
+    const p = run.mergeProgress || {};
+    mergeSection.innerHTML = `
+      <div class="parallel-merge-inner parallel-merge-merging">
+        <div class="parallel-merge-header">
+          <div class="parallel-merge-spinner"></div>
+          <h3 class="parallel-merge-title">Merging branches...</h3>
+        </div>
+        <p class="parallel-merge-hint">
+          ${p.current && p.total ? `Branch ${p.current}/${p.total}` : 'Preparing...'}
+          ${p.branch ? ` — <code>${escapeHtml(p.branch.split('/').pop())}</code>` : ''}
+        </p>
+      </div>`;
+    return;
+  }
+
+  // ── Phase: merged (result) ────────────────────────────────────
+  if (run.phase === 'merged') {
+    const mr = run.mergeResult || {};
+    const mb = run.mergeBranch || '';
+    const hasSkipped = mr.skipped?.length > 0;
+    mergeSection.innerHTML = `
+      <div class="parallel-merge-inner parallel-merge-done">
+        <div class="parallel-merge-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--pt-green)" stroke-width="2" width="16" height="16"><polyline points="20 6 9 17 4 12"/></svg>
+          <h3 class="parallel-merge-title">${mr.merged || 0} branch${(mr.merged || 0) !== 1 ? 'es' : ''} merged into <code>${escapeHtml(mb.split('/').pop() || mb)}</code></h3>
+        </div>
+        ${hasSkipped ? `<p class="parallel-merge-skipped">${mr.skipped.length} branch${mr.skipped.length !== 1 ? 'es' : ''} skipped (conflicts)</p>` : ''}
+        <div class="parallel-merge-actions">
+          <button class="parallel-merge-btn parallel-merge-btn-diff" id="pt-merge-diff-${run.id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            View combined diff
+          </button>
+        </div>
+        <p class="parallel-merge-final-hint">
+          To merge into <code>${escapeHtml(run.mainBranch)}</code>: <code>git checkout ${escapeHtml(run.mainBranch)} && git merge ${escapeHtml(mb)}</code>
+        </p>
+      </div>`;
+
+    // Wire combined diff button
+    const diffBtn = document.getElementById(`pt-merge-diff-${run.id}`);
+    if (diffBtn) {
+      diffBtn.addEventListener('click', () => _handleBranchDiff(run.projectPath, run.mainBranch, mb));
+    }
+    return;
+  }
+
+  // ── Phase: done (auto-merge button + individual diffs) ────────
   mergeSection.innerHTML = `
     <div class="parallel-merge-inner">
       <div class="parallel-merge-header">
@@ -898,27 +949,42 @@ function _updateRunMerge(run) {
         </svg>
         <h3 class="parallel-merge-title">${t('parallel.merge.title')}</h3>
       </div>
-      <p class="parallel-merge-hint">${t('parallel.merge.hint', { mainBranch: escapeHtml(run.mainBranch) })}</p>
+      <button class="parallel-merge-btn parallel-merge-btn-auto" id="pt-merge-auto-${run.id}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+          <path d="M6 9v6"/><path d="M18 9V6a2 2 0 00-2-2H8"/><path d="M18 15v3"/>
+        </svg>
+        Auto-merge ${doneTasks.length} branch${doneTasks.length !== 1 ? 'es' : ''}
+      </button>
       <div class="parallel-merge-list">
         ${doneTasks.map(task => `
           <div class="parallel-merge-item">
-            <div class="parallel-merge-branch-row">
-              <code class="parallel-merge-branch">${escapeHtml(task.branch)}</code>
-              <button class="parallel-btn-sm parallel-btn-diff" data-task-id="${task.id}">
-                ${t('parallel.merge.viewDiff')}
-              </button>
-            </div>
-            <div class="parallel-merge-cmds">
-              <code class="parallel-merge-cmd">git checkout ${escapeHtml(run.mainBranch)}</code>
-              <code class="parallel-merge-cmd">git merge ${escapeHtml(task.branch)}</code>
-            </div>
+            <code class="parallel-merge-branch">${escapeHtml(task.branch)}</code>
+            <button class="parallel-btn-icon parallel-btn-diff" data-task-id="${task.id}" title="View diff">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </button>
           </div>
         `).join('')}
       </div>
     </div>
   `;
 
-  // Wire diff buttons directly (innerHTML buttons have no listeners)
+  // Wire auto-merge button
+  const autoBtn = document.getElementById(`pt-merge-auto-${run.id}`);
+  if (autoBtn) {
+    autoBtn.addEventListener('click', async () => {
+      autoBtn.disabled = true;
+      autoBtn.textContent = 'Starting merge...';
+      try {
+        const result = await ctx.api.parallel.mergeRun({ runId: run.id });
+        if (!result.success) _showToast(result.error || 'Merge failed', 'error');
+      } catch (err) {
+        _showToast(err.message || 'Merge failed', 'error');
+      }
+    });
+  }
+
+  // Wire individual diff buttons
   mergeSection.querySelectorAll('.parallel-btn-diff').forEach(btn => {
     const taskId = btn.dataset.taskId;
     btn.addEventListener('click', () => _handleViewDiff(run.id, taskId));
@@ -927,17 +993,8 @@ function _updateRunMerge(run) {
 
 // ─── View diff ────────────────────────────────────────────────────────────────
 
-async function _handleViewDiff(runId, taskId) {
-  const run = getRunById(runId);
-  if (!run) { _showToast('Run not found', 'error'); return; }
-
-  const task = (run.tasks || []).find(t => t.id === taskId);
-  if (!task) { _showToast('Task not found', 'error'); return; }
-  if (!task.branch) { _showToast('No branch associated with this task', 'error'); return; }
-
-  const diffParams = { projectPath: run.projectPath, branch1: run.mainBranch, branch2: task.branch };
-
-  // Fetch file stats
+async function _handleBranchDiff(projectPath, branch1, branch2) {
+  const diffParams = { projectPath, branch1, branch2 };
   let statsResult;
   try {
     statsResult = await ctx.api.git.worktreeDiffStats(diffParams);
@@ -945,17 +1002,15 @@ async function _handleViewDiff(runId, taskId) {
     _showToast(err.message || 'Diff failed', 'error');
     return;
   }
-
   if (!statsResult.success || !statsResult.files?.length) {
     _showToast('No changes found between branches', 'warning');
     return;
   }
+  _showDiffModal(`Combined diff — ${branch2}`, statsResult.files, diffParams);
+}
 
-  const files = statsResult.files;
-  const statusLabels = { A: 'New', M: 'Modified', D: 'Deleted', R: 'Renamed', C: 'Copied' };
+function _showDiffModal(title, files, diffParams) {
   const statusColors = { A: 'add', M: 'mod', D: 'del', R: 'ren' };
-
-  // Build split-panel HTML
   const totalAdd = files.reduce((s, f) => s + f.additions, 0);
   const totalDel = files.reduce((s, f) => s + f.deletions, 0);
 
@@ -1001,7 +1056,7 @@ async function _handleViewDiff(runId, taskId) {
     </div>`;
 
   ctx.showModal(
-    `${t('parallel.diff.title')} — ${task.branch}`,
+    title,
     modalHtml,
     `<button class="modal-btn secondary" onclick="closeModal()">${t('parallel.diff.close')}</button>`
   );
@@ -1021,6 +1076,32 @@ async function _handleViewDiff(runId, taskId) {
 
   // Auto-load first file
   _loadFileDiff(diffParams, files[0]);
+}
+
+async function _handleViewDiff(runId, taskId) {
+  const run = getRunById(runId);
+  if (!run) { _showToast('Run not found', 'error'); return; }
+
+  const task = (run.tasks || []).find(t => t.id === taskId);
+  if (!task) { _showToast('Task not found', 'error'); return; }
+  if (!task.branch) { _showToast('No branch associated with this task', 'error'); return; }
+
+  const diffParams = { projectPath: run.projectPath, branch1: run.mainBranch, branch2: task.branch };
+
+  let statsResult;
+  try {
+    statsResult = await ctx.api.git.worktreeDiffStats(diffParams);
+  } catch (err) {
+    _showToast(err.message || 'Diff failed', 'error');
+    return;
+  }
+
+  if (!statsResult.success || !statsResult.files?.length) {
+    _showToast('No changes found between branches', 'warning');
+    return;
+  }
+
+  _showDiffModal(`${t('parallel.diff.title')} — ${task.branch}`, statsResult.files, diffParams);
 }
 
 async function _loadFileDiff(diffParams, file) {
