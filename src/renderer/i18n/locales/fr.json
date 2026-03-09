@@ -2361,6 +2361,8 @@
       "creating-worktrees": "Création des worktrees isolés...",
       "running": "En cours ({done}/{total} tâches terminées)",
       "done": "Toutes les tâches sont terminées",
+      "merging": "Fusion des branches...",
+      "merged": "Branches fusionnées",
       "failed": "Échec de l'exécution",
       "cancelled": "Annulé"
     },
