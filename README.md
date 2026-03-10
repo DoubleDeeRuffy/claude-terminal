@@ -11,11 +11,11 @@
   <img src="https://img.shields.io/github/actions/workflow/status/Sterll/claude-terminal/ci.yml?branch=main&label=CI" alt="CI Status" />
   <img src="https://img.shields.io/github/contributors/Sterll/claude-terminal" alt="Contributors" />
   <img
-    src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bernardopg/8aa5c09aca432a7a39aefe32e8ed393a/raw/i18n_fr.json"
+    src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_fr.json"
     alt="i18n French"
   />
   <img
-    src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bernardopg/8aa5c09aca432a7a39aefe32e8ed393a/raw/i18n_es.json"
+    src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_es.json"
     alt="i18n Spanish"
   />
 </p>
@@ -92,8 +92,8 @@
 > instructions on how to add a new language.
 
 [i18n-en-badge]: https://img.shields.io/badge/i18n-100%25-brightgreen
-[i18n-fr-badge]: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bernardopg/8aa5c09aca432a7a39aefe32e8ed393a/raw/i18n_fr.json
-[i18n-es-badge]: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bernardopg/8aa5c09aca432a7a39aefe32e8ed393a/raw/i18n_es.json
+[i18n-fr-badge]: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_fr.json
+[i18n-es-badge]: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_es.json
 
 ---
 
