@@ -304,7 +304,9 @@ class ChatService {
     });
 
     // Always push initial prompt (even for resume — SDK needs a message to process)
-    if (prompt) {
+    const hasImages = images && images.length > 0;
+    const hasMentions = mentions && mentions.length > 0;
+    if (prompt || hasImages || hasMentions) {
       messageQueue.push({
         type: 'user',
         message: { role: 'user', content: this._buildContent(prompt, images, mentions) },
