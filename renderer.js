@@ -1046,6 +1046,26 @@ async function deleteProjectUI(projectId) {
     deleteTypeHandler.onProjectDelete(project, projectIndex);
   }
 
+  // Close all terminals associated with this project
+  let closedTerminalCount = 0;
+  const terminals = terminalsState.get().terminals;
+  const terminalIdsToClose = [];
+  terminals.forEach((term, id) => {
+    if (term.projectIndex === projectIndex) {
+      terminalIdsToClose.push(id);
+    }
+  });
+  terminalIdsToClose.forEach(id => {
+    TerminalManager.closeTerminal(id);
+    closedTerminalCount++;
+  });
+  if (closedTerminalCount > 0) {
+    showToast({
+      type: 'info',
+      title: t('projects.terminalsClosedWithProject', { count: closedTerminalCount })
+    });
+  }
+
   const projects = projectsState.get().projects.filter(p => p.id !== projectId);
   let rootOrder = projectsState.get().rootOrder;
   if (project.folderId === null) {
@@ -3032,9 +3052,21 @@ async function promptRenameFolder(folderId) {
 async function renameProjectUI(projectId) {
   const project = getProject(projectId);
   if (!project) return;
+  const oldName = project.name;
   const name = await showInputModal(t('dialog.newProjectName'), project.name);
   if (name && name.trim()) {
-    renameProject(projectId, name.trim());
+    const newName = name.trim();
+    renameProject(projectId, newName);
+
+    // Propagate rename to terminal tabs that still use the old project name
+    const projectIndex = getProjectIndex(projectId);
+    const terminals = terminalsState.get().terminals;
+    terminals.forEach((term, id) => {
+      if (term.projectIndex === projectIndex && term.name === oldName) {
+        TerminalManager.updateTerminalTabName(id, newName);
+      }
+    });
+
     ProjectList.render();
   }
 }
