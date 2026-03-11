@@ -1,4 +1,4 @@
-const { hexToRgb, rgbToHex, lightenColor, darkenColor, ACCENT_COLORS } = require('../../src/renderer/utils/color');
+const { hexToRgb, rgbToHex, lightenColor, darkenColor, sanitizeColor, ACCENT_COLORS } = require('../../src/renderer/utils/color');
 
 describe('hexToRgb', () => {
   test('#ff0000 returns {r:255, g:0, b:0}', () => {
@@ -81,6 +81,68 @@ describe('darkenColor', () => {
 
   test('invalid hex returns the input unchanged', () => {
     expect(darkenColor('invalid', 50)).toBe('invalid');
+  });
+});
+
+describe('sanitizeColor', () => {
+  test('accepts valid #rrggbb', () => {
+    expect(sanitizeColor('#d97706')).toBe('#d97706');
+  });
+
+  test('accepts valid #rgb', () => {
+    expect(sanitizeColor('#f00')).toBe('#f00');
+  });
+
+  test('accepts valid #rrggbbaa', () => {
+    expect(sanitizeColor('#d97706ff')).toBe('#d97706ff');
+  });
+
+  test('accepts valid #rgba', () => {
+    expect(sanitizeColor('#f00a')).toBe('#f00a');
+  });
+
+  test('rejects hex without #', () => {
+    expect(sanitizeColor('d97706')).toBe('');
+  });
+
+  test('rejects empty string', () => {
+    expect(sanitizeColor('')).toBe('');
+  });
+
+  test('rejects non-string (number)', () => {
+    expect(sanitizeColor(123)).toBe('');
+  });
+
+  test('rejects null', () => {
+    expect(sanitizeColor(null)).toBe('');
+  });
+
+  test('rejects undefined', () => {
+    expect(sanitizeColor(undefined)).toBe('');
+  });
+
+  test('rejects CSS expression (injection)', () => {
+    expect(sanitizeColor('expression(alert(1))')).toBe('');
+  });
+
+  test('rejects url() value', () => {
+    expect(sanitizeColor('url(javascript:alert(1))')).toBe('');
+  });
+
+  test('rejects rgb() value', () => {
+    expect(sanitizeColor('rgb(255,0,0)')).toBe('');
+  });
+
+  test('rejects color name', () => {
+    expect(sanitizeColor('red')).toBe('');
+  });
+
+  test('trims whitespace around valid color', () => {
+    expect(sanitizeColor('  #ff0000  ')).toBe('#ff0000');
+  });
+
+  test('rejects too-long hex', () => {
+    expect(sanitizeColor('#ff00ff00ff')).toBe('');
   });
 });
 

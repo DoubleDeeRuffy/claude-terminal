@@ -233,6 +233,127 @@ describe('getGlobalTrackingData', () => {
   });
 });
 
+// ── getProjectTimes with real data ──
+
+describe('getProjectTimes with sessions', () => {
+  test('computes total from saved sessions', () => {
+    const now = Date.now();
+    dataState.set({
+      version: 3,
+      month: null,
+      global: { sessions: [] },
+      projects: {
+        'proj-1': {
+          sessions: [
+            { startTime: new Date(now - 7200000).toISOString(), endTime: new Date(now - 3600000).toISOString(), duration: 3600000 },
+            { startTime: new Date(now - 1800000).toISOString(), endTime: new Date(now - 600000).toISOString(), duration: 1200000 },
+          ]
+        }
+      }
+    });
+    const times = getProjectTimes('proj-1');
+    expect(times.total).toBe(3600000 + 1200000);
+    expect(times.today).toBeGreaterThan(0);
+  });
+
+  test('today only counts today portion of sessions', () => {
+    const now = Date.now();
+    const yesterdayStart = now - 48 * 60 * 60 * 1000; // 2 days ago
+    const yesterdayEnd = now - 47 * 60 * 60 * 1000;   // still yesterday
+    dataState.set({
+      version: 3,
+      month: null,
+      global: { sessions: [] },
+      projects: {
+        'proj-old': {
+          sessions: [
+            { startTime: new Date(yesterdayStart).toISOString(), endTime: new Date(yesterdayEnd).toISOString(), duration: 3600000 },
+          ]
+        }
+      }
+    });
+    const times = getProjectTimes('proj-old');
+    expect(times.total).toBe(3600000);
+    expect(times.today).toBe(0); // session is from yesterday
+  });
+
+  test('includes active session elapsed time', () => {
+    const now = Date.now();
+    heartbeat('proj-active', 'terminal');
+    jest.advanceTimersByTime(5000); // 5 seconds of "active time"
+    const times = getProjectTimes('proj-active');
+    expect(times.total).toBeGreaterThan(0);
+  });
+});
+
+// ── getGlobalTimes with real data ──
+
+describe('getGlobalTimes with sessions', () => {
+  test('computes today/week/month from sessions', () => {
+    const now = Date.now();
+    dataState.set({
+      version: 3,
+      month: null,
+      global: {
+        sessions: [
+          { startTime: new Date(now - 3600000).toISOString(), endTime: new Date(now - 1800000).toISOString(), duration: 1800000 },
+        ]
+      },
+      projects: {}
+    });
+    const times = getGlobalTimes();
+    expect(times.today).toBeGreaterThan(0);
+    expect(times.week).toBeGreaterThanOrEqual(times.today);
+    expect(times.month).toBeGreaterThanOrEqual(times.week);
+  });
+
+  test('week includes today', () => {
+    const now = Date.now();
+    dataState.set({
+      version: 3,
+      month: null,
+      global: {
+        sessions: [
+          { startTime: new Date(now - 600000).toISOString(), endTime: new Date(now - 300000).toISOString(), duration: 300000 },
+        ]
+      },
+      projects: {}
+    });
+    const times = getGlobalTimes();
+    expect(times.week).toBeGreaterThanOrEqual(times.today);
+  });
+
+  test('includes active global session', () => {
+    heartbeat('proj-1', 'terminal');
+    jest.advanceTimersByTime(5000);
+    const times = getGlobalTimes();
+    expect(times.today).toBeGreaterThan(0);
+  });
+});
+
+// ── getProjectSessions with real data ──
+
+describe('getProjectSessions with data', () => {
+  test('returns sessions for project with data', () => {
+    const now = Date.now();
+    dataState.set({
+      version: 3,
+      month: null,
+      global: { sessions: [] },
+      projects: {
+        'proj-1': {
+          sessions: [
+            { startTime: new Date(now - 3600000).toISOString(), endTime: new Date(now).toISOString(), duration: 3600000 },
+          ]
+        }
+      }
+    });
+    const sessions = getProjectSessions('proj-1');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].duration).toBe(3600000);
+  });
+});
+
 // ── saveAndShutdown ──
 
 describe('saveAndShutdown', () => {

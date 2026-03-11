@@ -1,4 +1,4 @@
-const { parseGitStatus, parseDiffNumstat } = require('../../src/main/utils/git');
+const { parseGitStatus, parseDiffNumstat, parseWorktreeListOutput } = require('../../src/main/utils/git');
 
 // ── parseGitStatus ──
 
@@ -116,5 +116,116 @@ describe('parseDiffNumstat', () => {
   test('skips blank lines', () => {
     const result = parseDiffNumstat('5\t3\tfile.js\n\n');
     expect(result.size).toBe(1);
+  });
+});
+
+// ── parseWorktreeListOutput ──
+
+describe('parseWorktreeListOutput', () => {
+  test('returns empty array for null', () => {
+    expect(parseWorktreeListOutput(null)).toEqual([]);
+  });
+
+  test('returns empty array for empty string', () => {
+    expect(parseWorktreeListOutput('')).toEqual([]);
+  });
+
+  test('parses single main worktree', () => {
+    const output = `worktree /home/user/project
+HEAD abc123def456
+branch refs/heads/main
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('/home/user/project');
+    expect(result[0].head).toBe('abc123def456');
+    expect(result[0].branch).toBe('main');
+    expect(result[0].isMain).toBe(true);
+  });
+
+  test('parses multiple worktrees', () => {
+    const output = `worktree /home/user/project
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/project-feat
+HEAD def456
+branch refs/heads/feature/login
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result).toHaveLength(2);
+    expect(result[0].isMain).toBe(true);
+    expect(result[0].branch).toBe('main');
+    expect(result[1].branch).toBe('feature/login');
+    expect(result[1].isMain).toBeUndefined();
+  });
+
+  test('parses detached HEAD', () => {
+    const output = `worktree /home/user/project
+HEAD abc123
+detached
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result[0].detached).toBe(true);
+    expect(result[0].branch).toBeUndefined();
+  });
+
+  test('parses bare worktree', () => {
+    const output = `worktree /home/user/project.git
+HEAD abc123
+bare
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result[0].bare).toBe(true);
+  });
+
+  test('parses locked worktree without reason', () => {
+    const output = `worktree /home/user/project-feat
+HEAD abc123
+branch refs/heads/feat
+locked
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result[0].locked).toBe(true);
+    expect(result[0].lockReason).toBeUndefined();
+  });
+
+  test('parses locked worktree with reason', () => {
+    const output = `worktree /home/user/project-feat
+HEAD abc123
+branch refs/heads/feat
+locked reason for locking
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result[0].locked).toBe(true);
+    expect(result[0].lockReason).toBe('reason for locking');
+  });
+
+  test('parses prunable worktree', () => {
+    const output = `worktree /home/user/deleted-wt
+HEAD abc123
+branch refs/heads/old
+prunable
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result[0].prunable).toBe(true);
+  });
+
+  test('strips refs/heads/ from branch name', () => {
+    const output = `worktree /path
+HEAD abc
+branch refs/heads/fix/issue-42
+`;
+    const result = parseWorktreeListOutput(output);
+    expect(result[0].branch).toBe('fix/issue-42');
+  });
+
+  test('handles output without trailing newline', () => {
+    const output = `worktree /path
+HEAD abc123
+branch refs/heads/main`;
+    const result = parseWorktreeListOutput(output);
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('/path');
   });
 });

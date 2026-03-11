@@ -186,3 +186,57 @@ describe('project data mapping', () => {
     expect(() => remoteServer.broadcastProjectsUpdate(projects)).not.toThrow();
   });
 });
+
+// ── PIN expiry behavior ──
+
+describe('PIN lifecycle', () => {
+  test('PIN expires after TTL', () => {
+    remoteServer.generatePin();
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 3 * 60 * 1000;
+    const result = remoteServer.getPin();
+    expect(result.pin).toBeTruthy();
+    expect(result.expiresAt).toBeLessThan(Date.now());
+    Date.now = originalNow;
+  });
+
+  test('generatePin resets used flag', () => {
+    remoteServer.generatePin();
+    remoteServer.generatePin();
+    const result = remoteServer.getPin();
+    expect(result.used).toBe(false);
+  });
+
+  test('successive generatePin calls produce fresh PINs with new expiry', () => {
+    remoteServer.generatePin();
+    const info1 = remoteServer.getPin();
+    remoteServer.generatePin();
+    const info2 = remoteServer.getPin();
+    expect(info2.expiresAt).toBeGreaterThanOrEqual(info1.expiresAt);
+    expect(info2.used).toBe(false);
+  });
+});
+
+// ── broadcast helpers ──
+
+describe('broadcast helpers', () => {
+  test('broadcastSessionStarted does not throw with no clients', () => {
+    expect(() => remoteServer.broadcastSessionStarted({
+      sessionId: 's1', projectId: 'p1', tabName: 'Test'
+    })).not.toThrow();
+  });
+
+  test('broadcastTabRenamed does not throw with no clients', () => {
+    expect(() => remoteServer.broadcastTabRenamed({
+      sessionId: 's1', tabName: 'Renamed'
+    })).not.toThrow();
+  });
+});
+
+// ── Server state sync ──
+
+describe('_syncServerState', () => {
+  test('does not throw when called without server running', () => {
+    expect(() => remoteServer._syncServerState()).not.toThrow();
+  });
+});
