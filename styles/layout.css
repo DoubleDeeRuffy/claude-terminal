@@ -1138,7 +1138,7 @@ body.platform-darwin .titlebar-drag {
   border-radius: var(--radius-sm);
   width: 100%;
   text-align: left;
-  transition: background 0.1s;
+  transition: background 0.1s ease;
 }
 
 .tab-ctx-menu-item:hover {
