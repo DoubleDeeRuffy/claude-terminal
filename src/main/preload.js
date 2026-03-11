@@ -429,6 +429,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     onError: createListener('chat-error'),
     onDone: createListener('chat-done'),
     onIdle: createListener('chat-idle'),
+    onInitializing: createListener('chat-initializing'),
     onPermissionRequest: createListener('chat-permission-request'),
     generateTabName: (params) => ipcRenderer.invoke('chat-generate-tab-name', params),
     loadHistory: (params) => ipcRenderer.invoke('chat-load-history', params),
@@ -539,7 +540,8 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== SETUP WIZARD ====================
   setupWizard: {
     complete: (settings) => ipcRenderer.invoke('setup-wizard-complete', settings),
-    skip: () => ipcRenderer.send('setup-wizard-skip')
+    skip: () => ipcRenderer.send('setup-wizard-skip'),
+    rerun: () => ipcRenderer.send('setup-wizard-rerun')
   },
 
   // ==================== APP LIFECYCLE ====================

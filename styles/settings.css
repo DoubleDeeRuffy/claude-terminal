@@ -1483,6 +1483,19 @@
   color: var(--text-muted);
 }
 
+/* Validation error states */
+.library-modal-form .form-input.error,
+.setting-input.error {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.setting-error-msg {
+  color: var(--danger);
+  font-size: var(--font-xs);
+  margin-top: 4px;
+}
+
 .library-modal-form textarea.form-input {
   resize: vertical;
   min-height: 120px;

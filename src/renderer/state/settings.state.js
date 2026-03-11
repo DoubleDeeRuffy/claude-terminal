@@ -123,6 +123,32 @@ async function loadSettings() {
 }
 
 /**
+ * Listeners notified after a flush (success or error)
+ * @type {Array<Function>}
+ */
+const _saveListeners = [];
+
+/**
+ * Register a listener called after each disk flush.
+ * Callback receives `{ success: boolean, error?: Error }`.
+ * @param {Function} fn
+ * @returns {Function} unsubscribe
+ */
+function onSaveFlush(fn) {
+  _saveListeners.push(fn);
+  return () => {
+    const idx = _saveListeners.indexOf(fn);
+    if (idx !== -1) _saveListeners.splice(idx, 1);
+  };
+}
+
+function _notifySaveListeners(result) {
+  for (const fn of _saveListeners) {
+    try { fn(result); } catch (_) {}
+  }
+}
+
+/**
  * Save settings to file (debounced)
  */
 let saveSettingsTimer = null;
@@ -152,6 +178,7 @@ function saveSettingsImmediate() {
     fs.renameSync(tempFile, settingsFile);
     // Remove backup on success
     try { if (fs.existsSync(backupFile)) fs.unlinkSync(backupFile); } catch (_) {}
+    _notifySaveListeners({ success: true });
   } catch (e) {
     console.error('Error saving settings:', e);
     // Restore from backup if save failed
@@ -160,6 +187,7 @@ function saveSettingsImmediate() {
     }
     // Cleanup temp file
     try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+    _notifySaveListeners({ success: false, error: e });
   }
 }
 
@@ -225,5 +253,6 @@ module.exports = {
   getEditorCommand,
   EDITOR_OPTIONS,
   isNotificationsEnabled,
-  toggleNotifications
+  toggleNotifications,
+  onSaveFlush
 };

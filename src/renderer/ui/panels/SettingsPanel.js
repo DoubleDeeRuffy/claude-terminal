@@ -9,10 +9,19 @@ const { t, setLanguage, getCurrentLanguage, getAvailableLanguages } = require('.
 const RemotePanel = require('./RemotePanel');
 
 let ctx = null;
-let _settingsDropdownCleanup = null;
+/** @type {Function[]} - All cleanup functions to call on panel teardown */
+let _cleanups = [];
 
 function init(context) {
   ctx = context;
+}
+
+/** Run all registered cleanups and reset the list */
+function _runCleanups() {
+  for (const fn of _cleanups) {
+    try { if (typeof fn === 'function') fn(); } catch (_) {}
+  }
+  _cleanups = [];
 }
 
 // ── Library panel builder ──
@@ -142,10 +151,22 @@ function showContextPackModal(existingPack = null) {
       </div>
     `,
     buttons: [
-      { label: t('common.cancel') || 'Cancel', action: 'cancel', onClick: () => closeModal(modal) },
-      { label: t('common.save') || 'Save', action: 'save', primary: true, onClick: () => {
-        const name = document.getElementById('ctx-pack-name').value.trim();
-        if (!name) return document.getElementById('ctx-pack-name').focus();
+      { label: t('common.cancel'), action: 'cancel', onClick: () => closeModal(modal) },
+      { label: t('common.save'), action: 'save', primary: true, onClick: () => {
+        const nameInput = document.getElementById('ctx-pack-name');
+        const name = nameInput.value.trim();
+        if (!name) {
+          nameInput.classList.add('error');
+          let errMsg = nameInput.parentNode.querySelector('.setting-error-msg');
+          if (!errMsg) {
+            errMsg = document.createElement('div');
+            errMsg.className = 'setting-error-msg';
+            nameInput.parentNode.appendChild(errMsg);
+          }
+          errMsg.textContent = t('settings.nameRequired');
+          nameInput.focus();
+          return;
+        }
 
         const description = document.getElementById('ctx-pack-desc').value.trim();
         const scopeEl = document.querySelector('input[name="ctx-scope"]:checked');
@@ -165,6 +186,16 @@ function showContextPackModal(existingPack = null) {
   });
 
   showModal(modal);
+
+  // Validation: clear error on input
+  const nameInput = document.getElementById('ctx-pack-name');
+  if (nameInput) {
+    nameInput.addEventListener('input', () => {
+      nameInput.classList.remove('error');
+      const errMsg = nameInput.parentNode.querySelector('.setting-error-msg');
+      if (errMsg) errMsg.remove();
+    });
+  }
 
   // Add item button
   const addBtn = document.getElementById('btn-add-ctx-item');
@@ -204,15 +235,36 @@ function buildContextItemRow(item, index) {
 }
 
 function setupContextItemHandlers() {
+  const { showConfirm } = require('../components/Modal');
+
   document.querySelectorAll('.ctx-item-type').forEach(select => {
-    select.onchange = () => {
+    // Store current type for revert on cancel (issue 5)
+    if (!select.dataset.prevType) select.dataset.prevType = select.value;
+
+    select.onchange = async () => {
       const row = select.closest('.ctx-item-row');
-      const idx = parseInt(row.dataset.index);
-      const type = select.value;
       const wrap = row.querySelector('.ctx-item-value-wrap');
-      if (type === 'file') {
+      const prevType = select.dataset.prevType;
+      const newType = select.value;
+
+      // Check if current value has content — confirm before clearing (issue 5)
+      const valueEl = wrap.querySelector('.ctx-item-value');
+      const currentValue = valueEl ? (valueEl.value || valueEl.textContent || '').trim() : '';
+      if (currentValue) {
+        const confirmed = await showConfirm({
+          title: t('settings.contextPackItems'),
+          message: t('settings.confirmTypeChange'),
+        });
+        if (!confirmed) {
+          select.value = prevType;
+          return;
+        }
+      }
+
+      select.dataset.prevType = newType;
+      if (newType === 'file') {
         wrap.innerHTML = `<input type="text" class="form-input ctx-item-value" value="" placeholder="${t('settings.contextPackFilePath')}" />`;
-      } else if (type === 'folder') {
+      } else if (newType === 'folder') {
         wrap.innerHTML = `<input type="text" class="form-input ctx-item-value" value="" placeholder="${t('settings.contextPackFolderPath')}" />
           <input type="number" class="form-input ctx-item-depth" value="2" min="1" max="5" title="${t('settings.contextPackFolderDepth')}" />`;
       } else {
@@ -220,8 +272,31 @@ function setupContextItemHandlers() {
       }
     };
   });
+
+  // Issue 3: delete item with undo toast
   document.querySelectorAll('.ctx-item-remove').forEach(btn => {
-    btn.onclick = () => btn.closest('.ctx-item-row').remove();
+    btn.onclick = () => {
+      const row = btn.closest('.ctx-item-row');
+      const container = row.parentNode;
+      const nextSibling = row.nextSibling;
+      const savedHtml = row.outerHTML;
+
+      row.remove();
+
+      const { withUndo } = require('../components/Toast');
+      withUndo(t('settings.itemDeleted'), () => {
+        // Restore item
+        const temp = document.createElement('div');
+        temp.innerHTML = savedHtml;
+        const restored = temp.firstElementChild;
+        if (nextSibling && container.contains(nextSibling)) {
+          container.insertBefore(restored, nextSibling);
+        } else {
+          container.appendChild(restored);
+        }
+        setupContextItemHandlers();
+      }, { type: 'info', duration: 5000 });
+    };
   });
 }
 
@@ -284,10 +359,22 @@ function showPromptTemplateModal(existingTemplate = null) {
       </div>
     `,
     buttons: [
-      { label: t('common.cancel') || 'Cancel', action: 'cancel', onClick: () => closeModal(modal) },
-      { label: t('common.save') || 'Save', action: 'save', primary: true, onClick: () => {
-        const name = document.getElementById('prompt-tmpl-name').value.trim();
-        if (!name) return document.getElementById('prompt-tmpl-name').focus();
+      { label: t('common.cancel'), action: 'cancel', onClick: () => closeModal(modal) },
+      { label: t('common.save'), action: 'save', primary: true, onClick: () => {
+        const tmplNameInput = document.getElementById('prompt-tmpl-name');
+        const name = tmplNameInput.value.trim();
+        if (!name) {
+          tmplNameInput.classList.add('error');
+          let errMsg = tmplNameInput.parentNode.querySelector('.setting-error-msg');
+          if (!errMsg) {
+            errMsg = document.createElement('div');
+            errMsg.className = 'setting-error-msg';
+            tmplNameInput.parentNode.appendChild(errMsg);
+          }
+          errMsg.textContent = t('settings.nameRequired');
+          tmplNameInput.focus();
+          return;
+        }
 
         const description = document.getElementById('prompt-tmpl-desc').value.trim();
         const template = document.getElementById('prompt-tmpl-content').value;
@@ -307,6 +394,16 @@ function showPromptTemplateModal(existingTemplate = null) {
   });
 
   showModal(modal);
+
+  // Validation: clear error on input
+  const tmplNameEl = document.getElementById('prompt-tmpl-name');
+  if (tmplNameEl) {
+    tmplNameEl.addEventListener('input', () => {
+      tmplNameEl.classList.remove('error');
+      const errMsg = tmplNameEl.parentNode.querySelector('.setting-error-msg');
+      if (errMsg) errMsg.remove();
+    });
+  }
 }
 
 // ── Agent Colors Panel ──
@@ -722,6 +819,21 @@ async function renderSettingsTab(initialTab = 'general') {
                 <span>${t('settings.addPreset')}</span>
               </button>
             </div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">${t('settings.aboutGroup')}</div>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-label">
+                  <div>${t('settings.rerunSetup')}</div>
+                  <div class="settings-desc">${t('settings.rerunSetupDesc')}</div>
+                </div>
+                <button type="button" class="btn-outline" id="btn-rerun-setup">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+                  ${t('settings.rerunSetupBtn')}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1238,7 +1350,7 @@ async function renderSettingsTab(initialTab = 'general') {
   container.querySelectorAll('.library-delete-pack').forEach(btn => {
     btn.onclick = async () => {
       const { showConfirm } = require('../components/Modal');
-      const confirmed = await showConfirm({ title: t('settings.contextPacks'), message: t('settings.confirmDeleteContextPack'), confirmLabel: t('common.delete') || 'Delete' });
+      const confirmed = await showConfirm({ title: t('settings.contextPacks'), message: t('settings.confirmDeleteContextPack'), confirmLabel: t('common.delete') });
       if (!confirmed) return;
       const ContextPromptService = require('../../services/ContextPromptService');
       ContextPromptService.deleteContextPack(btn.dataset.id);
@@ -1255,7 +1367,7 @@ async function renderSettingsTab(initialTab = 'general') {
   container.querySelectorAll('.library-delete-template').forEach(btn => {
     btn.onclick = async () => {
       const { showConfirm } = require('../components/Modal');
-      const confirmed = await showConfirm({ title: t('settings.promptTemplates'), message: t('settings.confirmDeletePromptTemplate'), confirmLabel: t('common.delete') || 'Delete' });
+      const confirmed = await showConfirm({ title: t('settings.promptTemplates'), message: t('settings.confirmDeletePromptTemplate'), confirmLabel: t('common.delete') });
       if (!confirmed) return;
       const ContextPromptService = require('../../services/ContextPromptService');
       ContextPromptService.deletePromptTemplate(btn.dataset.id);
@@ -1291,16 +1403,55 @@ async function renderSettingsTab(initialTab = 'general') {
       };
     });
   });
-  // Remove previous document-level listener before adding a new one (prevents stacking on re-render)
-  if (_settingsDropdownCleanup) _settingsDropdownCleanup();
+  // Issue 7: centralized cleanup — tear down previous listeners before registering new ones
+  _runCleanups();
+
   const closeDropdowns = () => container.querySelectorAll('.settings-dropdown.open').forEach(d => d.classList.remove('open'));
   document.addEventListener('click', closeDropdowns);
   const scrollParent = container.closest('.tab-content, .content-area, #settings-tab');
   scrollParent?.addEventListener('scroll', closeDropdowns, { passive: true });
-  _settingsDropdownCleanup = () => {
+  _cleanups.push(() => {
     document.removeEventListener('click', closeDropdowns);
     scrollParent?.removeEventListener('scroll', closeDropdowns);
-  };
+  });
+
+  // Issue 1: subscribe to save flush for toast notification
+  const { onSaveFlush } = require('../../state/settings.state');
+  const unsubFlush = onSaveFlush(({ success, error }) => {
+    if (success) {
+      const { showSuccess } = require('../components/Toast');
+      showSuccess(t('settings.saved'), 2000);
+    } else {
+      const { showError } = require('../components/Toast');
+      showError(t('settings.saveError'), 4000);
+    }
+  });
+  _cleanups.push(unsubFlush);
+
+  // Issue 6: watch for project changes — invalidate scope radio if project closes
+  const { projectsState } = require('../../state/projects.state');
+  const unsubProjects = projectsState.subscribe(() => {
+    const currentProjectId = projectsState.get().openedProjectId;
+    const scopeRadios = container.querySelectorAll('input[name="ctx-scope"], input[name="prompt-scope"]');
+    scopeRadios.forEach(radio => {
+      if (radio.value === 'project') {
+        const label = radio.closest('.form-radio');
+        if (!currentProjectId) {
+          radio.disabled = true;
+          if (label) label.style.opacity = '0.4';
+          // Force global if project scope was selected
+          if (radio.checked) {
+            const globalRadio = radio.closest('.form-radio-group')?.querySelector('input[value="global"]');
+            if (globalRadio) globalRadio.checked = true;
+          }
+        } else {
+          radio.disabled = false;
+          if (label) label.style.opacity = '';
+        }
+      }
+    });
+  });
+  _cleanups.push(unsubProjects);
 
   const saveSettingsHandler = async () => {
     const selectedMode = container.querySelector('.execution-mode-card:not(.terminal-mode-card).selected');
@@ -1427,7 +1578,7 @@ async function renderSettingsTab(initialTab = 'general') {
       switchProvider(newHooksEnabled ? 'hooks' : 'scraping');
     }
 
-    ctx.showToast({ type: 'info', title: t('settings.saved'), message: '' });
+    // Toast is now triggered by onSaveFlush callback (issue 1) — no premature toast here
   };
 
   const autoSave = () => saveSettingsHandler();
@@ -1445,6 +1596,14 @@ async function renderSettingsTab(initialTab = 'general') {
       setTimeout(() => renderSettingsTab('general'), 100);
     });
   }
+
+  // Issue 4: Re-run setup wizard
+  const btnRerunSetup = document.getElementById('btn-rerun-setup');
+  if (btnRerunSetup) {
+    btnRerunSetup.onclick = () => {
+      ctx.api.setupWizard.rerun();
+    };
+  }
 }
 
-module.exports = { init, switchToSettingsTab, renderSettingsTab };
+module.exports = { init, switchToSettingsTab, renderSettingsTab, cleanup: _runCleanups };
