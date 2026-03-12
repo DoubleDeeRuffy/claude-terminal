@@ -3,7 +3,7 @@
  * Minimal entry point that bootstraps the modular architecture
  */
 
-const { app, globalShortcut, session } = require('electron');
+const { app, globalShortcut, session, ipcMain } = require('electron');
 
 // ============================================
 // FIX PATH on macOS/Linux - Apps launched from Finder/Dock have a minimal PATH
@@ -149,6 +149,19 @@ function bootstrapApp() {
       launchMainApp();
     }
   }
+
+  // IPC: Re-run setup wizard from settings panel
+  ipcMain.on('setup-wizard-rerun', () => {
+    createSetupWizardWindow({
+      onComplete: (settings) => {
+        const mainWindow = getMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('settings-changed-externally', settings);
+        }
+      },
+      onSkip: () => { /* no-op, wizard was dismissed */ }
+    });
+  });
 
   /**
    * Register global keyboard shortcuts

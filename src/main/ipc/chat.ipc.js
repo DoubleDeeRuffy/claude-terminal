@@ -93,9 +93,40 @@ function registerChatHandlers() {
     }
   });
 
+  // Analyze chat session for CLAUDE.md suggestions
+  ipcMain.handle('chat-analyze-session', async (_event, { messages, projectPath }) => {
+    try {
+      return await chatService.analyzeSessionForClaudeMd(messages, projectPath);
+    } catch (err) {
+      console.error('[chat-analyze-session] Error:', err.message);
+      return { suggestions: [], claudeMdExists: false };
+    }
+  });
+
+  // Apply selected CLAUDE.md sections
+  ipcMain.handle('claude-md-apply', async (_event, { projectPath, sections }) => {
+    try {
+      return chatService.applyClaudeMdSections(projectPath, sections);
+    } catch (err) {
+      console.error('[claude-md-apply] Error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   // Cancel a background generation
   ipcMain.on('chat-cancel-generation', (_event, { genId }) => {
     chatService.cancelGeneration(genId);
+  });
+
+  // Generate follow-up suggestions after a Claude response
+  ipcMain.handle('chat-generate-suggestions', async (_event, { lastAssistantText, lastUserText, projectContext }) => {
+    try {
+      const suggestions = await chatService.generateSuggestions(lastAssistantText || '', lastUserText || '', projectContext || null);
+      return { success: true, suggestions };
+    } catch (err) {
+      console.error('[chat-generate-suggestions] Error:', err.message);
+      return { success: false, suggestions: [] };
+    }
   });
 }
 

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import extractZip from 'extract-zip';
 import { store, UserData } from '../store/store';
 import { config } from '../config';
@@ -136,6 +137,13 @@ export class ProjectManager {
     '.turbo', '.parcel-cache', '.svelte-kit', '.nuxt', '.output',
   ]);
 
+  // For downloads: same exclusions but keep .git
+  private static EXCLUDE_DIRS_DOWNLOAD = new Set([
+    'node_modules', 'build', 'dist', '.next', '__pycache__',
+    '.venv', 'venv', '.cache', 'coverage', '.tsbuildinfo', '.ct-cloud',
+    '.turbo', '.parcel-cache', '.svelte-kit', '.nuxt', '.output',
+  ]);
+
   /**
    * List all files in a cloud project with their sizes.
    * Used by client to compare local vs cloud.
@@ -173,6 +181,27 @@ export class ProjectManager {
     const user = await store.getUser(userName);
     if (user) {
       user.projects = user.projects.filter(p => p.name !== projectName);
+      await store.saveUser(userName, user);
+    }
+  }
+
+  async renameProject(userName: string, oldName: string, newName: string): Promise<void> {
+    this.validateProjectName(newName);
+    const oldPath = store.getProjectPath(userName, oldName);
+    const newPath = store.getProjectPath(userName, newName);
+
+    const oldExists = await this.projectExists(userName, oldName);
+    if (!oldExists) throw new Error(`Project "${oldName}" does not exist`);
+
+    const newExists = await this.projectExists(userName, newName);
+    if (newExists) throw new Error(`Project "${newName}" already exists`);
+
+    await fs.promises.rename(oldPath, newPath);
+
+    const user = await store.getUser(userName);
+    if (user) {
+      const project = user.projects.find(p => p.name === oldName);
+      if (project) project.name = newName;
       await store.saveUser(userName, user);
     }
   }
@@ -263,6 +292,83 @@ export class ProjectManager {
     } catch {
       // No changes dir — nothing to ack
     }
+  }
+
+  /**
+   * Stream the full project as a zip archive (excluding build/vendor dirs).
+   */
+  async downloadProjectZip(userName: string, projectName: string): Promise<NodeJS.ReadableStream> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const exists = await this.projectExists(userName, projectName);
+    if (!exists) throw new Error(`Project "${projectName}" does not exist`);
+
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 6 } });
+
+    await this._archiveDir(archive, projectPath, projectPath);
+    archive.finalize();
+    return archive;
+  }
+
+  private async _archiveDir(archive: any, baseDir: string, currentDir: string): Promise<void> {
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (ProjectManager.EXCLUDE_DIRS_DOWNLOAD.has(entry.name)) continue;
+      const fullPath = path.join(currentDir, entry.name);
+      const relPath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+      if (entry.isDirectory()) {
+        await this._archiveDir(archive, baseDir, fullPath);
+      } else {
+        archive.file(fullPath, { name: relPath });
+      }
+    }
+  }
+
+  /**
+   * Compute SHA256 hash of a single file via streaming.
+   */
+  private _hashFile(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
+  }
+
+  /**
+   * Hash specific files in a cloud project.
+   * Returns only files that exist; missing files are omitted.
+   */
+  async hashProjectFiles(userName: string, projectName: string, filePaths: string[]): Promise<Array<{ path: string; hash: string }>> {
+    const projectPath = store.getProjectPath(userName, projectName);
+    const exists = await this.projectExists(userName, projectName);
+    if (!exists) throw new Error(`Project "${projectName}" does not exist`);
+
+    const BATCH = 20;
+    const results: Array<{ path: string; hash: string }> = [];
+
+    for (let i = 0; i < filePaths.length; i += BATCH) {
+      const batch = filePaths.slice(i, i + BATCH);
+      const promises = batch.map(async (relPath) => {
+        try {
+          // Prevent path traversal
+          const absPath = path.resolve(projectPath, relPath);
+          if (!absPath.startsWith(projectPath)) return null;
+          const h = await this._hashFile(absPath);
+          return { path: relPath, hash: h };
+        } catch {
+          return null;
+        }
+      });
+      const batchResults = await Promise.all(promises);
+      for (const r of batchResults) {
+        if (r) results.push(r);
+      }
+    }
+
+    return results;
   }
 
   validateProjectName(name: string): void {

@@ -7,11 +7,16 @@
 const api = window.electron_api;
 const { fs, path } = window.electron_nodeModules;
 const { projectsState, setGitPulling, setGitPushing, setGitMerging, setMergeInProgress, getGitOperation, getProjectTimes, getProjectSessions, getFolder, getProject, countProjectsRecursive } = require('../state');
+const { showConfirm, createModal, showModal, closeModal } = require('../ui/components/Modal');
 const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { formatDuration } = require('../utils/format');
 const { t } = require('../i18n');
 const registry = require('../../project-types/registry');
+const KanbanPanel = require('../ui/panels/KanbanPanel');
+
+// Per-project active view: 'overview' | 'kanban'
+const _dashViews = new Map();
 
 // ========== CACHE SYSTEM (LRU with size limit) ==========
 const MAX_CACHE_SIZE = 50; // Max cached projects
@@ -78,14 +83,14 @@ async function readDiskCache(projectPath) {
 const _pendingDiskWrites = new Map(); // projectPath → data
 let _diskWriteTimer = null;
 
-function _flushDiskWrites() {
+async function _flushDiskWrites() {
   const writes = [..._pendingDiskWrites.entries()];
   _pendingDiskWrites.clear();
-  for (const [projectPath, data] of writes) {
+  await Promise.all(writes.map(async ([projectPath, data]) => {
     const filePath = getDiskCachePath(projectPath);
     const payload = { _version: 1, _updatedAt: new Date().toISOString(), dashboard: data };
-    try { fs.writeFileSync(filePath, JSON.stringify(payload), 'utf-8'); } catch (_) {}
-  }
+    try { await fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf-8'); } catch (_) {}
+  }));
 }
 
 /**
@@ -236,29 +241,30 @@ async function loadAllDiskCaches() {
   if (!projects || projects.length === 0) return;
 
   let loaded = 0;
-  for (const project of projects) {
-    // Skip if already in memory cache
-    if (getCachedData(project.id)) continue;
+  const BATCH_SIZE = 5;
+  const uncached = projects.filter(p => !getCachedData(p.id));
 
-    const diskData = await readDiskCache(project.path);
-    if (diskData) {
-      // Refresh projectType from disk in case it changed
-      if (!diskData.projectType) {
-        diskData.projectType = await detectProjectType(project.path);
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+    const batch = uncached.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(batch.map(async (project) => {
+      const diskData = await readDiskCache(project.path);
+      if (diskData) {
+        if (!diskData.projectType) {
+          diskData.projectType = await detectProjectType(project.path);
+        }
+        return { id: project.id, data: diskData };
       }
-      // Load into memory with timestamp=0 so it gets refreshed by preload
-      dashboardCache.set(project.id, {
-        data: diskData,
-        timestamp: 0,
-        loading: false
-      });
-      loaded++;
-    } else {
-      // No disk cache - at least detect project type for minimal display
       const projectType = await detectProjectType(project.path);
       if (projectType) {
-        dashboardCache.set(project.id, {
-          data: { projectType },
+        return { id: project.id, data: { projectType } };
+      }
+      return null;
+    }));
+
+    for (const result of results) {
+      if (result) {
+        dashboardCache.set(result.id, {
+          data: result.data,
           timestamp: 0,
           loading: false
         });
@@ -707,6 +713,21 @@ function buildChangedFilesHtml(files) {
 }
 
 /**
+ * Build the view tabs HTML (Overview / Kanban switcher)
+ * @param {string} projectId
+ * @returns {string}
+ */
+function buildViewTabsHtml(projectId) {
+  const view = _dashViews.get(projectId) || 'overview';
+  return `
+    <div class="dashboard-view-tabs">
+      <button class="dashboard-view-tab${view === 'overview' ? ' active' : ''}" data-view="overview">${t('kanban.overview')}</button>
+      <button class="dashboard-view-tab${view === 'kanban' ? ' active' : ''}" data-view="kanban">${t('kanban.tab')}</button>
+    </div>
+  `;
+}
+
+/**
  * Build git status section HTML
  * @param {Object} gitInfo
  * @returns {string}
@@ -758,6 +779,70 @@ function buildGitStatusHtml(gitInfo) {
     ${buildChangedFilesHtml(files)}
     ${buildCommitsHtml(recentCommits)}
   `;
+}
+
+/**
+ * Build session recaps section HTML (last 5 sessions for a project).
+ * @param {string} projectId
+ * @returns {string}
+ */
+function buildSessionRecapsHtml(projectId) {
+  try {
+    const { getRecaps } = require('./SessionRecapService');
+    const recaps = getRecaps(projectId);
+    if (!recaps || recaps.length === 0) return '';
+
+    const itemsHtml = recaps.map(recap => {
+      const ageMs = Date.now() - (recap.timestamp || 0);
+      const ageMins = Math.floor(ageMs / 60000);
+      const ageHours = Math.floor(ageMins / 60);
+      const ageDays = Math.floor(ageHours / 24);
+
+      let timeLabel;
+      if (ageMins < 1) timeLabel = t('dashboard.sessionRecaps.ago.justNow');
+      else if (ageMins < 60) timeLabel = t('dashboard.sessionRecaps.ago.minutes', { n: ageMins });
+      else if (ageDays === 1) timeLabel = t('dashboard.sessionRecaps.ago.yesterday');
+      else if (ageDays > 1) timeLabel = t('dashboard.sessionRecaps.ago.days', { n: ageDays });
+      else timeLabel = t('dashboard.sessionRecaps.ago.hours', { n: ageHours });
+
+      const duration = formatDuration(recap.durationMs || 0);
+
+      let summaryHtml;
+      if (recap.isRich && recap.summary && recap.summary.includes('•')) {
+        const bullets = recap.summary.split('\n')
+          .filter(line => line.trim())
+          .map(line => `<li>${escapeHtml(line.replace(/^•\s*/, ''))}</li>`)
+          .join('');
+        summaryHtml = `<ul class="session-recap-bullets">${bullets}</ul>`;
+      } else {
+        summaryHtml = `<p class="session-recap-text">${escapeHtml(recap.summary || '')}</p>`;
+      }
+
+      return `
+        <div class="session-recap-item">
+          <div class="session-recap-meta">
+            <span class="session-recap-time">${escapeHtml(timeLabel)}</span>
+            <span class="session-recap-sep">·</span>
+            <span class="session-recap-duration">${escapeHtml(duration)}</span>
+          </div>
+          ${summaryHtml}
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="dashboard-section session-recaps-section">
+        <h3>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+          ${t('dashboard.sessionRecaps.title')}
+        </h3>
+        <div class="session-recaps-list">
+          ${itemsHtml}
+        </div>
+      </div>`;
+  } catch (e) {
+    console.warn('[Dashboard] buildSessionRecapsHtml error:', e.message);
+    return '';
+  }
 }
 
 /**
@@ -1350,8 +1435,27 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
     onGitPull,
     onGitPush,
     onMergeAbort,
-    onCopyPath
+    onCopyPath,
   } = options;
+
+  const currentView = _dashViews.get(project.id) || 'overview';
+
+  if (currentView === 'kanban') {
+    container.innerHTML = buildViewTabsHtml(project.id);
+    const kanbanWrap = document.createElement('div');
+    kanbanWrap.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0';
+    container.appendChild(kanbanWrap);
+    KanbanPanel.render(kanbanWrap, project, {
+      onSessionOpen: options.onTaskSessionOpen,
+    });
+    container.querySelectorAll('.dashboard-view-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _dashViews.set(project.id, btn.dataset.view);
+        renderDashboardHtml(container, project, data, options, isRefreshing);
+      });
+    });
+    return;
+  }
 
   const { gitInfo, stats, workflowRuns, pullRequests, commitHistory30d } = data;
   const typeHandler = registry.get(project.type);
@@ -1362,6 +1466,7 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
 
   // Build HTML
   container.innerHTML = `
+    ${buildViewTabsHtml(project.id)}
     ${isRefreshing ? `<div class="dashboard-refresh-indicator"><span class="refresh-spinner"></span> ${t('dashboard.refreshing')}</div>` : ''}
     ${hasMergeConflict ? `
     <div class="dashboard-merge-alert">
@@ -1443,6 +1548,7 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
         ${buildPullRequestsHtml(pullRequests)}
       </div>
       <div class="dashboard-col">
+        ${buildSessionRecapsHtml(project.id)}
         ${buildStatsHtml(stats, gitInfo)}
         ${buildClaudeActivityHtml()}
         ${gitInfo.isGitRepo ? buildContributorsHtml(gitInfo.contributors) : ''}
@@ -1451,6 +1557,24 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
 
     ${buildProjectInsightsHtml(data, project.id)}
   `;
+
+  // Live-update session recaps section when a new recap arrives
+  const onRecapUpdated = (e) => {
+    if (e.detail?.projectId !== project.id) return;
+    const existing = container.querySelector('.session-recaps-section');
+    const newHtml = buildSessionRecapsHtml(project.id);
+    if (!newHtml) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = newHtml;
+    const newSection = tmp.firstElementChild;
+    if (existing) {
+      existing.replaceWith(newSection);
+    } else {
+      const statsSection = container.querySelector('.dashboard-col:last-child');
+      if (statsSection) statsSection.prepend(newSection);
+    }
+  };
+  window.addEventListener('session-recap-updated', onRecapUpdated);
 
   // Attach click handlers for workflow runs
   container.querySelectorAll('.workflow-run-item').forEach(item => {
@@ -1519,6 +1643,14 @@ function renderDashboardHtml(container, project, data, options, isRefreshing = f
   container.querySelector('.btn-copy-path')?.addEventListener('click', () => {
     navigator.clipboard.writeText(project.path);
     if (onCopyPath) onCopyPath(project.path);
+  });
+
+  // View tab switcher
+  container.querySelectorAll('.dashboard-view-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _dashViews.set(project.id, btn.dataset.view);
+      renderDashboardHtml(container, project, data, options, isRefreshing);
+    });
   });
 }
 
@@ -2063,5 +2195,11 @@ module.exports = {
   invalidateCache,
   clearAllCache,
   loadAllDiskCaches,
-  preloadAllProjects
+  preloadAllProjects,
+  cleanup() {
+    if (_cacheCleanupInterval) {
+      clearInterval(_cacheCleanupInterval);
+      _cacheCleanupInterval = null;
+    }
+  },
 };

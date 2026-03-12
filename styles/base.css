@@ -25,6 +25,14 @@
   --danger: #ef4444;
   --danger-hover: #f87171;
   --info: #3b82f6;
+  --purple: #a855f7;
+  --purple-hover: #9333ea;
+
+  /* Aliases (used across multiple stylesheets) */
+  --accent-color: var(--accent);
+  --accent-color-rgb: 217, 119, 6;
+  --border-primary: var(--border-color);
+  --text-tertiary: #666;
 
   /* Spacing & Layout */
   --radius: 8px;

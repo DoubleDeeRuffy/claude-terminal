@@ -20,6 +20,43 @@ const initialState = {
 
 const projectsState = new State(initialState);
 
+// Index Maps for O(1) lookups (invalidated on state changes)
+let _projectIndex = null; // Map<id, project>
+let _folderIndex = null;  // Map<id, folder>
+let _countCache = null;   // Map<folderId, count>
+
+function _invalidateIndexes() {
+  _projectIndex = null;
+  _folderIndex = null;
+  _countCache = null;
+}
+
+function _getProjectIndex() {
+  if (!_projectIndex) {
+    _projectIndex = new Map();
+    for (const p of projectsState.get().projects) {
+      _projectIndex.set(p.id, p);
+    }
+  }
+  return _projectIndex;
+}
+
+function _getFolderIndex() {
+  if (!_folderIndex) {
+    _folderIndex = new Map();
+    for (const f of projectsState.get().folders) {
+      _folderIndex.set(f.id, f);
+    }
+  }
+  return _folderIndex;
+}
+
+// Intercept set/setProp to invalidate indexes synchronously
+const _origSet = projectsState.set.bind(projectsState);
+const _origSetProp = projectsState.setProp.bind(projectsState);
+projectsState.set = function(updates) { _invalidateIndexes(); _origSet(updates); };
+projectsState.setProp = function(key, value) { _invalidateIndexes(); _origSetProp(key, value); };
+
 /**
  * Generate unique folder ID
  * @returns {string}
@@ -37,12 +74,42 @@ function generateProjectId() {
 }
 
 /**
+ * Generate unique task ID
+ * @returns {string}
+ */
+function generateTaskId() {
+  return `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Generate unique column ID
+ * @returns {string}
+ */
+function generateColumnId() {
+  return `col-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Generate unique label ID
+ * @returns {string}
+ */
+function generateLabelId() {
+  return `lbl-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+const DEFAULT_COLUMNS = [
+  { id: 'col-todo',       title: 'To Do',       color: '#3b82f6', order: 0 },
+  { id: 'col-inprogress', title: 'In Progress',  color: '#f59e0b', order: 1 },
+  { id: 'col-done',       title: 'Done',         color: '#22c55e', order: 2 },
+];
+
+/**
  * Get folder by ID
  * @param {string} folderId
  * @returns {Object|undefined}
  */
 function getFolder(folderId) {
-  return projectsState.get().folders.find(f => f.id === folderId);
+  return _getFolderIndex().get(folderId);
 }
 
 /**
@@ -51,7 +118,7 @@ function getFolder(folderId) {
  * @returns {Object|undefined}
  */
 function getProject(projectId) {
-  return projectsState.get().projects.find(p => p.id === projectId);
+  return _getProjectIndex().get(projectId);
 }
 
 /**
@@ -60,7 +127,10 @@ function getProject(projectId) {
  * @returns {number}
  */
 function getProjectIndex(projectId) {
-  return projectsState.get().projects.findIndex(p => p.id === projectId);
+  const projects = projectsState.get().projects;
+  // Use index map for quick existence check, then find position
+  if (!_getProjectIndex().has(projectId)) return -1;
+  return projects.findIndex(p => p.id === projectId);
 }
 
 /**
@@ -87,10 +157,13 @@ function getProjectsInFolder(folderId) {
  * @returns {number}
  */
 function countProjectsRecursive(folderId) {
+  if (!_countCache) _countCache = new Map();
+  if (_countCache.has(folderId)) return _countCache.get(folderId);
   let count = getProjectsInFolder(folderId).length;
   getChildFolders(folderId).forEach(child => {
     count += countProjectsRecursive(child.id);
   });
+  _countCache.set(folderId, count);
   return count;
 }
 
@@ -864,6 +937,288 @@ function reorderQuickActions(projectId, fromIndex, toIndex) {
   setQuickActions(projectId, actions);
 }
 
+// ── Tasks ──
+
+/**
+ * Get tasks for a project
+ * @param {string} projectId
+ * @returns {Array}
+ */
+function getTasks(projectId) {
+  const project = getProject(projectId);
+  return project?.tasks || [];
+}
+
+/**
+ * Get kanban columns for a project (initialises defaults if none exist)
+ * @param {string} projectId
+ * @returns {Array}
+ */
+function getKanbanColumns(projectId) {
+  const project = getProject(projectId);
+  if (!project) return [...DEFAULT_COLUMNS];
+  if (!project.kanbanColumns || project.kanbanColumns.length === 0) {
+    updateProject(projectId, { kanbanColumns: [...DEFAULT_COLUMNS] });
+    return [...DEFAULT_COLUMNS];
+  }
+  return [...project.kanbanColumns].sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Add a task to a project
+ * @param {string} projectId
+ * @param {{ title: string, description?: string, labels?: string[], columnId?: string, sessionId?: string, order?: number }} taskData
+ * @returns {Object|null}
+ */
+function addTask(projectId, taskData) {
+  if (!getProject(projectId)) return null;
+  const columns = getKanbanColumns(projectId);
+  const defaultColumn = columns[0];
+  const colId = taskData.columnId || defaultColumn?.id || 'col-todo';
+  const now = Date.now();
+  const task = {
+    id: generateTaskId(),
+    title: taskData.title,
+    description: taskData.description || '',
+    labels: taskData.labels || [],
+    columnId: colId,
+    worktreePath: taskData.worktreePath || null,
+    sessionIds: taskData.sessionIds || [],
+    order: taskData.order ?? getTasks(projectId).filter(t => t.columnId === colId).length,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const tasks = [...getTasks(projectId), task];
+  updateProject(projectId, { tasks });
+  return task;
+}
+
+/**
+ * Update a task
+ * @param {string} projectId
+ * @param {string} taskId
+ * @param {Object} updates
+ */
+function updateTask(projectId, taskId, updates) {
+  const tasks = getTasks(projectId);
+  const idx = tasks.findIndex(t => t.id === taskId);
+  if (idx === -1) return;
+  const updatedTasks = tasks.map(t =>
+    t.id === taskId ? { ...t, ...updates, updatedAt: Date.now() } : t
+  );
+  updateProject(projectId, { tasks: updatedTasks });
+}
+
+/**
+ * Delete a task
+ * @param {string} projectId
+ * @param {string} taskId
+ */
+function deleteTask(projectId, taskId) {
+  const tasks = getTasks(projectId).filter(t => t.id !== taskId);
+  updateProject(projectId, { tasks });
+}
+
+/**
+ * Move a task to a different column and/or position
+ * @param {string} projectId
+ * @param {string} taskId
+ * @param {string} targetColumnId
+ * @param {number} targetOrder
+ */
+function moveTask(projectId, taskId, targetColumnId, targetOrder) {
+  const tasks = getTasks(projectId);
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  // Validate target column exists
+  const columns = getKanbanColumns(projectId);
+  if (!columns.find(c => c.id === targetColumnId)) return;
+
+  const sourceCol = task.columnId;
+  const now = Date.now();
+
+  let updated;
+  if (sourceCol === targetColumnId) {
+    // Same-column reorder
+    const from = task.order;
+    const to = targetOrder;
+    updated = tasks.map(t => {
+      if (t.columnId !== sourceCol) return t;
+      if (t.id === taskId) return { ...t, order: to, updatedAt: now };
+      if (from < to) {
+        // Moving down: shift items in (from, to] up by -1
+        if (t.order > from && t.order <= to) return { ...t, order: t.order - 1 };
+      } else {
+        // Moving up: shift items in [to, from) down by +1
+        if (t.order >= to && t.order < from) return { ...t, order: t.order + 1 };
+      }
+      return t;
+    });
+  } else {
+    // Cross-column move
+    updated = tasks.map(t => {
+      if (t.id === taskId) return { ...t, columnId: targetColumnId, order: targetOrder, updatedAt: now };
+      if (t.columnId === sourceCol && t.order > task.order) return { ...t, order: t.order - 1 };
+      if (t.columnId === targetColumnId && t.order >= targetOrder) return { ...t, order: t.order + 1 };
+      return t;
+    });
+  }
+
+  updateProject(projectId, { tasks: updated });
+}
+
+/**
+ * Add a new kanban column to a project
+ * @param {string} projectId
+ * @param {{ title: string, color?: string }} param1
+ * @returns {Object}
+ */
+function addKanbanColumn(projectId, { title, color = '#888' }) {
+  const columns = getKanbanColumns(projectId);
+  const col = { id: generateColumnId(), title, color, order: columns.length > 0 ? Math.max(...columns.map(c => c.order)) + 1 : 0 };
+  updateProject(projectId, { kanbanColumns: [...columns, col] });
+  return col;
+}
+
+/**
+ * Update a kanban column
+ * @param {string} projectId
+ * @param {string} columnId
+ * @param {Object} updates
+ */
+function updateKanbanColumn(projectId, columnId, updates) {
+  const columns = getKanbanColumns(projectId);
+  const updated = columns.map(c => c.id === columnId ? { ...c, ...updates } : c);
+  updateProject(projectId, { kanbanColumns: updated });
+}
+
+/**
+ * Delete a kanban column (only if it has no tasks)
+ * @param {string} projectId
+ * @param {string} columnId
+ * @returns {boolean} - true if deleted, false if column has tasks
+ */
+function deleteKanbanColumn(projectId, columnId) {
+  const tasks = getTasks(projectId);
+  const hasTasks = tasks.some(t => t.columnId === columnId);
+  if (hasTasks) return false;
+  const columns = getKanbanColumns(projectId).filter(c => c.id !== columnId);
+  const reordered = columns.map((c, i) => ({ ...c, order: i }));
+  updateProject(projectId, { kanbanColumns: reordered });
+  return true;
+}
+
+/**
+ * Reorder kanban columns by moving a column from one position to another
+ * @param {string} projectId
+ * @param {string} columnId - ID of column being moved
+ * @param {number} newOrder - target order index (0-based)
+ */
+function reorderKanbanColumns(projectId, columnId, newOrder) {
+  const columns = getKanbanColumns(projectId); // already sorted by order
+  const fromIndex = columns.findIndex(c => c.id === columnId);
+  if (fromIndex === -1) return;
+  const reordered = [...columns];
+  const [moved] = reordered.splice(fromIndex, 1);
+  reordered.splice(newOrder, 0, moved);
+  const withOrder = reordered.map((c, i) => ({ ...c, order: i }));
+  updateProject(projectId, { kanbanColumns: withOrder });
+}
+
+/**
+ * Get kanban labels for a project
+ * @param {string} projectId
+ * @returns {Array}
+ */
+function getKanbanLabels(projectId) {
+  const project = getProject(projectId);
+  return project?.kanbanLabels || [];
+}
+
+/**
+ * Add a kanban label to a project
+ * @param {string} projectId
+ * @param {{ name: string, color: string }} param1
+ * @returns {Object}
+ */
+function addKanbanLabel(projectId, { name, color }) {
+  const labels = getKanbanLabels(projectId);
+  const label = { id: generateLabelId(), name, color };
+  updateProject(projectId, { kanbanLabels: [...labels, label] });
+  return label;
+}
+
+/**
+ * Update a kanban label
+ * @param {string} projectId
+ * @param {string} labelId
+ * @param {Object} updates
+ */
+function updateKanbanLabel(projectId, labelId, updates) {
+  const labels = getKanbanLabels(projectId).map(l => l.id === labelId ? { ...l, ...updates } : l);
+  updateProject(projectId, { kanbanLabels: labels });
+}
+
+/**
+ * Delete a kanban label and remove it from all tasks
+ * @param {string} projectId
+ * @param {string} labelId
+ */
+function deleteKanbanLabel(projectId, labelId) {
+  const labels = getKanbanLabels(projectId).filter(l => l.id !== labelId);
+  const tasks = getTasks(projectId).map(t => ({
+    ...t,
+    labels: (t.labels || []).filter(id => id !== labelId)
+  }));
+  updateProject(projectId, { kanbanLabels: labels, tasks });
+}
+
+/**
+ * Migrate legacy tasks (with status field) to the kanban model
+ * @param {string} projectId
+ */
+function migrateTasksToKanban(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+  if (project.kanbanColumns && project.kanbanColumns.length > 0) return;
+  const statusToColumnId = {
+    'todo': 'col-todo',
+    'in_progress': 'col-inprogress',
+    'done': 'col-done',
+  };
+  const colCounters = {};
+  const tasks = (project.tasks || []).map(t => {
+    const colId = statusToColumnId[t.status] || 'col-todo';
+    if (colCounters[colId] === undefined) colCounters[colId] = 0;
+    const order = colCounters[colId]++;
+    // Migrate sessionId (singular) → sessionIds (plural)
+    const sessionIds = t.sessionIds ?? (t.sessionId ? [t.sessionId] : []);
+    const { sessionId: _removed, ...rest } = t;
+    return { ...rest, columnId: colId, description: t.description || '', labels: t.labels || [], worktreePath: t.worktreePath || null, sessionIds, order };
+  });
+  updateProject(projectId, { kanbanColumns: [...DEFAULT_COLUMNS], kanbanLabels: [], tasks });
+}
+
+/**
+ * Normalize kanban task fields for any project (runs even if migration already done).
+ * Migrates sessionId → sessionIds and ensures worktreePath exists.
+ * @param {string} projectId
+ */
+function normalizeKanbanTaskFields(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+  const tasks = project.tasks || [];
+  const needsNorm = tasks.some(t => t.sessionId !== undefined || t.sessionIds === undefined || t.worktreePath === undefined);
+  if (!needsNorm) return;
+  const normalized = tasks.map(t => {
+    const sessionIds = t.sessionIds ?? (t.sessionId ? [t.sessionId] : []);
+    const { sessionId: _removed, ...rest } = t;
+    return { ...rest, sessionIds, worktreePath: rest.worktreePath ?? null };
+  });
+  updateProject(projectId, { tasks: normalized });
+}
+
 /**
  * Set preferred editor for a project
  * @param {string} projectId
@@ -958,6 +1313,27 @@ module.exports = {
   // Editor per project
   setProjectEditor,
   getProjectEditor,
+  // Tasks
+  generateTaskId,
+  getTasks,
+  addTask,
+  updateTask,
+  deleteTask,
+  // Kanban
+  generateColumnId,
+  generateLabelId,
+  getKanbanColumns,
+  addKanbanColumn,
+  updateKanbanColumn,
+  deleteKanbanColumn,
+  reorderKanbanColumns,
+  getKanbanLabels,
+  addKanbanLabel,
+  updateKanbanLabel,
+  deleteKanbanLabel,
+  moveTask,
+  migrateTasksToKanban,
+  normalizeKanbanTaskFields,
   // Visual order
   getVisualProjectOrder
 };

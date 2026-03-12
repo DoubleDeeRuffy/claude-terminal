@@ -122,11 +122,17 @@ function handleHookEvent(raw) {
       sessions.delete(normalizePath(cwd));
       break;
 
-    case 'PreToolUse':
+    case 'PreToolUse': {
       ensureSession(cwd, meta);
-      eventBus.emit(EVENT_TYPES.TOOL_START, { toolName: stdin.tool_name || 'unknown', sessionId: stdin.session_id || null }, meta);
+      const toolData = { toolName: stdin.tool_name || 'unknown', sessionId: stdin.session_id || null };
+      // Capture tool_input for tools that need it (AskUserQuestion: question + options)
+      if (stdin.tool_input && typeof stdin.tool_input === 'object') {
+        toolData.toolInput = stdin.tool_input;
+      }
+      eventBus.emit(EVENT_TYPES.TOOL_START, toolData, meta);
       eventBus.emit(EVENT_TYPES.CLAUDE_WORKING, { toolName: stdin.tool_name || null, sessionId: stdin.session_id || null }, meta);
       break;
+    }
 
     case 'PostToolUse':
       eventBus.emit(EVENT_TYPES.TOOL_END, { toolName: stdin.tool_name || 'unknown' }, meta);
@@ -152,7 +158,11 @@ function handleHookEvent(raw) {
       break;
 
     case 'PermissionRequest':
-      eventBus.emit(EVENT_TYPES.CLAUDE_PERMISSION, { tool: stdin.tool || stdin.tool_name || null }, meta);
+      eventBus.emit(EVENT_TYPES.CLAUDE_PERMISSION, {
+        tool: stdin.tool_name || stdin.tool || null,
+        toolInput: stdin.tool_input || null,
+        requestId: stdin._requestId || null
+      }, meta);
       break;
 
     case 'SubagentStart':

@@ -97,7 +97,7 @@ const {
 const registry = require('./src/project-types/registry');
 const { mergeTranslations } = require('./src/renderer/i18n');
 const ModalComponent = require('./src/renderer/ui/components/Modal');
-const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel } = require('./src/renderer/ui/panels');
+const { MemoryEditor, GitChangesPanel, ShortcutsManager, SettingsPanel, SkillsAgentsPanel, PluginsPanel, MarketplacePanel, McpPanel, WorkflowPanel, DatabasePanel, CloudPanel, ControlTowerPanel, SessionReplayPanel, ParallelTaskPanel } = require('./src/renderer/ui/panels');
 
 // ========== LOCAL MODAL FUNCTIONS ==========
 // These work with the existing HTML modal elements in index.html
@@ -120,6 +120,7 @@ const localState = {
   fivemServers: new Map(),
   gitOperations: new Map(),
   gitRepoStatus: new Map(),
+  gitStatusInitialized: false,
   selectedDashboardProject: -1
 };
 
@@ -192,6 +193,9 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   }
 
   initI18n(settingsState.get().language); // Initialize i18n with saved language preference
+  _applyTabsOrder(); // Restore custom tab order before applying visibility
+  applyPinnedTabs(); // Apply sidebar tab visibility from settings
+  _initSidebarDragDrop(); // Enable drag & drop reordering in sidebar
 
   // Initialize Claude event bus and provider (hooks or scraping)
   initClaudeEvents();
@@ -466,6 +470,24 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 
   WorkflowPanel.init({ api, showToast, path, fs });
 
+  ParallelTaskPanel.init({
+    api,
+    showToast,
+    showModal,
+    closeModal,
+    projectsState,
+    openTerminalAtPath: (worktreePath) => {
+      // Switch to Claude tab and open a terminal at the worktree path
+      document.querySelector('[data-tab="claude"]')?.click();
+      const openedId = projectsState.get().openedProjectId;
+      const project = projectsState.get().projects.find(p => p.id === openedId)
+        || projectsState.get().projects[0];
+      if (project) {
+        TerminalManager.createTerminal(project, { cwd: worktreePath, runClaude: false });
+      }
+    }
+  });
+
   DatabasePanel.init({
     api, showModal, closeModal, showToast,
     projectsState, path, fs
@@ -498,25 +520,52 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 })();
 
 // ========== NOTIFICATIONS ==========
-function showNotification(type, title, body, terminalId) {
+function showNotification(type, title, body, terminalId, extraOptions) {
   if (!isNotificationsEnabled()) return;
   if (document.hasFocus() && terminalsState.get().activeTerminal === terminalId) return;
-  const labels = { show: t('terminals.notifBtnShow') };
-  api.notification.show({ type: type || 'done', title, body, terminalId, autoDismiss: 8000, labels });
+  const { buttons, autoDismiss, meta } = extraOptions || {};
+  const defaultButtons = [{ label: t('terminals.notifBtnShow'), action: 'show', style: 'primary' }];
+  api.notification.show({
+    type: type || 'done',
+    title,
+    body,
+    terminalId,
+    autoDismiss: autoDismiss !== undefined ? autoDismiss : 8000,
+    buttons: buttons || defaultButtons,
+    meta: Object.assign({ notifType: type || 'done' }, meta || {})
+  });
 }
 
-api.notification.onClicked(({ terminalId }) => {
+api.notification.onClicked(({ terminalId, answerText }) => {
   if (terminalId) {
-    // 1. Switch to claude tab first so terminal containers are visible
+    if (answerText) {
+      // Answer silently — no UI switch, window stays in background
+      const questionCard = document.querySelector('.chat-question-card:not(.resolved)');
+      if (questionCard) {
+        const options = questionCard.querySelectorAll('.chat-question-option');
+        for (const opt of options) {
+          if (opt.dataset.label === answerText) {
+            opt.click();
+            break;
+          }
+        }
+        const submitBtn = questionCard.querySelector('.chat-question-submit');
+        if (submitBtn) submitBtn.click();
+      } else {
+        // Fallback: PTY terminal session — type the answer as keyboard input
+        api.terminal.input(terminalId, answerText + '\r');
+      }
+      return;
+    }
+
+    // No answer (action: show) — bring window to front and switch to terminal
     document.querySelector('[data-tab="claude"]')?.click();
-    // 2. Switch to the terminal's project so it becomes visible
     const termData = terminalsState.get().terminals.get(terminalId);
     if (termData && termData.projectIndex != null) {
       setSelectedProjectFilter(termData.projectIndex);
       ProjectList.render();
       TerminalManager.filterByProject(termData.projectIndex);
     }
-    // 3. Activate the specific terminal (needs tab + project to be set first)
     TerminalManager.setActiveTerminal(terminalId);
   }
 });
@@ -544,26 +593,13 @@ async function checkAllProjectsGitStatus() {
       }
     }));
   }
+  localState.gitStatusInitialized = true;
   ProjectList.render();
 
   // Update filter git actions if a project is selected
   const selectedFilter = projectsState.get().selectedProjectFilter;
   if (selectedFilter !== null && projects[selectedFilter]) {
-    // Will be called by showFilterGitActions
-    const filterGitActions = document.getElementById('filter-git-actions');
-    if (filterGitActions) {
-      const project = projects[selectedFilter];
-      const gitStatus = localState.gitRepoStatus.get(project.id);
-      if (gitStatus && gitStatus.isGitRepo) {
-        filterGitActions.style.display = 'flex';
-        // Update branch name
-        try {
-          const branch = await api.git.currentBranch({ projectPath: project.path });
-          const branchNameEl = document.getElementById('filter-branch-name');
-          if (branchNameEl) branchNameEl.textContent = branch || 'main';
-        } catch (e) { /* ignore */ }
-      }
-    }
+    showFilterGitActions(projects[selectedFilter].id);
   }
 }
 
@@ -753,7 +789,28 @@ function refreshDashboardAsync(projectId) {
         onGitPull: (pid) => gitPull(pid),
         onGitPush: (pid) => gitPush(pid),
         onMergeAbort: (pid) => gitMergeAbort(pid),
-        onCopyPath: () => {}
+        onCopyPath: () => {},
+        onTaskSessionOpen: async (proj, sessionId) => {
+          const switchToClaude = () => {
+            document.querySelector('[data-tab="claude"]')?.click();
+            setSelectedProjectFilter(projectIndex);
+            ProjectList.render();
+            TerminalManager.filterByProject(projectIndex);
+          };
+          // Find existing terminal with this session
+          const terms = terminalsState.get().terminals;
+          for (const [id, td] of terms) {
+            if (td.claudeSessionId === sessionId) {
+              switchToClaude();
+              TerminalManager.setActiveTerminal(id);
+              return;
+            }
+          }
+          // No terminal found → resume session
+          await TerminalManager.resumeSession(proj, sessionId, { skipPermissions: settingsState.get().skipPermissions });
+          switchToClaude();
+        },
+        onTaskRender: () => { refreshDashboardAsync(projectId); }
       });
     }
   }
@@ -1109,6 +1166,26 @@ async function deleteProjectUI(projectId) {
   const deleteTypeHandler = registry.get(project.type);
   if (deleteTypeHandler.onProjectDelete) {
     deleteTypeHandler.onProjectDelete(project, projectIndex);
+  }
+
+  // Close all terminals associated with this project
+  let closedTerminalCount = 0;
+  const terminals = terminalsState.get().terminals;
+  const terminalIdsToClose = [];
+  terminals.forEach((term, id) => {
+    if (term.projectIndex === projectIndex) {
+      terminalIdsToClose.push(id);
+    }
+  });
+  terminalIdsToClose.forEach(id => {
+    TerminalManager.closeTerminal(id);
+    closedTerminalCount++;
+  });
+  if (closedTerminalCount > 0) {
+    showToast({
+      type: 'info',
+      title: t('projects.terminalsClosedWithProject', { count: closedTerminalCount })
+    });
   }
 
   const projects = projectsState.get().projects.filter(p => p.id !== projectId);
@@ -1673,9 +1750,9 @@ async function cloudUploadProject(projectId) {
 
   try {
     if (useGitClone) {
-      await api.cloud.uploadProjectGit({ projectName, projectPath: project.path });
+      await api.cloud.uploadProjectGit({ projectName, projectPath: project.path, cloudProjectKey: project.cloudProjectKey || null });
     } else {
-      await api.cloud.uploadProject({ projectName, projectPath: project.path });
+      await api.cloud.uploadProject({ projectName, projectPath: project.path, cloudProjectKey: project.cloudProjectKey || null });
     }
     cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
     api.cloud.registerAutoSync({ projectId, projectPath: project.path }).catch(() => {});
@@ -1708,7 +1785,7 @@ async function cloudDeleteProject(projectId) {
   if (!confirmed) return;
 
   try {
-    await api.cloud.deleteProject({ projectId, projectName });
+    await api.cloud.deleteProject({ projectId, projectName, cloudProjectKey: project.cloudProjectKey || null });
     cloudUploadStatus.delete(projectId);
     ProjectList.render();
     showToast({ type: 'success', title: t('cloud.deleteSuccess'), message: projectName });
@@ -1732,6 +1809,7 @@ async function cloudSyncProject(projectId) {
     const { conflicts } = await api.cloud.checkConflicts({
       projectName,
       localProjectPath: project.path,
+      cloudProjectKey: project.cloudProjectKey || null,
     });
 
     if (conflicts.length > 0) {
@@ -1745,9 +1823,11 @@ async function cloudSyncProject(projectId) {
         projectName,
         localProjectPath: project.path,
         resolutions,
+        cloudProjectKey: project.cloudProjectKey || null,
       });
     } else {
-      await api.cloud.downloadChanges({ projectName, localProjectPath: project.path });
+      // No conflicts — download directly
+      await api.cloud.downloadChanges({ projectName, localProjectPath: project.path, cloudProjectKey: project.cloudProjectKey || null });
     }
 
     cloudUploadStatus.set(projectId, { synced: true, lastSync: Date.now() });
@@ -2112,7 +2192,10 @@ function switchTerminal(direction) {
   const visibleTerminals = [];
   allTerminals.forEach((termData, id) => {
     const isVisible = currentFilter === null ||
-      (filterProject && termData.project && termData.project.path === filterProject.path);
+      (filterProject && termData.project && (
+        termData.project.path === filterProject.path ||
+        termData.project.parentRepoProjectId === filterProject.id
+      ));
     if (isVisible) {
       visibleTerminals.push(id);
     }
@@ -2411,22 +2494,29 @@ btnCollapseSidebar.onclick = () => {
 };
 
 // ========== TAB NAVIGATION ==========
-// Set ARIA roles on all nav-tabs
-document.querySelectorAll('.nav-tab').forEach(tab => {
+// Set ARIA roles on all nav-tabs (exclude More button which has its own role)
+document.querySelectorAll('.nav-tab[data-tab]').forEach(tab => {
   tab.setAttribute('role', 'tab');
   tab.setAttribute('aria-selected', tab.classList.contains('active') ? 'true' : 'false');
 });
 
-document.querySelectorAll('.nav-tab').forEach(tab => {
+document.querySelectorAll('.nav-tab[data-tab]').forEach(tab => {
+  tab.oncontextmenu = (e) => {
+    const tabId = tab.dataset.tab;
+    if (tabId === 'claude') return; // Claude is always pinned
+    e.preventDefault();
+    _showTabCtxMenu(e.clientX, e.clientY, tabId);
+  };
   tab.onclick = () => {
     const tabId = tab.dataset.tab;
-    document.querySelectorAll('.nav-tab').forEach(t => {
+    document.querySelectorAll('.nav-tab[data-tab]').forEach(t => {
       t.classList.remove('active');
       t.setAttribute('aria-selected', 'false');
     });
     tab.classList.add('active');
     tab.setAttribute('aria-selected', 'true');
     document.getElementById('btn-settings').classList.remove('active');
+    document.getElementById('btn-more-tabs')?.classList.remove('active');
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById(`tab-${tabId}`).classList.add('active');
     if (tabId === 'plugins') PluginsPanel.loadPlugins();
@@ -2434,6 +2524,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     if (tabId === 'agents') SkillsAgentsPanel.loadAgents();
     if (tabId === 'mcp') McpPanel.loadMcps();
     if (tabId === 'workflows') WorkflowPanel.load();
+    if (tabId === 'tasks') ParallelTaskPanel.load();
     if (tabId === 'database') DatabasePanel.loadPanel();
     if (tabId === 'git') {
       GitTabService.initGitTab();
@@ -2456,6 +2547,20 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
       const container = document.getElementById('timetracking-container');
       if (container) TimeTrackingDashboard.init(container);
     }
+    if (tabId === 'control-tower') {
+      const root = document.getElementById('ct-panel-root');
+      if (root) ControlTowerPanel.loadPanel(root);
+    }
+    if (tabId !== 'control-tower') {
+      ControlTowerPanel.cleanup();
+    }
+    if (tabId === 'session-replay') {
+      const container = document.getElementById('tab-session-replay');
+      if (container && !container.dataset.initialized) {
+        SessionReplayPanel.init(container, { projectsState, openedProjectId: projectsState.get().openedProjectId });
+        container.dataset.initialized = 'true';
+      }
+    }
     if (tabId === 'claude') {
       const activeId = terminalsState.get().activeTerminal;
       if (activeId) {
@@ -2465,6 +2570,426 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     }
   };
 });
+
+// ========== PINNED TABS SYSTEM ==========
+const _ALL_TABS_ORDER = ['claude', 'git', 'database', 'mcp', 'plugins', 'skills', 'agents', 'workflows', 'tasks', 'control-tower', 'dashboard', 'timetracking', 'session-replay', 'memory', 'cloud-panel'];
+
+function applyPinnedTabs() {
+  const pinned = settingsState.get().pinnedTabs || _ALL_TABS_ORDER;
+  let hiddenCount = 0;
+
+  document.querySelectorAll('.nav-tab[data-tab]').forEach(tab => {
+    const tabId = tab.dataset.tab;
+    if (pinned.includes(tabId)) {
+      tab.classList.remove('nav-tab--hidden');
+    } else {
+      tab.classList.add('nav-tab--hidden');
+      hiddenCount++;
+    }
+  });
+
+  _updateSeparatorVisibility();
+
+  const moreBtn = document.getElementById('btn-more-tabs');
+  const moreSep = document.getElementById('nav-separator-more');
+  if (moreBtn) moreBtn.style.display = hiddenCount > 0 ? '' : 'none';
+  if (moreSep) moreSep.style.display = hiddenCount > 0 ? '' : 'none';
+  const badge = document.getElementById('more-tabs-badge');
+  if (badge) badge.textContent = hiddenCount > 0 ? hiddenCount : '';
+}
+
+function _updateSeparatorVisibility() {
+  const nav = document.querySelector('.nav-tabs');
+  if (!nav) return;
+  const children = [...nav.children];
+  children.forEach((el, i) => {
+    if (!el.classList.contains('nav-separator') || el.id === 'nav-separator-more') return;
+    let hasVisible = false;
+    for (let j = i + 1; j < children.length; j++) {
+      const child = children[j];
+      if (child.classList.contains('nav-separator')) break;
+      if (child.classList.contains('nav-tab') && child.id !== 'btn-more-tabs' && !child.classList.contains('nav-tab--hidden')) {
+        hasVisible = true;
+        break;
+      }
+    }
+    el.style.display = hasVisible ? '' : 'none';
+  });
+}
+
+function _pinTab(tabId) {
+  const current = settingsState.get().pinnedTabs || [..._ALL_TABS_ORDER];
+  if (current.includes(tabId)) return;
+  const newPinned = [...current];
+  const insertIdx = _ALL_TABS_ORDER.indexOf(tabId);
+  let insertAt = newPinned.length;
+  for (let i = 0; i < newPinned.length; i++) {
+    if (_ALL_TABS_ORDER.indexOf(newPinned[i]) > insertIdx) { insertAt = i; break; }
+  }
+  newPinned.splice(insertAt, 0, tabId);
+  setSetting('pinnedTabs', newPinned);
+  applyPinnedTabs();
+  _closeMoreDropdown();
+}
+
+function _unpinTab(tabId) {
+  if (tabId === 'claude') return;
+  const newPinned = (settingsState.get().pinnedTabs || [..._ALL_TABS_ORDER]).filter(t => t !== tabId);
+  // If unpinned tab is currently active, switch to claude
+  const activeTab = document.querySelector('.nav-tab.active');
+  if (activeTab?.dataset.tab === tabId) {
+    document.querySelector('[data-tab="claude"]')?.click();
+  }
+  setSetting('pinnedTabs', newPinned);
+  applyPinnedTabs();
+}
+
+// ── Sidebar drag & drop ──────────────────────────────────────────────
+function _applyTabsOrder() {
+  const order = settingsState.get().tabsOrder;
+  if (!order || !order.length) return;
+  const nav = document.querySelector('.nav-tabs');
+  const moreSep = document.getElementById('nav-separator-more');
+  if (!nav || !moreSep) return;
+  // Re-insert tabs in saved order, before the "more" separator
+  order.slice().reverse().forEach(tabId => {
+    const tab = nav.querySelector(`.nav-tab[data-tab="${tabId}"]`);
+    if (tab) nav.insertBefore(tab, moreSep);
+  });
+}
+
+function _saveTabsOrder() {
+  const nav = document.querySelector('.nav-tabs');
+  if (!nav) return;
+  const order = [...nav.querySelectorAll('.nav-tab[data-tab]:not(#btn-more-tabs)')]
+    .map(t => t.dataset.tab);
+  setSetting('tabsOrder', order);
+}
+
+function _reorderTab(draggedId, targetId, position) {
+  const nav = document.querySelector('.nav-tabs');
+  const dragged = nav.querySelector(`.nav-tab[data-tab="${draggedId}"]`);
+  const target = nav.querySelector(`.nav-tab[data-tab="${targetId}"]`);
+  if (!dragged || !target) return;
+  if (position === 'after') {
+    target.after(dragged);
+  } else {
+    target.before(dragged);
+  }
+  _updateSeparatorVisibility();
+  _saveTabsOrder();
+}
+
+function _initSidebarDragDrop() {
+  const nav = document.querySelector('.nav-tabs');
+  if (!nav) return;
+  let draggedId = null;
+  let indicator = null;
+
+  // Add drag handle on each tab
+  nav.querySelectorAll('.nav-tab[data-tab]').forEach(tab => {
+    if (tab.id === 'btn-more-tabs') return;
+    if (tab.querySelector('.nav-tab-drag-handle')) return; // already added
+    const handle = document.createElement('span');
+    handle.className = 'nav-tab-drag-handle';
+    handle.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+      <path d="M9 3h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2z"/>
+    </svg>`;
+    handle.addEventListener('mousedown', () => { tab.draggable = true; });
+    document.addEventListener('mouseup', () => { tab.draggable = false; }, { once: true });
+    tab.prepend(handle);
+  });
+
+  nav.addEventListener('dragstart', e => {
+    const tab = e.target.closest('.nav-tab[data-tab]');
+    if (!tab || tab.id === 'btn-more-tabs') { e.preventDefault(); return; }
+    draggedId = tab.dataset.tab;
+    tab.classList.add('nav-tab--dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  nav.addEventListener('dragend', () => {
+    nav.querySelectorAll('.nav-tab[data-tab]').forEach(t => {
+      t.classList.remove('nav-tab--dragging');
+      t.draggable = false;
+    });
+    indicator?.remove(); indicator = null; draggedId = null;
+  });
+
+  nav.addEventListener('dragover', e => {
+    if (!draggedId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.nav-tab[data-tab]');
+    if (!target || target.id === 'btn-more-tabs' || target.dataset.tab === draggedId) {
+      indicator?.remove(); indicator = null; return;
+    }
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.className = 'nav-tab-drop-indicator';
+      nav.appendChild(indicator);
+    }
+    const navRect = nav.getBoundingClientRect();
+    indicator.style.top = (after ? rect.bottom : rect.top) - navRect.top - nav.scrollTop + 'px';
+  });
+
+  nav.addEventListener('drop', e => {
+    if (!draggedId) return;
+    e.preventDefault();
+    indicator?.remove(); indicator = null;
+    const target = e.target.closest('.nav-tab[data-tab]');
+    if (!target || target.id === 'btn-more-tabs') return;
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    _reorderTab(draggedId, target.dataset.tab, after ? 'after' : 'before');
+  });
+}
+
+function _openCustomizeModal() {
+  _closeMoreDropdown();
+
+  const allTabs = _ALL_TABS_ORDER.map(id => {
+    const el = document.querySelector(`.nav-tab[data-tab="${id}"]`);
+    return {
+      id,
+      label: el?.querySelector('span')?.textContent?.trim() || id,
+      svg: el?.querySelector('svg')?.outerHTML || '',
+      locked: id === 'claude',
+    };
+  });
+
+  const pinned = new Set(settingsState.get().pinnedTabs || _ALL_TABS_ORDER);
+  const order = settingsState.get().tabsOrder || _ALL_TABS_ORDER;
+  // Build ordered list: first tabs in saved order, then any missing ones
+  const ordered = [
+    ...order.map(id => allTabs.find(t => t.id === id)).filter(Boolean),
+    ...allTabs.filter(t => !order.includes(t.id)),
+  ];
+
+  const content = `
+    <div class="sc-list" id="sc-tab-list">
+      ${ordered.map(tab => `
+        <div class="sc-item" data-sc-id="${tab.id}" draggable="true">
+          <span class="sc-drag-handle" title="Glisser pour réordonner">⠿</span>
+          <span class="sc-icon">${tab.svg}</span>
+          <span class="sc-label">${tab.label}</span>
+          <label class="settings-toggle${tab.locked ? ' sc-locked' : ''}">
+            <input type="checkbox" data-sc-toggle="${tab.id}" ${pinned.has(tab.id) ? 'checked' : ''} ${tab.locked ? 'disabled' : ''}>
+            <span class="settings-toggle-slider"></span>
+          </label>
+        </div>
+      `).join('')}
+    </div>
+    <p class="sc-hint">Glisse pour réordonner · Clic droit sur un onglet pour le masquer rapidement</p>
+  `;
+
+  const footer = `
+    <button class="btn btn-ghost" id="sc-reset-btn">Réinitialiser</button>
+    <button class="btn btn-primary" id="sc-close-btn">Fermer</button>
+  `;
+
+  document.getElementById('modal-title').textContent = 'Personnaliser la barre latérale';
+  showModal('Personnaliser la barre latérale', content, footer);
+
+  document.getElementById('sc-close-btn').onclick = () => closeModal();
+  document.getElementById('sc-reset-btn').onclick = () => {
+    setSetting('pinnedTabs', [..._ALL_TABS_ORDER]);
+    setSetting('tabsOrder', null);
+    applyPinnedTabs();
+    closeModal();
+  };
+
+  // Live toggle handlers
+  document.querySelectorAll('[data-sc-toggle]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.scToggle;
+      if (cb.checked) _pinTab(id); else _unpinTab(id);
+    });
+  });
+
+  _initCustomizeModalDragDrop();
+}
+
+function _initCustomizeModalDragDrop() {
+  const list = document.getElementById('sc-tab-list');
+  if (!list) return;
+  let draggedId = null;
+
+  list.addEventListener('dragstart', e => {
+    const item = e.target.closest('.sc-item');
+    if (!item) return;
+    draggedId = item.dataset.scId;
+    item.classList.add('sc-item--dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  list.addEventListener('dragend', () => {
+    list.querySelectorAll('.sc-item').forEach(el => {
+      el.classList.remove('sc-item--dragging', 'sc-item--drag-over-before', 'sc-item--drag-over-after');
+    });
+    draggedId = null;
+  });
+
+  list.addEventListener('dragover', e => {
+    if (!draggedId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.sc-item');
+    list.querySelectorAll('.sc-item').forEach(el => {
+      el.classList.remove('sc-item--drag-over-before', 'sc-item--drag-over-after');
+    });
+    if (!target || target.dataset.scId === draggedId) return;
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    target.classList.add(after ? 'sc-item--drag-over-after' : 'sc-item--drag-over-before');
+  });
+
+  list.addEventListener('drop', e => {
+    if (!draggedId) return;
+    e.preventDefault();
+    list.querySelectorAll('.sc-item').forEach(el => {
+      el.classList.remove('sc-item--drag-over-before', 'sc-item--drag-over-after');
+    });
+    const target = e.target.closest('.sc-item');
+    if (!target || target.dataset.scId === draggedId) return;
+    const dragged = list.querySelector(`.sc-item[data-sc-id="${draggedId}"]`);
+    if (!dragged) return;
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    if (after) target.after(dragged); else target.before(dragged);
+    // Save new order from modal to tabsOrder + apply to sidebar
+    const newOrder = [...list.querySelectorAll('.sc-item')].map(el => el.dataset.scId);
+    setSetting('tabsOrder', newOrder);
+    _applyTabsOrder();
+    _updateSeparatorVisibility();
+  });
+}
+
+function _buildMoreDropdown() {
+  const pinned = settingsState.get().pinnedTabs || _ALL_TABS_ORDER;
+  const unpinned = _ALL_TABS_ORDER.filter(id => !pinned.includes(id));
+  const dropdown = document.getElementById('more-tabs-dropdown');
+  if (!dropdown) return;
+
+  dropdown.innerHTML = unpinned.map(tabId => {
+    const tab = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
+    if (!tab) return '';
+    const svg = tab.querySelector('svg')?.outerHTML || '';
+    const label = tab.querySelector('span')?.textContent?.trim() || tabId;
+    return `
+      <button class="nav-tab" data-more-tab="${tabId}" role="menuitem">
+        ${svg}
+        <span>${label}</span>
+        <span class="more-pin-btn" title="Épingler dans la barre">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+        </span>
+      </button>`;
+  }).join('');
+
+  dropdown.querySelectorAll('[data-more-tab]').forEach(item => {
+    item.onclick = (e) => {
+      const tabId = item.dataset.moreTab;
+      if (e.target.closest('.more-pin-btn')) {
+        _pinTab(tabId);
+        return;
+      }
+      // Navigate to the hidden tab (click works even on hidden elements)
+      const hiddenTab = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
+      if (hiddenTab) hiddenTab.click();
+      // Mark More button as active (visual feedback that active tab is in overflow)
+      document.getElementById('btn-more-tabs')?.classList.add('active');
+      _closeMoreDropdown();
+    };
+  });
+
+  // Customize option at the bottom
+  const customizeBtn = document.createElement('button');
+  customizeBtn.className = 'nav-tab more-customize-btn';
+  customizeBtn.role = 'menuitem';
+  customizeBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+    <span>Personnaliser...</span>
+  `;
+  customizeBtn.onclick = () => _openCustomizeModal();
+  dropdown.appendChild(customizeBtn);
+}
+
+function _openMoreDropdown() {
+  const btn = document.getElementById('btn-more-tabs');
+  const dropdown = document.getElementById('more-tabs-dropdown');
+  if (!btn || !dropdown) return;
+  _buildMoreDropdown();
+  const rect = btn.getBoundingClientRect();
+  dropdown.style.display = 'flex';
+  // Position to the right of the sidebar
+  dropdown.style.left = (rect.right + 8) + 'px';
+  dropdown.style.top = rect.top + 'px';
+  // Clamp vertically if overflow
+  requestAnimationFrame(() => {
+    const dropH = dropdown.offsetHeight;
+    const viewH = window.innerHeight;
+    if (rect.top + dropH > viewH - 8) {
+      dropdown.style.top = Math.max(8, viewH - dropH - 8) + 'px';
+    }
+  });
+}
+
+function _closeMoreDropdown() {
+  const dropdown = document.getElementById('more-tabs-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+}
+
+function _showTabCtxMenu(x, y, tabId) {
+  _closeMoreDropdown();
+  const existing = document.getElementById('_tab-ctx-menu');
+  if (existing) existing.remove();
+  const menu = document.createElement('div');
+  menu.id = '_tab-ctx-menu';
+  menu.className = 'tab-ctx-menu';
+  menu.style.top = y + 'px';
+  menu.style.left = x + 'px';
+  menu.innerHTML = `
+    <button class="tab-ctx-menu-item" id="_tab-ctx-unpin">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+      Masquer de la barre
+    </button>
+    <button class="tab-ctx-menu-item" id="_tab-ctx-customize">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+      Personnaliser la barre
+    </button>`;
+  document.body.appendChild(menu);
+  document.getElementById('_tab-ctx-unpin').onclick = () => { _unpinTab(tabId); menu.remove(); };
+  document.getElementById('_tab-ctx-customize').onclick = () => { menu.remove(); _openCustomizeModal(); };
+  // Clamp to viewport
+  requestAnimationFrame(() => {
+    const mRect = menu.getBoundingClientRect();
+    if (mRect.right > window.innerWidth) menu.style.left = (window.innerWidth - mRect.width - 8) + 'px';
+    if (mRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - mRect.height - 8) + 'px';
+  });
+  const closeOutside = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', closeOutside, true); } };
+  setTimeout(() => document.addEventListener('click', closeOutside, true), 0);
+}
+
+// More button click handler
+document.getElementById('btn-more-tabs')?.addEventListener('click', () => {
+  const dropdown = document.getElementById('more-tabs-dropdown');
+  if (dropdown?.style.display === 'none' || !dropdown?.style.display) {
+    _openMoreDropdown();
+  } else {
+    _closeMoreDropdown();
+  }
+});
+
+// Close More dropdown on outside click
+document.addEventListener('click', (e) => {
+  const dropdown = document.getElementById('more-tabs-dropdown');
+  const moreBtn = document.getElementById('btn-more-tabs');
+  if (dropdown?.style.display !== 'none' && !dropdown?.contains(e.target) && !moreBtn?.contains(e.target)) {
+    _closeMoreDropdown();
+  }
+}, true);
 
 // ========== CONTEXT MENU ==========
 function setupContextMenuHandlers() {
@@ -2624,9 +3149,21 @@ async function promptRenameFolder(folderId) {
 async function renameProjectUI(projectId) {
   const project = getProject(projectId);
   if (!project) return;
+  const oldName = project.name;
   const name = await showInputModal(t('dialog.newProjectName'), project.name);
   if (name && name.trim()) {
-    renameProject(projectId, name.trim());
+    const newName = name.trim();
+    renameProject(projectId, newName);
+
+    // Propagate rename to terminal tabs that still use the old project name
+    const projectIndex = getProjectIndex(projectId);
+    const terminals = terminalsState.get().terminals;
+    terminals.forEach((term, id) => {
+      if (term.projectIndex === projectIndex && term.name === oldName) {
+        TerminalManager.updateTerminalTabName(id, newName);
+      }
+    });
+
     ProjectList.render();
   }
 }
@@ -2840,7 +3377,26 @@ async function renderDashboardContent(projectIndex) {
     onGitPull: (projectId) => gitPull(projectId),
     onGitPush: (projectId) => gitPush(projectId),
     onMergeAbort: (projectId) => gitMergeAbort(projectId),
-    onCopyPath: () => {}
+    onCopyPath: () => {},
+    onTaskSessionOpen: async (proj, sessionId) => {
+      const switchToClaude = () => {
+        document.querySelector('[data-tab="claude"]')?.click();
+        setSelectedProjectFilter(projectIndex);
+        ProjectList.render();
+        TerminalManager.filterByProject(projectIndex);
+      };
+      const terms = terminalsState.get().terminals;
+      for (const [id, td] of terms) {
+        if (td.claudeSessionId === sessionId) {
+          switchToClaude();
+          TerminalManager.setActiveTerminal(id);
+          return;
+        }
+      }
+      await TerminalManager.resumeSession(proj, sessionId, { skipPermissions: settingsState.get().skipPermissions });
+      switchToClaude();
+    },
+    onTaskRender: () => { renderDashboardContent(projectIndex); }
   });
 }
 
@@ -3250,7 +3806,11 @@ function handleActiveTerminalChange(id, termData) {
   }
 }
 
+let _showFilterGitActionsVersion = 0;
+
 async function showFilterGitActions(projectId) {
+  const callVersion = ++_showFilterGitActionsVersion;
+
   const project = getProject(projectId);
   if (!project) {
     hideFilterGitActions();
@@ -3287,8 +3847,11 @@ async function showFilterGitActions(projectId) {
   // Get current branch (use worktree path if active tab is a worktree)
   try {
     const branch = await api.git.currentBranch({ projectPath: getEffectiveGitPath() || project.path });
+    // Stale check: if user switched projects while we awaited, discard this result
+    if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = branch || 'main';
   } catch (e) {
+    if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = '...';
   }
 }
@@ -3600,7 +4163,10 @@ projectsState.subscribe(() => {
   const projects = projectsState.get().projects;
 
   if (selectedFilter !== null && projects[selectedFilter]) {
-    showFilterGitActions(projects[selectedFilter].id);
+    const projectId = projects[selectedFilter].id;
+    // Skip if git status hasn't been loaded yet — checkAllProjectsGitStatus will handle it
+    if (!localState.gitStatusInitialized && !localState.gitRepoStatus.has(projectId)) return;
+    showFilterGitActions(projectId);
   } else {
     hideFilterGitActions();
   }
@@ -3949,6 +4515,15 @@ api.quickPicker.onOpenProject((project) => {
     setSelectedProjectFilter(projectIndex);
     ProjectList.render();
     createTerminalForProject(existingProject);
+  }
+});
+
+// Quick picker command: navigate to a tab or trigger an action
+api.quickPicker.onNavigateTab(({ tabId, action }) => {
+  if (action === 'new-project') {
+    document.getElementById('btn-new-project')?.click();
+  } else if (tabId) {
+    document.querySelector(`.nav-tab[data-tab="${tabId}"]`)?.click();
   }
 });
 
@@ -4465,93 +5040,90 @@ if (usageElements.container) {
   }, 2000);
 }
 
-// ========== CI STATUS BAR ==========
-const ciStatusBar = {
-  element: document.getElementById('ci-status-bar'),
-  workflowName: document.getElementById('ci-workflow-name'),
-  statusText: document.getElementById('ci-status-text'),
-  branch: document.getElementById('ci-branch'),
-  duration: document.getElementById('ci-duration'),
-  linkBtn: document.getElementById('ci-status-link'),
-  closeBtn: document.getElementById('ci-status-close'),
+// ========== CI/CD HEADER INDICATOR ==========
+const ciIndicator = {
+  pill: document.getElementById('filter-ci-pill'),
+  text: document.getElementById('filter-ci-text'),
+  stepEl: document.getElementById('filter-ci-step'),
+  fixBtn: document.getElementById('filter-ci-fix'),
   currentRun: null,
-  pollInterval: null,
+  currentJobs: [],
+  currentRemoteUrl: null,
+  fastPollInterval: null,
   hideTimeout: null,
-  startTime: null
+  _fetchingLogs: false
 };
 
-/**
- * Show CI status bar with workflow info
- */
-function showCIStatusBar(run) {
-  if (!ciStatusBar.element) return;
+function showCIIndicator(run, jobs = []) {
+  if (!ciIndicator.pill) return;
 
-  ciStatusBar.currentRun = run;
-  ciStatusBar.startTime = new Date(run.createdAt);
+  ciIndicator.currentRun = run;
+  ciIndicator.currentJobs = jobs;
 
-  // Update content
-  ciStatusBar.workflowName.textContent = run.name;
-  ciStatusBar.branch.textContent = run.branch;
+  const pill = ciIndicator.pill;
+  pill.classList.remove('ci-running', 'ci-success', 'ci-failure');
 
-  // Set status
-  ciStatusBar.element.classList.remove('success', 'failure', 'hiding');
+  let stepText = null;
+  let showFix = false;
 
   if (run.status === 'completed') {
     if (run.conclusion === 'success') {
-      ciStatusBar.element.classList.add('success');
-      ciStatusBar.statusText.textContent = t('ci.passed');
+      pill.classList.add('ci-success');
+    } else if (run.conclusion === 'cancelled') {
+      pill.classList.add('ci-failure');
     } else {
-      ciStatusBar.element.classList.add('failure');
-      ciStatusBar.statusText.textContent = run.conclusion === 'cancelled' ? t('ci.cancelled') : t('ci.failed');
+      pill.classList.add('ci-failure');
+      showFix = true;
     }
   } else {
-    ciStatusBar.statusText.textContent = run.status === 'queued' ? t('ci.queued') : t('ci.running');
+    pill.classList.add('ci-running');
+    // Find active step across jobs
+    const activeJob = jobs.find(j => j.status === 'in_progress');
+    if (activeJob) {
+      const activeStep = activeJob.steps.find(s => s.status === 'in_progress');
+      if (activeStep) {
+        stepText = `${activeStep.number}/${activeJob.steps.length}`;
+      }
+    }
   }
 
-  // Update duration
-  updateCIDuration();
+  ciIndicator.text.textContent = run.name;
 
-  // Show bar
-  ciStatusBar.element.style.display = 'flex';
+  if (stepText) {
+    ciIndicator.stepEl.textContent = stepText;
+    ciIndicator.stepEl.style.display = '';
+  } else {
+    ciIndicator.stepEl.style.display = 'none';
+  }
 
-  // Auto-hide after completion (5 seconds)
-  if (run.status === 'completed') {
-    clearTimeout(ciStatusBar.hideTimeout);
-    ciStatusBar.hideTimeout = setTimeout(() => {
-      hideCIStatusBar();
-    }, 5000);
+  ciIndicator.fixBtn.style.display = showFix ? '' : 'none';
+  pill.style.display = 'flex';
+
+  // Auto-hide success after 5s
+  clearTimeout(ciIndicator.hideTimeout);
+  if (run.status === 'completed' && run.conclusion === 'success') {
+    ciIndicator.hideTimeout = setTimeout(() => hideCIIndicator(), 5000);
   }
 }
 
-/**
- * Hide CI status bar with animation
- */
-function hideCIStatusBar() {
-  if (!ciStatusBar.element) return;
-
-  ciStatusBar.element.classList.add('hiding');
-  setTimeout(() => {
-    ciStatusBar.element.style.display = 'none';
-    ciStatusBar.element.classList.remove('hiding');
-    ciStatusBar.currentRun = null;
-  }, 300);
+function hideCIIndicator() {
+  if (!ciIndicator.pill) return;
+  ciIndicator.pill.style.display = 'none';
+  ciIndicator.currentRun = null;
+  ciIndicator.currentJobs = [];
+  stopFastCIPoll();
 }
 
-/**
- * Update duration display
- */
-function updateCIDuration() {
-  if (!ciStatusBar.startTime || !ciStatusBar.duration) return;
-
-  const elapsed = Math.floor((Date.now() - ciStatusBar.startTime.getTime()) / 1000);
-  const mins = Math.floor(elapsed / 60);
-  const secs = elapsed % 60;
-  ciStatusBar.duration.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+function startFastCIPoll() {
+  if (ciIndicator.fastPollInterval) return;
+  ciIndicator.fastPollInterval = setInterval(checkCIStatus, 5000);
 }
 
-/**
- * Check CI status for current project
- */
+function stopFastCIPoll() {
+  clearInterval(ciIndicator.fastPollInterval);
+  ciIndicator.fastPollInterval = null;
+}
+
 async function checkCIStatus() {
   const filterIdx = projectsState.get().selectedProjectFilter;
   if (filterIdx === null || filterIdx === undefined) return;
@@ -4561,76 +5133,126 @@ async function checkCIStatus() {
   if (!project) return;
 
   try {
-    // Get git info for remote URL
-    const gitInfo = await api.git.info(project.path);
+    const gitInfo = await api.git.infoFull(project.path);
     if (!gitInfo.isGitRepo || !gitInfo.remoteUrl || !gitInfo.remoteUrl.includes('github.com')) {
+      if (ciIndicator.currentRun) hideCIIndicator();
       return;
     }
 
-    // Fetch workflow runs
+    ciIndicator.currentRemoteUrl = gitInfo.remoteUrl;
+
     const result = await api.github.workflowRuns(gitInfo.remoteUrl);
     if (!result.success || !result.authenticated || !result.runs || result.runs.length === 0) {
-      // No runs or not authenticated - hide bar if showing
-      if (ciStatusBar.currentRun) {
-        hideCIStatusBar();
-      }
+      if (ciIndicator.currentRun) hideCIIndicator();
       return;
     }
 
-    // Find most recent run on current branch or any in-progress run
     const currentBranch = gitInfo.branch;
     const inProgressRun = result.runs.find(r => r.status === 'in_progress' || r.status === 'queued');
     const branchRun = result.runs.find(r => r.branch === currentBranch);
     const relevantRun = inProgressRun || branchRun;
 
     if (!relevantRun) {
-      if (ciStatusBar.currentRun) {
-        hideCIStatusBar();
-      }
+      if (ciIndicator.currentRun) hideCIIndicator();
       return;
     }
 
-    // Check if this is a new run or status changed
-    if (!ciStatusBar.currentRun ||
-        ciStatusBar.currentRun.id !== relevantRun.id ||
-        ciStatusBar.currentRun.status !== relevantRun.status) {
-      showCIStatusBar(relevantRun);
+    // Fetch jobs/steps when run is active (for step indicator)
+    let jobs = ciIndicator.currentJobs;
+    if (relevantRun.status === 'in_progress' || relevantRun.status === 'queued') {
+      const jobsResult = await api.github.workflowJobs(gitInfo.remoteUrl, relevantRun.id);
+      if (jobsResult.success && jobsResult.jobs) {
+        jobs = jobsResult.jobs;
+      }
+      startFastCIPoll();
+    } else {
+      stopFastCIPoll();
+      // Fetch jobs once on completion so "Fix it" has job data
+      if (relevantRun.status === 'completed' && relevantRun.conclusion === 'failure' && ciIndicator.currentJobs.length === 0) {
+        const jobsResult = await api.github.workflowJobs(gitInfo.remoteUrl, relevantRun.id);
+        if (jobsResult.success && jobsResult.jobs) jobs = jobsResult.jobs;
+      }
+    }
+
+    const changed = !ciIndicator.currentRun ||
+      ciIndicator.currentRun.id !== relevantRun.id ||
+      ciIndicator.currentRun.status !== relevantRun.status ||
+      ciIndicator.currentRun.conclusion !== relevantRun.conclusion;
+
+    if (changed || relevantRun.status === 'in_progress') {
+      showCIIndicator(relevantRun, jobs);
     }
   } catch (e) {
-    console.error('[CI Status] Error checking status:', e);
+    console.error('[CI Indicator] Error:', e);
   }
 }
 
-// Initialize CI status bar
-if (ciStatusBar.element) {
-  // Link button opens GitHub
-  ciStatusBar.linkBtn?.addEventListener('click', () => {
-    if (ciStatusBar.currentRun?.url) {
-      api.dialog.openExternal(ciStatusBar.currentRun.url);
+async function handleCIFixIt() {
+  const run = ciIndicator.currentRun;
+  const remoteUrl = ciIndicator.currentRemoteUrl;
+  if (!run || !remoteUrl) return;
+
+  const filterIdx = projectsState.get().selectedProjectFilter;
+  if (filterIdx === null) return;
+  const project = projectsState.get().projects[filterIdx];
+  if (!project) return;
+
+  // Find failed job
+  const failedJob = ciIndicator.currentJobs.find(j => j.conclusion === 'failure') || ciIndicator.currentJobs[0];
+  let logExcerpt = '';
+
+  if (failedJob && !ciIndicator._fetchingLogs) {
+    ciIndicator._fetchingLogs = true;
+    try {
+      const logsResult = await api.github.jobLogs(remoteUrl, failedJob.id);
+      if (logsResult.success && logsResult.logs) {
+        logExcerpt = logsResult.logs;
+      }
+    } catch (e) {
+      console.error('[CI Fix] Error fetching logs:', e);
+    } finally {
+      ciIndicator._fetchingLogs = false;
+    }
+  }
+
+  const failedStep = failedJob?.steps?.find(s => s.conclusion === 'failure');
+  const stepName = failedStep ? failedStep.name : (failedJob?.name || 'unknown');
+  const prompt = [
+    `The CI workflow "${run.name}" failed on branch "${run.branch}".`,
+    `Failed job: "${failedJob?.name || 'unknown'}", step: "${stepName}".`,
+    '',
+    'Here are the relevant error logs:',
+    '```',
+    logExcerpt || '(Could not retrieve logs)',
+    '```',
+    '',
+    'Please analyze the error and fix the issue in the code.'
+  ].join('\n');
+
+  TerminalManager.createTerminal(project, {
+    mode: 'chat',
+    initialPrompt: prompt
+  });
+}
+
+// Initialize CI indicator
+if (ciIndicator.pill) {
+  ciIndicator.fixBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleCIFixIt();
+  });
+
+  ciIndicator.pill.addEventListener('click', (e) => {
+    if (e.target.closest('.filter-ci-fix')) return;
+    if (ciIndicator.currentRun?.url) {
+      api.dialog.openExternal(ciIndicator.currentRun.url);
     }
   });
 
-  // Close button hides bar
-  ciStatusBar.closeBtn?.addEventListener('click', () => {
-    hideCIStatusBar();
-    // Don't show again for this run
-    if (ciStatusBar.currentRun) {
-      ciStatusBar.currentRun.dismissed = true;
-    }
-  });
-
-  // Update duration every second when visible
-  setInterval(() => {
-    if (ciStatusBar.element.style.display !== 'none' &&
-        ciStatusBar.currentRun?.status !== 'completed') {
-      updateCIDuration();
-    }
-  }, 1000);
-
-  // Poll CI status every 30 seconds
+  // Slow baseline poll (30s)
   setInterval(checkCIStatus, 30000);
 
-  // Initial check after 3 seconds
+  // Initial check after 3s
   setTimeout(checkCIStatus, 3000);
 }
 
@@ -4672,14 +5294,15 @@ if (timeElements.container) {
   setTimeout(updateTimeDisplay, 1000);
 }
 
-// ========== TIME TRACKING SAVE ON QUIT ==========
-// Listen for app quit to save active time tracking sessions
+// ========== CLEANUP ON QUIT ==========
+// Listen for app quit to save active time tracking sessions and cleanup services
 api.lifecycle.onWillQuit(() => {
   const { saveAndShutdown } = require('./src/renderer');
   saveAndShutdown();
   // Flush explorer state (including scroll position) to disk before quit
   const { saveTerminalSessionsImmediate } = require('./src/renderer/services/TerminalSessionService');
   saveTerminalSessionsImmediate();
+  DashboardService.cleanup();
 });
 
 // Backup cleanup on window unload (in case onWillQuit doesn't fire)
@@ -4689,5 +5312,6 @@ window.addEventListener('beforeunload', () => {
   // Flush explorer state (including scroll position) to disk before quit
   const { saveTerminalSessionsImmediate } = require('./src/renderer/services/TerminalSessionService');
   saveTerminalSessionsImmediate();
+  DashboardService.cleanup();
 });
 

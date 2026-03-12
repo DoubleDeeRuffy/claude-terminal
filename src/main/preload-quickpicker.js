@@ -20,6 +20,15 @@ contextBridge.exposeInMainWorld('pickerAPI', {
     } catch (_) {}
     return null;
   },
+  readWorkflows: () => {
+    try {
+      const definitionsFile = path.join(os.homedir(), '.claude-terminal', 'workflows', 'definitions.json');
+      if (fs.existsSync(definitionsFile)) {
+        return JSON.parse(fs.readFileSync(definitionsFile, 'utf8'));
+      }
+    } catch (_) {}
+    return [];
+  },
   readAccentColor: () => {
     try {
       const settingsFile = path.join(os.homedir(), '.claude-terminal', 'settings.json');

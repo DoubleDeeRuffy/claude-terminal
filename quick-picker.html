@@ -5,10 +5,11 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; navigate-to 'none'">
   <title>Quick Pick</title>
   <style>
-    * {
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
       margin: 0;
-      padding: 0;
-      box-sizing: border-box;
     }
 
     body {
@@ -18,148 +19,140 @@
     }
 
     .container {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+      height: 100%;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
+      background: #1a1a1a;
+      border: 1px solid #2d2d2d;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.8);
     }
 
     .search-box {
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 16px 20px;
+      padding: 14px 18px;
       background: #222;
-      border-bottom: 1px solid #333;
+      border-bottom: 1px solid #2d2d2d;
     }
 
-    .search-box svg {
-      width: 20px;
-      height: 20px;
-      color: #666;
-      flex-shrink: 0;
-    }
+    .search-box svg { width: 18px; height: 18px; color: #555; flex-shrink: 0; }
 
     .search-box input {
       flex: 1;
       background: transparent;
       border: none;
-      color: #fff;
-      font-size: 16px;
+      color: #e0e0e0;
+      font-size: 15px;
       outline: none;
     }
 
-    .search-box input::placeholder {
-      color: #555;
-    }
+    .search-box input::placeholder { color: #555; }
 
     .shortcut {
-      font-size: 11px;
-      color: #555;
-      padding: 4px 8px;
+      font-size: 10px;
+      color: #444;
+      padding: 3px 7px;
       background: #2a2a2a;
       border-radius: 4px;
       font-family: monospace;
     }
 
-    .list {
-      max-height: 320px;
-      overflow-y: auto;
-    }
+    .list { flex: 1; min-height: 0; overflow-y: auto; }
+    .list::-webkit-scrollbar { width: 5px; }
+    .list::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 
-    .list::-webkit-scrollbar {
-      width: 6px;
+    /* Section header */
+    .section-header {
+      padding: 7px 18px 3px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #555;
+      border-top: 1px solid #222;
     }
+    .section-header:first-child { border-top: none; }
 
-    .list::-webkit-scrollbar-thumb {
-      background: #333;
-      border-radius: 3px;
-    }
-
+    /* Items */
     .item {
       display: flex;
       align-items: center;
-      gap: 14px;
-      padding: 12px 20px;
+      gap: 12px;
+      padding: 8px 14px;
       cursor: pointer;
       border-left: 3px solid transparent;
-      transition: all 0.1s;
+      transition: background 0.08s, border-color 0.08s;
     }
 
-    .item:hover, .item.selected {
-      background: #252525;
-      border-left-color: var(--accent, #d97706);
-    }
-
-    .item.selected {
-      background: var(--accent-dim, rgba(217, 119, 6, 0.15));
-    }
+    .item:hover { background: #252525; border-left-color: var(--accent, #d97706); }
+    .item.selected { background: var(--accent-dim, rgba(217,119,6,0.12)); border-left-color: var(--accent, #d97706); }
 
     .item-icon {
-      width: 32px;
-      height: 32px;
-      background: #2a2a2a;
+      width: 28px; height: 28px;
+      background: #232323;
       border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
     }
+    .item-icon svg { width: 15px; height: 15px; color: var(--accent, #d97706); }
 
-    .item-icon svg {
-      width: 18px;
-      height: 18px;
-      color: var(--accent, #d97706);
+    .item-info { flex: 1; min-width: 0; }
+    .item-name { font-size: 13px; font-weight: 500; color: #e0e0e0; }
+    .item-path { font-size: 10.5px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .item-badge {
+      flex-shrink: 0;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
     }
+    .badge-current { background: var(--accent-dim, rgba(217,119,6,0.15)); color: var(--accent, #d97706); }
+    .badge-running { background: rgba(34,197,94,0.12); color: #22c55e; }
 
-    .item-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .item-name {
-      font-size: 14px;
-      font-weight: 500;
-      color: #e0e0e0;
-    }
-
-    .item-path {
-      font-size: 11px;
-      color: #666;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .empty {
-      padding: 40px 20px;
-      text-align: center;
-      color: #555;
-    }
-
-    .empty svg {
-      width: 40px;
-      height: 40px;
-      margin-bottom: 12px;
-      opacity: 0.3;
-    }
-
-    .footer {
-      display: flex;
-      gap: 16px;
-      padding: 10px 20px;
-      background: #1a1a1a;
-      border-top: 1px solid #333;
-      font-size: 11px;
-      color: #555;
-    }
-
-    .footer kbd {
+    .item-hint {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: #444;
       padding: 2px 6px;
       background: #2a2a2a;
       border-radius: 3px;
       font-family: monospace;
-      margin-right: 4px;
+    }
+
+    mark.hl { background: none; color: var(--accent, #d97706); font-weight: 700; }
+
+    .empty {
+      padding: 36px 18px;
+      text-align: center;
+      color: #444;
+    }
+    .empty svg { width: 36px; height: 36px; margin-bottom: 10px; opacity: 0.25; }
+    .empty p { font-size: 13px; }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 16px;
+      background: #1a1a1a;
+      border-top: 1px solid #222;
+      font-size: 10px;
+      color: #444;
+    }
+    .footer-modes { display: flex; gap: 10px; }
+    .footer-modes span { display: flex; align-items: center; gap: 3px; }
+    .footer kbd, .footer-modes kbd {
+      padding: 1px 5px;
+      background: #2a2a2a;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 9px;
     }
   </style>
 </head>
@@ -167,120 +160,291 @@
   <div class="container">
     <div class="search-box">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-      <input type="text" id="search" placeholder="Rechercher un projet..." autofocus>
-      <span class="shortcut">Esc fermer</span>
+      <input type="text" id="search" placeholder="Rechercher partout..." autofocus>
+      <span class="shortcut">Esc</span>
     </div>
     <div class="list" id="list"></div>
     <div class="footer">
-      <span><kbd>↑↓</kbd> Naviguer</span>
-      <span><kbd>Enter</kbd> Ouvrir</span>
+      <div class="footer-modes">
+        <span><kbd>&gt;</kbd> commandes</span>
+        <span><kbd>@</kbd> branches</span>
+        <span><kbd>!</kbd> workflows</span>
+      </div>
+      <span><kbd>↑↓</kbd> naviguer &nbsp;<kbd>↵</kbd> ouvrir</span>
     </div>
   </div>
 
   <script>
-    // pickerAPI est exposé par preload-quickpicker.js via contextBridge
+    // ── Icons ──────────────────────────────────────────────────────────────
+    const ICON = {
+      project: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>',
+      command: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l2.3 2.3-2.89 2.87 1.42 1.42L18.7 6.7 21 9V3h-6zM3 9l2.3-2.3 2.87 2.89 1.42-1.42L6.7 5.3 9 3H3v6zm6 12l-2.3-2.3 2.89-2.87-1.42-1.42L5.3 17.3 3 15v6h6zm12-6l-2.3 2.3-2.87-2.89-1.42 1.42 2.89 2.87L15 21h6v-6z"/></svg>',
+      settings: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.03-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
+      git: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm3.17-8.5C10.5 9.1 11 10.5 12 11.5V16c0 1.1.9 2 2 2s2-.9 2-2v-4.5c1.03-.97 1.5-2.35 1.5-3.5H15c0 1.66-1.34 3-3 3S9 9.66 9 8H7c0 1.15.47 2.53 1.5 3.5H6.17A8.956 8.956 0 0 1 7 8.5V5.5H5V8a9 9 0 0 0 .17 1.93l-1.11.85a.5.5 0 0 0-.12.61l1 1.73c.12.21.37.28.58.2l1.3-.52c.43.33.9.61 1.41.82l.19 1.37c.04.24.24.41.47.41h2c.23 0 .43-.17.47-.41l.19-1.37c.51-.21.98-.49 1.41-.82l1.3.52c.22.08.47 0 .58-.2l1-1.73a.5.5 0 0 0-.12-.61l-1.11-.85c.1-.63.17-1.27.17-1.93V5.5h-2V6c0 .17-.02.33-.03.5H10.17z"/></svg>',
+      mcp: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg>',
+      newProject: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-1 8h-3v3h-2v-3h-3v-2h3v-3h2v3h3v2z"/></svg>',
+      branch: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm3.07-5.12A9.03 9.03 0 0 1 7 9.5V6.07A8.97 8.97 0 0 0 7 6V5H5v3.5c0 2.9 1.94 5.35 4.63 6.08L10 16c0 1.1.9 2 2 2s2-.9 2-2v-4.5c1.66 0 3-1.34 3-3H15c0 1.66-1.34 3-3 3a3 3 0 0 1-1.93-.62z"/></svg>',
+      workflow: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 16.99c-1.96 0-3.57 1.26-4.16 3.01H3v-1h9.84c.59-1.75 2.2-3.01 4.16-3.01 2.49 0 4.5 2.01 4.5 4.5h-1c0-1.93-1.57-3.5-3.5-3.5zM3 5h9.84c.59-1.75 2.2-3.01 4.16-3.01 2.49 0 4.5 2.01 4.5 4.5s-2.01 4.5-4.5 4.5c-1.96 0-3.57-1.26-4.16-3.01H3V5zm14 4.49c1.93 0 3.5-1.57 3.5-3.5s-1.57-3.5-3.5-3.5-3.5 1.57-3.5 3.5 1.57 3.5 3.5 3.5zM3 11.5h7.34c.59-1.75 2.2-3 4.16-3 2.49 0 4.5 2.01 4.5 4.5s-2.01 4.5-4.5 4.5c-1.96 0-3.57-1.25-4.16-3H3v-3zm11 4c1.93 0 3.5-1.57 3.5-3.5S15.93 8.5 14 8.5s-3.5 1.57-3.5 3.5 1.57 3.5 3.5 3.5z"/></svg>',
+      dashboard: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>',
+      memory: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z"/></svg>',
+      skills: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>',
+      empty: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>',
+    };
 
+    // ── Commands ───────────────────────────────────────────────────────────
+    const COMMANDS = [
+      { id: 'cmd-settings',  label: 'Ouvrir les paramètres', hint: 'Ctrl+,', icon: ICON.settings,  tabId: 'settings'   },
+      { id: 'cmd-new-proj',  label: 'Nouveau projet',         hint: 'Ctrl+N', icon: ICON.newProject, action: 'new-project' },
+      { id: 'cmd-git',       label: 'Panneau Git',            icon: ICON.git,       tabId: 'git'       },
+      { id: 'cmd-mcp',       label: 'Panneau MCP',            icon: ICON.mcp,       tabId: 'mcp'       },
+      { id: 'cmd-skills',    label: 'Panneau Skills',          icon: ICON.skills,    tabId: 'skills'    },
+      { id: 'cmd-agents',    label: 'Panneau Agents',          icon: ICON.skills,    tabId: 'agents'    },
+      { id: 'cmd-dashboard', label: 'Tableau de bord',         icon: ICON.dashboard, tabId: 'dashboard' },
+      { id: 'cmd-memory',    label: 'Éditeur mémoire',         icon: ICON.memory,    tabId: 'memory'    },
+    ];
+
+    // ── State ──────────────────────────────────────────────────────────────
     let projects = [];
-    let filtered = [];
+    let workflows = [];
+    let flatItems = [];
     let selectedIndex = 0;
 
-    function loadAccentColor() {
-      const color = pickerAPI.readAccentColor() || '#d97706';
-      applyAccentColor(color);
-    }
-
+    // ── Accent color ───────────────────────────────────────────────────────
     function applyAccentColor(color) {
-      const root = document.documentElement;
-      root.style.setProperty('--accent', color);
-      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
-      if (result) {
-        const r = parseInt(result[1], 16);
-        const g = parseInt(result[2], 16);
-        const b = parseInt(result[3], 16);
-        root.style.setProperty('--accent-dim', `rgba(${r}, ${g}, ${b}, 0.15)`);
+      if (!color) return;
+      document.documentElement.style.setProperty('--accent', color);
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
+      if (m) {
+        const [r, g, b] = [parseInt(m[1],16), parseInt(m[2],16), parseInt(m[3],16)];
+        document.documentElement.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.13)`);
       }
     }
 
+    function loadAccentColor() {
+      applyAccentColor(pickerAPI.readAccentColor() || '#d97706');
+    }
+
+    // ── Fuzzy matching ─────────────────────────────────────────────────────
+    function fuzzyMatch(query, str) {
+      if (!query) return { match: true, score: 0, indices: [] };
+      const q = query.toLowerCase(), s = str.toLowerCase();
+      const indices = [];
+      let qi = 0, score = 0, consecutive = 0;
+      for (let si = 0; si < s.length && qi < q.length; si++) {
+        if (q[qi] === s[si]) {
+          indices.push(si);
+          consecutive++;
+          score += consecutive * 2;
+          if (si === 0 || /[\s\-_/\\.]/.test(s[si-1])) score += 8;
+          qi++;
+        } else { consecutive = 0; }
+      }
+      if (qi < q.length) return { match: false, score: 0, indices: [] };
+      if (indices[0] === 0) score += 15;
+      score -= (indices[indices.length-1] || 0) * 0.3;
+      return { match: true, score, indices };
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function highlightStr(str, indices) {
+      if (!indices || !indices.length) return escHtml(str);
+      const set = new Set(indices);
+      let html = '', inMark = false;
+      for (let i = 0; i < str.length; i++) {
+        const ch = escHtml(str[i]);
+        if (set.has(i)) {
+          if (!inMark) { html += '<mark class="hl">'; inMark = true; }
+          html += ch;
+        } else {
+          if (inMark) { html += '</mark>'; inMark = false; }
+          html += ch;
+        }
+      }
+      if (inMark) html += '</mark>';
+      return html;
+    }
+
+    function scoreItem(q, label, sublabel) {
+      if (!q) return { match: true, score: 0, labelHtml: null };
+      const lm = fuzzyMatch(q, label);
+      if (lm.match) return { match: true, score: lm.score, labelHtml: highlightStr(label, lm.indices) };
+      if (sublabel) {
+        const sm = fuzzyMatch(q, sublabel);
+        if (sm.match) return { match: true, score: sm.score * 0.7, labelHtml: null };
+      }
+      return { match: false, score: 0, labelHtml: null };
+    }
+
+    // ── Prefix detection ───────────────────────────────────────────────────
+    function detectMode(value) {
+      if (value.startsWith('>')) return { mode: 'commands', query: value.slice(1).trimStart() };
+      if (value.startsWith('@')) return { mode: 'branches', query: value.slice(1).trimStart() };
+      if (value.startsWith('!')) return { mode: 'workflows', query: value.slice(1).trimStart() };
+      return { mode: 'all', query: value };
+    }
+
+    // ── Sections builder ───────────────────────────────────────────────────
+    function buildSections(rawQuery) {
+      const { mode, query: q } = detectMode(rawQuery);
+      const sections = [];
+
+      // Projects
+      if (mode === 'all' || mode === 'projects') {
+        const items = projects.map(p => {
+          const { match, score, labelHtml } = scoreItem(q, p.name, p.path);
+          if (!match) return null;
+          return { kind: 'project', label: p.name, labelHtml, sublabel: p.path, icon: ICON.project, score, data: p };
+        }).filter(Boolean).sort((a,b) => b.score - a.score);
+        if (items.length) sections.push({ label: 'Projets', items });
+      }
+
+      // Commands
+      if (mode === 'all' || mode === 'commands') {
+        const items = COMMANDS.map(c => {
+          const { match, score, labelHtml } = scoreItem(q, c.label, c.hint);
+          if (!match) return null;
+          return { kind: 'command', label: c.label, labelHtml, hint: c.hint || '', icon: c.icon, score, data: c };
+        }).filter(Boolean).sort((a,b) => b.score - a.score);
+        if (items.length) sections.push({ label: 'Commandes', items });
+      }
+
+      // Workflows
+      if (mode === 'all' || mode === 'workflows') {
+        const items = workflows.map(w => {
+          const label = w.name || w.id || '';
+          const { match, score, labelHtml } = scoreItem(q, label, w.id);
+          if (!match) return null;
+          const triggerLabel = w.trigger_type === 'cron' ? w.trigger_value || 'cron'
+            : w.trigger_type || 'manual';
+          return { kind: 'workflow', label, labelHtml, sublabel: triggerLabel, icon: ICON.workflow, score, data: w };
+        }).filter(Boolean).sort((a,b) => b.score - a.score);
+        if (items.length || mode === 'workflows') sections.push({ label: 'Workflows', items });
+      }
+
+      return sections;
+    }
+
+    // ── Render ─────────────────────────────────────────────────────────────
+    function render() {
+      const query = document.getElementById('search').value;
+      const sections = buildSections(query);
+
+      flatItems = [];
+      sections.forEach(s => s.items.forEach(i => flatItems.push(i)));
+
+      const list = document.getElementById('list');
+
+      if (!flatItems.length) {
+        list.innerHTML = `<div class="empty">${ICON.empty}<p>Aucun résultat</p></div>`;
+        return;
+      }
+
+      list.innerHTML = sections.map(section => `
+        <div class="section-header">${escHtml(section.label)}</div>
+        ${section.items.map(item => {
+          const idx = flatItems.indexOf(item);
+          return `
+            <div class="item ${idx === selectedIndex ? 'selected' : ''}" data-idx="${idx}">
+              <div class="item-icon">${item.icon}</div>
+              <div class="item-info">
+                <div class="item-name">${item.labelHtml || escHtml(item.label)}</div>
+                ${item.sublabel ? `<div class="item-path">${escHtml(item.sublabel)}</div>` : ''}
+              </div>
+              ${item.badge ? `<span class="item-badge badge-${item.badge}">${escHtml(item.badge)}</span>` : ''}
+              ${item.hint ? `<span class="item-hint">${escHtml(item.hint)}</span>` : ''}
+            </div>`;
+        }).join('')}
+      `).join('');
+
+      list.querySelectorAll('.item').forEach(el => {
+        const idx = parseInt(el.dataset.idx, 10);
+        el.addEventListener('mouseenter', () => {
+          selectedIndex = idx;
+          list.querySelectorAll('.item').forEach(i =>
+            i.classList.toggle('selected', parseInt(i.dataset.idx, 10) === idx)
+          );
+        });
+        el.addEventListener('click', () => activate(flatItems[idx]));
+      });
+
+      const sel = list.querySelector('.item.selected');
+      if (sel) sel.scrollIntoView({ block: 'nearest' });
+    }
+
+    // ── Activate ───────────────────────────────────────────────────────────
+    function activate(item) {
+      if (!item) return;
+      if (item.kind === 'project') {
+        pickerAPI.send('quick-pick-select', item.data);
+      } else if (item.kind === 'command') {
+        pickerAPI.send('quick-pick-command', { tabId: item.data.tabId, action: item.data.action });
+      } else if (item.kind === 'workflow') {
+        pickerAPI.send('quick-pick-workflow', { workflowId: item.data.id });
+      }
+    }
+
+    // ── Load data ──────────────────────────────────────────────────────────
     function loadProjects() {
       try {
         const data = pickerAPI.readProjects();
         projects = data ? (Array.isArray(data) ? data : (data.projects || [])) : [];
-      } catch (e) {
-        projects = [];
-      }
-      filtered = [...projects];
+      } catch { projects = []; }
+    }
+
+    function loadWorkflows() {
+      try {
+        const data = pickerAPI.readWorkflows();
+        workflows = Array.isArray(data) ? data : [];
+      } catch { workflows = []; }
+    }
+
+    function reset() {
+      document.getElementById('search').value = '';
+      selectedIndex = 0;
+      loadAccentColor();
+      loadProjects();
+      loadWorkflows();
       render();
+      document.getElementById('search').focus();
     }
 
-    function render() {
-      const list = document.getElementById('list');
-      if (filtered.length === 0) {
-        list.innerHTML = `
-          <div class="empty">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
-            <p>Aucun projet</p>
-          </div>`;
-        return;
-      }
-      list.innerHTML = filtered.map((p, i) => `
-        <div class="item ${i === selectedIndex ? 'selected' : ''}" data-index="${i}">
-          <div class="item-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
-          </div>
-          <div class="item-info">
-            <div class="item-name">${p.name}</div>
-            <div class="item-path">${p.path}</div>
-          </div>
-        </div>
-      `).join('');
-      list.querySelectorAll('.item').forEach(item => {
-        item.onclick = () => selectProject(parseInt(item.dataset.index));
-      });
-      const selected = list.querySelector('.selected');
-      if (selected) selected.scrollIntoView({ block: 'nearest' });
-    }
-
-    function filter(query) {
-      const q = query.toLowerCase();
-      filtered = q ? projects.filter(p =>
-        p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)
-      ) : [...projects];
+    // ── Events ─────────────────────────────────────────────────────────────
+    document.getElementById('search').addEventListener('input', () => {
       selectedIndex = 0;
       render();
-    }
+    });
 
-    function selectProject(index) {
-      const project = filtered[index];
-      if (project) pickerAPI.send('quick-pick-select', project);
-    }
-
-    document.getElementById('search').addEventListener('input', (e) => filter(e.target.value));
-
-    document.addEventListener('keydown', (e) => {
+    document.addEventListener('keydown', e => {
       switch (e.key) {
-        case 'ArrowDown': e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1); render(); break;
-        case 'ArrowUp':   e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); render(); break;
-        case 'Enter':     e.preventDefault(); if (filtered.length > 0) selectProject(selectedIndex); break;
-        case 'Escape':    e.preventDefault(); pickerAPI.send('quick-pick-close'); break;
+        case 'ArrowDown':
+          e.preventDefault();
+          selectedIndex = Math.min(selectedIndex + 1, flatItems.length - 1);
+          render();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          selectedIndex = Math.max(selectedIndex - 1, 0);
+          render();
+          break;
+        case 'Enter':
+          e.preventDefault();
+          activate(flatItems[selectedIndex]);
+          break;
+        case 'Escape':
+          e.preventDefault();
+          pickerAPI.send('quick-pick-close');
+          break;
       }
     });
 
-    window.addEventListener('focus', () => {
-      document.getElementById('search').value = '';
-      loadAccentColor();
-      loadProjects();
-      document.getElementById('search').focus();
-    });
+    window.addEventListener('focus', reset);
+    pickerAPI.onReloadProjects(reset);
 
-    pickerAPI.onReloadProjects(() => {
-      document.getElementById('search').value = '';
-      loadAccentColor();
-      loadProjects();
-      document.getElementById('search').focus();
-    });
-
-    loadAccentColor();
-    loadProjects();
+    // Init
+    reset();
   </script>
 </body>
 </html>

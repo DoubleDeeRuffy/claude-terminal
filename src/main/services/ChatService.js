@@ -271,15 +271,21 @@ class ChatService {
    * @returns {Promise<string>} Session ID
    */
   async startSession({ cwd, prompt, permissionMode = 'default', resumeSessionId = null, sessionId = null, images = [], mentions = [], model = null, enable1MContext = false, forkSession = false, resumeSessionAt = null, effort = null, outputFormat = null, skills = null, systemPrompt = null, settingSources = null, maxTurns = null }) {
-    const sdk = await loadSDK();
     if (!sessionId) sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Notify renderer that session is initializing (runtime resolution can take a few seconds)
+    this._send('chat-initializing', { sessionId });
+
+    const sdk = await loadSDK();
 
     const messageQueue = createMessageQueue(() => {
       this._send('chat-idle', { sessionId });
     });
 
     // Always push initial prompt (even for resume — SDK needs a message to process)
-    if (prompt) {
+    const hasImages = images && images.length > 0;
+    const hasMentions = mentions && mentions.length > 0;
+    if (prompt || hasImages || hasMentions) {
       messageQueue.push({
         type: 'user',
         message: { role: 'user', content: this._buildContent(prompt, images, mentions) },
@@ -463,9 +469,18 @@ class ChatService {
     }
 
     const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
     return new Promise((resolve, reject) => {
-      this.pendingPermissions.set(requestId, { resolve, reject, sessionId });
+      const timeoutId = setTimeout(() => {
+        if (this.pendingPermissions.has(requestId)) {
+          this.pendingPermissions.delete(requestId);
+          console.warn(`[ChatService] Permission ${requestId} timed out after 5 minutes, denying`);
+          resolve({ behavior: 'deny' });
+        }
+      }, PERMISSION_TIMEOUT_MS);
+
+      this.pendingPermissions.set(requestId, { resolve, reject, sessionId, timeoutId });
 
       this._send('chat-permission-request', {
         sessionId,
@@ -479,6 +494,7 @@ class ChatService {
 
       if (options.signal) {
         options.signal.addEventListener('abort', () => {
+          clearTimeout(timeoutId);
           this.pendingPermissions.delete(requestId);
           reject(new Error('Aborted'));
         }, { once: true });
@@ -493,6 +509,7 @@ class ChatService {
     const pending = this.pendingPermissions.get(requestId);
     if (pending) {
       this.pendingPermissions.delete(requestId);
+      clearTimeout(pending.timeoutId);
       // Check that session is still alive before resolving — the SDK will try to
       // write the response to ProcessTransport which may already be closed.
       const session = this.sessions.get(pending.sessionId);
@@ -585,7 +602,7 @@ class ChatService {
         || err.message === 'Aborted'
         || err.message?.includes('Request was aborted');
       if (wasInterrupted) {
-        this._send('chat-done', { sessionId, aborted: true });
+        this._send('chat-done', { sessionId, interrupted: true });
       } else {
         const stderrLog = session?._stderr || '';
         console.error(`[ChatService] Stream error after ${msgCount} msgs:`, err.message, stderrLog ? `\nstderr: ${stderrLog}` : '');
@@ -782,6 +799,137 @@ class ChatService {
     }
   }
 
+  // ── Follow-up suggestion generation ──
+
+  /**
+   * Ensure the persistent suggestion session is running.
+   * Reuses the same pattern as the naming session (single warm Haiku session).
+   */
+  async _ensureSuggestionSession() {
+    if (this._suggestionReady) return;
+    if (this._suggestionStarting) return this._suggestionStarting;
+
+    this._suggestionStarting = (async () => {
+      const sdk = await loadSDK();
+      this._suggestionQueue = createMessageQueue();
+
+      const runtime = resolveRuntime();
+      const stream = sdk.query({
+        prompt: this._suggestionQueue.iterable,
+        options: {
+          maxTurns: 1,
+          allowedTools: [],
+          model: 'haiku',
+          executable: runtime.executable,
+          env: runtime.env,
+          pathToClaudeCodeExecutable: getSdkCliPath(),
+          systemPrompt: [
+            'You generate 2-3 short follow-up message suggestions for a developer chatting with Claude Code.',
+            'Each suggestion should be a concrete, actionable developer question or instruction (max 8 words).',
+            'Output ONLY a JSON array of strings, nothing else. Example: ["Explain this in detail","Give me an example","How do I test this?"]',
+            'Vary the suggestions: one can go deeper, one can ask for an example, one can ask for a different approach.',
+            'When project context is provided (name, type), tailor suggestions to that specific project domain.',
+            'Reply in the SAME language as the conversation.',
+          ].join(' ')
+        }
+      });
+
+      (async () => {
+        try {
+          for await (const msg of stream) {
+            if (msg.type === 'assistant' && msg.message?.content) {
+              let text = '';
+              for (const block of msg.message.content) {
+                if (block.type === 'text') text += block.text;
+              }
+              if (text && this._suggestionResolve) {
+                const resolve = this._suggestionResolve;
+                this._suggestionResolve = null;
+                resolve(text);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[ChatService] Suggestion session error:', err.message);
+        } finally {
+          this._suggestionReady = false;
+          this._suggestionStarting = null;
+        }
+      })();
+
+      this._suggestionReady = true;
+      this._suggestionStarting = null;
+    })();
+
+    return this._suggestionStarting;
+  }
+
+  /**
+   * Generate 2-3 follow-up suggestions based on the last assistant message.
+   * @param {string} lastAssistantText - The last assistant response text (truncated)
+   * @param {string} lastUserText - The last user message for context
+   * @returns {Promise<string[]>} Array of suggestion strings, or []
+   */
+  async generateSuggestions(lastAssistantText, lastUserText, projectContext) {
+    try {
+      await this._ensureSuggestionSession();
+      if (!this._suggestionQueue) return [];
+
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          this._suggestionResolve = null;
+          resolve([]);
+        }, 6000);
+
+        this._suggestionResolve = (rawText) => {
+          clearTimeout(timeout);
+          try {
+            // Extract JSON array from the response
+            const match = rawText.match(/\[[\s\S]*\]/);
+            if (!match) { resolve([]); return; }
+            const arr = JSON.parse(match[0]);
+            if (!Array.isArray(arr)) { resolve([]); return; }
+            const suggestions = arr
+              .filter(s => typeof s === 'string' && s.trim().length > 0)
+              .map(s => s.trim().slice(0, 80))
+              .slice(0, 3);
+            resolve(suggestions);
+          } catch {
+            resolve([]);
+          }
+        };
+
+        try {
+          const contextParts = [];
+          if (projectContext) {
+            const pCtx = [`Project: "${projectContext.name}"`];
+            if (projectContext.type && projectContext.type !== 'general') pCtx.push(`type: ${projectContext.type}`);
+            contextParts.push(pCtx.join(', '));
+          }
+          if (lastUserText) contextParts.push(`User asked: "${lastUserText.slice(0, 150)}"`);
+          contextParts.push(`Claude replied: "${lastAssistantText.slice(0, 300)}"`);
+          const context = contextParts.filter(Boolean).join('\n');
+          this._suggestionQueue.push({
+            type: 'user',
+            message: { role: 'user', content: `Generate follow-up suggestions for this exchange:\n${context}` }
+          });
+        } catch (pushErr) {
+          console.error('[ChatService] Suggestion transport dead, resetting:', pushErr.message);
+          this._suggestionReady = false;
+          this._suggestionStarting = null;
+          this._suggestionQueue = null;
+          clearTimeout(timeout);
+          resolve([]);
+        }
+      });
+    } catch (err) {
+      console.error('[ChatService] generateSuggestions error:', err.message);
+      this._suggestionReady = false;
+      this._suggestionStarting = null;
+      return [];
+    }
+  }
+
   // ── Background skill/agent generation ──
 
   /**
@@ -865,7 +1013,7 @@ class ChatService {
    * @param {Object} opts - { cwd, prompt, model, effort, maxTurns, permissionMode, outputFormat, skills, onMessage, signal }
    * @returns {Promise<{ output: string, success: boolean, ... }>}
    */
-  async runSinglePrompt({ cwd, prompt, model, effort, maxTurns, permissionMode, outputFormat, skills, onMessage, signal }) {
+  async runSinglePrompt({ cwd, prompt, model, effort, maxTurns, permissionMode, outputFormat, skills, systemPrompt, disallowedTools, onMessage, onOutput, signal }) {
     const sdk = await loadSDK();
     const runtime = resolveRuntime();
 
@@ -890,7 +1038,7 @@ class ChatService {
         executable: runtime.executable,
         env: runtime.env,
         pathToClaudeCodeExecutable: getSdkCliPath(),
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        systemPrompt: systemPrompt || { type: 'preset', preset: 'claude_code' },
         settingSources: ['user', 'project', 'local'],
       };
 
@@ -898,6 +1046,7 @@ class ChatService {
       if (effort) options.effort = effort;
       if (outputFormat) options.outputFormat = outputFormat;
       if (skills?.length) options.skills = skills;
+      if (disallowedTools?.length) options.disallowedTools = disallowedTools;
 
       const queryStream = sdk.query({ prompt, options });
 
@@ -914,12 +1063,19 @@ class ChatService {
           const content = message.message?.content;
           if (Array.isArray(content)) {
             for (const block of content) {
-              if (block.type === 'text') stdout += block.text;
+              if (block.type === 'text') {
+                stdout += block.text;
+                if (onOutput) onOutput(block.text);
+              }
             }
           }
         }
-        if (message.type === 'result' && message.structured_output) {
-          structuredOutput = message.structured_output;
+        if (message.type === 'result') {
+          if (message.structured_output) structuredOutput = message.structured_output;
+          // Fallback: if no text blocks were captured, use the result's text field
+          if (!stdout && message.result && typeof message.result === 'string') {
+            stdout = message.result;
+          }
         }
       }
 
@@ -1005,6 +1161,175 @@ class ChatService {
     }
     if (this._uncaughtExceptionHandler) {
       process.removeListener('uncaughtException', this._uncaughtExceptionHandler);
+    }
+  }
+
+  /**
+   * Analyze a chat session conversation and suggest CLAUDE.md updates.
+   * @param {Array<{role: string, content: string}>} messages - Conversation messages
+   * @param {string} projectPath - Absolute path to the project
+   * @returns {Promise<{suggestions: Array, claudeMdExists: boolean}>}
+   */
+  async analyzeSessionForClaudeMd(messages, projectPath) {
+    // Read existing CLAUDE.md (or empty string if not found)
+    const claudeMdPath = require('path').join(projectPath, 'CLAUDE.md');
+    let existingContent = '';
+    try {
+      existingContent = require('fs').readFileSync(claudeMdPath, 'utf8');
+    } catch { /* file doesn't exist */ }
+
+    const claudeMdExists = existingContent.trim().length > 0;
+
+    // Truncate to last 50 messages to stay within token limits
+    const truncated = messages.slice(-50);
+
+    // Build conversation text (skip very long tool outputs)
+    const conversationText = truncated.map(m => {
+      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const truncContent = content.length > 2000 ? content.slice(0, 2000) + '...' : content;
+      return `${m.role.toUpperCase()}: ${truncContent}`;
+    }).join('\n\n');
+
+    if (!conversationText.trim()) return { suggestions: [], claudeMdExists };
+
+    const prompt = `You are analyzing a conversation between a user and Claude Code (an AI coding assistant).
+Your goal: identify useful discoveries about the PROJECT that would help future Claude sessions.
+
+Existing CLAUDE.md content (may be empty):
+<existing_claude_md>
+${existingContent || '(empty — file does not exist yet)'}
+</existing_claude_md>
+
+Conversation:
+<conversation>
+${conversationText}
+</conversation>
+
+Instructions:
+- Identify 0-5 useful discoveries about the project (architecture, conventions, commands, dependencies, patterns, important files, gotchas).
+- ONLY include information NOT already covered in the existing CLAUDE.md.
+- Focus on facts that would help Claude work faster in future sessions on this project.
+- Be concise. Each content block should be 1-5 lines of markdown.
+- Return ONLY a valid JSON array, no other text:
+
+[
+  {
+    "title": "Short title (5-8 words)",
+    "section": "## Section Heading",
+    "content": "Markdown content to add"
+  }
+]
+
+If there are no new useful discoveries, return exactly: []`;
+
+    try {
+      // Use the Anthropic API key from Claude CLI credentials
+      const claudeDir = process.env.CLAUDE_CONFIG_DIR || require('path').join(require('os').homedir(), '.claude');
+      const credPath = require('path').join(claudeDir, '.credentials.json');
+      let apiKey = null;
+      try {
+        const creds = JSON.parse(require('fs').readFileSync(credPath, 'utf8'));
+        const oauthCreds = creds.claudeAiOauth;
+        if (oauthCreds?.accessToken) {
+          // Check token expiry (with 60s buffer)
+          if (!oauthCreds.expiresAt || oauthCreds.expiresAt > Date.now() + 60000) {
+            apiKey = oauthCreds.accessToken;
+          }
+        } else {
+          apiKey = creds.accessToken || null;
+        }
+      } catch { /* no credentials */ }
+
+      if (!apiKey) {
+        console.warn('[ChatService] No Anthropic credentials found for CLAUDE.md analysis');
+        return { suggestions: [], claudeMdExists };
+      }
+
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 15000);
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: abortController.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'oauth-2025-04-20',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.warn(`[ChatService] CLAUDE.md analysis API error: ${response.status}`);
+        return { suggestions: [], claudeMdExists };
+      }
+
+      const data = await response.json();
+      const text = data.content?.[0]?.text || '[]';
+
+      // Parse JSON safely
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return { suggestions: [], claudeMdExists };
+
+      const suggestions = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(suggestions)) return { suggestions: [], claudeMdExists };
+
+      // Validate structure
+      const valid = suggestions.filter(s =>
+        s && typeof s.title === 'string' && typeof s.section === 'string' && typeof s.content === 'string'
+      );
+
+      return { suggestions: valid, claudeMdExists };
+    } catch (err) {
+      console.warn('[ChatService] CLAUDE.md analysis failed:', err.message);
+      return { suggestions: [], claudeMdExists };
+    }
+  }
+
+  /**
+   * Apply selected CLAUDE.md sections to the project.
+   * Creates CLAUDE.md if it doesn't exist, appends sections otherwise.
+   * @param {string} projectPath
+   * @param {Array<{section: string, content: string}>} sections
+   */
+  applyClaudeMdSections(projectPath, sections) {
+    if (!sections || sections.length === 0) return { success: true };
+
+    const fs = require('fs');
+    const path = require('path');
+    const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+
+    try {
+      let existing = '';
+      try { existing = fs.readFileSync(claudeMdPath, 'utf8'); } catch { /* new file */ }
+
+      const toAppend = sections.map(s => `\n${s.section}\n\n${s.content}`).join('\n');
+      const newContent = existing
+        ? existing.trimEnd() + '\n' + toAppend + '\n'
+        : toAppend.trimStart() + '\n';
+
+      const tempPath = claudeMdPath + '.tmp';
+      fs.writeFileSync(tempPath, newContent, 'utf8');
+      fs.renameSync(tempPath, claudeMdPath);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  destroy() {
+    if (this._unhandledRejectionHandler) {
+      process.removeListener('unhandledRejection', this._unhandledRejectionHandler);
+      this._unhandledRejectionHandler = null;
+    }
+    if (this._uncaughtExceptionHandler) {
+      process.removeListener('uncaughtException', this._uncaughtExceptionHandler);
+      this._uncaughtExceptionHandler = null;
     }
   }
 }

@@ -13,6 +13,8 @@
     "rename": "Renommer",
     "edit": "Modifier",
     "copy": "Copier",
+    "paste": "Coller",
+    "selectAll": "Tout sélectionner",
     "loading": "Chargement...",
     "error": "Erreur",
     "success": "Succès",
@@ -26,7 +28,8 @@
     "browse": "Parcourir",
     "errorOccurred": "Une erreur est survenue",
     "stop": "Arrêter",
-    "remove": "Retirer"
+    "remove": "Retirer",
+    "ignore": "Ignorer"
   },
   "closeWarning": {
     "title": "Claude est en cours de travail",
@@ -72,7 +75,10 @@
     "filterExe": "Exécutables",
     "filterAll": "Tous les fichiers",
     "settings": "Paramètres",
-    "cloudUpload": "Upload cloud..."
+    "cloudUpload": "Upload cloud...",
+    "dragToReorder": "Glisser pour réordonner",
+    "dropInvalidNesting": "Impossible de déplacer un dossier dans son propre contenu",
+    "terminalsClosedWithProject": "{count} terminal(aux) fermé(s) avec le projet"
   },
   "terminals": {
     "noTerminals": "Aucun terminal pour ce projet",
@@ -86,6 +92,9 @@
     "notifPlan": "Claude vous propose un plan",
     "notifPermission": "Claude demande votre permission",
     "notifBtnShow": "Afficher",
+    "notifBtnAllow": "Autoriser",
+    "notifBtnDeny": "Refuser",
+    "notifBtnOther": "Autre",
     "resumeConversation": "Reprendre une conversation",
     "resuming": "Reprise...",
     "newConversation": "Nouvelle conversation",
@@ -135,6 +144,11 @@
     "noResults": "Aucun résultat",
     "deleteMultipleConfirm": "Supprimer {count} éléments ?",
     "selectedItems": "éléments sélectionnés",
+    "truncatedItems": "{count} éléments supplémentaires masqués",
+    "renameOverwriteConfirm": "Un fichier nommé \"{name}\" existe déjà. Écraser ?",
+    "overwrite": "Écraser",
+    "cut": "Couper",
+    "pasteHere": "Coller ici",
     "watchLimitWarning": "Projet volumineux : {count} chemins surveillés. L'actualisation automatique de l'explorateur peut être plus lente."
   },
   "quickActions": {
@@ -371,6 +385,16 @@
     "sessions": "Sessions",
     "toolCalls": "Appels d'outils",
     "toolErrors": "Erreurs",
+    "sessionRecaps": {
+      "title": "Sessions récentes",
+      "ago": {
+        "justNow": "À l'instant",
+        "minutes": "Il y a {n} min",
+        "hours": "Il y a {n}h",
+        "yesterday": "Hier",
+        "days": "Il y a {n} jours"
+      }
+    },
     "insights": {
       "title": "Aperçu du projet",
       "commitActivity": "Activité des commits (30 jours)",
@@ -545,15 +569,61 @@
     "queued": "En attente",
     "running": "En cours",
     "openInGithub": "Ouvrir sur GitHub",
-    "dismiss": "Ignorer"
+    "dismiss": "Ignorer",
+    "fixIt": "Corriger"
   },
   "quickPicker": {
     "searchProjects": "Rechercher un projet...",
-    "noProjectFound": "Aucun projet trouvé"
+    "noProjectFound": "Aucun projet trouvé",
+    "placeholder": "Rechercher partout...",
+    "noResult": "Aucun résultat",
+    "noResultFor": "Aucun résultat pour \"{query}\"",
+    "searchHint": "Essayez un autre terme ou utilisez un préfixe (>, @, #, ~)",
+    "loadError": "Échec du chargement",
+    "loading": "Chargement...",
+    "badge": {
+      "current": "actuelle",
+      "running": "actif"
+    },
+    "branch": {
+      "current": "actuelle"
+    },
+    "section": {
+      "projects": "Projets",
+      "commands": "Commandes",
+      "branches": "Branches Git",
+      "sessions": "Sessions récentes",
+      "mcp": "Serveurs MCP",
+      "quickActions": "Actions rapides"
+    },
+    "mode": {
+      "commands": "commandes",
+      "branches": "branches",
+      "sessions": "sessions",
+      "mcp": "mcp"
+    },
+    "nav": {
+      "navigate": "naviguer",
+      "open": "ouvrir"
+    },
+    "cmd": {
+      "settings": "Ouvrir les paramètres",
+      "newProject": "Nouveau projet",
+      "newTerminal": "Nouveau terminal",
+      "openGit": "Panneau Git",
+      "openMcp": "Panneau MCP",
+      "openSkills": "Panneau Skills",
+      "openAgents": "Panneau Agents",
+      "openDashboard": "Tableau de bord",
+      "openMemory": "Éditeur mémoire"
+    }
   },
   "modal": {
     "confirm": "Confirmer",
     "cancel": "Annuler"
+  },
+  "toast": {
+    "undo": "Annuler"
   },
   "sessions": {
     "today": "Aujourd'hui",
@@ -570,6 +640,7 @@
     "justNow": "à l'instant",
     "minutesAgo": "il y a {count}min",
     "hoursAgo": "il y a {count}h",
+    "yesterday": "Hier",
     "daysAgo": "il y a {count}j"
   },
   "settings": {
@@ -721,6 +792,8 @@
     "idleTimeoutDesc": "Temps d'inactivité avant la pause du suivi du temps",
     "idleTimeoutSeconds": "{count}s",
     "idleTimeoutMinutes": "{count} min",
+    "enableFollowupSuggestions": "Suggestions de suivi",
+    "enableFollowupSuggestionsDesc": "Afficher des chips de suggestions générées par l'IA après les réponses de Claude (utilise Haiku)",
     "hooks": {
       "title": "Hooks intelligents",
       "enable": "Activer les hooks intelligents",
@@ -737,7 +810,17 @@
     "contextPackNamePlaceholder": "Ex. : Backend API",
     "removeItem": "Supprimer",
     "templateNamePlaceholder": "Ex. : Revue de code",
-    "templateContentPlaceholder": "Revoir les changements sur la branche $branch..."
+    "templateContentPlaceholder": "Revoir les changements sur la branche $branch...",
+    "autoClaudeMdUpdate": "Auto-update CLAUDE.md",
+    "autoClaudeMdUpdateDesc": "Propose des mises à jour du CLAUDE.md à la fin des sessions chat.",
+    "saveError": "Erreur lors de la sauvegarde des paramètres",
+    "nameRequired": "Le nom est requis",
+    "itemDeleted": "Élément supprimé",
+    "confirmTypeChange": "Le contenu actuel sera effacé. Continuer ?",
+    "aboutGroup": "À propos",
+    "rerunSetup": "Assistant de configuration",
+    "rerunSetupDesc": "Modifier la langue, couleur, éditeur et configuration des hooks",
+    "rerunSetupBtn": "Relancer"
   },
   "ui": {
     "notifications": "Notifications",
@@ -797,6 +880,7 @@
     "mcpServers": "Serveurs MCP",
     "newMcp": "Nouveau MCP",
     "tabClaude": "Claude",
+    "moreTabs": "Plus",
     "separatorTools": "Outils",
     "separatorAI": "AI",
     "separatorExtensions": "Extensions",
@@ -804,6 +888,7 @@
     "tabSkills": "Skills",
     "tabAgents": "Agents",
     "tabWorkflows": "Workflows",
+    "tabControlTower": "Tour de contrôle",
     "tabMcp": "MCP",
     "tabDatabase": "Base de données",
     "tabGit": "Git",
@@ -811,6 +896,7 @@
     "separatorAnalytics": "Analytique",
     "tabDashboard": "Dashboard",
     "tabTimeTracking": "Suivi du temps",
+    "tabSessionReplay": "Replay",
     "collapseSidebar": "Réduire la barre",
     "showProjects": "Afficher les projets",
     "hideProjects": "Masquer les projets",
@@ -891,6 +977,50 @@
     "configureHint": "Configurez des MCPs dans ~/.claude/settings.json",
     "global": "Global"
   },
+  "sessionReplay": {
+    "title": "Replay de Session",
+    "selectProject": "Sélectionner un projet...",
+    "selectSession": "Sélectionner une session...",
+    "load": "Charger",
+    "loading": "Chargement...",
+    "parsing": "Analyse de la session...",
+    "loadingSessions": "Chargement des sessions...",
+    "noSessions": "Aucune session trouvée",
+    "errorLoadingSessions": "Erreur lors du chargement des sessions",
+    "errorLoading": "Erreur lors du chargement de la session",
+    "selectToStart": "Sélectionnez un projet et une session pour lancer le replay",
+    "emptyDesc": "Visualisez l'audit complet de n'importe quelle session Claude",
+    "emptyStepProject": "Projet",
+    "emptyStepSession": "Session",
+    "noSteps": "Aucune étape trouvée dans cette session",
+    "steps": "étapes",
+    "estimated": "estimés",
+    "files": "fichiers",
+    "stepPrompt": "Prompt",
+    "stepResponse": "Réponse",
+    "stepThinking": "Réflexion",
+    "stepTool": "Outil",
+    "hiddenThinking": "Réflexion étendue (masquée)",
+    "input": "Entrée",
+    "output": "Sortie",
+    "truncated": "(tronqué — entrée trop volumineuse)",
+    "noOutput": "Aucune sortie",
+    "groupedCalls": "{count} appels",
+    "paramCommand": "Commande",
+    "paramFile": "Fichier",
+    "paramContent": "Contenu",
+    "paramOldString": "Remplacer",
+    "paramNewString": "Par",
+    "paramPattern": "Motif",
+    "paramPath": "Chemin",
+    "paramPrompt": "Prompt",
+    "paramQuery": "Requête",
+    "paramQuestion": "Question",
+    "paramDescription": "Tâche",
+    "paramOffset": "Décalage",
+    "paramLimit": "Limite",
+    "paramTimeout": "Délai"
+  },
   "timetracking": {
     "title": "Time Tracking",
     "totalTime": "Temps total",
@@ -937,7 +1067,8 @@
       "title": "Choisissez votre langue",
       "subtitle": "Vous pourrez la changer plus tard dans les paramètres",
       "english": "English",
-      "french": "Français"
+      "french": "Français",
+      "spanish": "Espagnol"
     },
     "appearance": {
       "title": "Choisissez votre couleur d'accent",
@@ -1102,12 +1233,28 @@
     "viewOnGithub": "Voir sur GitHub",
     "requiredField": "Requis",
     "optionalField": "Optionnel",
-    "serverType": "Type"
+    "serverType": "Type",
+    "connectionSuccess": "Connecté avec succès",
+    "connectionFailed": "Vérifiez la configuration — connexion impossible",
+    "loadMore": "Charger plus de serveurs",
+    "category": {
+      "all": "Tous",
+      "database": "Base de données",
+      "files": "Fichiers",
+      "web": "Web",
+      "integration": "Intégrations",
+      "devtools": "Dev Tools",
+      "ai": "IA",
+      "other": "Autre"
+    }
   },
   "chat": {
     "title": "Chat",
     "sendMessage": "Envoyer",
     "placeholder": "Demandez quelque chose à Claude...",
+    "suggestTodos": "Trouve et traite les {count} TODO dans le code [Tab]",
+    "suggestGit": "Propose un commit pour les {count} fichiers modifiés [Tab]",
+    "suggestionsLabel": "Suggestions",
     "queuePlaceholder": "Envoyer un message en file d'attente...",
     "thinking": "Réflexion",
     "toolCall": "Appel d'outil",
@@ -1133,6 +1280,7 @@
     "permissionRequired": "Permission requise",
     "questionFromClaude": "Claude a une question",
     "questionAnswered": "Répondu",
+    "answeredExternally": "répondu depuis le Control Tower",
     "otherPlaceholder": "Ou tapez votre propre réponse...",
     "submit": "Envoyer",
     "next": "Suivant",
@@ -1144,6 +1292,11 @@
     "approvePlan": "Approuver le plan",
     "rejectPlan": "Rejeter le plan",
     "enteringPlanMode": "Claude veut planifier avant d'implémenter",
+    "initializing": "Initialisation de Claude...",
+    "initializingRuntime": "Recherche du runtime...",
+    "interrupted": "Interrompu",
+    "permissionWaitingSince": "En attente depuis {seconds}s",
+    "permissionNotification": "Une permission pour {tool} attend votre réponse",
     "resuming": "Reprise de la conversation...",
     "conversationResumed": "Conversation reprise",
     "loadingHistory": "Chargement de la conversation...",
@@ -1157,6 +1310,9 @@
     "slashCompact": "Compacter l'historique",
     "slashClear": "Effacer la conversation",
     "slashHelp": "Afficher l'aide",
+    "slashReloadPlugins": "Recharger les plugins Claude Code",
+    "slashSimplify": "Simplifier la dernière réponse",
+    "slashBatch": "Exécuter plusieurs opérations en lot",
     "attachImage": "Joindre une image",
     "mentionFile": "Joindre un fichier du projet",
     "mentionGit": "Joindre le diff git actuel",
@@ -1169,6 +1325,7 @@
     "mentionNoProjects": "Aucun projet trouvé",
     "mentionContext": "Injecter un pack de contexte",
     "mentionPrompt": "Insérer un template de prompt",
+    "mentionParallelTask": "Ouvrir le gestionnaire de tâches parallèles",
     "mentionNoContextPacks": "Aucun pack trouvé. Créez-en un dans Paramètres > Bibliothèque.",
     "mentionNoPrompts": "Aucun template trouvé. Créez-en un dans Paramètres > Bibliothèque.",
     "queued": "En file",
@@ -1204,6 +1361,32 @@
     "backupFailed": "Impossible de créer un backup. Vos projets ont été réinitialisés.",
     "saveError": "Erreur de sauvegarde",
     "saveErrorDetail": "Impossible de sauvegarder les projets : {message}"
+  },
+  "controlTower": {
+    "activeAgents": "Chats actifs",
+    "costToday": "Coût (session)",
+    "spawnAgent": "Lancer un chat",
+    "spawnTitle": "Sélectionner un projet",
+    "noProjectsToSpawn": "Aucun projet disponible.",
+    "statusThinking": "RÉFLEXION",
+    "statusRunningTool": "OUTIL EN COURS",
+    "statusWaiting": "EN ATTENTE",
+    "statusIdle": "INACTIF",
+    "statusDone": "TERMINÉ",
+    "statusError": "ERREUR",
+    "activityWaiting": "En attente d'approbation…",
+    "tokens": "tokens",
+    "focus": "Focaliser",
+    "interrupt": "Interrompre",
+    "approve": "Approuver",
+    "deny": "Refuser",
+    "acceptPlan": "Accepter le plan",
+    "sendReply": "Envoyer",
+    "replyPlaceholder": "Votre réponse…",
+    "showLastResponse": "Voir la réponse",
+    "emptyTitle": "Aucune session Claude active",
+    "emptyDesc": "Ouvrez un terminal ou démarrez un chat pour commencer.",
+    "activityThinking": "Réflexion en cours…"
   },
   "remote": {
     "tabTitle": "Télécommande",
@@ -1270,6 +1453,10 @@
     "apiKeyPlaceholder": "ctc_...",
     "apiKeyDesc": "Générée par l'admin serveur avec la commande ct-cloud user add",
     "autoConnect": "Auto-connexion",
+    "thisMachine": "Cette machine :",
+    "projectKeysTitle": "Clés cloud par projet",
+    "projectKeysHint": "Optionnel : forcer une clé cloud spécifique pour partager un projet entre machines.",
+    "projectKeyPlaceholder": "Laisser vide pour auto ({machineId}-{nom})",
     "autoConnectDesc": "Se connecter automatiquement au relay cloud au démarrage",
     "connect": "Connecter",
     "disconnect": "Déconnecter",
@@ -1317,6 +1504,8 @@
     "sessionRunning": "En cours",
     "sessionIdle": "Inactif",
     "sessionError": "Erreur",
+    "sessionStarted": "Démarré",
+    "sessionActivity": "Actif",
     "syncSectionTitle": "Synchronisation",
     "syncNoChanges": "Aucun changement en attente",
     "syncCheckBtn": "Vérifier les changements",
@@ -1364,7 +1553,14 @@
     "toggleVisibility": "Basculer la visibilité",
     "deleteSession": "Supprimer",
     "fileCountSingular": "{count} fichier",
-    "fileCountPlural": "{count} fichiers"
+    "fileCountPlural": "{count} fichiers",
+    "cloudProjects": "Projets cloud",
+    "cloudProjectsRefresh": "Actualiser",
+    "cloudProjectsEmpty": "Aucun projet dans le cloud",
+    "cloudProjectLocal": "Local",
+    "cloudProjectImport": "Importer",
+    "cloudProjectImporting": "Import...",
+    "cloudProjectImported": "« {name} » importé avec succès"
   },
   "database": {
     "title": "Base de données",
@@ -1398,6 +1594,7 @@
     "databaseName": "Base de données",
     "username": "Utilisateur",
     "password": "Mot de passe",
+    "optional": "optionnel",
     "filePath": "Chemin du fichier",
     "connectionString": "Chaîne de connexion",
     "name": "Nom",
@@ -1408,6 +1605,8 @@
     "queryPlaceholder": "SELECT * FROM table_name LIMIT 100;",
     "mongoPlaceholder": "db.collection.find({})",
     "queryClear": "Effacer la requête",
+    "allowDestructive": "Autoriser destructif",
+    "allowDestructiveTooltip": "Autoriser les requêtes DROP, DELETE FROM, TRUNCATE, ALTER",
     "queryAffected": "{count} ligne(s) affectée(s)",
     "querySuccess": "{count} ligne(s) en {duration}ms",
     "queryError": "Erreur de requête : {error}",
@@ -1526,6 +1725,10 @@
     "launchBtn": "Lancer",
     "editBtn": "Modifier",
     "selectedCount": "{n} sélectionné(s)",
+    "workflowsTab": "Workflows",
+    "runsTab": "Historique",
+    "hubTab": "Hub",
+    "back": "Retour",
     "nodeDesc": {
       "trigger": "Déclencheur du workflow",
       "claude": "Prompt, Agent ou Skill",
@@ -1544,7 +1747,8 @@
       "switch": "Aiguillage multi-sorties",
       "subworkflow": "Appeler un autre workflow",
       "wait": "Temporisation",
-      "log": "Écrire dans le log"
+      "log": "Écrire dans le log",
+      "getVariable": "Lire une variable (pure)"
     },
     "webhook": {
       "label": "Webhook (HTTP POST)",
@@ -1647,7 +1851,9 @@
       "hookStop": "Stop — Quand Claude termine",
       "workflowSourceLabel": "Workflow source",
       "workflowSourceHint": "Se déclenche après la fin de ce workflow",
-      "selectWorkflow": "Sélectionner un workflow…"
+      "selectWorkflow": "Sélectionner un workflow…",
+      "manualHint": "Ce workflow se lance manuellement via le bouton ▶ ou via l'API.",
+      "webhookHint": "Ce workflow se déclenche via un POST HTTP depuis un service externe (GitHub, Stripe, etc.)."
     },
     "loop": {
       "sourceLabel": "Source d'itération",
@@ -1722,6 +1928,276 @@
       "waitHint": "Bloquer l'exécution jusqu'à la fin du sous-workflow",
       "waitYes": "Oui — attendre la fin",
       "waitNo": "Non — lancer en arrière-plan"
+    },
+    "list": {
+      "emptyTitle": "Aucun workflow",
+      "emptySub": "Automatisez vos tâches répétitives avec Claude",
+      "createBtn": "Créer un workflow"
+    },
+    "contextMenu": {
+      "edit": "Modifier",
+      "runNow": "Lancer maintenant",
+      "duplicate": "Dupliquer",
+      "delete": "Supprimer"
+    },
+    "favorites": {
+      "add": "Ajouter aux favoris",
+      "remove": "Retirer des favoris"
+    },
+    "history": {
+      "clearTitle": "Effacer l'historique",
+      "clearBtn": "Effacer",
+      "emptyTitle": "Aucun run",
+      "emptySub": "Les exécutions s'afficheront ici",
+      "showMore": "Afficher {n} runs de plus",
+      "selectRun": "Sélectionne un run pour voir le détail",
+      "clearMessage": "Supprimer les {n} runs de l'historique ? Cette action est irréversible."
+    },
+    "runMeta": {
+      "iterationLabel": "Itération {n}",
+      "deletedLabel": "Supprimé",
+      "stopTitle": "Arrêter le run",
+      "workflowDeleted": "Workflow supprimé",
+      "rerun": "Relancer"
+    },
+    "editor": {
+      "unsavedChanges": "Modifications non sauvegardées",
+      "variablesTab": "Variables",
+      "addVariable": "Ajouter une variable",
+      "varsEmpty": "Cliquer + pour créer une variable",
+      "selectNode": "Sélectionnez un node pour configurer ses paramètres",
+      "insertVariableNode": "Cliquer pour insérer un node Variable",
+      "nodeIdHint": "ID de ce node pour les variables",
+      "palette": {
+        "actions": "Actions",
+        "data": "Données",
+        "flow": "Contrôle"
+      }
+    },
+    "varEditor": {
+      "newTitle": "Nouvelle variable",
+      "editTitle": "Modifier la variable",
+      "name": "Nom",
+      "type": "Type"
+    },
+    "loopSuggest": {
+      "text": "Ce lien transporte un tableau. Insérer un Loop ?",
+      "insert": "Insérer Loop"
+    },
+    "deleteConfirm": {
+      "title": "Supprimer le workflow",
+      "message": "Supprimer {name} ? Cette action est irréversible.",
+      "thisWorkflow": "ce workflow"
+    },
+    "duplicateSuffix": " (copie)",
+    "marketplace": {
+      "community": "Communauté",
+      "explore": "Explorer",
+      "myPublications": "Mes publications",
+      "publishWorkflow": "Publier un workflow",
+      "searchPlaceholder": "Rechercher des workflows…",
+      "sort": "Trier",
+      "sortPopular": "Populaires",
+      "sortRecent": "Récents",
+      "sortAlpha": "A-Z",
+      "noResults": "Aucun résultat pour \"{query}\"",
+      "noWorkflow": "Aucun workflow disponible",
+      "beFirst": "Soyez le premier à publier !",
+      "by": "par",
+      "anonymous": "anonyme",
+      "import": "Importer",
+      "imports": "{n} imports",
+      "workflowPreview": "Aperçu du workflow",
+      "importThisWorkflow": "Importer ce workflow",
+      "apiUnavailable": "API workflow non disponible",
+      "failedDefault": "Échec",
+      "importedBtn": "Importé !",
+      "importedToast": "« {name} » importé !",
+      "errorMessage": "Erreur : {message}",
+      "mineEmptyTitle": "Vous n'avez encore rien publié",
+      "mineEmptySub": "Partagez vos workflows avec la communauté !",
+      "chooseWorkflow": "-- Choisir un workflow --",
+      "workflowToPublish": "Workflow à publier",
+      "stepSingular": "étape",
+      "stepPlural": "étapes",
+      "noWorkflowFound": "Aucun workflow trouvé",
+      "descriptionLabel": "Description",
+      "publicHint": "(affiché publiquement)",
+      "descriptionPlaceholder": "Ce workflow fait X, Y, Z…",
+      "tagsLabel": "Tags",
+      "tagsHint": "(séparés par virgule)",
+      "authorLabel": "Pseudo",
+      "authorPlaceholder": "votre-pseudo",
+      "publishInfo": "Votre workflow sera immédiatement visible dans l'onglet Explorer.",
+      "publish": "Publier",
+      "chooseWorkflowError": "Choisissez un workflow",
+      "addDescriptionError": "Ajoutez une description",
+      "descriptionTooLong": "Description trop longue (max 500)",
+      "publishing": "Publication…",
+      "publishedToast": "« {name} » publié ! Visible dans Explorer.",
+      "publishError": "Erreur lors de la publication",
+      "offlineQueued": "Hors ligne — sera envoyé plus tard.",
+      "hubUnavailable": "Hub non disponible.",
+      "today": "aujourd'hui",
+      "daysAgoShort": "il y a {n}j",
+      "weeksAgoShort": "il y a {n}sem",
+      "mock": {
+        "dailyCodeReview": "Revue de code quotidienne par Claude. Lance une analyse complète à 8h, corrige les issues et pousse si les tests passent.",
+        "autoTestOnCommit": "Déclenché après chaque outil Git. Lance les tests automatiquement et notifie en cas d'échec.",
+        "prSummaryAgent": "Génère un résumé de PR via Claude et le poste comme commentaire GitHub via l'API.",
+        "deployNotifyDiscord": "Pipeline de déploiement complet avec notification Discord.",
+        "changelogAutoWriter": "Génère le CHANGELOG.md depuis les commits Git via Claude.",
+        "securityAuditWeekly": "Audit hebdomadaire : dépendances vulnérables, secrets exposés, permissions."
+      }
+    },
+    "helpers": {
+      "condition": {
+        "none": "(aucune condition)"
+      },
+      "status": {
+        "success": "Succès",
+        "failed": "Échec",
+        "running": "En cours",
+        "pending": "En attente",
+        "cancelled": "Annulé"
+      },
+      "triggerDesc": {
+        "cron": "Planifié à heures fixes",
+        "hook": "Réagit aux événements Claude",
+        "onWorkflow": "Enchaîné à un autre workflow",
+        "manual": "Déclenché à la demande",
+        "webhook": "Déclenchement HTTP POST externe"
+      },
+      "cron": {
+        "modeInterval": "Intervalle",
+        "modeDaily": "Quotidien",
+        "modeWeekly": "Hebdo",
+        "modeMonthly": "Mensuel",
+        "modeCustom": "Custom",
+        "dayMonday": "Lundi",
+        "dayTuesday": "Mardi",
+        "dayWednesday": "Mercredi",
+        "dayThursday": "Jeudi",
+        "dayFriday": "Vendredi",
+        "daySaturday": "Samedi",
+        "daySunday": "Dimanche",
+        "every": "Toutes les",
+        "everyDayAt": "Chaque jour à",
+        "at": "à",
+        "onDay": "Le",
+        "ofMonthAt": "de chaque mois à"
+      },
+      "time": {
+        "justNow": "À l'instant",
+        "minutesAgo": "Il y a {n} min",
+        "hoursAgo": "Il y a {n}h",
+        "yesterdayAt": "Hier {time}",
+        "daysAgo": "Il y a {n}j"
+      },
+      "autocomplete": {
+        "ctxProject": "Chemin du projet",
+        "ctxBranch": "Branche Git active",
+        "ctxDate": "Date du jour",
+        "ctxTrigger": "Type de déclencheur",
+        "categoryContext": "Contexte",
+        "loopItemAlias": "Élément courant (alias)",
+        "loopItem": "Élément courant",
+        "loopIndex": "Index courant (0-based)",
+        "loopTotal": "Nombre total d'items",
+        "categoryLoop": "Loop",
+        "categoryNodes": "Nodes",
+        "categoryVariables": "Variables",
+        "variableDetail": "Variable ({type})",
+        "categoryDbColumns": "Colonnes DB",
+        "insertVariable": "Insérer une variable",
+        "searchVariable": "Rechercher une variable...",
+        "noVariableFound": "Aucune variable trouvée"
+      },
+      "loopPreview": {
+        "currentIterationValue": "Valeur de l'itération courante",
+        "noNodeConnected": "Aucun node connecté au port <strong>In</strong>",
+        "dbRowsFrom": "Lignes de {table}",
+        "dbQueryResults": "Résultats de la requête SQL",
+        "dbRowWithColumns": "Ligne de {table} (objet avec colonnes)",
+        "dbResultRow": "Ligne de résultat (objet)",
+        "dbTableNames": "Noms des tables de la base",
+        "dbTableName": "Nom de table (string)",
+        "dbTablesWithColumns": "Tables avec leurs colonnes",
+        "dbTableObject": "Table (objet avec name, columns)",
+        "projects": "Projets Claude Terminal",
+        "projectObject": "Projet (id, name, path, type)",
+        "shellStdout": "Sortie du shell (stdout)",
+        "shellLine": "Ligne de sortie",
+        "httpBody": "Réponse HTTP (body)",
+        "httpArrayItem": "Élément du tableau de réponse",
+        "fileContent": "Contenu du fichier",
+        "fileLine": "Ligne du fichier",
+        "outputOf": "Sortie de {sourceName}",
+        "outputItem": "Élément de la sortie",
+        "itemsCount": "{n} items",
+        "moreItems": "… +{n} autres"
+      },
+      "hookType": {
+        "preToolUse": "Avant chaque appel d'outil",
+        "postToolUse": "Après chaque appel d'outil",
+        "postToolUseFailure": "Après un échec d'appel d'outil",
+        "notification": "À chaque notification",
+        "userPromptSubmit": "À l'envoi d'un message",
+        "sessionStart": "Démarrage de session",
+        "sessionEnd": "Fin de session",
+        "stop": "Quand Claude s'arrête",
+        "subagentStart": "Démarrage de sous-agent",
+        "subagentStop": "Arrêt de sous-agent",
+        "preCompact": "Avant compactage du contexte",
+        "permissionRequest": "Demande de permission",
+        "setup": "Phase de configuration",
+        "teammateIdle": "Coéquipier inactif",
+        "taskCompleted": "Tâche terminée",
+        "configChange": "Configuration modifiée",
+        "worktreeCreate": "Worktree créé",
+        "worktreeRemove": "Worktree supprimé"
+      },
+      "gitAction": {
+        "pull": "Pull",
+        "pullDesc": "Récupérer les changements distants",
+        "push": "Push",
+        "pushDesc": "Pousser les commits locaux",
+        "commit": "Commit",
+        "commitDesc": "Créer un commit",
+        "commitMessage": "Message de commit",
+        "checkout": "Checkout",
+        "checkoutDesc": "Changer de branche",
+        "branch": "Branche",
+        "merge": "Merge",
+        "mergeDesc": "Fusionner une branche",
+        "sourceBranch": "Branche source",
+        "stash": "Stash",
+        "stashDesc": "Mettre de côté les modifications",
+        "stashPop": "Stash Pop",
+        "stashPopDesc": "Restaurer les modifications",
+        "reset": "Reset",
+        "resetDesc": "Annuler les modifications non commitées"
+      },
+      "waitUnit": {
+        "seconds": "Secondes",
+        "minutes": "Minutes",
+        "hours": "Heures"
+      },
+      "condVar": {
+        "branch": "Branche courante",
+        "exitCode": "Code de sortie",
+        "project": "Nom du projet",
+        "prevStatus": "Statut de l'étape précédente",
+        "envVar": "Variable d'environnement",
+        "envVarName": "Nom"
+      },
+      "condOp": {
+        "contains": "contient",
+        "startsWith": "commence par",
+        "regex": "regex",
+        "isEmpty": "est vide",
+        "isNotEmpty": "n'est pas vide"
+      }
     }
   },
   "wfn": {
@@ -1875,5 +2351,210 @@
     "trigger": {
       "label": "Déclencheur"
     }
+  },
+  "tasks": {
+    "title": "Tâches",
+    "add": "Ajouter",
+    "addPlaceholder": "Titre de la tâche...",
+    "noTasks": "Aucune tâche",
+    "statusTodo": "À faire",
+    "statusInProgress": "En cours",
+    "statusDone": "Terminé",
+    "start": "Démarrer",
+    "complete": "Terminer",
+    "delete": "Supprimer",
+    "deleteConfirmTitle": "Supprimer la tâche",
+    "deleteConfirmMessage": "Supprimer \"{title}\" ?",
+    "linkSession": "Lier session",
+    "openSession": "Ouvrir la session",
+    "selectSession": "Sélectionner une session",
+    "sessionLinked": "Session liée : {sessionId}",
+    "noActiveSession": "Aucune session active à lier",
+    "sessionJustNow": "À l'instant",
+    "sessionMinutesAgo": "Il y a {count} min",
+    "sessionHoursAgo": "Il y a {count}h"
+  },
+  "kanban": {
+    "tab": "Kanban",
+    "overview": "Aperçu",
+    "addColumn": "+ Colonne",
+    "manageLabels": "Labels",
+    "addCard": "+ Ajouter",
+    "noCards": "Aucune carte",
+    "editCard": "Modifier la carte",
+    "cardTitle": "Titre",
+    "cardTitlePlaceholder": "Titre de la carte...",
+    "cardDescription": "Description",
+    "cardDescriptionPlaceholder": "Description (optionnel)...",
+    "cardLabels": "Labels",
+    "cardSession": "Session Claude",
+    "cardSessionLink": "Lier session",
+    "cardSessionOpen": "Ouvrir la session",
+    "columnTitle": "Titre de la colonne",
+    "columnTitlePlaceholder": "Nom de la colonne...",
+    "deleteColumn": "Supprimer la colonne",
+    "deleteColumnDisabled": "Videz la colonne avant de la supprimer",
+    "deleteColumnConfirm": "Supprimer la colonne \"{title}\" ?",
+    "addColumnTitle": "Nouvelle colonne",
+    "labelName": "Nom du label",
+    "labelNamePlaceholder": "Ex: bug, feature...",
+    "labelColor": "Couleur",
+    "addLabel": "+ Label",
+    "deleteLabel": "Supprimer",
+    "manageLabelsTitle": "Gérer les labels",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "confirmDeleteCard": "Supprimer la carte \"{title}\" ?",
+    "worktree": "Worktree",
+    "worktreeNone": "Aucun worktree",
+    "createWorktree": "Nouveau worktree",
+    "createWorktreeBranchPrompt": "Nom de la branche pour le nouveau worktree :",
+    "dragColumn": "Glisser pour réordonner",
+    "addCardTitle": "Nouvelle carte",
+    "noLabels": "Aucun label défini — créez-en dans le gestionnaire de labels.",
+    "sessions": "Sessions",
+    "sessionsLoading": "Chargement...",
+    "sessionsEmpty": "Aucune session trouvée"
+  },
+  "parallel": {
+    "tabTitle": "Tâches",
+    "title": "Gestionnaire de tâches parallèles",
+    "subtitle": "Divisez une fonctionnalité en plusieurs tâches et exécutez-les simultanément. Nécessite un dépôt git.",
+    "form": {
+      "projectLabel": "Projet",
+      "goalLabel": "Objectif de la fonctionnalité",
+      "goalPlaceholder": "Décrivez la fonctionnalité à implémenter en parallèle (ex. : \"Ajouter la connexion OAuth2 avec Google et GitHub\")...",
+      "maxTasksLabel": "Tâches max",
+      "modelLabel": "Modèle",
+      "effortLabel": "Effort",
+      "startBtn": "Lancer les tâches parallèles",
+      "startingBtn": "Démarrage..."
+    },
+    "effort": {
+      "low": "Faible",
+      "medium": "Moyen",
+      "high": "Élevé"
+    },
+    "phase": {
+      "decomposing": "Décomposition en cours avec Claude...",
+      "reviewing": "Révision des tâches proposées...",
+      "creating-worktrees": "Création des worktrees isolés...",
+      "running": "En cours ({done}/{total} tâches terminées)",
+      "done": "Toutes les tâches sont terminées",
+      "merging": "Fusion des branches...",
+      "merged": "Branches fusionnées",
+      "failed": "Échec de l'exécution",
+      "cancelled": "Annulé"
+    },
+    "status": {
+      "pending": "En attente",
+      "creating": "Création",
+      "running": "En cours",
+      "done": "Terminé",
+      "failed": "Échec",
+      "cancelled": "Annulé"
+    },
+    "card": {
+      "viewDiff": "Voir le diff",
+      "openTerminal": "Ouvrir le terminal"
+    },
+    "cancelBtn": "Annuler",
+    "cleanupBtn": "Nettoyer",
+    "newRunBtn": "Nouveau run",
+    "modal": {
+      "title": "Nouvelle exécution parallèle",
+      "selectProject": "— sélectionner un projet —"
+    },
+    "auto": "Auto",
+    "agents": "agents",
+    "model": {
+      "haiku": "Haiku 4.5 — Le plus rapide",
+      "sonnet": "Sonnet 4.6 — Équilibré",
+      "opus": "Opus 4.6 — Le plus performant"
+    },
+    "empty": {
+      "title": "Aucune exécution parallèle",
+      "hint": "Décomposez une fonctionnalité en sous-tâches indépendantes, chacune dans son propre worktree git"
+    },
+    "decomposing": {
+      "hint": "Claude analyse votre objectif et crée des sous-tâches indépendantes..."
+    },
+    "runFailed": "Échec de l'exécution",
+    "review": {
+      "title": "Réviser les tâches proposées",
+      "subtitle": "{count} sous-tâches — confirmez pour lancer ou demandez des modifications",
+      "feedbackLabel": "Demande de modification",
+      "optional": "(optionnel)",
+      "feedbackPlaceholder": "ex. : « diviser la tâche 0 en deux — une pour le modèle, une pour le contrôleur »",
+      "regenerate": "Régénérer",
+      "launch": "Lancer {count} tâches",
+      "feedbackRequired": "Entrez d'abord une demande de modification",
+      "regenerating": "Régénération..."
+    },
+    "merge": {
+      "title": "Aide à la fusion",
+      "hint": "Vérifiez chaque branche, puis fusionnez-les une par une dans {mainBranch}.",
+      "viewDiff": "Voir le diff",
+      "viewCombinedDiff": "Voir le diff combiné",
+      "cancel": "Annuler & nettoyer",
+      "cancelling": "Annulation...",
+      "finalHint": "Pour fusionner dans {mainBranch} : git checkout {mainBranch} && git merge {mergeBranch}",
+      "autoMerge": "Fusionner {count} branches",
+      "starting": "Démarrage de la fusion...",
+      "progress": "Branche {current}/{total}",
+      "preparing": "Préparation...",
+      "mergedResult": "{count} branches fusionnées dans",
+      "skippedResult": "{count} branches ignorées (conflits)",
+      "mergeFailed": "Échec de la fusion",
+      "cancelFailed": "Échec de l'annulation",
+      "createPR": "Créer une Pull Request",
+      "creatingPR": "Création de la PR...",
+      "prCreated": "PR #{number} créée !",
+      "prNoAuth": "Authentification GitHub requise. Allez dans les paramètres pour vous connecter.",
+      "prPushFailed": "Échec du push de la branche vers le remote",
+      "prNoRemote": "Aucune URL remote trouvée pour ce dépôt",
+      "prFailed": "Échec de la création de la pull request",
+      "prOpenedBrowser": "Branche pushée — ouverture de la page PR dans le navigateur",
+      "prPushed": "Branche pushée vers le remote avec succès"
+    },
+    "diff": {
+      "title": "Diff",
+      "close": "Fermer",
+      "combinedTitle": "Diff combiné — {branch}",
+      "noChanges": "Aucun changement trouvé entre les branches",
+      "failed": "Échec du diff",
+      "filesCount": "{count} fichiers",
+      "noFileChanges": "Aucun changement",
+      "loadFailed": "Échec du chargement du diff"
+    },
+    "errors": {
+      "noGoal": "Veuillez saisir un objectif.",
+      "noProject": "Veuillez sélectionner un projet.",
+      "noGit": "Ce projet n'est pas un dépôt git. Les tâches parallèles nécessitent git pour l'isolation par branches.",
+      "startFailed": "Échec du démarrage.",
+      "noDiff": "Aucun diff disponible.",
+      "runNotFound": "Exécution introuvable",
+      "taskNotFound": "Tâche introuvable",
+      "noBranch": "Aucune branche associée à cette tâche",
+      "confirmFailed": "Échec de la confirmation",
+      "cancelFailed": "Échec de l'annulation",
+      "refineFailed": "Échec de la régénération"
+    },
+    "cleanup": {
+      "success": "Worktrees supprimés avec succès.",
+      "error": "Échec de la suppression des worktrees."
+    }
+  },
+  "claudeMdUpdate": {
+    "modalTitle": "Mise à jour CLAUDE.md suggérée",
+    "modalSubtitle": "Claude a découvert des informations utiles sur ce projet. Sélectionnez les sections à ajouter.",
+    "selectAll": "Tout sélectionner",
+    "deselectAll": "Tout désélectionner",
+    "dismiss": "Ignorer",
+    "apply": "Ajouter au CLAUDE.md",
+    "create": "Créer le CLAUDE.md",
+    "willCreate": "Le fichier CLAUDE.md sera créé dans le projet.",
+    "noSuggestions": "Aucune nouvelle découverte détectée."
   }
 }

@@ -1483,6 +1483,19 @@
   color: var(--text-muted);
 }
 
+/* Validation error states */
+.library-modal-form .form-input.error,
+.setting-input.error {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.setting-error-msg {
+  color: var(--danger);
+  font-size: var(--font-xs);
+  margin-top: 4px;
+}
+
 .library-modal-form textarea.form-input {
   resize: vertical;
   min-height: 120px;
@@ -1855,6 +1868,7 @@
 
 .rp-help-panel {
   width: 460px;
+  max-width: calc(100vw - 48px);
   max-height: calc(100vh - 140px);
   overflow-y: auto;
   background: var(--bg-secondary);
@@ -2724,3 +2738,43 @@
   flex-shrink: 0;
 }
 
+
+.cloud-machine-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+.cloud-machine-id-value {
+  font-family: monospace;
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.cp-project-keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.cp-project-key-row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  align-items: center;
+  gap: 8px;
+}
+.cp-project-key-name {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-project-key-input {
+  font-size: var(--font-xs);
+  padding: 3px 6px;
+}

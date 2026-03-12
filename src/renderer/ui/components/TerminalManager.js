@@ -49,6 +49,7 @@ const { showConfirm } = require('./Modal');
 const { isClaudeActive } = require('../../state/claudeActivity.state');
 const PaneManager = require('./PaneManager');
 const ContextPromptService = require('../../services/ContextPromptService');
+const { getBuiltinSystemPrompt } = require('../../services/BuiltinSystemPrompts');
 
 // Lazy require to avoid circular dependency
 let QuickActions = null;
@@ -4406,6 +4407,7 @@ async function createChatTerminal(project, options = {}) {
     initialImages,
     initialModel,
     initialEffort,
+    builtinSystemPrompt: getBuiltinSystemPrompt(project.type),
     onSessionStart: (sid) => {
       _chatSessionId = sid;
       // Persist session ID on termData for TerminalSessionService (fresh sessions)

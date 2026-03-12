@@ -1,4 +1,55 @@
-const { formatDuration, formatDurationLarge, capitalize } = require('../../src/renderer/utils/format');
+const { formatRelativeTime, formatDuration, formatDurationLarge, capitalize } = require('../../src/renderer/utils/format');
+
+describe('formatRelativeTime', () => {
+  test('returns "just now" for current time', () => {
+    expect(formatRelativeTime(new Date())).toBe('just now');
+  });
+
+  test('returns "just now" for 30 seconds ago', () => {
+    const date = new Date(Date.now() - 30 * 1000);
+    expect(formatRelativeTime(date)).toBe('just now');
+  });
+
+  test('returns "1 minute ago" for 60 seconds ago', () => {
+    const date = new Date(Date.now() - 60 * 1000);
+    expect(formatRelativeTime(date)).toBe('1 minute ago');
+  });
+
+  test('returns "5 minutes ago" for 5 minutes ago', () => {
+    const date = new Date(Date.now() - 5 * 60 * 1000);
+    expect(formatRelativeTime(date)).toBe('5 minutes ago');
+  });
+
+  test('returns "1 hour ago" for 60 minutes ago', () => {
+    const date = new Date(Date.now() - 60 * 60 * 1000);
+    expect(formatRelativeTime(date)).toBe('1 hour ago');
+  });
+
+  test('returns "3 hours ago" for 3 hours ago', () => {
+    const date = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    expect(formatRelativeTime(date)).toBe('3 hours ago');
+  });
+
+  test('returns "yesterday" for 24 hours ago', () => {
+    const date = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    expect(formatRelativeTime(date)).toBe('yesterday');
+  });
+
+  test('returns "5 days ago" for 5 days ago', () => {
+    const date = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    expect(formatRelativeTime(date)).toBe('5 days ago');
+  });
+
+  test('accepts string date', () => {
+    const date = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    expect(formatRelativeTime(date)).toBe('2 hours ago');
+  });
+
+  test('accepts timestamp number', () => {
+    const ts = Date.now() - 10 * 60 * 1000;
+    expect(formatRelativeTime(ts)).toBe('10 minutes ago');
+  });
+});
 
 describe('formatDuration', () => {
   test('0ms returns "0m"', () => {

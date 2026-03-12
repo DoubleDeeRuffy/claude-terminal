@@ -22,6 +22,11 @@ let hookSessionCount = 0;
 // projectId -> { toolCount, toolNames: Set, lastToolName, startTime, notified }
 const sessionContext = new Map();
 
+// ── Dedup set for SESSION_END notifications (hooks-only) ──
+// Both Stop and SessionEnd hooks fire SESSION_END — track which projects were
+// already notified to avoid showing "done" twice in quick succession.
+const notifiedSessions = new Set(); // projectId
+
 // ── Last-active Claude tab tracking (for multi-tab session ID capture) ──
 // projectId -> terminalId (the tab that was most recently focused)
 const lastActiveClaudeTab = new Map();
@@ -60,19 +65,23 @@ function wireNotificationConsumer() {
     // Init session context on session start
     eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      sessionContext.set(e.projectId, { toolCount: 0, toolNames: new Set(), lastToolName: null, startTime: Date.now(), notified: false });
+      sessionContext.set(e.projectId, { toolCount: 0, toolNames: new Set(), toolCounts: new Map(), prompts: [], lastToolName: null, startTime: Date.now(), notified: false });
     }),
 
     // Accumulate tool usage (also auto-init context if SESSION_START was missed)
     eventBus.on(EVENT_TYPES.TOOL_START, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
       if (!sessionContext.has(e.projectId)) {
-        sessionContext.set(e.projectId, { toolCount: 0, toolNames: new Set(), lastToolName: null, startTime: Date.now(), notified: false });
+        sessionContext.set(e.projectId, { toolCount: 0, toolNames: new Set(), toolCounts: new Map(), prompts: [], lastToolName: null, startTime: Date.now(), notified: false });
       }
       const ctx = sessionContext.get(e.projectId);
       ctx.toolCount++;
       ctx.lastToolName = e.data?.toolName || null;
       if (e.data?.toolName) ctx.toolNames.add(e.data.toolName);
+      const toolName = e.data?.toolName;
+      if (toolName) {
+        ctx.toolCounts.set(toolName, (ctx.toolCounts.get(toolName) || 0) + 1);
+      }
     }),
 
     // Log tool errors
@@ -82,9 +91,19 @@ function wireNotificationConsumer() {
     }),
 
     // Session end = definitive "Claude is done" → show notification
-    // This is the ONLY place we notify to avoid duplicates with claude:done (TaskCompleted)
+    // This is the ONLY place we notify to avoid duplicates with claude:done (TaskCompleted).
+    // Guard: only fire once per session — Stop and SessionEnd hooks both emit SESSION_END,
+    // so the second emission is skipped via notifiedSessions dedup set.
     eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
       if (e.source !== 'hooks') return;
+      if (!e.projectId) return;
+      // Dedup: both Stop and SessionEnd hooks fire SESSION_END — only notify once
+      if (notifiedSessions.has(e.projectId)) {
+        notifiedSessions.delete(e.projectId);
+        return;
+      }
+      notifiedSessions.add(e.projectId);
+      setTimeout(() => notifiedSessions.delete(e.projectId), 10000); // auto-cleanup after 10s
       const ctx = sessionContext.get(e.projectId);
       // Clean up regardless
       sessionContext.delete(e.projectId);
@@ -111,18 +130,44 @@ function wireNotificationConsumer() {
           labels: { show: t('terminals.notifBtnShow') }
         });
       }
+    }),
+
+    // Claude's native Notification hook (e.g., /compact progress, system messages)
+    // Previously this event was emitted but had no consumer — notifications were silently dropped.
+    eventBus.on(EVENT_TYPES.NOTIFICATION, (e) => {
+      if (e.source !== 'hooks') return;
+      const title = e.data?.title || 'Claude';
+      const body = e.data?.message || '';
+      if (!body) return;
+      const terminalId = resolveTerminalId(e.projectId);
+      if (notificationFn) {
+        notificationFn('info', title, body, terminalId);
+      }
     })
   );
 }
 
 /**
  * Build a rich notification body from session context.
+ * Shows tool count, unique tool names, and session duration.
  */
 function buildNotificationBody(ctx, t) {
   if (ctx.toolCount > 0) {
-    const uniqueTools = [...ctx.toolNames].slice(0, 3).join(', ');
-    const extra = ctx.toolNames.size > 3 ? ` +${ctx.toolNames.size - 3}` : '';
-    return t('terminals.notifToolsDone', { count: ctx.toolCount }) + ` (${uniqueTools}${extra})`;
+    const uniqueNames = [...ctx.toolNames];
+    const displayed = uniqueNames.slice(0, 3).join(', ');
+    const extra = uniqueNames.length > 3 ? ` +${uniqueNames.length - 3}` : '';
+    let body = t('terminals.notifToolsDone', { count: ctx.toolCount });
+    body += ` (${displayed}${extra})`;
+    // Append duration if session lasted more than a few seconds
+    if (ctx.startTime) {
+      const secs = Math.round((Date.now() - ctx.startTime) / 1000);
+      if (secs >= 5) {
+        const mins = Math.floor(secs / 60);
+        const s = secs % 60;
+        body += mins > 0 ? ` • ${mins}m${s > 0 ? s + 's' : ''}` : ` • ${s}s`;
+      }
+    }
+    return body;
   }
   return t('terminals.notifDone');
 }
@@ -281,21 +326,78 @@ function wireAttentionConsumer() {
       const projectName = resolveProjectName(e.projectId);
       const terminalId = resolveTerminalId(e.projectId);
 
+      // AskUserQuestion: build interactive answer buttons from Claude's options
+      // SDK structure: toolInput.questions[0].question + toolInput.questions[0].options[].label
+      if (toolName.toLowerCase() === 'askuserquestion' && e.data?.toolInput) {
+        const { questions } = e.data.toolInput;
+        const firstQ = Array.isArray(questions) ? questions[0] : null;
+        const body = firstQ?.question || t(`terminals.${match.key}`);
+        const rawOpts = Array.isArray(firstQ?.options) ? firstQ.options.slice(0, 3) : [];
+        const buttons = rawOpts.length > 0
+          ? [
+              ...rawOpts.map((opt, i) => {
+                const label = (typeof opt === 'object' ? (opt.label || '') : String(opt)).slice(0, 32);
+                const value = typeof opt === 'object' ? (opt.label || String(opt)) : String(opt);
+                return { label, action: 'answer', value, style: i === 0 ? 'primary' : 'secondary' };
+              }),
+              { label: t('terminals.notifBtnOther'), action: 'show', style: 'ghost' }
+            ]
+          : [{ label: t('terminals.notifBtnShow'), action: 'show', style: 'primary' }];
+
+        if (notificationFn) {
+          notificationFn(match.type, projectName || 'Claude Terminal', body, terminalId, {
+            buttons,
+            autoDismiss: 0 // don't auto-dismiss while waiting for an answer
+          });
+        }
+        return;
+      }
+
       if (notificationFn) {
         notificationFn(match.type, projectName || 'Claude Terminal', t(`terminals.${match.key}`), terminalId);
       }
     }),
 
-    // PermissionRequest → Claude needs permission (skipped if question already notified)
+    // PermissionRequest → Claude needs permission (Allow / Deny buttons)
     eventBus.on(EVENT_TYPES.CLAUDE_PERMISSION, (e) => {
       if (e.source !== 'hooks' || !e.projectId) return;
-      if (!shouldNotify(e.projectId)) return;
+      const requestId = e.data?.requestId || null;
+
+      if (!shouldNotify(e.projectId)) {
+        // Deduped: a question/plan notification was recently shown for this project.
+        // Auto-allow the permission immediately so the hook handler isn't blocked for 30 seconds.
+        // (The user is already responding via the question notification or the terminal.)
+        if (requestId) {
+          try {
+            window.electron_api.hooks.resolvePermission(requestId, 'allow');
+          } catch (err) {
+            console.error('[Events] Failed to auto-resolve deduped permission:', err);
+          }
+        }
+        return;
+      }
 
       const projectName = resolveProjectName(e.projectId);
       const terminalId = resolveTerminalId(e.projectId);
+      const tool = e.data?.tool || null;
+
+      const body = tool
+        ? `${t('terminals.notifPermission')} — ${tool}`
+        : t('terminals.notifPermission');
+
+      const buttons = [
+        { label: t('terminals.notifBtnAllow'), action: 'allow', style: 'primary' },
+        { label: t('terminals.notifBtnDeny'),  action: 'deny',  style: 'danger'  }
+      ];
 
       if (notificationFn) {
-        notificationFn('permission', projectName || 'Claude Terminal', t('terminals.notifPermission'), terminalId);
+        notificationFn('permission', projectName || 'Claude Terminal', body, terminalId, {
+          buttons,
+          autoDismiss: requestId ? 0 : 15000, // no auto-dismiss when we can block Claude
+          meta: { requestId }
+        });
+      } else {
+        console.error('[Events] notificationFn not set — permission notification lost for requestId=' + requestId);
       }
     })
   );
@@ -446,6 +548,118 @@ function stopStatusStalenessCheck() {
   }
 }
 
+// ── Consumer: Session Recap ──
+// For hooks: accumulates data across ALL turns of a conversation (multiple Stop events).
+// Recap is generated when the session truly ends (reason:'end') OR after 5min of inactivity.
+// For chat: recap is generated immediately when the tab is closed (destroy()).
+function wireSessionRecapConsumer() {
+  // Own accumulation per project — survives across multiple turns
+  // projectId -> { toolCounts: {}, prompts: [], startTime, toolCount }
+  const recapCtx = new Map();
+  // Debounce timers: after a Stop event, wait 5min before generating (cancel if new turn starts)
+  const recapTimers = new Map();
+  const DEBOUNCE_MS = 5 * 60 * 1000;
+
+  function callRecapService(projectId, enrichedCtx) {
+    try {
+      const SessionRecapService = require('../services/SessionRecapService');
+      SessionRecapService.handleSessionEnd(projectId, enrichedCtx).catch(err => {
+        console.warn('[Events] SessionRecap error:', err.message);
+      });
+    } catch (err) {
+      console.warn('[Events] SessionRecapService not available:', err.message);
+    }
+  }
+
+  function flushRecap(projectId) {
+    const accum = recapCtx.get(projectId);
+    recapCtx.delete(projectId);
+    if (!accum || accum.toolCount < 2) return;
+    callRecapService(projectId, {
+      toolCounts: accum.toolCounts,
+      prompts: accum.prompts,
+      durationMs: Date.now() - accum.startTime,
+      toolCount: accum.toolCount
+    });
+  }
+
+  function cancelTimer(projectId) {
+    if (recapTimers.has(projectId)) {
+      clearTimeout(recapTimers.get(projectId));
+      recapTimers.delete(projectId);
+    }
+  }
+
+  consumerUnsubscribers.push(
+    // New turn starting: cancel pending debounce timer (user is still working)
+    eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      cancelTimer(e.projectId);
+      if (!recapCtx.has(e.projectId)) {
+        recapCtx.set(e.projectId, { toolCounts: {}, prompts: [], startTime: Date.now(), toolCount: 0 });
+      }
+    }),
+
+    // Accumulate user prompts (first 5)
+    eventBus.on(EVENT_TYPES.PROMPT_SUBMIT, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      if (!recapCtx.has(e.projectId)) {
+        recapCtx.set(e.projectId, { toolCounts: {}, prompts: [], startTime: Date.now(), toolCount: 0 });
+      }
+      const accum = recapCtx.get(e.projectId);
+      const prompt = e.data?.prompt;
+      if (prompt && accum.prompts.length < 5) accum.prompts.push(prompt);
+    }),
+
+    // Accumulate tool usage across turns
+    eventBus.on(EVENT_TYPES.TOOL_START, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      if (!recapCtx.has(e.projectId)) {
+        recapCtx.set(e.projectId, { toolCounts: {}, prompts: [], startTime: Date.now(), toolCount: 0 });
+      }
+      const accum = recapCtx.get(e.projectId);
+      const toolName = e.data?.toolName;
+      if (toolName) accum.toolCounts[toolName] = (accum.toolCounts[toolName] || 0) + 1;
+      accum.toolCount++;
+    }),
+
+    // Session end
+    eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
+      if ((e.source !== 'hooks' && e.source !== 'chat') || !e.projectId) return;
+
+      if (e.source === 'chat') {
+        // Chat: generate immediately on tab close (data comes from ChatView.destroy())
+        if (!e.data?.toolCount || e.data.toolCount < 2) return;
+        callRecapService(e.projectId, {
+          toolCounts: e.data.toolCounts || {},
+          prompts: e.data.prompts || [],
+          durationMs: e.data.durationMs || 0,
+          toolCount: e.data.toolCount
+        });
+        return;
+      }
+
+      // Hooks: check we have enough data
+      const accum = recapCtx.get(e.projectId);
+      if (!accum || accum.toolCount < 2) return;
+
+      if (e.data?.reason === 'end') {
+        // Real session end (SessionEnd hook): generate immediately
+        cancelTimer(e.projectId);
+        flushRecap(e.projectId);
+      } else {
+        // Turn end (Stop hook): debounce — user may send another prompt
+        cancelTimer(e.projectId);
+        const timerId = setTimeout(() => {
+          recapTimers.delete(e.projectId);
+          flushRecap(e.projectId);
+        }, DEBOUNCE_MS);
+        recapTimers.set(e.projectId, timerId);
+      }
+    })
+  );
+}
+
 // ── Debug: wildcard listener (disabled by default to avoid log spam) ──
 // Enable via: window.__CLAUDE_EVENT_DEBUG = true
 function wireDebugListener() {
@@ -538,6 +752,10 @@ function initClaudeEvents() {
 
   // Wire consumers (they stay active regardless of provider)
   wireClaudeActivityConsumer();
+  // NOTE: wireSessionRecapConsumer must be registered BEFORE wireNotificationConsumer
+  // because both listen to SESSION_END and the notification consumer deletes sessionContext.
+  wireTimeTrackingConsumer();
+  wireSessionRecapConsumer();
   wireNotificationConsumer();
   wireAttentionConsumer();
   wireDashboardStatsConsumer();

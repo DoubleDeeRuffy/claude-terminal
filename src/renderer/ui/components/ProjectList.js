@@ -37,6 +37,7 @@ const { formatDuration } = require('../../utils/format');
 const { t } = require('../../i18n');
 const CustomizePicker = require('./CustomizePicker');
 const { createModal, showModal, closeModal } = require('./Modal');
+const Toast = require('./Toast');
 const registry = require('../../../project-types/registry');
 const menuIcons = require('../icons/menuIcons');
 
@@ -84,10 +85,48 @@ function setCallbacks(cbs) {
 }
 
 /**
- * Close all more actions menus
+ * Close all more actions menus and remove global listeners
  */
+let _moreActionsCloseHandler = null;
+let _moreActionsEscapeHandler = null;
+
 function closeAllMoreActionsMenus() {
   document.querySelectorAll('.more-actions-menu.active').forEach(menu => menu.classList.remove('active'));
+  if (_moreActionsCloseHandler) {
+    document.removeEventListener('click', _moreActionsCloseHandler, true);
+    _moreActionsCloseHandler = null;
+  }
+  if (_moreActionsEscapeHandler) {
+    document.removeEventListener('keydown', _moreActionsEscapeHandler);
+    _moreActionsEscapeHandler = null;
+  }
+}
+
+function _setupMoreActionsCloseListeners(menuEl, triggerBtn) {
+  // Remove any existing handlers first
+  if (_moreActionsCloseHandler) {
+    document.removeEventListener('click', _moreActionsCloseHandler, true);
+  }
+  if (_moreActionsEscapeHandler) {
+    document.removeEventListener('keydown', _moreActionsEscapeHandler);
+  }
+
+  _moreActionsCloseHandler = (e) => {
+    if (!menuEl.contains(e.target) && !triggerBtn.contains(e.target)) {
+      closeAllMoreActionsMenus();
+    }
+  };
+  _moreActionsEscapeHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeAllMoreActionsMenus();
+    }
+  };
+
+  // Delay attaching so the opening click doesn't immediately close
+  setTimeout(() => {
+    document.addEventListener('click', _moreActionsCloseHandler, true);
+    document.addEventListener('keydown', _moreActionsEscapeHandler);
+  }, 100);
 }
 
 /**
@@ -141,6 +180,7 @@ function renderFolderHtml(folder, depth) {
   return `
     <div class="folder-item" data-folder-id="${folder.id}" data-depth="${depth}" draggable="true">
       <div class="folder-header" style="padding-left: ${depth * 16 + 8}px;">
+        <span class="drag-handle" title="${t('projects.dragToReorder')}">⋮⋮</span>
         <span class="folder-chevron ${folder.collapsed ? 'collapsed' : ''} ${!hasChildren ? 'hidden' : ''}">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
         </span>
@@ -164,16 +204,17 @@ function _renderCloudBadge(projectId) {
   if (!st) return '';
 
   if (st.uploading || st.autoSyncing) {
-    return `<span class="project-cloud-badge uploading" title="${t('projects.cloudUpload')}">&#8679;</span>`;
+    const tip = t('cloud.uploadProgress');
+    return `<span class="project-cloud-badge uploading" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">&#8679;</span>`;
   }
   if (st.lastError) {
     const ago = _formatTimeAgo(st.lastError.timestamp);
     const tip = `${t('cloud.syncErrorTooltip', { ago, error: st.lastError.message })}`;
-    return `<span class="project-cloud-badge error" title="${escapeHtml(tip)}">&#9888;</span>`;
+    return `<span class="project-cloud-badge error" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">&#9888;</span>`;
   }
   if (st.synced) {
     const tip = st.lastSync ? `${t('cloud.syncedTooltip')} \u2022 ${_formatTimeAgo(st.lastSync)}` : t('cloud.syncedTooltip');
-    return `<span class="project-cloud-badge synced" title="${escapeHtml(tip)}">&#10003;</span>`;
+    return `<span class="project-cloud-badge synced" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">&#10003;</span>`;
   }
   return '';
 }
@@ -358,6 +399,7 @@ function renderProjectHtml(project, depth) {
          data-project-id="${project.id}" data-depth="${depth}" draggable="true" tabindex="0"
          style="margin-left: ${depth * 16}px;">
       ${tooltipHtml}
+      <span class="drag-handle" title="${t('projects.dragToReorder')}">⋮⋮</span>
       <div class="project-info">
         <div class="project-name">
           ${colorIndicator}
@@ -413,8 +455,8 @@ function getDropPosition(e, el, isFolder) {
  * Clear all drop indicators
  */
 function clearDropIndicators(list) {
-  list.querySelectorAll('.drag-over, .drop-before, .drop-after, .drop-into').forEach(el => {
-    el.classList.remove('drag-over', 'drop-before', 'drop-after', 'drop-into');
+  list.querySelectorAll('.drag-over, .drop-before, .drop-after, .drop-into, .drop-invalid-hover').forEach(el => {
+    el.classList.remove('drag-over', 'drop-before', 'drop-after', 'drop-into', 'drop-invalid-hover');
   });
 }
 
@@ -433,6 +475,11 @@ function setupDragAndDrop(list) {
   }
 
   function onDragStart(e) {
+    // Only allow drag from the drag handle
+    if (!e.target.closest('.drag-handle')) {
+      e.preventDefault();
+      return;
+    }
     const el = e.target.closest('[draggable="true"]');
     if (!el) return;
     e.stopPropagation();
@@ -443,6 +490,17 @@ function setupDragAndDrop(list) {
     el.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', '');
+
+    // Mark list as drag-active and flag invalid drop targets
+    list.classList.add('drag-active');
+    if (dragState.dragging.type === 'folder') {
+      list.querySelectorAll('.folder-item').forEach(f => {
+        const fId = f.dataset.folderId;
+        if (fId === dragState.dragging.id || isDescendantOf(fId, dragState.dragging.id)) {
+          f.classList.add('drop-invalid');
+        }
+      });
+    }
   }
 
   function onDragEnd(e) {
@@ -451,6 +509,8 @@ function setupDragAndDrop(list) {
     dragState.dragging = null;
     dragState.dropTarget = null;
     clearDropIndicators(list);
+    list.classList.remove('drag-active');
+    list.querySelectorAll('.drop-invalid').forEach(el => el.classList.remove('drop-invalid'));
   }
 
   function onDragOver(e) {
@@ -466,6 +526,9 @@ function setupDragAndDrop(list) {
       if (dragState.dragging.type === 'folder' && folderId) {
         if (dragState.dragging.id === folderId || isDescendantOf(folderId, dragState.dragging.id)) {
           e.dataTransfer.dropEffect = 'none';
+          clearDropIndicators(list);
+          folderHeader.classList.add('drop-invalid-hover');
+          dragState.dropTarget = { type: 'folder', id: folderId, position: 'invalid' };
           return;
         }
       }
@@ -539,6 +602,12 @@ function setupDragAndDrop(list) {
     }
 
     const { position } = dragState.dropTarget;
+    if (position === 'invalid') {
+      Toast.showToast({ message: t('projects.dropInvalidNesting'), type: 'warning' });
+      dragState.dragging = null;
+      dragState.dropTarget = null;
+      return;
+    }
     if (dragState.dropTarget.type === 'folder') {
       if (position === 'into') {
         moveItemToFolder(dragState.dragging.type, dragState.dragging.id, dragState.dropTarget.id);
@@ -802,6 +871,7 @@ function attachListeners(list) {
           menu.style.top = `${top}px`;
           menu.style.left = `${left}px`;
           menu.classList.add('active');
+          _setupMoreActionsCloseListeners(menu, btn);
         }
       } else if (btn.classList.contains('btn-folder-color')) {
         const folderId = btn.dataset.folderId;

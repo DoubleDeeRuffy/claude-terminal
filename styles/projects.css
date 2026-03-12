@@ -409,7 +409,7 @@ body.compact-projects .project-item:not(.active):hover {
   display: inline-flex;
   align-items: center;
   margin-left: 4px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   flex-shrink: 0;
 }
 
@@ -1701,9 +1701,64 @@ body.compact-projects .project-item:not(.active):hover {
   border: 2px dashed var(--accent);
 }
 
+/* Drag Handle */
+.drag-handle {
+  opacity: 0;
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  letter-spacing: -2px;
+  user-select: none;
+  flex-shrink: 0;
+  padding: 0 2px;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.project-item:hover .drag-handle,
+.folder-header:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:hover {
+  color: var(--text-secondary);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 /* Drag & Drop States */
 .dragging {
   opacity: 0.5;
+}
+
+/* Highlight all valid drop zones during active drag */
+.drag-active .folder-header,
+.drag-active .project-item,
+.drag-active .drop-zone-root {
+  border: 2px dashed var(--accent-dim);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.drag-active .dragging {
+  border-color: transparent;
+}
+
+/* Invalid drop targets (circular nesting) */
+.drag-active .folder-item.drop-invalid {
+  opacity: 0.3;
+}
+
+.drag-active .folder-item.drop-invalid > .folder-header {
+  cursor: not-allowed;
+  border-color: transparent;
+  pointer-events: none;
+}
+
+.folder-header.drop-invalid-hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: var(--danger) !important;
+  border-style: dashed !important;
 }
 
 .folder-item.drag-over > .folder-header {
@@ -3348,7 +3403,8 @@ body.compact-projects .project-item:not(.active):hover {
   transition: opacity 0.15s;
 }
 
-.quick-action-item:hover .quick-action-item-actions {
+.quick-action-item:hover .quick-action-item-actions,
+.quick-action-item:focus-within .quick-action-item-actions {
   opacity: 1;
 }
 

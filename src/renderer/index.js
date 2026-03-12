@@ -168,6 +168,7 @@ function _registerCloudListeners(api) {
               sessionId: session.id,
               projectName: session.projectName,
               localProjectPath: localProject?.path || null,
+              cloudProjectKey: session.projectName, // already scoped, use as-is
             });
             Toast.show(t('cloud.syncApplied'), 'success');
           } catch (err) {
@@ -207,6 +208,7 @@ function _registerCloudListeners(api) {
               await api.cloud.downloadChanges({
                 projectName,
                 localProjectPath: localProject.path,
+                cloudProjectKey: projectName, // already scoped (comes from cloud), use as-is
               });
               Toast.show(t('cloud.syncApplied'), 'success');
             } else {

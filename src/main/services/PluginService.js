@@ -290,15 +290,92 @@ function getPluginReadme(marketplaceName, pluginName) {
 }
 
 /**
- * Install a plugin via Claude CLI
+ * Install a plugin natively: read marketplace catalog → copy files → register in installed_plugins.json
  */
-function installPlugin(marketplace, pluginName) {
+async function installPlugin(marketplace, pluginName) {
   console.debug(`[PluginService] installPlugin: ${pluginName}@${marketplace}`);
-  return runPluginCommand(
-    `/plugin install ${pluginName}@${marketplace}`,
-    ['installed successfully', 'plugin installed', 'successfully installed', 'already installed'],
-    ['not found', 'failed to install', 'error installing']
-  );
+
+  try {
+    // Find marketplace entry
+    let marketplacesData = {};
+    if (fs.existsSync(marketplacesFile)) {
+      try { marketplacesData = JSON.parse(fs.readFileSync(marketplacesFile, 'utf8')); } catch { /* ignore */ }
+    }
+
+    const mpInfo = marketplacesData[marketplace];
+    if (!mpInfo) {
+      return { success: false, error: `Marketplace '${marketplace}' not found. Add it first.` };
+    }
+
+    const mpLocation = mpInfo.installLocation;
+
+    // Read marketplace catalog
+    const catalogPath = path.join(mpLocation, '.claude-plugin', 'marketplace.json');
+    if (!fs.existsSync(catalogPath)) {
+      return { success: false, error: `Catalog not found at ${catalogPath}` };
+    }
+
+    let catalog;
+    try { catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')); } catch (e) {
+      return { success: false, error: `Failed to parse catalog: ${e.message}` };
+    }
+
+    const pluginEntry = (catalog.plugins || []).find(p => p.name === pluginName);
+    if (!pluginEntry) {
+      return { success: false, error: `Plugin '${pluginName}' not found in marketplace` };
+    }
+
+    // Resolve source path (relative to marketplace root)
+    const sourcePath = pluginEntry.source
+      ? path.resolve(mpLocation, pluginEntry.source)
+      : path.join(mpLocation, 'plugins', pluginName);
+
+    if (!fs.existsSync(sourcePath)) {
+      return { success: false, error: `Plugin source not found at ${sourcePath}` };
+    }
+
+    // Prepare install dir in cache
+    const key = `${pluginName}@${marketplace}`;
+    const installPath = path.join(cacheDir, key);
+
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+
+    // Copy plugin files (fresh copy)
+    if (fs.existsSync(installPath)) {
+      fs.rmSync(installPath, { recursive: true, force: true });
+    }
+    fs.cpSync(sourcePath, installPath, { recursive: true });
+
+    // Update installed_plugins.json atomically
+    let installed = { plugins: {} };
+    if (fs.existsSync(installedFile)) {
+      try { installed = JSON.parse(fs.readFileSync(installedFile, 'utf8')); } catch { /* ignore */ }
+    }
+    if (!installed.plugins) installed.plugins = {};
+
+    const now = new Date().toISOString();
+    const existingEntry = installed.plugins[key]?.[0];
+    installed.plugins[key] = [{
+      installPath,
+      version: pluginEntry.version || '',
+      scope: 'user',
+      installedAt: existingEntry?.installedAt || now,
+      lastUpdated: now,
+      gitCommitSha: '',
+      marketplace
+    }];
+
+    const tmp = installedFile + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(installed, null, 2), 'utf8');
+    fs.renameSync(tmp, installedFile);
+
+    return { success: true };
+  } catch (e) {
+    console.error('[PluginService] installPlugin error:', e);
+    return { success: false, error: e.message };
+  }
 }
 
 
@@ -460,16 +537,94 @@ function runPluginCommand(command, successPatterns, errorPatterns, timeoutMs = 6
 }
 
 /**
- * Add a marketplace via Claude CLI
+ * Add a marketplace by cloning the git repo natively (no Claude CLI REPL needed).
+ * Supports:
+ *   - GitHub shorthand: "owner/repo"
+ *   - Full GitHub URL: "https://github.com/owner/repo"
+ *   - Any git URL: "https://gitlab.com/org/repo.git"
+ *   - Branch: "https://github.com/owner/repo#branch"
  */
-function addMarketplace(url) {
+async function addMarketplace(url) {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+
   console.debug(`[PluginService] addMarketplace: ${url}`);
-  return runPluginCommand(
-    `/plugin marketplace add ${url}`,
-    ['added', 'synced', 'cloned', 'plugins found', 'already exists', 'successfully', 'marketplace added'],
-    ['failed to clone', 'error cloning', 'could not resolve', 'repository not found'],
-    90000
-  );
+
+  try {
+    let cloneUrl = url;
+    let name = null;
+    let source = null;
+    let branch = null;
+
+    // Extract branch suffix (#branch)
+    const branchIdx = url.indexOf('#');
+    if (branchIdx !== -1) {
+      branch = url.substring(branchIdx + 1);
+      url = url.substring(0, branchIdx);
+    }
+
+    // GitHub shorthand: "owner/repo" (no slashes except one, no protocol)
+    const shorthandMatch = url.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
+    const githubMatch = url.match(/github\.com[:/]([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+?)(?:\.git)?$/i);
+
+    if (shorthandMatch) {
+      const [, owner, repo] = shorthandMatch;
+      name = `${owner}-${repo}`;
+      source = { source: 'github', repo: `${owner}/${repo}` };
+      cloneUrl = `https://github.com/${owner}/${repo}`;
+    } else if (githubMatch) {
+      const [, owner, repo] = githubMatch;
+      name = `${owner}-${repo}`;
+      source = { source: 'github', repo: `${owner}/${repo}` };
+      cloneUrl = url;
+    } else {
+      // Generic git URL
+      name = url.split('/').pop().replace(/\.git$/, '').replace(/[^a-zA-Z0-9_-]/g, '-') || 'marketplace';
+      source = { source: 'url', url };
+      cloneUrl = url;
+    }
+
+    if (branch) cloneUrl += `#${branch}`;
+
+    // Ensure marketplaces directory exists
+    if (!fs.existsSync(marketplacesDir)) {
+      fs.mkdirSync(marketplacesDir, { recursive: true });
+    }
+
+    const targetDir = path.join(marketplacesDir, name);
+
+    // Already cloned → return success (idempotent)
+    if (fs.existsSync(targetDir)) {
+      return { success: true };
+    }
+
+    // Clone the repo (with optional branch)
+    const branchFlag = branch ? `--branch "${branch}" ` : '';
+    await execAsync(`git clone ${branchFlag}"${cloneUrl}" "${targetDir}"`, { timeout: 120000 });
+
+    // Update known_marketplaces.json atomically
+    let marketplaces = {};
+    if (fs.existsSync(marketplacesFile)) {
+      try { marketplaces = JSON.parse(fs.readFileSync(marketplacesFile, 'utf8')); } catch { /* ignore */ }
+    }
+
+    if (!marketplaces[name]) {
+      marketplaces[name] = {
+        source,
+        installLocation: targetDir,
+        lastUpdated: new Date().toISOString()
+      };
+      const tmp = marketplacesFile + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(marketplaces, null, 2), 'utf8');
+      fs.renameSync(tmp, marketplacesFile);
+    }
+
+    return { success: true };
+  } catch (e) {
+    console.error('[PluginService] addMarketplace error:', e);
+    return { success: false, error: e.message };
+  }
 }
 
 module.exports = {

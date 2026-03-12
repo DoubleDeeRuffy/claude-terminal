@@ -349,6 +349,44 @@ export function createCloudRouter(relay?: RelayServer): Router {
     }
   });
 
+  // ── Download full project as zip ──
+
+  router.get('/projects/:name/download', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const zipStream = await projectManager.downloadProjectZip(req.userName!, name);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(name)}.zip"`);
+      zipStream.pipe(res);
+      (zipStream as any).on('error', (err: Error) => {
+        if (!res.headersSent) res.status(500).json({ error: err.message });
+      });
+    } catch (err: any) {
+      res.status(404).json({ error: err.message });
+    }
+  });
+
+  // ── File hashes (for accurate diff comparison) ──
+
+  router.post('/projects/:name/files/hashes', async (req: AuthRequest, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const { filePaths } = req.body;
+      if (!Array.isArray(filePaths) || filePaths.length === 0) {
+        res.status(400).json({ error: 'Missing or empty filePaths array' });
+        return;
+      }
+      if (filePaths.length > 5000) {
+        res.status(400).json({ error: 'Too many files (max 5000)' });
+        return;
+      }
+      const hashes = await projectManager.hashProjectFiles(req.userName!, name, filePaths);
+      res.json({ hashes });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // ── Project Changes (for sync) ──
 
   router.get('/projects/:name/changes', async (req: AuthRequest, res: Response) => {
@@ -378,6 +416,21 @@ export function createCloudRouter(relay?: RelayServer): Router {
       const name = req.params.name as string;
       await projectManager.acknowledgeChanges(req.userName!, name);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.patch('/projects/:name', async (req: AuthRequest, res: Response) => {
+    try {
+      const oldName = req.params.name as string;
+      const { newName } = req.body;
+      if (!newName || typeof newName !== 'string') {
+        res.status(400).json({ error: 'Missing newName' });
+        return;
+      }
+      await projectManager.renameProject(req.userName!, oldName, newName);
+      res.json({ ok: true, newName });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }

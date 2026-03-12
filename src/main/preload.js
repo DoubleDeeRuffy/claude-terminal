@@ -7,6 +7,57 @@ const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+// Répertoires système bloqués en lecture et écriture (par plateforme)
+// Sur Windows, on utilise process.env.SystemRoot pour éviter de hardcoder le drive (C:, D:, etc.)
+function buildBlockedPrefixes() {
+  if (process.platform === 'win32') {
+    const systemRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+    const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+    const programData = process.env.ProgramData || 'C:\\ProgramData';
+    return [systemRoot, programFiles, programFilesX86, programData];
+  }
+  if (process.platform === 'darwin') {
+    return ['/etc', '/bin', '/sbin', '/usr', '/sys', '/proc', '/dev', '/Library/System', '/System'];
+  }
+  return ['/etc', '/bin', '/sbin', '/usr', '/sys', '/proc', '/boot', '/dev', '/lib', '/lib64'];
+}
+
+const SYSTEM_BLOCKED_PREFIXES = buildBlockedPrefixes();
+
+/**
+ * Résout un chemin en suivant les symlinks si le chemin existe,
+ * sinon retombe sur path.resolve() (pour les opérations d'écriture sur chemins non existants).
+ */
+function safeResolve(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Vérifie si un chemin cible un répertoire système critique.
+ * Bloque : null bytes, chemins UNC/Device Windows (\\), chemins système.
+ */
+function isSystemPath(p) {
+  if (!p || typeof p !== 'string') return true;
+  if (p.includes('\0')) return true;
+  // Bloquer les chemins UNC (\\server\share) et Device Paths (\\.\PhysicalDrive0) sur Windows
+  if (process.platform === 'win32' && p.startsWith('\\\\')) return true;
+  const resolved = safeResolve(p);
+  return SYSTEM_BLOCKED_PREFIXES.some(prefix =>
+    resolved.toLowerCase().startsWith(prefix.toLowerCase())
+  );
+}
+
+function throwIfBlocked(p) {
+  if (isSystemPath(p)) {
+    throw new Error(`Access denied: system path is protected: ${p}`);
+  }
+}
+
 // Expose Node.js modules that are needed in renderer
 // Note: For better security, these operations should eventually be moved to main process
 contextBridge.exposeInMainWorld('electron_nodeModules', {
@@ -19,11 +70,32 @@ contextBridge.exposeInMainWorld('electron_nodeModules', {
     sep: path.sep
   },
   fs: {
-    existsSync: (p) => fs.existsSync(p),
-    readFileSync: (p, options) => fs.readFileSync(p, options),
-    writeFileSync: (p, data, options) => fs.writeFileSync(p, data, options),
-    readdirSync: (p, options) => fs.readdirSync(p, options),
+    existsSync: (p) => {
+      throwIfBlocked(p);
+      return fs.existsSync(p);
+    },
+    readFileSync: (p, options) => {
+      throwIfBlocked(p);
+      return fs.readFileSync(p, options);
+    },
+    writeFileSync: (p, data, options) => {
+      throwIfBlocked(p);
+      fs.writeFileSync(p, data, options);
+    },
+    readdirSync: (p, options) => {
+      throwIfBlocked(p);
+      const result = fs.readdirSync(p, options);
+      if (options && options.withFileTypes) {
+        return result.map(e => ({
+          name: e.name,
+          isDirectory: () => e.isDirectory(),
+          isFile: () => e.isFile()
+        }));
+      }
+      return result;
+    },
     statSync: (p) => {
+      throwIfBlocked(p);
       const stat = fs.statSync(p);
       return {
         isDirectory: () => stat.isDirectory(),
@@ -32,21 +104,58 @@ contextBridge.exposeInMainWorld('electron_nodeModules', {
         mtime: stat.mtime
       };
     },
-    mkdirSync: (p, options) => fs.mkdirSync(p, options),
-    rmSync: (p, options) => fs.rmSync(p, options),
-    copyFileSync: (src, dest) => fs.copyFileSync(src, dest),
-    unlinkSync: (p) => fs.unlinkSync(p),
-    renameSync: (oldPath, newPath) => fs.renameSync(oldPath, newPath),
+    mkdirSync: (p, options) => {
+      throwIfBlocked(p);
+      fs.mkdirSync(p, options);
+    },
+    rmSync: (p, options) => {
+      throwIfBlocked(p);
+      fs.rmSync(p, options);
+    },
+    copyFileSync: (src, dest) => {
+      throwIfBlocked(src);
+      throwIfBlocked(dest);
+      fs.copyFileSync(src, dest);
+    },
+    unlinkSync: (p) => {
+      throwIfBlocked(p);
+      fs.unlinkSync(p);
+    },
+    renameSync: (oldPath, newPath) => {
+      throwIfBlocked(oldPath);
+      throwIfBlocked(newPath);
+      fs.renameSync(oldPath, newPath);
+    },
     promises: {
-      access: (p, mode) => fs.promises.access(p, mode),
-      readdir: (p, options) => fs.promises.readdir(p, options),
-      readFile: (p, options) => fs.promises.readFile(p, options),
-      stat: (p) => fs.promises.stat(p).then(stat => ({
-        isDirectory: () => stat.isDirectory(),
-        isFile: () => stat.isFile(),
-        size: stat.size,
-        mtime: stat.mtime
-      }))
+      access: (p, mode) => {
+        throwIfBlocked(p);
+        return fs.promises.access(p, mode);
+      },
+      readdir: async (p, options) => {
+        throwIfBlocked(p);
+        const result = await fs.promises.readdir(p, options);
+        if (options && options.withFileTypes) {
+          return result.map(e => ({
+            name: e.name,
+            isDirectory: () => e.isDirectory(),
+            isFile: () => e.isFile()
+          }));
+        }
+        return result;
+      },
+      readFile: (p, options) => {
+        throwIfBlocked(p);
+        return fs.promises.readFile(p, options);
+      },
+      stat: (p) => {
+        throwIfBlocked(p);
+        return fs.promises.stat(p).then(stat => ({
+          isDirectory: () => stat.isDirectory(),
+          isFile: () => stat.isFile(),
+          size: stat.size,
+          mtime: stat.mtime
+        }));
+      }
     }
   },
   os: {
@@ -98,6 +207,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     mergeConflicts: (params) => ipcRenderer.invoke('git-merge-conflicts', params),
     pull: (params) => ipcRenderer.invoke('git-pull', params),
     push: (params) => ipcRenderer.invoke('git-push', params),
+    pushBranch: (params) => ipcRenderer.invoke('git-push-branch', params),
     checkout: (params) => ipcRenderer.invoke('git-checkout', params),
     merge: (params) => ipcRenderer.invoke('git-merge', params),
     mergeAbort: (params) => ipcRenderer.invoke('git-merge-abort', params),
@@ -125,7 +235,9 @@ contextBridge.exposeInMainWorld('electron_api', {
     worktreeUnlock: (params) => ipcRenderer.invoke('git-worktree-unlock', params),
     worktreePrune: (params) => ipcRenderer.invoke('git-worktree-prune', params),
     worktreeDetect: (params) => ipcRenderer.invoke('git-worktree-detect', params),
-    worktreeDiff: (params) => ipcRenderer.invoke('git-worktree-diff', params)
+    worktreeDiff: (params) => ipcRenderer.invoke('git-worktree-diff', params),
+    worktreeDiffStats: (params) => ipcRenderer.invoke('git-worktree-diff-stats', params),
+    generateSessionRecap: (context) => ipcRenderer.invoke('git-generate-session-recap', context),
   },
 
   // ==================== WEBAPP ====================
@@ -256,6 +368,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     logout: () => ipcRenderer.invoke('github-logout'),
     setToken: (token) => ipcRenderer.invoke('github-set-token', token),
     workflowRuns: (remoteUrl) => ipcRenderer.invoke('github-workflow-runs', { remoteUrl }),
+    workflowJobs: (remoteUrl, runId) => ipcRenderer.invoke('github-workflow-jobs', { remoteUrl, runId }),
+    jobLogs: (remoteUrl, jobId) => ipcRenderer.invoke('github-job-logs', { remoteUrl, jobId }),
     pullRequests: (remoteUrl) => ipcRenderer.invoke('github-pull-requests', { remoteUrl }),
     createPR: (params) => ipcRenderer.invoke('github-create-pr', params)
   },
@@ -292,11 +406,13 @@ contextBridge.exposeInMainWorld('electron_api', {
     scanTodos: (projectPath) => ipcRenderer.invoke('scan-todos', projectPath),
     stats: (projectPath) => ipcRenderer.invoke('project-stats', projectPath),
     onQuickActionRun: createListener('quickaction:run'),
+    setCloudKey: (projectId, cloudProjectKey) => ipcRenderer.invoke('project:set-cloud-key', { projectId, cloudProjectKey }),
   },
 
   // ==================== CLAUDE ====================
   claude: {
-    sessions: (projectPath) => ipcRenderer.invoke('claude-sessions', projectPath)
+    sessions: (projectPath) => ipcRenderer.invoke('claude-sessions', projectPath),
+    sessionReplay: (params) => ipcRenderer.invoke('claude-session-replay', params)
   },
 
   // ==================== CHAT (Agent SDK) ====================
@@ -313,11 +429,15 @@ contextBridge.exposeInMainWorld('electron_api', {
     onError: createListener('chat-error'),
     onDone: createListener('chat-done'),
     onIdle: createListener('chat-idle'),
+    onInitializing: createListener('chat-initializing'),
     onPermissionRequest: createListener('chat-permission-request'),
     generateTabName: (params) => ipcRenderer.invoke('chat-generate-tab-name', params),
     loadHistory: (params) => ipcRenderer.invoke('chat-load-history', params),
     generateSkillAgent: (params) => ipcRenderer.invoke('chat-generate-skill-agent', params),
-    cancelGeneration: (params) => ipcRenderer.send('chat-cancel-generation', params)
+    cancelGeneration: (params) => ipcRenderer.send('chat-cancel-generation', params),
+    generateSuggestions: (params) => ipcRenderer.invoke('chat-generate-suggestions', params),
+    analyzeSession: (params) => ipcRenderer.invoke('chat-analyze-session', params),
+    applyClaudeMd: (params) => ipcRenderer.invoke('claude-md-apply', params),
   },
 
   // ==================== HOOKS ====================
@@ -326,7 +446,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     remove: () => ipcRenderer.invoke('hooks-remove'),
     status: () => ipcRenderer.invoke('hooks-status'),
     verify: () => ipcRenderer.invoke('hooks-verify'),
-    onEvent: createListener('hook-event')
+    onEvent: createListener('hook-event'),
+    resolvePermission: (requestId, decision) => ipcRenderer.send('hooks-resolve-permission', { requestId, decision })
   },
 
   // ==================== REMOTE CONTROL ====================
@@ -383,6 +504,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     onAutoSyncStatus: createListener('cloud:auto-sync-status'),
     deleteProject: (params) => ipcRenderer.invoke('cloud:delete-project', params),
     syncSkills: () => ipcRenderer.invoke('cloud:sync-skills'),
+    importProject: (params) => ipcRenderer.invoke('cloud:import-project', params),
+    getMachineId: () => ipcRenderer.invoke('cloud:get-machine-id'),
   },
 
   // ==================== USAGE ====================
@@ -398,7 +521,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     select: (project) => ipcRenderer.send('quick-pick-select', project),
     close: () => ipcRenderer.send('quick-pick-close'),
     onReloadProjects: createListener('reload-projects'),
-    onOpenProject: createListener('open-project')
+    onOpenProject: createListener('open-project'),
+    onNavigateTab: createListener('navigate-to-tab')
   },
 
   // ==================== TRAY ====================
@@ -419,7 +543,8 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== SETUP WIZARD ====================
   setupWizard: {
     complete: (settings) => ipcRenderer.invoke('setup-wizard-complete', settings),
-    skip: () => ipcRenderer.send('setup-wizard-skip')
+    skip: () => ipcRenderer.send('setup-wizard-skip'),
+    rerun: () => ipcRenderer.send('setup-wizard-rerun')
   },
 
   // ==================== APP LIFECYCLE ====================
@@ -448,6 +573,22 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== TIME TRACKING ====================
   time: {
     getStats: (config) => ipcRenderer.invoke('time:get-stats', config),
+  },
+
+  // ==================== PARALLEL TASKS ====================
+  parallel: {
+    startRun:    (p) => ipcRenderer.invoke('parallel-run-start', p),
+    cancelRun:   (p) => ipcRenderer.invoke('parallel-run-cancel', p),
+    confirmRun:  (p) => ipcRenderer.invoke('parallel-run-confirm', p),
+    refineRun:   (p) => ipcRenderer.invoke('parallel-run-refine', p),
+    cleanupRun:  (p) => ipcRenderer.invoke('parallel-run-cleanup', p),
+    mergeRun:     (p) => ipcRenderer.invoke('parallel-merge-run', p),
+    cancelMerge:  (p) => ipcRenderer.invoke('parallel-merge-cancel', p),
+    removeHistory: (p) => ipcRenderer.invoke('parallel-history-remove', p),
+    getHistory:  (p) => ipcRenderer.invoke('parallel-history', p),
+    onRunStatus:  createListener('parallel-run-status'),
+    onTaskUpdate: createListener('parallel-task-update'),
+    onTaskOutput: createListener('parallel-task-output'),
   },
 
   // ==================== WORKFLOW AUTOMATION ====================
@@ -483,5 +624,11 @@ contextBridge.exposeInMainWorld('electron_api', {
     onNotifyDesktop:  createListener('workflow-notify-desktop'),
     clearAllRuns:     ()             => ipcRenderer.invoke('workflow-clear-runs'),
     onListUpdated:    createListener('workflow-list-updated'),
+  },
+
+  // ==================== CONTROL TOWER ====================
+  controlTower: {
+    // Fired by main process when an MCP interrupt trigger is received
+    onInterrupt: createListener('control-tower:interrupt'),
   }
 });

@@ -84,13 +84,261 @@ function renderMarkdown(text) {
   ensureMarkedConfig();
   try {
     return marked.parse(text);
-  } catch {
-    return `<p>${escapeHtml(text)}</p>`;
+  } catch (err) {
+    console.error('[ChatView] Markdown render failed:', err.message, '\nContent:', text.slice(0, 200));
+    return `<pre class="chat-markdown-fallback">${escapeHtml(text)}</pre>`;
   }
 }
 
 function unescapeHtml(html) {
   return html.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+}
+
+// ── Context Suggestions ──
+
+function createContextSuggestions(project, inputEl, getDefaultPlaceholder) {
+  const CACHE_TTL = 30_000;
+  const ROTATION_INTERVAL = 4_000;
+
+  let suggestions = [];
+  let currentIndex = 0;
+  let rotationTimer = null;
+  let cache = null; // { suggestions: string[], timestamp: number }
+  let _refreshing = false;
+  let _initTimer = null;
+  let _postStreamTimer = null;
+
+  function buildSuggestions(todos, gitStatus) {
+    const result = [];
+    const gitCount = gitStatus
+      ? (gitStatus.modified?.length || 0) + (gitStatus.staged?.length || 0) + (gitStatus.untracked?.length || 0)
+      : 0;
+    if (gitCount > 0) result.push(t('chat.suggestGit', { count: gitCount }));
+    return result;
+  }
+
+  async function refresh() {
+    if (!project?.path || _refreshing) return;
+    _refreshing = true;
+    const now = Date.now();
+    if (cache && now - cache.timestamp < CACHE_TTL) {
+      suggestions = cache.suggestions;
+      _refreshing = false;
+      _start();
+      return;
+    }
+    try {
+      const [todos, gitStatus] = await Promise.all([
+        api.project.scanTodos(project.path).catch(() => []),
+        api.git.statusDetailed({ projectPath: project.path }).catch(() => null),
+      ]);
+      suggestions = buildSuggestions(todos, gitStatus);
+      cache = { suggestions, timestamp: Date.now() };
+    } catch {
+      suggestions = [];
+    } finally {
+      _refreshing = false;
+    }
+    _start();
+  }
+
+  function _start() {
+    stop();
+    if (!suggestions.length) return;
+    currentIndex = 0;
+    _apply();
+    if (suggestions.length > 1) {
+      rotationTimer = setInterval(() => {
+        if (inputEl.value !== '') { stop(); return; }
+        currentIndex = (currentIndex + 1) % suggestions.length;
+        _apply();
+      }, ROTATION_INTERVAL);
+    }
+  }
+
+  function _apply() {
+    // Don't overwrite if user has typed something
+    if (inputEl.value !== '') return;
+    inputEl.placeholder = suggestions[currentIndex] || getDefaultPlaceholder();
+  }
+
+  function stop() {
+    if (rotationTimer) { clearInterval(rotationTimer); rotationTimer = null; }
+  }
+
+  function reset() {
+    stop();
+    if (_initTimer) { clearTimeout(_initTimer); _initTimer = null; }
+    if (_postStreamTimer) { clearTimeout(_postStreamTimer); _postStreamTimer = null; }
+    _refreshing = false;
+    suggestions = [];
+    inputEl.placeholder = getDefaultPlaceholder();
+  }
+
+  function handleTab(event) {
+    if (inputEl.value !== '' || !suggestions.length) return false;
+    event.preventDefault();
+    // Strip the " [Tab]" hint from the raw i18n string and insert clean text
+    const raw = suggestions[currentIndex] || '';
+    const clean = raw.replace(/\s*\[Tab\]\s*$/, '');
+    inputEl.value = clean;
+    inputEl.selectionStart = inputEl.selectionEnd = clean.length;
+    reset();
+    return true;
+  }
+
+  return { refresh, stop, reset, handleTab, setInitTimer(t) { _initTimer = t; }, setPostStreamTimer(t) { _postStreamTimer = t; } };
+}
+
+// ── Follow-up Suggestion Chips ──
+
+const SPARKLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5z"/><path d="M19 15l.75 2.25L22 18l-2.25.75L19 21l-.75-2.25L16 18l2.25-.75z"/></svg>`;
+
+function createFollowupChips(suggestionsContainerEl, inputEl, project) {
+  let _generationTimer = null;
+  let _pendingGeneration = false;
+  let _lastAssistantText = '';
+  let _lastUserText = '';
+
+  function _render(chips) {
+    if (!chips || chips.length === 0) {
+      suggestionsContainerEl.style.display = 'none';
+      suggestionsContainerEl.innerHTML = '';
+      return;
+    }
+
+    const label = document.createElement('span');
+    label.className = 'chat-followup-label';
+    label.textContent = t('chat.suggestionsLabel') || 'Suggestions';
+
+    const chipsWrapper = document.createElement('div');
+    chipsWrapper.className = 'chat-followup-chips';
+    chipsWrapper.setAttribute('role', 'listbox');
+    chipsWrapper.setAttribute('aria-label', t('chat.suggestionsLabel') || 'Suggestions');
+
+    chips.forEach((text, chipIndex) => {
+      const chip = document.createElement('button');
+      chip.className = 'chat-followup-chip';
+      chip.setAttribute('role', 'option');
+      chip.setAttribute('aria-selected', 'false');
+      chip.setAttribute('tabindex', chipIndex === 0 ? '0' : '-1');
+      chip.innerHTML = `<span class="chat-followup-chip-icon">${SPARKLE_ICON}</span><span class="chat-followup-chip-text">${escapeHtml(text)}</span>`;
+      chip.title = text;
+      chip.addEventListener('click', () => {
+        // If input has text, append the suggestion; otherwise replace
+        const existing = inputEl.value.trim();
+        if (existing) {
+          const combined = existing + ' ' + text;
+          inputEl.value = combined;
+          inputEl.style.height = 'auto';
+          inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+          inputEl.focus();
+          inputEl.selectionStart = inputEl.selectionEnd = combined.length;
+        } else {
+          inputEl.value = text;
+          inputEl.style.height = 'auto';
+          inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+          inputEl.focus();
+          inputEl.selectionStart = inputEl.selectionEnd = text.length;
+        }
+        // Hide chips after selection
+        clear();
+      });
+      // Keyboard navigation within chips
+      chip.addEventListener('keydown', (e) => {
+        const allChips = Array.from(chipsWrapper.querySelectorAll('.chat-followup-chip'));
+        const idx = allChips.indexOf(chip);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const next = allChips[idx + 1];
+          if (next) { chip.setAttribute('tabindex', '-1'); next.setAttribute('tabindex', '0'); next.focus(); }
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prev = allChips[idx - 1];
+          if (prev) { chip.setAttribute('tabindex', '-1'); prev.setAttribute('tabindex', '0'); prev.focus(); }
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          inputEl.focus();
+        }
+      });
+      chipsWrapper.appendChild(chip);
+    });
+
+    suggestionsContainerEl.innerHTML = '';
+    suggestionsContainerEl.appendChild(label);
+    suggestionsContainerEl.appendChild(chipsWrapper);
+    suggestionsContainerEl.style.display = 'flex';
+  }
+
+  async function _fetchContextChips() {
+    if (!project?.path) return [];
+    const extra = [];
+    try {
+      const todos = await api.project.scanTodos(project.path).catch(() => []);
+      const todoCount = Array.isArray(todos) ? todos.length : 0;
+      if (todoCount > 0) {
+        extra.push(t('chat.suggestTodos', { count: todoCount }).replace(/\s*\[Tab\]\s*$/, ''));
+      }
+    } catch { /* ignore */ }
+    return extra;
+  }
+
+  async function generate(assistantText, userText) {
+    _lastAssistantText = assistantText || '';
+    _lastUserText = userText || '';
+
+    if (!_lastAssistantText || _pendingGeneration) return;
+
+    // Clear previous chips while generating
+    suggestionsContainerEl.style.display = 'none';
+    suggestionsContainerEl.innerHTML = '';
+    _pendingGeneration = true;
+
+    try {
+      const [result, contextChips] = await Promise.all([
+        api.chat.generateSuggestions({
+          lastAssistantText: _lastAssistantText.slice(0, 800),
+          lastUserText: _lastUserText.slice(0, 300),
+          projectContext: project ? { name: project.name, type: project.type, path: project.path } : null,
+        }).catch(() => null),
+        _fetchContextChips(),
+      ]);
+      const aiChips = (result && result.success && Array.isArray(result.suggestions)) ? result.suggestions : [];
+      const allChips = [...aiChips, ...contextChips];
+      if (allChips.length > 0) {
+        _render(allChips);
+      }
+    } catch (err) {
+      // Silently ignore errors — suggestions are non-critical
+      console.warn('[ChatView] generateSuggestions failed:', err.message);
+    } finally {
+      _pendingGeneration = false;
+    }
+  }
+
+  function scheduleGeneration(assistantText, userText, delay = 400) {
+    if (_generationTimer) { clearTimeout(_generationTimer); _generationTimer = null; }
+    _generationTimer = setTimeout(() => {
+      _generationTimer = null;
+      generate(assistantText, userText);
+    }, delay);
+  }
+
+  function clear() {
+    if (_generationTimer) { clearTimeout(_generationTimer); _generationTimer = null; }
+    _pendingGeneration = false;
+    suggestionsContainerEl.style.display = 'none';
+    suggestionsContainerEl.innerHTML = '';
+  }
+
+  // Hide chips when user starts typing
+  inputEl.addEventListener('input', () => {
+    if (inputEl.value !== '' && suggestionsContainerEl.style.display !== 'none') {
+      clear();
+    }
+  });
+
+  return { scheduleGeneration, clear };
 }
 
 // ── Tool Icons ──
@@ -125,7 +373,7 @@ function getToolDisplayInfo(toolName, input) {
 // ── Create Chat View ──
 
 function createChatView(wrapperEl, project, options = {}) {
-  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null } = options;
+  const { terminalId = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, skipPermissions = false, onTabRename = null, onStatusChange = null, onSwitchTerminal = null, onSwitchProject = null, onForkSession = null, initialPrompt = null, initialModel = null, initialEffort = null, initialImages = null, onSessionStart = null, systemPrompt = null, builtinSystemPrompt = null } = options;
   let sessionId = null;
   let isStreaming = false;
   let isAborting = false;
@@ -155,7 +403,17 @@ function createChatView(wrapperEl, project, options = {}) {
   let todoAllDone = false; // tracks if all todos are completed
   let slashCommands = []; // populated from system/init message
   let slashSelectedIndex = -1; // currently highlighted item in slash dropdown
+  let lastUserText = ''; // last user message text, used for follow-up suggestions
+  let lastAssistantText = ''; // last finalized assistant response text, used for follow-up suggestions
+  // Accumulates messages for CLAUDE.md analysis (role: 'user'|'assistant', content: string)
+  const conversationHistory = [];
   const unsubscribers = [];
+
+  // ── Session recap tracking (for chat-mode sessions) ──
+  let recapToolCount = 0;
+  const recapToolCounts = {}; // { toolName: count }
+  const recapUserPrompts = []; // first 5 user prompts
+  const recapSessionStartTime = Date.now();
 
   // ── Lightbox state ──
   let lightboxEl = null;
@@ -176,6 +434,7 @@ function createChatView(wrapperEl, project, options = {}) {
         <div class="chat-mention-dropdown" style="display:none"></div>
         <div class="chat-slash-dropdown" style="display:none"></div>
         <div class="chat-mention-chips" style="display:none"></div>
+        <div class="chat-followup-suggestions" style="display:none"></div>
         <div class="chat-image-preview" style="display:none"></div>
         <div class="chat-input-wrapper">
           <button class="chat-attach-btn" title="${escapeHtml(t('chat.attachImage'))}">
@@ -235,6 +494,7 @@ function createChatView(wrapperEl, project, options = {}) {
   const imagePreview = chatView.querySelector('.chat-image-preview');
   const mentionDropdown = chatView.querySelector('.chat-mention-dropdown');
   const mentionChipsEl = chatView.querySelector('.chat-mention-chips');
+  const followupSuggestionsEl = chatView.querySelector('.chat-followup-suggestions');
 
   // ── Mention state ──
 
@@ -275,6 +535,7 @@ function createChatView(wrapperEl, project, options = {}) {
   }
 
   function toggleModelDropdown() {
+    if (modelBtn.disabled) return;
     const visible = modelDropdown.style.display !== 'none';
     if (visible) {
       modelDropdown.style.display = 'none';
@@ -332,6 +593,7 @@ function createChatView(wrapperEl, project, options = {}) {
   }
 
   function toggleEffortDropdown() {
+    if (effortBtn.disabled) return;
     const visible = effortDropdown.style.display !== 'none';
     if (visible) {
       effortDropdown.style.display = 'none';
@@ -376,6 +638,14 @@ function createChatView(wrapperEl, project, options = {}) {
 
   initModelSelector();
   initEffortSelector();
+
+  // ── Context suggestions (placeholder rotation before first message) ──
+  const contextSuggestions = createContextSuggestions(project, inputEl, () => t('chat.placeholder'));
+  // Defer initial scan to let the component finish mounting
+  contextSuggestions.setInitTimer(setTimeout(() => { if (project?.path) contextSuggestions.refresh(); }, 500));
+
+  // ── Follow-up suggestion chips (shown after Claude responds) ──
+  const followupChips = createFollowupChips(followupSuggestionsEl, inputEl, project);
 
   attachBtn.addEventListener('click', () => fileInput.click());
 
@@ -460,6 +730,7 @@ function createChatView(wrapperEl, project, options = {}) {
   inputEl.addEventListener('input', () => {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+    if (inputEl.value !== '') contextSuggestions.stop();
     // Slash commands take precedence (/ at start of line)
     if (inputEl.value.startsWith('/')) {
       hideMentionDropdown();
@@ -553,6 +824,20 @@ function createChatView(wrapperEl, project, options = {}) {
       }
     }
 
+    // Context suggestion — Tab to accept
+    if (e.key === 'Tab' && mentionDropdown.style.display === 'none' && slashDropdown.style.display === 'none') {
+      if (contextSuggestions.handleTab(e)) return;
+      // Tab to focus follow-up suggestion chips (if visible and input empty or has text)
+      if (followupSuggestionsEl.style.display !== 'none') {
+        const firstChip = followupSuggestionsEl.querySelector('.chat-followup-chip');
+        if (firstChip) {
+          e.preventDefault();
+          firstChip.focus();
+          return;
+        }
+      }
+    }
+
     if (e.key === 'Enter' && !shiftHeld && !e.shiftKey && !e.getModifierState('Shift')) {
       e.preventDefault();
       handleSend();
@@ -570,7 +855,7 @@ function createChatView(wrapperEl, project, options = {}) {
     }
     const query = text.slice(1).toLowerCase();
     // Default commands available even before session init
-    const builtinDefaults = ['/compact', '/clear', '/help'];
+    const builtinDefaults = ['/compact', '/clear', '/help', '/reload-plugins', '/simplify', '/batch'];
     const available = slashCommands.length > 0 ? slashCommands : builtinDefaults;
     const filtered = available.filter(cmd => {
       const name = cmd.replace(/^\//, '').toLowerCase();
@@ -613,6 +898,9 @@ function createChatView(wrapperEl, project, options = {}) {
       '/compact': t('chat.slashCompact'),
       '/clear': t('chat.slashClear'),
       '/help': t('chat.slashHelp'),
+      '/reload-plugins': t('chat.slashReloadPlugins'),
+      '/simplify': t('chat.slashSimplify'),
+      '/batch': t('chat.slashBatch'),
     };
     return descriptions[cmd] || '';
   }
@@ -656,6 +944,7 @@ function createChatView(wrapperEl, project, options = {}) {
     { type: 'project', label: '@project', desc: t('chat.mentionProject'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>' },
     { type: 'context', label: '@context', desc: t('chat.mentionContext'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
     { type: 'prompt', label: '@prompt', desc: t('chat.mentionPrompt'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>' },
+    { type: 'ParallelTask', label: '@ParallelTask', desc: t('chat.mentionParallelTask'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
   ];
 
   // ── Mention picker infrastructure ──
@@ -944,6 +1233,16 @@ function createChatView(wrapperEl, project, options = {}) {
   }
 
   function selectMentionType(type) {
+    // @ParallelTask — navigate to Parallel Task Manager tab
+    if (type === 'ParallelTask') {
+      removeAtTrigger();
+      hideMentionDropdown();
+      inputEl.focus();
+      const parallelTab = document.querySelector('.nav-tab[data-tab="tasks"]');
+      if (parallelTab) parallelTab.click();
+      return;
+    }
+
     // If this type has a picker, switch to picker mode
     const pickerKey = PICKER_TYPE_MAP[type];
     if (pickerKey) {
@@ -1477,6 +1776,8 @@ function createChatView(wrapperEl, project, options = {}) {
     if ((!text && !hasImages && !hasMentions) || sendLock) return;
 
     sendLock = true;
+    // Track user prompt for session recap (first 5 prompts)
+    if (text && recapUserPrompts.length < 5) recapUserPrompts.push(text);
     if (project?.id) heartbeat(project.id, 'chat');
     api.telemetry?.sendFeature?.({ feature: 'chat:message', metadata: {} });
 
@@ -1499,8 +1800,13 @@ function createChatView(wrapperEl, project, options = {}) {
       setTimeout(() => el.remove(), 300);
     }
 
+    // Track last user text for follow-up suggestion context, clear chips
+    if (text) lastUserText = text;
+    followupChips.clear();
+
     const isQueued = isStreaming && sessionId;
     appendUserMessage(text, images, mentions, isQueued);
+    if (text) conversationHistory.push({ role: 'user', content: text });
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
@@ -1535,8 +1841,21 @@ function createChatView(wrapperEl, project, options = {}) {
           effort: selectedEffort,
           enable1MContext: getSetting('enable1MContext') || false
         };
+        // Built-in prompt (global/project-type): appends to claude_code preset, keeps CLAUDE.md
+        if (builtinSystemPrompt) {
+          startOpts.systemPrompt = builtinSystemPrompt;
+        }
+        // User-defined system prompt: merged into append, skips project/local CLAUDE.md
         if (systemPrompt) {
-          startOpts.systemPrompt = systemPrompt;
+          const userText = typeof systemPrompt === 'string' ? systemPrompt : (systemPrompt.text || '');
+          if (startOpts.systemPrompt) {
+            startOpts.systemPrompt = {
+              ...startOpts.systemPrompt,
+              append: (startOpts.systemPrompt.append ? startOpts.systemPrompt.append + '\n\n' : '') + userText
+            };
+          } else {
+            startOpts.systemPrompt = systemPrompt;
+          }
           // Keep 'user' to load ~/.claude.json MCP config, but skip project/local CLAUDE.md
           startOpts.settingSources = ['user'];
         }
@@ -1595,6 +1914,9 @@ function createChatView(wrapperEl, project, options = {}) {
     if (!card) return;
     const requestId = card.dataset.requestId;
     const action = btn.dataset.action;
+
+    // Clear permission reminder timers
+    _clearPermTimers(requestId);
 
     card.querySelectorAll('.chat-perm-btn').forEach(b => {
       b.disabled = true;
@@ -2125,7 +2447,10 @@ function createChatView(wrapperEl, project, options = {}) {
     if (currentStreamEl && currentStreamText) {
       currentStreamEl.innerHTML = renderMarkdown(currentStreamText);
       injectInlineImages(currentStreamEl);
+      // Capture for follow-up suggestions (plain text, truncated to avoid large memory)
+      lastAssistantText = currentStreamText.slice(0, 1200);
     }
+    if (currentStreamText) conversationHistory.push({ role: 'assistant', content: currentStreamText });
     currentStreamEl = null;
     currentStreamText = '';
   }
@@ -2855,11 +3180,26 @@ function createChatView(wrapperEl, project, options = {}) {
     stopBtn.style.display = streaming ? '' : 'none';
     chatView.classList.toggle('streaming', streaming);
 
+    // Fix #7: Disable model/effort dropdowns during streaming
+    modelBtn.disabled = streaming;
+    effortBtn.disabled = streaming;
+    modelBtn.classList.toggle('disabled', streaming);
+    effortBtn.classList.toggle('disabled', streaming);
+    if (streaming) {
+      modelDropdown.style.display = 'none';
+      effortDropdown.style.display = 'none';
+    }
+
     if (streaming) {
       inputEl.placeholder = t('chat.queuePlaceholder') || 'Queue a follow-up message...';
       setStatus('thinking', t('chat.thinking'));
     } else {
-      inputEl.placeholder = t('chat.placeholder');
+      // Refresh contextual suggestions (placeholder rotation) after streaming ends
+      contextSuggestions.setPostStreamTimer(setTimeout(() => contextSuggestions.refresh(), 300));
+      // Generate follow-up suggestion chips based on last assistant response
+      if (lastAssistantText && getSetting('enableFollowupSuggestions') !== false) {
+        followupChips.scheduleGeneration(lastAssistantText, lastUserText, 500);
+      }
       setStatus('idle', t('chat.ready') || 'Ready');
       inputEl.focus();
     }
@@ -2981,6 +3321,10 @@ function createChatView(wrapperEl, project, options = {}) {
     // System messages
     if (message.type === 'system') {
       if (message.subtype === 'init') {
+        // Clear initializing indicator (runtime resolved, SDK ready)
+        if (_initSecondaryTimer) { clearTimeout(_initSecondaryTimer); _initSecondaryTimer = null; }
+        const initIndicator = messagesEl.querySelector('.chat-initializing-indicator');
+        if (initIndicator) initIndicator.remove();
         model = message.model || '';
         updateStatusInfo();
         // Capture available slash commands for autocomplete
@@ -3091,6 +3435,9 @@ function createChatView(wrapperEl, project, options = {}) {
         } else if (block.type === 'tool_use') {
           finalizeStreamBlock();
           currentMsgHasToolUse = true;
+          // Track for session recap
+          recapToolCount++;
+          recapToolCounts[block.name] = (recapToolCounts[block.name] || 0) + 1;
           const blockIdx = event.index ?? blockIndex;
           // TodoWrite, Task & AskUserQuestion get special UI — no generic tool card
           if (block.name === 'TodoWrite') {
@@ -3283,6 +3630,11 @@ function createChatView(wrapperEl, project, options = {}) {
       }
     }
 
+    // If assistant sends text, collapse any question cards answered externally (e.g. from CT)
+    if (content.some(b => b.type === 'text')) {
+      collapseExternallyAnsweredQuestionCards();
+    }
+
     let hasToolUse = false;
     for (const block of content) {
       if (block.type === 'tool_use') {
@@ -3351,12 +3703,36 @@ function createChatView(wrapperEl, project, options = {}) {
   }
 
   /**
+   * Collapse question cards that were answered externally (e.g. from Control Tower).
+   * Called when a new assistant text message arrives — meaning the SDK already
+   * received the answer and continued, so we just need to update the UI.
+   */
+  function collapseExternallyAnsweredQuestionCards() {
+    // Fallback: if a question card was answered from CT (ct-question-answered event already
+    // collapsed it with the real answer), this handles any remaining unresolved cards
+    // e.g. from a race condition or non-CT source.
+    messagesEl.querySelectorAll('.chat-question-card:not(.resolved)').forEach(card => {
+      card.classList.add('resolved');
+      card.innerHTML = `
+        <div class="chat-question-header resolved">
+          <div class="chat-perm-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          </div>
+          <span>${escapeHtml(t('chat.questionAnswered') || 'Answered')}</span>
+        </div>
+      `;
+    });
+  }
+
+  /**
    * Mark all unresolved permission/question cards as failed
    */
   function resolveAllPendingCards() {
     messagesEl.querySelectorAll('.chat-perm-card:not(.resolved), .chat-question-card:not(.resolved), .chat-plan-card:not(.resolved)').forEach(card => {
       card.classList.add('resolved');
       card.querySelectorAll('button').forEach(b => b.disabled = true);
+      // Clear permission timers for resolved cards
+      if (card.dataset.requestId) _clearPermTimers(card.dataset.requestId);
     });
   }
 
@@ -3384,11 +3760,22 @@ function createChatView(wrapperEl, project, options = {}) {
 
   // ── IPC: Done ──
 
-  const unsubDone = api.chat.onDone(({ sessionId: sid }) => {
+  const unsubDone = api.chat.onDone(({ sessionId: sid, interrupted }) => {
     if (sid !== sessionId) return;
+    const wasInterrupted = interrupted || isAborting;
     isAborting = false;
     removeThinkingIndicator();
     finalizeStreamBlock();
+
+    // Fix #4: Show interrupted marker if stream was interrupted
+    if (wasInterrupted) {
+      const marker = document.createElement('div');
+      marker.className = 'chat-interrupted-marker';
+      marker.innerHTML = `<span class="chat-interrupted-label">[${escapeHtml(t('chat.interrupted'))}]</span>`;
+      messagesEl.appendChild(marker);
+      scrollToBottom();
+    }
+
     setStreaming(false);
     // Complete all tool cards
     for (const [, card] of toolCards) {
@@ -3434,15 +3821,132 @@ function createChatView(wrapperEl, project, options = {}) {
   });
   unsubscribers.push(unsubRemoteMsg);
 
+  // ── IPC: Initializing (runtime resolution in progress) ──
+
+  let _initSecondaryTimer = null;
+  const unsubInitializing = api.chat.onInitializing(({ sessionId: sid }) => {
+    if (sid !== sessionId) return;
+    // Show initializing indicator in place of thinking indicator
+    removeThinkingIndicator();
+    const el = document.createElement('div');
+    el.className = 'chat-thinking-indicator chat-initializing-indicator';
+    el.innerHTML = `
+      <img class="chat-thinking-logo" src="assets/claude-mascot.svg" alt="" draggable="false" />
+      <span class="chat-thinking-label">${escapeHtml(t('chat.initializing'))}</span>
+    `;
+    messagesEl.appendChild(el);
+    scrollToBottom();
+    setStatus('thinking', t('chat.initializing'));
+    // After 3s, show secondary message if still initializing
+    _initSecondaryTimer = setTimeout(() => {
+      const indicator = messagesEl.querySelector('.chat-initializing-indicator');
+      if (indicator) {
+        const label = indicator.querySelector('.chat-thinking-label');
+        if (label) label.textContent = t('chat.initializingRuntime');
+      }
+    }, 3000);
+  });
+  unsubscribers.push(unsubInitializing);
+
   // ── IPC: Permission request ──
 
+  let _permTimers = new Map(); // requestId -> { pulseTimer, notifTimer, counterId }
   const unsubPerm = api.chat.onPermissionRequest((data) => {
     if (data.sessionId !== sessionId) return;
     removeThinkingIndicator();
     appendPermissionCard(data);
     setStatus('waiting', t('chat.waitingForInput') || 'Waiting for input...');
+
+    // Fix #2: Permission timeout reminders
+    const requestId = data.requestId;
+    const startTime = Date.now();
+
+    // Counter update interval
+    const counterId = setInterval(() => {
+      const card = messagesEl.querySelector(`.chat-perm-card[data-request-id="${CSS.escape(requestId)}"]:not(.resolved)`);
+      if (!card) { _clearPermTimers(requestId); return; }
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      let counter = card.querySelector('.chat-perm-timer');
+      if (!counter) {
+        counter = document.createElement('span');
+        counter.className = 'chat-perm-timer';
+        const header = card.querySelector('.chat-perm-header');
+        if (header) header.appendChild(counter);
+      }
+      counter.textContent = t('chat.permissionWaitingSince', { seconds: elapsed });
+    }, 1000);
+
+    // After 30s, pulse the action buttons
+    const pulseTimer = setTimeout(() => {
+      const card = messagesEl.querySelector(`.chat-perm-card[data-request-id="${CSS.escape(requestId)}"]:not(.resolved)`);
+      if (card) card.classList.add('perm-attention');
+    }, 30000);
+
+    // After 60s, send a system notification
+    const notifTimer = setTimeout(() => {
+      const card = messagesEl.querySelector(`.chat-perm-card[data-request-id="${CSS.escape(requestId)}"]:not(.resolved)`);
+      if (card) {
+        api.notification?.show?.({
+          title: t('chat.permissionRequired'),
+          body: t('chat.permissionNotification', { tool: data.toolName }),
+        });
+      }
+    }, 60000);
+
+    _permTimers.set(requestId, { pulseTimer, notifTimer, counterId });
   });
   unsubscribers.push(unsubPerm);
+
+  function _clearPermTimers(requestId) {
+    const timers = _permTimers.get(requestId);
+    if (timers) {
+      clearTimeout(timers.pulseTimer);
+      clearTimeout(timers.notifTimer);
+      clearInterval(timers.counterId);
+      _permTimers.delete(requestId);
+    }
+  }
+
+  // ── Control Tower: question answered externally ──
+  // When CT answers an AskUserQuestion, it dispatches this event so we can
+  // collapse the card immediately with the real answer instead of a generic fallback.
+
+  function _onCtQuestionAnswered({ detail }) {
+    const { requestId, questions, answers } = detail || {};
+    if (!requestId) return;
+    let card;
+    try {
+      card = messagesEl.querySelector(`.chat-question-card[data-request-id="${CSS.escape(requestId)}"]`);
+    } catch (e) {
+      card = Array.from(messagesEl.querySelectorAll('.chat-question-card'))
+        .find(c => c.dataset.requestId === requestId);
+    }
+    if (!card || card.classList.contains('resolved')) return;
+
+    const pairsHtml = Object.entries(answers || {}).map(([q, a]) =>
+      `<div class="chat-qa-pair">
+        <span class="chat-qa-question">${escapeHtml(q)}</span>
+        <span class="chat-qa-answer">${escapeHtml(a)}</span>
+      </div>`
+    ).join('') || (Array.isArray(questions) ? questions.map(q =>
+      `<div class="chat-qa-pair">
+        <span class="chat-qa-question">${escapeHtml(q.question || '')}</span>
+      </div>`
+    ).join('') : '');
+
+    card.classList.add('resolved');
+    card.innerHTML = `
+      <div class="chat-question-header resolved">
+        <div class="chat-perm-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        </div>
+        <span>${escapeHtml(t('chat.questionAnswered') || 'Answered')}</span>
+      </div>
+      <div class="chat-qa-summary">${pairsHtml}</div>
+    `;
+  }
+  document.addEventListener('ct-question-answered', _onCtQuestionAnswered);
+  unsubscribers.push(() => document.removeEventListener('ct-question-answered', _onCtQuestionAnswered));
 
   // If resuming, load and display conversation history
   if (pendingResumeId) {
@@ -3468,6 +3972,7 @@ function createChatView(wrapperEl, project, options = {}) {
       divider.className = 'chat-history-divider';
       divider.innerHTML = `<span>${escapeHtml(dividerText)}</span>`;
       messagesEl.appendChild(divider);
+      userHasScrolled = false;
       scrollToBottom();
     }).catch(() => {
       if (welcomeEl) {
@@ -3616,6 +4121,7 @@ function createChatView(wrapperEl, project, options = {}) {
           setTimeout(renderBatch, 0);
         }
       } else {
+        userHasScrolled = false;
         scrollToBottom();
       }
     }
@@ -3643,7 +4149,36 @@ function createChatView(wrapperEl, project, options = {}) {
 
   return {
     destroy() {
+      // Emit session recap event before closing (chat-mode sessions only)
+      if (recapToolCount >= 2 && project?.id) {
+        try {
+          const { getEventBus, EVENT_TYPES: ET } = require('../../events');
+          getEventBus().emit(ET.SESSION_END, {
+            reason: 'chat_close',
+            toolCount: recapToolCount,
+            toolCounts: recapToolCounts,
+            prompts: recapUserPrompts,
+            durationMs: Date.now() - recapSessionStartTime
+          }, { projectId: project.id, projectPath: project.path || '', source: 'chat' });
+        } catch (e) { /* events not ready */ }
+      }
       if (sessionId) api.chat.close({ sessionId });
+      contextSuggestions.reset();
+      followupChips.clear();
+      // Clear permission reminder timers
+      for (const [id] of _permTimers) _clearPermTimers(id);
+      if (_initSecondaryTimer) { clearTimeout(_initSecondaryTimer); _initSecondaryTimer = null; }
+      // Trigger CLAUDE.md analysis if enabled and session had exchanges
+      if (getSetting('autoClaudeMdUpdate') !== false && conversationHistory.length >= 2 && project?.path) {
+        const { showClaudeMdSuggestionModal } = require('./ClaudeMdSuggestionModal');
+        api.chat.analyzeSession({ messages: conversationHistory, projectPath: project.path })
+          .then(({ suggestions, claudeMdExists }) => {
+            if (suggestions && suggestions.length > 0) {
+              showClaudeMdSuggestionModal(suggestions, claudeMdExists, project.path);
+            }
+          })
+          .catch(err => console.warn('[ChatView] CLAUDE.md analysis error:', err.message));
+      }
       for (const unsub of unsubscribers) {
         if (typeof unsub === 'function') unsub();
       }

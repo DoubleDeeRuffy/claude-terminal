@@ -125,6 +125,16 @@ function _startMcpTriggerPolling(mainWindow) {
         webAppService.stop({ projectIndex });
       }
     });
+
+    // Control Tower — terminal interrupt
+    // The renderer holds the project→terminal mapping, so we forward there.
+    _pollTriggerDir(path.join(dataDir, 'terminal', 'triggers'), (data) => {
+      if (data.type !== 'interrupt' || !data.projectId) return;
+      console.log(`[Services] MCP interrupt: ${data.projectId}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('control-tower:interrupt', { projectId: data.projectId });
+      }
+    });
   }, 2000);
 }
 
@@ -139,12 +149,16 @@ function cleanupServices() {
   apiService.stopAll();
   minecraftService.stopAll();
   chatService.closeAll();
+  chatService.destroy();
   hookEventServer.stop();
   remoteServer.stop();
   workflowService.destroy();
   cloudSyncService.stop();
   databaseService.disconnectAll().catch(() => {});
   if (_mcpPollTimer) clearInterval(_mcpPollTimer);
+  // Kill any active git child processes (clone, pull, push, etc.)
+  const { killAllGitProcesses } = require('../utils/git');
+  killAllGitProcesses();
 }
 
 module.exports = {

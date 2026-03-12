@@ -4,14 +4,27 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/downloads/Sterll/claude-terminal/total?color=d97706&label=downloads" alt="Downloads" />
-  <img src="https://img.shields.io/badge/version-1.0.2-orange" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.1.1-orange" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License" />
   <img src="https://img.shields.io/badge/electron-28-purple" alt="Electron" />
+  <img src="https://img.shields.io/github/actions/workflow/status/Sterll/claude-terminal/ci.yml?branch=main&label=CI" alt="CI Status" />
+  <img src="https://img.shields.io/github/contributors/Sterll/claude-terminal" alt="Contributors" />
+  <img
+    src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_fr.json"
+    alt="i18n French"
+  />
+  <img
+    src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_es.json"
+    alt="i18n Spanish"
+  />
 </p>
 
 <p align="center">
-  A cross-platform desktop application for managing <a href="https://github.com/anthropics/claude-code">Claude Code</a> projects with an integrated terminal environment, git workflows, plugin management, and more.
+  A cross-platform desktop application for managing
+  <a href="https://github.com/anthropics/claude-code">Claude Code</a>
+  projects with an integrated terminal environment, git workflows, plugin management,
+  and more.
 </p>
 
 <p align="center">
@@ -20,6 +33,67 @@
   <a href="https://x.com/ClaudeTerminal_">Twitter</a> &bull;
   <a href="https://buymeacoffee.com/claudeterminal">Buy Me a Coffee</a>
 </p>
+
+<p align="center">
+  <a
+    href="https://www.producthunt.com/products/claude-terminal?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-claude-terminal"
+    target="_blank"
+    rel="noopener noreferrer"
+  ><img
+    alt="Claude Terminal - The missing desktop app for Claude Code developers | Product Hunt"
+    width="250"
+    height="54"
+    src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1089096&amp;theme=light&amp;t=1772614696412"
+  ></a>
+</p>
+
+<p align="center">
+  <img
+    src="https://img.shields.io/github/languages/top/Sterll/claude-terminal?color=7c3aed&amp;label=Top%20language"
+    alt="Top language"
+  />
+  <img
+    src="https://img.shields.io/github/languages/count/Sterll/claude-terminal?color=2563eb&amp;label=Languages"
+    alt="Languages count"
+  />
+  <img
+    src="https://img.shields.io/github/languages/code-size/Sterll/claude-terminal?color=0f766e&amp;label=Code%20size"
+    alt="Code size"
+  />
+</p>
+
+---
+
+## 📊 Project Health
+
+### Contributors
+
+<a href="https://github.com/Sterll/claude-terminal/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Sterll/claude-terminal" alt="Contributors" />
+</a>
+
+### Activity
+
+[![Commit activity](https://img.shields.io/github/commit-activity/m/Sterll/claude-terminal?label=commits%2Fmonth)](https://github.com/Sterll/claude-terminal/graphs/commit-activity)
+[![Last commit](https://img.shields.io/github/last-commit/Sterll/claude-terminal)](https://github.com/Sterll/claude-terminal/commits/main)
+[![Issues](https://img.shields.io/github/issues/Sterll/claude-terminal)](https://github.com/Sterll/claude-terminal/issues)
+[![Pull Requests](https://img.shields.io/github/issues-pr/Sterll/claude-terminal)](https://github.com/Sterll/claude-terminal/pulls)
+
+### Internationalization (i18n)
+
+| Language | Coverage | Keys |
+| --- | --- | --- |
+| 🇺🇸 English (base) | ![100%][i18n-en-badge] | ~800 / ~800 |
+| 🇫🇷 French | ![i18n fr][i18n-fr-badge] | ~800 / ~800 |
+| 🇪🇸 Spanish | ![i18n es][i18n-es-badge] | ~800 / ~800 |
+
+> Coverage badges are updated automatically on every push to locale files.
+> See [`.github/i18n-coverage.md`](.github/i18n-coverage.md) for details and
+> instructions on how to add a new language.
+
+[i18n-en-badge]: https://img.shields.io/badge/i18n-100%25-brightgreen
+[i18n-fr-badge]: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_fr.json
+[i18n-es-badge]: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Sterll/ec1241ea62520261790ef5a411b4b212/raw/i18n_es.json
 
 ---
 
@@ -84,6 +158,8 @@ npm install
 - **Dynamic model and effort switching**: change model (Sonnet, Opus, Haiku) and effort level (low, medium, high) mid-conversation without starting a new session
 - **Pin conversations**: keep important sessions at the top of the list
 - **Fork sessions**: branch from any message to explore alternative paths
+- **Follow-up suggestions**: context-aware suggestion chips appear after Claude responds to help guide the conversation
+- **Session recaps**: automatic AI-generated summaries of completed sessions
 - Type @project to attach README.md and file tree from any project as context
 - Type **@context** to inject a context pack or **@prompt** to insert a saved prompt template directly into your message
 - Interrupt streaming mid-turn, auto-generated tab names via haiku model
@@ -118,9 +194,31 @@ npm install
 
 ### GitHub Integration
 - OAuth Device Flow authentication (secure, no token copy-paste)
+- **CI/CD status pill**: live inline status of the latest workflow run shown directly in the terminal header bar, with a Fix-it button to jump straight to a failing step
 - View CI/CD workflow runs per repository
-- View and create pull requests
+- View and create pull requests from the app; multi-forge support (GitHub, GitLab)
 - Token stored securely via keytar (Windows Credential Manager, macOS Keychain, Linux libsecret)
+
+### Control Tower
+- Real-time overview of all active Claude agents across every project
+- See what each agent is doing (tools it's running, current status, last activity)
+- Interrupt any running session directly from the panel
+- Reply to AskUserQuestion prompts without switching to the chat tab
+- MCP tools for agent monitoring and remote interrupt
+
+### Parallel Tasks
+- Decompose a feature into parallel subtasks and run them simultaneously as separate Claude agents
+- Each task runs in its own Git worktree and branch, keeping work isolated
+- Auto mode lets Claude decide the optimal number of parallel tasks
+- Collapsible task cards with per-task diff viewer and terminal access
+- Auto-merge agent: Claude reviews and merges completed branches into your main branch
+- Full run state persisted to disk and restored on app restart
+
+### Session Replay
+- Browse past Claude Code sessions and replay them step by step
+- Timeline view shows all prompts, tool calls, and responses in chronological order
+- Video-player-style scrubber to jump to any point in a session
+- Q&A cards highlight question-and-answer exchanges for easy review
 
 ### Dashboard
 - Per-project overview: current branch, commits ahead/behind, recent commits, contributors
@@ -184,7 +282,7 @@ npm install
 ### Settings
 - Accent color theming (preset palettes + custom hex)
 - Per-agent and per-tool color customization for chat tool cards
-- Language: English and French with auto-detection
+- Language: English, French, and Spanish with auto-detection
 - Editor integration: VS Code, Cursor, WebStorm, IntelliJ IDEA
 - Customizable keyboard shortcuts
 - Desktop notification preferences
@@ -240,6 +338,20 @@ npm install
 - Real-time session monitoring, chat interaction, and project switching
 - 6-digit PIN authentication with QR code
 
+### Sidebar Customization
+- Drag and drop sidebar tabs to reorder them to your workflow
+- Pin frequently-used tabs; less-used tabs collapse into a More overflow menu
+- Customize via a modal or directly by dragging
+
+### Command Palette
+- Unified command palette (Ctrl+P) with fuzzy search across projects, commands, and quick actions
+- Smart launcher with shimmer skeleton loading and match highlighting
+- Navigate to any panel or trigger any action without touching the mouse
+
+### Auto CLAUDE.md Updates
+- After a session ends, Claude analyzes the conversation and proposes relevant additions to your project's CLAUDE.md
+- Review and accept suggestions in a diff-style modal before they're applied
+
 ### Other
 - **Session restore**: save and restore full workspace sessions across restarts
 - **Terminal markdown viewer**: integrated .md file viewer in the terminal panel
@@ -262,15 +374,21 @@ npm install
 ## Usage
 
 ```bash
-# Build renderer then run the application
-npm run build:renderer; npx electron .
+# Install dependencies once
+npm install
+
+# Build renderer and run the app
+npm start
 
 # Run with DevTools open
-npm run build:renderer; npx electron . --dev
+npm run start:dev
 
 # Build renderer in watch mode (for development)
 npm run watch
 ```
+
+> [!TIP]
+> If you modify files under `src/renderer/`, `src/project-types/`, or `renderer.js`, run `npm run build:renderer` before packaging or opening a PR.
 
 ## Building
 
@@ -286,12 +404,22 @@ npm run build:linux   # Linux (AppImage)
 
 The installer will be generated in the `build/` directory.
 
+## Testing
+
+```bash
+# Run the test suite
+npm test
+
+# Watch tests during development
+npm run test:watch
+```
+
 ---
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
+| --- | --- |
 | `Ctrl+Shift+P` | Quick project picker (global) |
 | `Ctrl+Shift+T` | New terminal in current project (global) |
 | `Ctrl+Shift+E` | Sessions panel |
@@ -317,7 +445,7 @@ claude-terminal/
 ├── notification.html          # Custom toast notification window
 ├── quick-picker.html          # Quick picker window
 ├── setup-wizard.html          # First-launch wizard
-├── styles.css                 # Application styles (~6000 lines)
+├── styles/                    # Modular application styles
 ├── src/
 │   ├── main/                  # Main process
 │   │   ├── index.js           # Bootstrap & lifecycle
@@ -417,23 +545,23 @@ claude-terminal/
 │       ├── fivem/             # FiveM server projects
 │       │   ├── main/          # IPC & service
 │       │   ├── renderer/      # Dashboard, state, terminal panel, wizard
-│       │   └── i18n/          # en.json, fr.json
+│       │   └── i18n/          # en.json, fr.json, es.json
 │       ├── webapp/            # Web app projects
 │       │   ├── main/          # IPC & service
 │       │   ├── renderer/      # Dashboard, state, terminal panel, wizard
-│       │   └── i18n/          # en.json, fr.json
+│       │   └── i18n/          # en.json, fr.json, es.json
 │       ├── python/            # Python projects (detection only)
 │       │   ├── main/          # Detection service
 │       │   ├── renderer/      # Dashboard, state, wizard
-│       │   └── i18n/          # en.json, fr.json
+│       │   └── i18n/          # en.json, fr.json, es.json
 │       ├── minecraft/          # Minecraft Java plugin projects
 │       │   ├── main/          # Detection service, plugin generator
 │       │   ├── renderer/      # Dashboard, state, wizard
-│       │   └── i18n/          # en.json, fr.json
+│       │   └── i18n/          # en.json, fr.json, es.json
 │       └── api/               # API/backend projects
 │           ├── main/          # PTY service, route detection
 │           ├── renderer/      # Dashboard, state, terminal panel, route tester, wizard
-│           └── i18n/          # en.json, fr.json
+│           └── i18n/          # en.json, fr.json, es.json
 ├── scripts/
 │   └── build-renderer.js     # esbuild bundler
 └── resources/
@@ -445,6 +573,9 @@ claude-terminal/
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+For translation contributions, see the [Translations (i18n) section](CONTRIBUTING.md#translations-i18n).
+
+To contribute translations, see our [i18n guide](.github/i18n-coverage.md).
 
 ## Security
 

@@ -49,6 +49,11 @@ const defaultSettings = {
   telemetryCategories: { app: true, features: true, errors: true }, // Granular event categories
   telemetryConsentShown: false, // Whether consent prompt was shown
   agentColors: {}, // Custom colors per tool/agent name: { 'Grep': '#ff0000', 'my-agent': '#00ff00' }
+  enableFollowupSuggestions: true, // Show AI-generated follow-up suggestion chips after Claude responds (uses Haiku)
+  pinnedTabs: ['claude', 'git', 'database', 'mcp', 'plugins', 'skills', 'agents', 'workflows', 'tasks', 'control-tower', 'dashboard', 'timetracking', 'session-replay', 'memory', 'cloud-panel'], // Pinned sidebar tabs (rest go to More menu)
+  tabsOrder: null, // null = canonical order, otherwise array of all tabIds in custom order
+  parallelMaxAgents: 3, // Default number of parallel agents for Parallel Task Manager (1-10)
+  autoClaudeMdUpdate: true, // Suggest CLAUDE.md updates after chat sessions
 };
 
 const settingsState = new State({ ...defaultSettings });
@@ -90,16 +95,61 @@ function setSetting(key, value) {
 }
 
 /**
- * Load settings from file
+ * Load settings from file, with backup restore on corruption
  */
 async function loadSettings() {
+  const backupFile = `${settingsFile}.bak`;
   try {
     if (fs.existsSync(settingsFile)) {
-      const saved = JSON.parse(await fs.promises.readFile(settingsFile, 'utf8'));
-      settingsState.set({ ...defaultSettings, ...saved });
+      const raw = await fs.promises.readFile(settingsFile, 'utf8');
+      if (raw && raw.trim()) {
+        const saved = JSON.parse(raw);
+        settingsState.set({ ...defaultSettings, ...saved });
+        return;
+      }
     }
   } catch (e) {
-    console.error('Error loading settings:', e);
+    console.error('Error loading settings, attempting backup restore:', e);
+    // Try to restore from backup
+    try {
+      if (fs.existsSync(backupFile)) {
+        const backupRaw = await fs.promises.readFile(backupFile, 'utf8');
+        if (backupRaw && backupRaw.trim()) {
+          const saved = JSON.parse(backupRaw);
+          settingsState.set({ ...defaultSettings, ...saved });
+          console.warn('Settings restored from backup file');
+          return;
+        }
+      }
+    } catch (backupErr) {
+      console.error('Backup restore also failed:', backupErr);
+    }
+  }
+}
+
+/**
+ * Listeners notified after a flush (success or error)
+ * @type {Array<Function>}
+ */
+const _saveListeners = [];
+
+/**
+ * Register a listener called after each disk flush.
+ * Callback receives `{ success: boolean, error?: Error }`.
+ * @param {Function} fn
+ * @returns {Function} unsubscribe
+ */
+function onSaveFlush(fn) {
+  _saveListeners.push(fn);
+  return () => {
+    const idx = _saveListeners.indexOf(fn);
+    if (idx !== -1) _saveListeners.splice(idx, 1);
+  };
+}
+
+function _notifySaveListeners(result) {
+  for (const fn of _saveListeners) {
+    try { fn(result); } catch (_) {}
   }
 }
 
@@ -116,14 +166,33 @@ function saveSettings() {
 
 /**
  * Save settings to file immediately (no debounce)
- * Use before operations that destroy the renderer (e.g. location.reload)
+ * Uses atomic write: tmp file → backup old → rename
  */
 function saveSettingsImmediate() {
   clearTimeout(saveSettingsTimer);
+  const tempFile = `${settingsFile}.tmp`;
+  const backupFile = `${settingsFile}.bak`;
   try {
-    fs.writeFileSync(settingsFile, JSON.stringify(settingsState.get(), null, 2));
+    // Backup existing file before writing
+    if (fs.existsSync(settingsFile)) {
+      try { fs.copyFileSync(settingsFile, backupFile); } catch (_) {}
+    }
+    // Write to temp file first
+    fs.writeFileSync(tempFile, JSON.stringify(settingsState.get(), null, 2));
+    // Atomic rename
+    fs.renameSync(tempFile, settingsFile);
+    // Remove backup on success
+    try { if (fs.existsSync(backupFile)) fs.unlinkSync(backupFile); } catch (_) {}
+    _notifySaveListeners({ success: true });
   } catch (e) {
     console.error('Error saving settings:', e);
+    // Restore from backup if save failed
+    if (fs.existsSync(backupFile)) {
+      try { fs.copyFileSync(backupFile, settingsFile); } catch (_) {}
+    }
+    // Cleanup temp file
+    try { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); } catch (_) {}
+    _notifySaveListeners({ success: false, error: e });
   }
 }
 
@@ -189,5 +258,6 @@ module.exports = {
   getEditorCommand,
   EDITOR_OPTIONS,
   isNotificationsEnabled,
-  toggleNotifications
+  toggleNotifications,
+  onSaveFlush
 };

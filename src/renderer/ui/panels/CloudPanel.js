@@ -71,6 +71,10 @@ function buildHtml(settings) {
               </div>
               <div class="cp-field-hint">${t('cloud.apiKeyDesc')}</div>
             </div>
+            <div class="cloud-machine-id" id="cp-machine-id" style="display:none">
+              <span class="cloud-machine-id-label">${t('cloud.thisMachine')}</span>
+              <code class="cloud-machine-id-value"></code>
+            </div>
             <div class="cp-form-footer">
               <div class="cp-auto">
                 <label class="settings-toggle rp-mini-toggle">
@@ -139,6 +143,32 @@ function buildHtml(settings) {
               </div>
             </div>
 
+            <!-- Cloud Projects -->
+            <div class="cp-section">
+              <div class="cp-section-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/>
+                </svg>
+                <span>${t('cloud.cloudProjects')}</span>
+                <span class="cp-sessions-count" id="cp-cloud-projects-count" style="display:none"></span>
+                <div class="cp-header-actions">
+                  <span class="cp-sessions-loading" id="cp-cloud-projects-loading" style="display:none">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                  </span>
+                  <button class="cp-btn-icon" id="cp-cloud-projects-refresh" title="${t('cloud.cloudProjectsRefresh')}">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="cp-section-body" style="padding:0">
+                <div id="cp-cloud-projects-list" class="cp-sessions-list"></div>
+              </div>
+            </div>
+
             <!-- Connection Details (collapsed) -->
             <div class="cp-section">
               <div class="cp-section-body">
@@ -197,6 +227,19 @@ function buildHtml(settings) {
               </div>
             </div>
 
+          <!-- Project cloud key overrides -->
+          <div class="cp-section">
+            <div class="cp-section-header">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              </svg>
+              <span>${t('cloud.projectKeysTitle')}</span>
+            </div>
+            <div class="cp-project-keys-list" id="cp-project-keys-list">
+              <div class="cp-field-hint">${t('cloud.projectKeysHint')}</div>
+            </div>
+          </div>
+
           </div>
 
           <!-- Right Column -->
@@ -224,7 +267,13 @@ function buildHtml(settings) {
                   <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
                 </svg>
                 <span>${t('cloud.sessionsTitle')}</span>
+                <span class="cp-sessions-count" id="cp-sessions-count" style="display:none"></span>
                 <div class="cp-header-actions">
+                  <span class="cp-sessions-loading" id="cp-sessions-loading" style="display:none">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                  </span>
                   <button class="cp-btn-icon" id="cp-sessions-refresh" title="${t('cloud.sessionsRefresh')}">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -232,10 +281,8 @@ function buildHtml(settings) {
                   </button>
                 </div>
               </div>
-              <div class="cp-section-body">
-                <div id="cp-sessions-list" class="cp-sessions-list">
-                  <div class="cp-sessions-empty">${t('cloud.sessionsEmpty')}</div>
-                </div>
+              <div class="cp-section-body" style="padding:0">
+                <div id="cp-sessions-list" class="cp-sessions-list"></div>
               </div>
             </div>
 
@@ -409,7 +456,8 @@ function setupHandlers(context) {
 
     if (connected) {
       _loadCloudUser();
-      _loadCloudSessions();
+      _loadCloudSessions(true);
+      _loadCloudProjects(true);
       _startSessionsPolling();
       _checkCloudChanges();
       // Sync polling is now handled by CloudSyncService in main process
@@ -448,13 +496,60 @@ function setupHandlers(context) {
     });
   }
 
-  // Initial status check
+  // Initial status check + machineId display
   (async () => {
     try {
       const status = await api.cloud.status();
       if (status.connected) _updateStatusUI(true);
     } catch { /* ignore */ }
+
+    try {
+      const machineId = await api.cloud.getMachineId();
+      const machineIdEl = document.getElementById('cp-machine-id');
+      if (machineIdEl) {
+        machineIdEl.querySelector('.cloud-machine-id-value').textContent = machineId;
+        machineIdEl.style.display = 'flex';
+      }
+    } catch { /* ignore */ }
+
+    _renderProjectKeysList();
   })();
+
+  // ── Project cloud key overrides ──
+  function _renderProjectKeysList() {
+    const list = document.getElementById('cp-project-keys-list');
+    if (!list || !_ctx?.projectsState) return;
+    const { projects } = _ctx.projectsState.get();
+    if (!projects || projects.length === 0) return;
+
+    list.innerHTML = projects.map(p => {
+      const name = p.name || window.electron_nodeModules.path.basename(p.path || '');
+      const override = _escapeHtml(p.cloudProjectKey || '');
+      return `
+        <div class="cp-project-key-row" data-project-id="${p.id}">
+          <span class="cp-project-key-name" title="${_escapeHtml(p.path || '')}">${_escapeHtml(name)}</span>
+          <input type="text" class="cp-input cp-project-key-input"
+            placeholder="${_escapeHtml(t('cloud.projectKeyPlaceholder'))}"
+            value="${override}" data-project-id="${p.id}">
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('.cp-project-key-input').forEach(input => {
+      let saveTimer = null;
+      input.addEventListener('input', () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(async () => {
+          const projectId = input.dataset.projectId;
+          const value = input.value.trim();
+          try {
+            await api.project.setCloudKey(projectId, value || null);
+          } catch (e) {
+            console.warn('[CloudPanel] Failed to save cloudProjectKey:', e.message);
+          }
+        }, 500);
+      });
+    });
+  }
 
   // ── User profile ──
   async function _loadCloudUser() {
@@ -508,25 +603,76 @@ function setupHandlers(context) {
   }
 
   // ── Sessions ──
-  async function _loadCloudSessions() {
+  function _timeAgo(ts) {
+    if (!ts) return '';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60) return t('cloud.timeJustNow');
+    if (diff < 3600) return t('cloud.timeMinAgo', { count: Math.floor(diff / 60) });
+    if (diff < 86400) return t('cloud.timeHourAgo', { count: Math.floor(diff / 3600) });
+    return t('cloud.timeDayAgo', { count: Math.floor(diff / 86400) });
+  }
+
+  function _shortModel(model) {
+    if (!model) return '';
+    if (model.includes('opus')) return 'Opus';
+    if (model.includes('sonnet')) return 'Sonnet';
+    if (model.includes('haiku')) return 'Haiku';
+    return model.split('-').slice(-1)[0];
+  }
+
+  async function _loadCloudSessions(showLoading = false) {
     const listEl = document.getElementById('cp-sessions-list');
+    const countEl = document.getElementById('cp-sessions-count');
+    const loadingEl = document.getElementById('cp-sessions-loading');
     if (!listEl) return;
+
+    if (showLoading && loadingEl) loadingEl.style.display = '';
+
     try {
       const { sessions } = await api.cloud.getSessions();
+
+      if (loadingEl) loadingEl.style.display = 'none';
+
       if (!sessions || sessions.length === 0) {
+        if (countEl) countEl.style.display = 'none';
         listEl.innerHTML = `<div class="cp-sessions-empty">${t('cloud.sessionsEmpty')}</div>`;
         return;
       }
+
+      const running = sessions.filter(s => s.status === 'running').length;
+      if (countEl) {
+        countEl.textContent = running > 0 ? String(running) : String(sessions.length);
+        countEl.className = 'cp-sessions-count' + (running > 0 ? ' running' : '');
+        countEl.style.display = '';
+      }
+
       listEl.innerHTML = sessions.map(s => {
-        const statusClass = s.status === 'running' ? 'running' : s.status === 'error' ? 'error' : 'idle';
-        const statusLabel = s.status === 'running' ? t('cloud.sessionRunning') : s.status === 'error' ? t('cloud.sessionError') : t('cloud.sessionIdle');
-        const stopBtn = s.status === 'running'
-          ? `<button class="cp-btn-sm cp-btn-danger cp-session-stop" data-id="${s.id}">${t('cloud.sessionStop')}</button>`
-          : `<button class="cp-btn-sm cp-session-stop" data-id="${s.id}" title="${t('cloud.deleteSession')}">\u2715</button>`;
+        const isRunning = s.status === 'running';
+        const isError = s.status === 'error';
+        const statusClass = isRunning ? 'running' : isError ? 'error' : 'idle';
+        const statusLabel = isRunning ? t('cloud.sessionRunning') : isError ? t('cloud.sessionError') : t('cloud.sessionIdle');
+        const modelLabel = _shortModel(s.model);
+        const startedLabel = s.createdAt ? _timeAgo(s.createdAt) : '';
+        const lastLabel = s.lastActivity && s.lastActivity !== s.createdAt ? _timeAgo(s.lastActivity) : '';
+
+        const stopBtn = isRunning
+          ? `<button class="cp-btn-sm cp-btn-danger cp-session-stop" data-id="${_escapeHtml(s.id)}">${t('cloud.sessionStop')}</button>`
+          : `<button class="cp-btn-sm cp-session-delete cp-session-stop" data-id="${_escapeHtml(s.id)}" title="${t('cloud.deleteSession')}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>`;
+
         return `<div class="cp-session-item">
+          <div class="cp-session-status-dot ${statusClass}"></div>
           <div class="cp-session-info">
-            <span class="cp-session-project">${_escapeHtml(s.projectName)}</span>
-            <span class="cp-session-status ${statusClass}">${statusLabel}</span>
+            <div class="cp-session-top">
+              <span class="cp-session-project">${_escapeHtml(s.projectName)}</span>
+              ${modelLabel ? `<span class="cp-session-model">${_escapeHtml(modelLabel)}</span>` : ''}
+              <span class="cp-session-status-label ${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="cp-session-meta">
+              ${startedLabel ? `<span>${t('cloud.sessionStarted')} ${startedLabel}</span>` : ''}
+              ${lastLabel ? `<span>· ${t('cloud.sessionActivity')} ${lastLabel}</span>` : ''}
+            </div>
           </div>
           ${stopBtn}
         </div>`;
@@ -544,6 +690,7 @@ function setupHandlers(context) {
         });
       });
     } catch {
+      if (loadingEl) loadingEl.style.display = 'none';
       listEl.innerHTML = `<div class="cp-sessions-empty">${t('cloud.sessionsEmpty')}</div>`;
     }
   }
@@ -552,7 +699,7 @@ function setupHandlers(context) {
     _stopSessionsPolling();
     _cloudSessionsInterval = setInterval(() => {
       if (!document.getElementById('cp-sessions-list')) { _stopSessionsPolling(); return; }
-      _loadCloudSessions();
+      _loadCloudSessions(false); // silent poll — no loading spinner
     }, 15000);
   }
 
@@ -563,9 +710,98 @@ function setupHandlers(context) {
   const sessionsRefresh = document.getElementById('cp-sessions-refresh');
   if (sessionsRefresh) {
     sessionsRefresh.addEventListener('click', async () => {
+      sessionsRefresh.disabled = true;
       sessionsRefresh.classList.add('spinning');
-      await _loadCloudSessions();
+      await _loadCloudSessions(true);
+      sessionsRefresh.disabled = false;
       setTimeout(() => sessionsRefresh.classList.remove('spinning'), 400);
+    });
+  }
+
+  // ── Cloud Projects (cross-machine) ──
+
+  async function _loadCloudProjects(showLoading = false) {
+    const listEl = document.getElementById('cp-cloud-projects-list');
+    const loadingEl = document.getElementById('cp-cloud-projects-loading');
+    const countEl = document.getElementById('cp-cloud-projects-count');
+    if (!listEl) return;
+
+    if (showLoading && loadingEl) loadingEl.style.display = '';
+
+    try {
+      const { projects: cloudProjects } = await api.cloud.getProjects();
+      if (loadingEl) loadingEl.style.display = 'none';
+
+      if (!cloudProjects || cloudProjects.length === 0) {
+        if (countEl) countEl.style.display = 'none';
+        listEl.innerHTML = `<div class="cp-sessions-empty">${t('cloud.cloudProjectsEmpty')}</div>`;
+        return;
+      }
+
+      if (countEl) {
+        countEl.textContent = String(cloudProjects.length);
+        countEl.className = 'cp-sessions-count';
+        countEl.style.display = '';
+      }
+
+      const localProjects = _ctx.projectsState?.get()?.projects || [];
+      const localNames = new Set(localProjects.map(p => p.name));
+      const localBasenames = new Set(localProjects.map(p => p.path?.replace(/\\/g, '/').split('/').pop()).filter(Boolean));
+
+      listEl.innerHTML = cloudProjects.map(p => {
+        const isLocal = localNames.has(p.name) || localBasenames.has(p.name);
+        const badge = isLocal
+          ? `<span class="cp-cloud-project-local">${t('cloud.cloudProjectLocal')}</span>`
+          : `<button class="cp-btn-sm cp-cloud-project-import" data-name="${_escapeHtml(p.name)}">${t('cloud.cloudProjectImport')}</button>`;
+        return `<div class="cp-session-item">
+          <div class="cp-session-info">
+            <div class="cp-session-top">
+              <span class="cp-session-project">${_escapeHtml(p.name)}</span>
+            </div>
+          </div>
+          ${badge}
+        </div>`;
+      }).join('');
+
+      listEl.querySelectorAll('.cp-cloud-project-import').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const projectName = btn.dataset.name;
+          btn.disabled = true;
+          btn.textContent = t('cloud.cloudProjectImporting');
+          const Toast = require('../../ui/components/Toast');
+          try {
+            const result = await api.cloud.importProject({ projectName });
+            if (result.canceled) {
+              btn.disabled = false;
+              btn.textContent = t('cloud.cloudProjectImport');
+              return;
+            }
+            // Add to local projects state
+            const { addProject } = require('../../state');
+            addProject({ name: result.projectName, path: result.projectPath, type: 'standalone' });
+            Toast.show(t('cloud.cloudProjectImported', { name: projectName }), 'success');
+            await _loadCloudProjects(false);
+          } catch (err) {
+            Toast.show(err.message || t('cloud.uploadError'), 'error');
+            btn.disabled = false;
+            btn.textContent = t('cloud.cloudProjectImport');
+          }
+        });
+      });
+    } catch {
+      if (loadingEl) loadingEl.style.display = 'none';
+      listEl.innerHTML = `<div class="cp-sessions-empty">${t('cloud.cloudProjectsEmpty')}</div>`;
+    }
+  }
+
+  const cloudProjectsRefresh = document.getElementById('cp-cloud-projects-refresh');
+  if (cloudProjectsRefresh) {
+    cloudProjectsRefresh.addEventListener('click', async () => {
+      cloudProjectsRefresh.disabled = true;
+      cloudProjectsRefresh.classList.add('spinning');
+      await _loadCloudProjects(true);
+      cloudProjectsRefresh.disabled = false;
+      setTimeout(() => cloudProjectsRefresh.classList.remove('spinning'), 400);
     });
   }
 
@@ -662,7 +898,7 @@ function setupHandlers(context) {
               btn.textContent = t('cloud.syncApply');
               return;
             }
-            await api.cloud.downloadChanges({ projectName: projName, localProjectPath: localProject.path });
+            await api.cloud.downloadChanges({ projectName: projName, localProjectPath: localProject.path, cloudProjectKey: projName });
             const Toast = require('../../ui/components/Toast');
             Toast.show(t('cloud.syncApplied'), 'success');
             await _checkCloudChanges();
