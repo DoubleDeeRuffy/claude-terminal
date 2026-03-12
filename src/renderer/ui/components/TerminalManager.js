@@ -364,6 +364,16 @@ const SLASH_RENAME_COOLDOWN = 30000; // 30s — protect slash name for this long
 const restoreNameProtected = new Set();
 
 /**
+ * Check if a terminal has restore-name protection active.
+ * Used by wireSessionIdCapture to distinguish session resume from /clear rotation.
+ * @param {string|number} id - Terminal ID
+ * @returns {boolean}
+ */
+function isRestoreNameProtected(id) {
+  return restoreNameProtected.has(id) || restoreNameProtected.has(String(id)) || restoreNameProtected.has(Number(id));
+}
+
+/**
  * Returns true when an OSC title rename should be skipped because the tab was
  * renamed to a slash command by the user's setting, or was restored with a
  * custom name from a previous session.
@@ -1295,12 +1305,29 @@ async function handleAiRename(id) {
 
   const originalName = termData.name || '';
 
+  // Grab recent terminal buffer content for context
+  let context = originalName || 'terminal';
+  const terminal = termData.terminal;
+  if (terminal?.buffer?.active) {
+    const buf = terminal.buffer.active;
+    const totalLines = buf.baseY + buf.cursorY;
+    const scanLimit = Math.max(0, totalLines - 20);
+    const lines = [];
+    for (let i = totalLines; i >= scanLimit; i--) {
+      const row = buf.getLine(i);
+      if (!row) continue;
+      const text = row.translateToString(true).trim();
+      if (text) lines.unshift(text);
+      if (lines.length >= 10) break;
+    }
+    if (lines.length > 0) context = lines.join(' ');
+  }
+
   // Show loading indicator immediately
   updateTerminalTabName(id, '...');
 
   try {
-    const input = originalName || 'terminal';
-    const res = await api.chat.generateTabName({ userMessage: input });
+    const res = await api.chat.generateTabName({ userMessage: context });
     if (res?.success && res.name) {
       updateTerminalTabName(id, res.name);
     } else {
@@ -1339,7 +1366,6 @@ function showTabContextMenu(e, id) {
       {
         label: t('tabs.aiRename'),
         icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.5 14H13v-3.5L9.5 17l-1-1 3.5-3.5H8.5V11h6v6z"/></svg>',
-        disabled: getSetting('aiTabNaming') === false,
         onClick: () => handleAiRename(id)
       },
       { separator: true },
@@ -4742,5 +4768,7 @@ module.exports = {
   // Cleanup when a project is deleted
   cleanupProjectMaps,
   // Silence-based scroll scheduling for session restore
-  scheduleScrollAfterRestore
+  scheduleScrollAfterRestore,
+  // Restore protection check (used by wireSessionIdCapture)
+  isRestoreNameProtected
 };

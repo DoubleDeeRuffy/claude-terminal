@@ -497,6 +497,16 @@ function wireSessionIdCapture() {
       // The old session's name is already persisted in session-names.json — it stays resumable.
       // Accept the new session ID and reset the tab name to the project name.
       if (td && td.claudeSessionId && td.claudeSessionId !== e.data.sessionId) {
+        const TerminalManager = require('../ui/components/TerminalManager');
+        // During session restore, Claude may emit a different session ID than the one
+        // we passed to --resume. This is NOT a /clear rotation — preserve the tab name.
+        if (TerminalManager.isRestoreNameProtected(terminalId)) {
+          console.debug(`[Events] Session ID changed during restore: terminal ${terminalId} ${td.claudeSessionId.slice(0, 8)} → ${e.data.sessionId.slice(0, 8)}, preserving tab name "${td.name}"`);
+          updateTerminal(terminalId, { claudeSessionId: e.data.sessionId });
+          const TerminalSessionService = require('../services/TerminalSessionService');
+          TerminalSessionService.saveTerminalSessionsImmediate();
+          return;
+        }
         const projectName = td.project?.name || 'Terminal';
         console.debug(`[Events] Session rotation: terminal ${terminalId} ${td.claudeSessionId.slice(0, 8)} → ${e.data.sessionId.slice(0, 8)}, resetting tab name to "${projectName}"`);
         updateTerminal(terminalId, { claudeSessionId: e.data.sessionId, name: projectName });

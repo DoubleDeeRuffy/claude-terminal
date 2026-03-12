@@ -14,6 +14,11 @@ let lastFetch = null;
 let fetchInterval = null;
 let isFetching = false;
 
+// Backoff state for 429 rate limits
+let _currentIntervalMs = 300000; // 5 min default
+let _baseIntervalMs = 300000;
+const _maxIntervalMs = 1800000; // 30 min max backoff
+
 const USAGE_API_URL = 'https://api.anthropic.com/api/oauth/usage';
 const OAUTH_BETA_HEADER = 'oauth-2025-04-20';
 
@@ -77,16 +82,19 @@ function fetchUsageFromAPI(token) {
       res.on('end', () => {
         if (res.statusCode !== 200) {
           console.log('[Usage] API error response:', res.statusCode, body.slice(0, 500));
-          return reject(new Error(`API ${res.statusCode}: ${body.slice(0, 200)}`));
+          const err = new Error(`API ${res.statusCode}: ${body.slice(0, 200)}`);
+          err.statusCode = res.statusCode;
+          return reject(err);
         }
         try {
           const json = JSON.parse(body);
           console.log('[Usage] Raw API response:', JSON.stringify(json, null, 2));
-          const session = json.five_hour?.utilization != null ? json.five_hour.utilization * 100 : null;
-          const weekly = json.seven_day?.utilization != null ? json.seven_day.utilization * 100 : null;
-          const sonnet = json.seven_day_sonnet?.utilization != null ? json.seven_day_sonnet.utilization * 100 : null;
-          const opus = json.seven_day_opus?.utilization != null ? json.seven_day_opus.utilization * 100 : null;
-          console.log('[Usage] Converted utilization:', { session, weekly, sonnet, opus });
+          // Pass through raw utilization values from the API
+          const session = json.five_hour?.utilization ?? null;
+          const weekly = json.seven_day?.utilization ?? null;
+          const sonnet = json.seven_day_sonnet?.utilization ?? null;
+          const opus = json.seven_day_opus?.utilization ?? null;
+          console.log('[Usage] Utilization values:', { session, weekly, sonnet, opus });
           resolve({
             timestamp: new Date().toISOString(),
             session,
@@ -294,35 +302,87 @@ async function fetchUsage() {
   try {
     // Try OAuth API first
     const token = readOAuthToken();
+    console.log('[Usage] OAuth token:', token ? `found (${token.slice(0, 8)}...)` : 'not found');
     if (token) {
       try {
         const data = await fetchUsageFromAPI(token);
         usageData = data;
         lastFetch = new Date();
-        console.log('[Usage] Fetched via API');
+        // Success — reset backoff to base interval
+        if (_currentIntervalMs !== _baseIntervalMs) {
+          console.log('[Usage] API success, resetting interval to', _baseIntervalMs / 1000, 's');
+          _currentIntervalMs = _baseIntervalMs;
+          _restartInterval();
+        }
+        console.log('[Usage] Fetched via API:', JSON.stringify(data));
         return data;
       } catch (apiErr) {
+        if (apiErr.statusCode === 429) {
+          // Rate limited — back off and return cached data if available
+          const newInterval = Math.min(_currentIntervalMs * 2, _maxIntervalMs);
+          if (newInterval !== _currentIntervalMs) {
+            _currentIntervalMs = newInterval;
+            _restartInterval();
+            console.log('[Usage] Rate limited (429), backing off to', _currentIntervalMs / 1000, 's');
+          }
+          if (usageData) {
+            console.log('[Usage] Returning cached data (age:', lastFetch ? Math.round((Date.now() - lastFetch.getTime()) / 1000) + 's' : 'unknown', ')');
+            return usageData;
+          }
+        }
         console.log('[Usage] API failed, falling back to PTY:', apiErr.message);
       }
     }
 
-    // Fallback to PTY
+    // Fallback to PTY — only if no cached data available
+    if (usageData) {
+      console.log('[Usage] Skipping PTY, returning cached data');
+      return usageData;
+    }
+    console.log('[Usage] Attempting PTY fallback...');
     const data = await fetchUsageFromPTY();
     usageData = data;
     lastFetch = new Date();
-    console.log('[Usage] Fetched via PTY fallback');
+    console.log('[Usage] Fetched via PTY fallback:', JSON.stringify(data));
     return data;
+  } catch (err) {
+    // If all methods fail but we have cached data, return it
+    if (usageData) {
+      console.log('[Usage] All methods failed, returning cached data');
+      return usageData;
+    }
+    console.error('[Usage] All fetch methods failed:', err.message);
+    throw err;
   } finally {
     isFetching = false;
   }
 }
 
 /**
+ * Restart the periodic interval with the current backoff value
+ */
+function _restartInterval() {
+  if (!fetchInterval) return; // not started yet
+  clearInterval(fetchInterval);
+  const { isMainWindowVisible } = require('../windows/MainWindow');
+  fetchInterval = setInterval(() => {
+    if (isMainWindowVisible()) {
+      fetchUsage().catch(e => console.error('[Usage]', e.message));
+    }
+  }, _currentIntervalMs);
+}
+
+/**
  * Start periodic fetching
- * @param {number} intervalMs - Interval (default: 5 minutes)
+ * @param {number} intervalMs - Interval (default: 5 minutes, minimum: 5 minutes)
  */
 function startPeriodicFetch(intervalMs = 300000) {
   const { isMainWindowVisible } = require('../windows/MainWindow');
+
+  // Enforce minimum 5 min interval to avoid 429s on the usage API
+  _baseIntervalMs = Math.max(intervalMs, 300000);
+  _currentIntervalMs = _baseIntervalMs;
+  console.log('[Usage] Starting periodic fetch, interval:', _currentIntervalMs / 1000, 's');
 
   setTimeout(() => {
     if (isMainWindowVisible()) {
@@ -335,7 +395,7 @@ function startPeriodicFetch(intervalMs = 300000) {
     if (isMainWindowVisible()) {
       fetchUsage().catch(e => console.error('[Usage]', e.message));
     }
-  }, intervalMs);
+  }, _currentIntervalMs);
 }
 
 /**

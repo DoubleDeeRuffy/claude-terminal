@@ -219,6 +219,32 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
     if (sessionData && sessionData.projects) {
       const projects = projectsState.get().projects;
 
+      // Load session-names.json once — more reliable source of custom names
+      // than terminal-sessions.json (which can get overwritten by session rotation)
+      let sessionNames = {};
+      try {
+        const namesPath = path.join(window.electron_nodeModules.os.homedir(), '.claude-terminal', 'session-names.json');
+        if (fs.existsSync(namesPath)) {
+          sessionNames = JSON.parse(fs.readFileSync(namesPath, 'utf8'));
+        }
+      } catch { /* ignore */ }
+
+      // Helper: check if a Claude session JSONL file has real content (not just file-history-snapshots).
+      // Ghost sessions created by watchdog or stale SESSION_START events are typically < 3KB.
+      const MIN_SESSION_SIZE = 3000;
+      const os = window.electron_nodeModules.os;
+      function isGhostSession(projectPath, sessionId) {
+        if (!sessionId) return false;
+        try {
+          const encoded = projectPath.replace(/[^a-zA-Z0-9]/g, '-');
+          const sessionsDir = path.join(os.homedir(), '.claude', 'projects', encoded);
+          const jsonlPath = path.join(sessionsDir, `${sessionId}.jsonl`);
+          if (!fs.existsSync(jsonlPath)) return true; // Missing file = ghost
+          const stat = fs.statSync(jsonlPath);
+          return stat.size < MIN_SESSION_SIZE;
+        } catch { return false; }
+      }
+
       for (const projectId of Object.keys(sessionData.projects)) {
         const saved = sessionData.projects[projectId];
         const project = projects.find(p => p.id === projectId);
@@ -251,6 +277,13 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
           const tab = saved.tabs[tabIdx];
           let restoredId = null;
 
+          // Skip ghost sessions (empty JSONL files from watchdog/stale events)
+          if (tab.type !== 'file' && !tab.isBasic && tab.claudeSessionId && isGhostSession(project.path, tab.claudeSessionId)) {
+            console.debug(`[SessionRestore] Skipping ghost session ${tab.claudeSessionId.slice(0, 8)} for ${project.name}`);
+            restoredIds[tabIdx] = null;
+            continue;
+          }
+
           // Determine target pane for this tab
           const paneIdx = tabToPaneIndex.get(tabIdx) ?? 0;
           const targetPaneId = PaneManager.getPaneOrder()[paneIdx] || PaneManager.getDefaultPaneId();
@@ -267,13 +300,15 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
           } else {
             // Terminal tab: existing restore logic
             const cwd = fs.existsSync(tab.cwd) ? tab.cwd : project.path;
+            // Prefer session-names.json (survives rotation overwrites) over terminal-sessions.json
+            const sessionName = (tab.claudeSessionId && sessionNames[tab.claudeSessionId]) || tab.name || null;
             restoredId = await TerminalManager.createTerminal(project, {
               runClaude: !tab.isBasic,
               cwd,
               mode: tab.mode || null,
               skipPermissions: settingsState.get().skipPermissions,
               resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
-              name: tab.name || null,
+              name: sessionName,
             });
           }
 
@@ -4312,6 +4347,7 @@ function updateUsageDisplay(usageData) {
   usageElements.container.classList.remove('loading');
 
   if (!usageData || !usageData.data) {
+    console.warn('[Usage] No usage data to display:', usageData);
     updateUsageBar(usageElements.session, null);
     updateUsageBar(usageElements.weekly, null);
     updateUsageBar(usageElements.sonnet, null);
@@ -4323,6 +4359,7 @@ function updateUsageDisplay(usageData) {
   }
 
   const data = usageData.data;
+  console.log('[Usage] Display values — session:', data.session, 'weekly:', data.weekly, 'sonnet:', data.sonnet, 'source:', data._source);
 
   // Update all three usage bars
   updateUsageBar(usageElements.session, data.session);
@@ -4381,9 +4418,11 @@ async function refreshUsageDisplay() {
 
   try {
     const result = await api.usage.refresh();
+    console.log('[Usage] refresh result:', JSON.stringify(result, null, 2));
     if (result.success) {
       updateUsageDisplay({ data: result.data, lastFetch: new Date().toISOString() });
     } else {
+      console.warn('[Usage] refresh failed:', result.error);
       usageElements.container.classList.remove('loading');
       updateUsageBar(usageElements.session, null);
       updateUsageBar(usageElements.weekly, null);
@@ -4394,7 +4433,7 @@ async function refreshUsageDisplay() {
     updateUsageBar(usageElements.session, null);
     updateUsageBar(usageElements.weekly, null);
     updateUsageBar(usageElements.sonnet, null);
-    console.error('Usage refresh error:', error);
+    console.error('[Usage] refresh error:', error);
   }
 }
 
