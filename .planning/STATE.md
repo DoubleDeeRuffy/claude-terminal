@@ -48,3 +48,7 @@ Last activity: 2026-03-08 — 35-01 complete (Fix API utilization decimal-to-per
 - Phase 34 complete: AI Rename context menu item with loading indicator and error revert, EN/FR i18n
 - Phase 35 added: Fix-Usage — Usage display shows incorrect percentages
 - Phase 35 complete: Fixed API utilization decimal-to-percentage conversion (* 100) in UsageService
+
+### Pending Todos
+
+9 todos in `.planning/todos/pending/`
