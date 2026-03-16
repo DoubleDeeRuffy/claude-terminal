@@ -31,6 +31,30 @@ const notifiedSessions = new Set(); // projectId
 // projectId -> terminalId (the tab that was most recently focused)
 const lastActiveClaudeTab = new Map();
 
+// ── Consumer: Time Tracking (hooks-only — routes hook events to time tracking heartbeat) ──
+function wireTimeTrackingConsumer() {
+  const { heartbeat, stopProject } = require('../state/timeTracking.state');
+
+  consumerUnsubscribers.push(
+    eventBus.on(EVENT_TYPES.SESSION_START, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      heartbeat(e.projectId, 'hooks');
+    }),
+    eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      stopProject(e.projectId);
+    }),
+    eventBus.on(EVENT_TYPES.TOOL_START, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      heartbeat(e.projectId, 'hooks');
+    }),
+    eventBus.on(EVENT_TYPES.TOOL_END, (e) => {
+      if (e.source !== 'hooks' || !e.projectId) return;
+      heartbeat(e.projectId, 'hooks');
+    })
+  );
+}
+
 // ── Consumer: Claude Activity Tracking (hooks-only — routes hook events to per-terminal Claude heartbeat) ──
 function wireClaudeActivityConsumer() {
   const { claudeHeartbeat } = require('../state/claudeActivity.state');
@@ -262,11 +286,15 @@ function findTerminalForSessionId(projectId, sessionId) {
 
     console.debug(`[Events] findTerminalForSessionId: looking for session=${sessionId?.slice(0, 8)}, project terminals:`, debugTerminals, `uncaptured=${uncapturedTerminalId}, count=${projectTerminalCount}`);
 
-    // Priority 2: assign to terminal awaiting capture (only if multiple terminals exist)
-    if (uncapturedTerminalId !== null && projectTerminalCount > 1) return uncapturedTerminalId;
+    // Priority 2: last-active tab (most reliable for /clear — user was just using it)
+    const lastActive = lastActiveClaudeTab.get(projectId);
+    if (lastActive != null) return lastActive;
 
-    // Priority 3: single terminal or fallback to last-active
-    return lastActiveClaudeTab.get(projectId) ?? findClaudeTerminalForProject(projectId);
+    // Priority 3: assign to terminal awaiting capture (fresh tab with no session yet)
+    if (uncapturedTerminalId !== null) return uncapturedTerminalId;
+
+    // Priority 4: highest ID heuristic
+    return findClaudeTerminalForProject(projectId);
   } catch (e) { return null; }
 }
 

@@ -30,6 +30,8 @@ module.exports = {
     "node_modules/node-pty/**/*",
     "node_modules/keytar/**/*",
     "node_modules/better-sqlite3/**/*",
+    "node_modules/bindings/**/*",
+    "node_modules/file-uri-to-path/**/*",
     "node_modules/mysql2/**/*",
     "node_modules/pg/**/*",
     "node_modules/pg-cloudflare/**/*",

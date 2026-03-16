@@ -94,6 +94,18 @@ Base class `State.js`: Observable with `subscribe()`, batched notifications via 
 | `ScrapingProvider.js` | Fallback event detection via terminal output parsing |
 | `index.js` | Provider selection, wires consumers (time tracking, notifications, dashboard) |
 
+### Session ID Routing (`findTerminalForSessionId`)
+
+When a hook event arrives, it only carries a `projectId` — not a terminal ID. With multiple Claude tabs for the same project, the function must resolve which terminal the event belongs to.
+
+**Priority order:**
+1. Terminal that already has this exact `sessionId` (resume case)
+2. `lastActiveClaudeTab` — the tab the user most recently focused
+3. Uncaptured terminal (no `claudeSessionId` yet — fresh tab)
+4. Highest terminal ID heuristic (`findClaudeTerminalForProject`)
+
+**Why `lastActiveClaudeTab` before uncaptured:** `/clear` creates a new session on the *active* tab. The new session ID won't match any terminal (Priority 1 fails). If an uncaptured terminal is checked first, the wrong tab gets the session ID and its name is reset to the project name. `lastActiveClaudeTab` correctly targets the tab the user just cleared. (Bug fixed 2026-03-14.)
+
 ## Internationalization (`src/renderer/i18n/`)
 
 - **Languages:** French (default), English

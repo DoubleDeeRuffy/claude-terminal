@@ -83,6 +83,8 @@ const typeConsoleIds = new Map();
 // Anti-spam for paste (Ctrl+Shift+V)
 let lastPasteTime = 0;
 const PASTE_DEBOUNCE_MS = 500;
+const PASTE_CHUNK_SIZE = 4096; // 4KB chunks for large pastes
+const PASTE_CHUNK_DELAY_MS = 5; // delay between chunks to avoid overwhelming PTY
 
 // Anti-spam for Ctrl+Arrow navigation
 let lastArrowTime = 0;
@@ -522,18 +524,45 @@ function performPaste(terminalId, inputChannel = 'terminal-input') {
   const now = Date.now();
   if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
   lastPasteTime = now;
-  const sendPaste = (text) => {
+
+  const sendChunk = (channel, id, data) => {
+    if (channel === 'fivem-input') {
+      api.fivem.input({ projectIndex: id, data });
+    } else if (channel === 'webapp-input') {
+      api.webapp.input({ projectIndex: id, data });
+    } else {
+      api.terminal.input({ id, data });
+    }
+  };
+
+  const sendPaste = async (text) => {
     if (!text) return;
     // Normalize line endings: \r\n → \r, then lone \n → \r (terminal convention)
     text = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
-    if (inputChannel === 'fivem-input') {
-      api.fivem.input({ projectIndex: terminalId, data: text });
-    } else if (inputChannel === 'webapp-input') {
-      api.webapp.input({ projectIndex: terminalId, data: text });
-    } else {
-      api.terminal.input({ id: terminalId, data: text });
+
+    // Wrap with bracket paste sequences if the terminal app requested it.
+    // This tells apps like Claude Code CLI to treat the input as pasted text
+    // rather than interpreting each \r as a submit/execute command.
+    const td = getTerminal(terminalId);
+    const useBracket = td?.terminal?.modes?.bracketedPasteMode;
+    if (useBracket) text = '\x1b[200~' + text + '\x1b[201~';
+
+    // Small pastes: send in one go (fast path)
+    if (text.length <= PASTE_CHUNK_SIZE) {
+      sendChunk(inputChannel, terminalId, text);
+      return;
+    }
+
+    // Large pastes: chunk to avoid IPC/PTY limits
+    for (let offset = 0; offset < text.length; offset += PASTE_CHUNK_SIZE) {
+      const chunk = text.slice(offset, offset + PASTE_CHUNK_SIZE);
+      sendChunk(inputChannel, terminalId, chunk);
+      if (offset + PASTE_CHUNK_SIZE < text.length) {
+        await new Promise(r => setTimeout(r, PASTE_CHUNK_DELAY_MS));
+      }
     }
   };
+
   navigator.clipboard.readText()
     .then(sendPaste)
     .catch(() => api.app.clipboardRead().then(sendPaste));
@@ -1536,12 +1565,14 @@ function setActiveTerminal(id) {
       termData.terminal.focus();
       // Auto-scroll to bottom on tab/project switch (Phase 20.1)
       // Deferred: fit() triggers async reflow in xterm (especially for previously-hidden
-      // terminals after restore). Immediate scrollToBottom() fires before the buffer
-      // reflow completes, leaving scroll at mid-content. RAF + microtask ensures xterm
-      // has finished processing the resize before we scroll.
+      // terminals after restore). A single RAF isn't enough — fit() queues a resize that
+      // xterm processes in the first frame, then reflows the buffer. The second RAF fires
+      // after the reflow completes, so scrollToBottom lands at the true end of content.
       if (getSetting('autoScrollOnSwitch') !== false) {
         requestAnimationFrame(() => {
-          try { termData.terminal.scrollToBottom(); } catch (e) { /* terminal gone */ }
+          requestAnimationFrame(() => {
+            try { termData.terminal.scrollToBottom(); } catch (e) { /* terminal gone */ }
+          });
         });
       }
     }
@@ -1950,6 +1981,10 @@ async function createTerminal(project, options = {}) {
   // IPC data handling via centralized dispatcher
   registerTerminalHandler(id,
     (data) => {
+      // Detect screen clear sequences (e.g. /clear) and wipe scrollback too
+      if (data.data.includes('\x1b[2J') || data.data.includes('\x1b[3J') || data.data.includes('\x1bc')) {
+        terminal.clear();
+      }
       terminal.write(data.data);
       resetOutputSilenceTimer(id);
       claudeHeartbeat(id);
