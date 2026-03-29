@@ -6,17 +6,16 @@
 const { ipcMain } = require('electron');
 const terminalService = require('../services/TerminalService');
 const { sendFeaturePing } = require('../services/TelemetryService');
-const { setCtrlTabEnabled } = require('../windows/MainWindow');
 
 /**
  * Register terminal IPC handlers
  */
 function registerTerminalHandlers() {
   // Create terminal
-  ipcMain.handle('terminal-create', (event, { cwd, runClaude, skipPermissions, resumeSessionId, cliTool }) => {
+  ipcMain.handle('terminal-create', (event, { cwd, runClaude, skipPermissions, resumeSessionId }) => {
     try {
       sendFeaturePing('terminal:create');
-      return terminalService.create({ cwd, runClaude, skipPermissions, resumeSessionId, cliTool });
+      return terminalService.create({ cwd, runClaude, skipPermissions, resumeSessionId });
     } catch (error) {
       console.error('[Terminal IPC] Create error:', error);
       return { success: false, error: error.message };
@@ -36,11 +35,6 @@ function registerTerminalHandlers() {
   // Kill terminal
   ipcMain.on('terminal-kill', (event, { id }) => {
     terminalService.kill(id);
-  });
-
-  // Toggle Ctrl+Tab terminal switching
-  ipcMain.on('set-ctrl-tab-enabled', (_, enabled) => {
-    setCtrlTabEnabled(enabled);
   });
 }
 

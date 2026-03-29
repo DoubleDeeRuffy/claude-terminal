@@ -31,8 +31,7 @@ const {
   setSetting,
   heartbeat,
   stopProject,
-  claudeHeartbeat,
-  removeClaudeTerminal
+  getProjectSettings: getProjectSettingsState,
 } = require('../../state');
 const { Marked } = require('marked');
 const { escapeHtml, getFileIcon, highlight } = require('../../utils');
@@ -45,9 +44,6 @@ const {
 const registry = require('../../../project-types/registry');
 const { createChatView } = require('./ChatView');
 const { showContextMenu } = require('./ContextMenu');
-const { showConfirm } = require('./Modal');
-const { isClaudeActive } = require('../../state/claudeActivity.state');
-const PaneManager = require('./PaneManager');
 const ContextPromptService = require('../../services/ContextPromptService');
 const { getBuiltinSystemPrompt } = require('../../services/BuiltinSystemPrompts');
 
@@ -83,8 +79,6 @@ const typeConsoleIds = new Map();
 // Anti-spam for paste (Ctrl+Shift+V)
 let lastPasteTime = 0;
 const PASTE_DEBOUNCE_MS = 500;
-const PASTE_CHUNK_SIZE = 4096; // 4KB chunks for large pastes
-const PASTE_CHUNK_DELAY_MS = 5; // delay between chunks to avoid overwhelming PTY
 
 // Anti-spam for Ctrl+Arrow navigation
 let lastArrowTime = 0;
@@ -137,57 +131,10 @@ function loadWebglAddon(terminal) {
   }
 }
 
-// ── Scroll position preservation (write only) ──
-// When the user has scrolled up to read older output, terminal.write() can reset
-// the viewport. This saves the distance-from-bottom before write and restores it.
-// Only used for write — NOT for fit/resize which can change buffer geometry.
-function writePreservingScroll(terminal, data) {
-  const buf = terminal.buffer.active;
-  const wasScrolledUp = buf.viewportY < buf.baseY;
-  const savedOffset = buf.baseY - buf.viewportY;
-  terminal.write(data);
-  if (wasScrolledUp) {
-    const newTarget = terminal.buffer.active.baseY - savedOffset;
-    const delta = newTarget - terminal.buffer.active.viewportY;
-    if (delta !== 0) terminal.scrollLines(delta);
-  }
-}
-
-// ── Output silence detection disabled for Claude ──
+// ── Output silence detection disabled ──
 // Silence-based detection caused false "ready" during Claude's thinking phases
-function resetOutputSilenceTimer(_id) { /* no-op for Claude */ }
-function clearOutputSilenceTimer(_id) { /* no-op for Claude */ }
-
-// ── GSD output-based activity detection ──
-// GSD doesn't emit OSC titles or hooks, so we detect activity from PTY data flow.
-// When data flows → working. When output stops for GSD_SILENCE_MS → ready.
-const GSD_SILENCE_MS = 3000;
-const gsdSilenceTimers = new Map();
-function resetGsdActivityTimer(id) {
-  const td = getTerminal(id);
-  if (!td || td.cliTool !== 'gsd' || td.isBasic) return;
-
-  // Mark as working on any output
-  if (td.status !== 'working') {
-    updateTerminalStatus(id, 'working');
-    if (scrapingEventCallback) scrapingEventCallback(id, 'working', { tool: null });
-  }
-
-  // Reset silence timer
-  clearTimeout(gsdSilenceTimers.get(id));
-  gsdSilenceTimers.set(id, setTimeout(() => {
-    const current = getTerminal(id);
-    if (current && current.status === 'working') {
-      updateTerminalStatus(id, 'ready');
-      if (scrapingEventCallback) scrapingEventCallback(id, 'done', {});
-    }
-    gsdSilenceTimers.delete(id);
-  }, GSD_SILENCE_MS));
-}
-function clearGsdActivityTimer(id) {
-  clearTimeout(gsdSilenceTimers.get(id));
-  gsdSilenceTimers.delete(id);
-}
+function resetOutputSilenceTimer(_id) { /* no-op */ }
+function clearOutputSilenceTimer(_id) { /* no-op */ }
 
 // ── Ready state debounce (adaptive + content-verified) ──
 // Between tool calls, Claude briefly shows ✳ before starting next action.
@@ -216,11 +163,6 @@ const terminalContext = new Map();        // id -> { taskName, lastTool, toolCou
 // Map<projectId, number[]> — most-recently-activated tab ID is the last element
 const tabActivationHistory = new Map();
 
-// ── Per-project active tab tracking (in-memory, within-session only) ──
-// Track last-active terminal ID per project (so switching back to a project restores the tab)
-const lastActivePerProject = new Map();
-// Track scroll position per terminal at leave-time (for scroll restoration on project switch)
-const savedScrollPositions = new Map();
 /**
  * Scan terminal buffer for definitive completion signals.
  *
@@ -399,50 +341,15 @@ function parseClaudeTitle(title) {
 }
 
 /**
- * Track when a tab was last renamed by a slash command (hooks PROMPT_SUBMIT).
- * Used to prevent OSC title changes from overwriting the slash-command name.
- * The cooldown prevents the race where OSC fires before hooks rename completes.
- */
-const slashRenameTimestamps = new Map();
-const SLASH_RENAME_COOLDOWN = 30000; // 30s — protect slash name for this long
-
-/**
- * Track when a tab was restored with a custom name from a previous session.
- * Used to prevent the post-resume OSC title (✳ project-folder-name) from
- * overwriting the restored name.
- */
-const restoreNameProtected = new Set();
-
-/**
- * Check if a terminal has restore-name protection active.
- * Used by wireSessionIdCapture to distinguish session resume from /clear rotation.
- * @param {string|number} id - Terminal ID
- * @returns {boolean}
- */
-function isRestoreNameProtected(id) {
-  return restoreNameProtected.has(id) || restoreNameProtected.has(String(id)) || restoreNameProtected.has(Number(id));
-}
-
-/**
  * Returns true when an OSC title rename should be skipped because the tab was
- * renamed to a slash command by the user's setting, or was restored with a
- * custom name from a previous session.
+ * renamed to a slash command by the user's setting.
  * Uses the module-level getSetting import to avoid any circular dependency issues.
  * @param {string|number} id - Terminal ID
  */
 function shouldSkipOscRename(id) {
-  // Check restore protection first (independent of tabRenameOnSlashCommand setting)
-  // Cleared on first user Enter keypress — see terminal.onData handler
-  if (restoreNameProtected.has(id)) return true;
-
   if (!getSetting('tabRenameOnSlashCommand')) return false;
   const td = getTerminal(id);
-  // Check 1: tab name starts with / (slash command name)
-  if (td && td.name && td.name.startsWith('/')) return true;
-  // Check 2: cooldown — within 30s of a slash rename, block OSC overwrites
-  const ts = slashRenameTimestamps.get(id);
-  if (ts && Date.now() - ts < SLASH_RENAME_COOLDOWN) return true;
-  return false;
+  return !!(td && td.name && td.name.startsWith('/'));
 }
 
 /**
@@ -476,7 +383,7 @@ function handleClaudeTitleChange(id, title, options = {}) {
 
     // Auto-name tab from Claude's task name (not tool names)
     if (parsed.taskName) {
-      if (getSetting('aiTabNaming') !== false && !shouldSkipOscRename(id)) {
+      if (!shouldSkipOscRename(id) && getSetting('aiTabNaming') !== false) {
         updateTerminalTabName(id, parsed.taskName);
       }
     }
@@ -490,7 +397,7 @@ function handleClaudeTitleChange(id, title, options = {}) {
     if (parsed.taskName) {
       if (!terminalContext.has(id)) terminalContext.set(id, { taskName: null, lastTool: null, toolCount: 0, duration: null });
       terminalContext.get(id).taskName = parsed.taskName;
-      if (getSetting('aiTabNaming') !== false && !shouldSkipOscRename(id)) {
+      if (!shouldSkipOscRename(id) && getSetting('aiTabNaming') !== false) {
         updateTerminalTabName(id, parsed.taskName);
       }
     }
@@ -571,45 +478,18 @@ function performPaste(terminalId, inputChannel = 'terminal-input') {
   const now = Date.now();
   if (now - lastPasteTime < PASTE_DEBOUNCE_MS) return;
   lastPasteTime = now;
-
-  const sendChunk = (channel, id, data) => {
-    if (channel === 'fivem-input') {
-      api.fivem.input({ projectIndex: id, data });
-    } else if (channel === 'webapp-input') {
-      api.webapp.input({ projectIndex: id, data });
-    } else {
-      api.terminal.input({ id, data });
-    }
-  };
-
-  const sendPaste = async (text) => {
+  const sendPaste = (text) => {
     if (!text) return;
     // Normalize line endings: \r\n → \r, then lone \n → \r (terminal convention)
     text = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
-
-    // Wrap with bracket paste sequences if the terminal app requested it.
-    // This tells apps like Claude Code CLI to treat the input as pasted text
-    // rather than interpreting each \r as a submit/execute command.
-    const td = getTerminal(terminalId);
-    const useBracket = td?.terminal?.modes?.bracketedPasteMode;
-    if (useBracket) text = '\x1b[200~' + text + '\x1b[201~';
-
-    // Small pastes: send in one go (fast path)
-    if (text.length <= PASTE_CHUNK_SIZE) {
-      sendChunk(inputChannel, terminalId, text);
-      return;
-    }
-
-    // Large pastes: chunk to avoid IPC/PTY limits
-    for (let offset = 0; offset < text.length; offset += PASTE_CHUNK_SIZE) {
-      const chunk = text.slice(offset, offset + PASTE_CHUNK_SIZE);
-      sendChunk(inputChannel, terminalId, chunk);
-      if (offset + PASTE_CHUNK_SIZE < text.length) {
-        await new Promise(r => setTimeout(r, PASTE_CHUNK_DELAY_MS));
-      }
+    if (inputChannel === 'fivem-input') {
+      api.fivem.input({ projectIndex: terminalId, data: text });
+    } else if (inputChannel === 'webapp-input') {
+      api.webapp.input({ projectIndex: terminalId, data: text });
+    } else {
+      api.terminal.input({ id: terminalId, data: text });
     }
   };
-
   navigator.clipboard.readText()
     .then(sendPaste)
     .catch(() => api.app.clipboardRead().then(sendPaste));
@@ -774,6 +654,8 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
   let shiftHeld = false;
   const _onBlur = () => { shiftHeld = false; };
   window.addEventListener('blur', _onBlur);
+  // Store reference for cleanup on terminal destroy
+  terminal._blurListener = _onBlur;
   return (e) => {
     // Check rebound terminal shortcuts (ctrlC / ctrlV) at call-time — read from settings
     if (e.ctrlKey && e.type === 'keydown') {
@@ -1052,7 +934,6 @@ function setupTabDragDrop(tab) {
     tab.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', tab.dataset.id);
-    PaneManager.setDragTabId(tab.dataset.id);
 
     // Create placeholder
     dragPlaceholder = document.createElement('div');
@@ -1062,8 +943,6 @@ function setupTabDragDrop(tab) {
   tab.addEventListener('dragend', () => {
     tab.classList.remove('dragging');
     draggedTab = null;
-    PaneManager.clearDragTabId();
-    PaneManager.hideAllDropOverlays();
     if (dragPlaceholder && dragPlaceholder.parentNode) {
       dragPlaceholder.remove();
     }
@@ -1074,13 +953,7 @@ function setupTabDragDrop(tab) {
     });
   });
 
-  tab.addEventListener('dragleave', () => {
-    tab.classList.remove('drag-over-left', 'drag-over-right');
-  });
-
   tab.addEventListener('dragover', (e) => {
-    // Stop propagation to prevent content-area overlay flickering when hovering over tabs
-    e.stopPropagation();
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
@@ -1095,87 +968,26 @@ function setupTabDragDrop(tab) {
     tab.classList.add(isLeft ? 'drag-over-left' : 'drag-over-right');
   });
 
+  tab.addEventListener('dragleave', () => {
+    tab.classList.remove('drag-over-left', 'drag-over-right');
+  });
+
   tab.addEventListener('drop', (e) => {
     e.preventDefault();
-    e.stopPropagation(); // prevent content-area handler
     tab.classList.remove('drag-over-left', 'drag-over-right');
 
     if (!draggedTab || draggedTab === tab) return;
 
-    const targetTabsContainer = tab.closest('.pane-tabs');
-    const sourceTabsContainer = draggedTab.closest('.pane-tabs');
-
+    const tabsContainer = document.getElementById('terminals-tabs');
     const rect = tab.getBoundingClientRect();
     const midX = rect.left + rect.width / 2;
     const insertBefore = e.clientX < midX;
 
-    // Cross-pane tab-bar drop: move tab to target pane
-    if (sourceTabsContainer !== targetTabsContainer) {
-      const targetPaneEl = tab.closest('.split-pane');
-      const targetPaneId = 'pane-' + targetPaneEl.dataset.paneId;
-      const draggedId = draggedTab.dataset.id;
-
-      // Move wrapper to target pane's content
-      const wrapperEl = document.querySelector(`.terminal-wrapper[data-id="${draggedId}"]`);
-      const targetContentEl = targetPaneEl.querySelector('.pane-content');
-      if (wrapperEl && targetContentEl) targetContentEl.appendChild(wrapperEl);
-
-      // Insert tab at correct position in target tab bar
-      if (insertBefore) {
-        targetTabsContainer.insertBefore(draggedTab, tab);
-      } else {
-        targetTabsContainer.insertBefore(draggedTab, tab.nextSibling);
-      }
-
-      // Update PaneManager state
-      const sourcePaneEl = sourceTabsContainer.closest('.split-pane');
-      const sourcePaneId = 'pane-' + sourcePaneEl.dataset.paneId;
-      const sourcePane = PaneManager.getPanes().get(sourcePaneId);
-      const targetPane = PaneManager.getPanes().get(targetPaneId);
-
-      if (sourcePane) {
-        sourcePane.tabs.delete(draggedId);
-        // Update source pane's active tab if the moved tab was active
-        if (sourcePane.activeTab === draggedId) {
-          const remaining = Array.from(sourcePane.tabs);
-          const visibleRemaining = remaining.filter(tid => {
-            const tabEl = sourcePane.tabsEl.querySelector(`.terminal-tab[data-id="${tid}"]`);
-            return tabEl && tabEl.style.display !== 'none';
-          });
-          sourcePane.activeTab = visibleRemaining.length > 0 ? visibleRemaining[0]
-            : remaining.length > 0 ? remaining[0] : null;
-
-          // Update source pane's DOM to reflect the new active tab
-          if (sourcePane.activeTab) {
-            sourcePane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
-              t.classList.toggle('active', t.dataset.id === sourcePane.activeTab));
-            sourcePane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
-              w.classList.toggle('active', w.dataset.id === sourcePane.activeTab);
-              w.style.removeProperty('display');
-            });
-          }
-        }
-      }
-      if (targetPane) targetPane.tabs.add(draggedId);
-
-      // Activate the moved tab
-      setActiveTerminal(draggedId);
-
-      // Collapse source pane if empty
-      if (sourcePane && sourcePane.tabs.size === 0 && PaneManager.getPaneCount() > 1) {
-        PaneManager.collapsePane(sourcePaneId);
-      }
+    if (insertBefore) {
+      tabsContainer.insertBefore(draggedTab, tab);
     } else {
-      // Same pane: reorder (existing behavior)
-      if (insertBefore) {
-        targetTabsContainer.insertBefore(draggedTab, tab);
-      } else {
-        targetTabsContainer.insertBefore(draggedTab, tab.nextSibling);
-      }
+      tabsContainer.insertBefore(draggedTab, tab.nextSibling);
     }
-
-    PaneManager.clearDragTabId();
-    PaneManager.hideAllDropOverlays();
   });
 }
 
@@ -1196,28 +1008,16 @@ function extractTitleFromInput(input) {
 /**
  * Update terminal tab name
  */
-function updateTerminalTabName(id, name) {
+async function updateTerminalTabName(id, name) {
   const termData = getTerminal(id);
   if (!termData) return;
-
-  // Track slash command renames for OSC overwrite protection
-  if (name && name.startsWith('/')) {
-    slashRenameTimestamps.set(id, Date.now());
-  }
 
   // Update state
   updateTerminal(id, { name });
 
   // Propagate tab name to session-names.json (resume dialog)
-  // Write to both current and original session IDs — Claude may assign a new
-  // session ID on resume, but the lightbulb lists sessions by the original JSONL filename.
-  if (name) {
-    if (termData.claudeSessionId) {
-      setSessionCustomName(termData.claudeSessionId, name);
-    }
-    if (termData.originalSessionId && termData.originalSessionId !== termData.claudeSessionId) {
-      setSessionCustomName(termData.originalSessionId, name);
-    }
+  if (termData.claudeSessionId && name) {
+    await setSessionCustomName(termData.claudeSessionId, name);
   }
 
   // Update DOM
@@ -1356,7 +1156,7 @@ function startRenameTab(id) {
 
   const finishRename = () => {
     const newName = input.value.trim() || currentName;
-    updateTerminalTabName(id, newName);
+    updateTerminal(id, { name: newName });
     const newSpan = document.createElement('span');
     newSpan.className = 'tab-name';
     newSpan.textContent = newName;
@@ -1372,51 +1172,7 @@ function startRenameTab(id) {
 }
 
 /**
- * Trigger AI-based tab renaming using the existing generateTabName mechanism.
- * Shows '...' as a loading indicator, reverts to the original name on failure.
- * @param {string} id - Tab/terminal ID
- */
-async function handleAiRename(id) {
-  const termData = getTerminal(id);
-  if (!termData) return;
-
-  const originalName = termData.name || '';
-
-  // Grab recent terminal buffer content for context
-  let context = originalName || 'terminal';
-  const terminal = termData.terminal;
-  if (terminal?.buffer?.active) {
-    const buf = terminal.buffer.active;
-    const totalLines = buf.baseY + buf.cursorY;
-    const scanLimit = Math.max(0, totalLines - 20);
-    const lines = [];
-    for (let i = totalLines; i >= scanLimit; i--) {
-      const row = buf.getLine(i);
-      if (!row) continue;
-      const text = row.translateToString(true).trim();
-      if (text) lines.unshift(text);
-      if (lines.length >= 10) break;
-    }
-    if (lines.length > 0) context = lines.join(' ');
-  }
-
-  // Show loading indicator immediately
-  updateTerminalTabName(id, '...');
-
-  try {
-    const res = await api.chat.generateTabName({ userMessage: context });
-    if (res?.success && res.name) {
-      updateTerminalTabName(id, res.name);
-    } else {
-      updateTerminalTabName(id, originalName);
-    }
-  } catch (err) {
-    updateTerminalTabName(id, originalName);
-  }
-}
-
-/**
- * Show right-click context menu on a tab (Rename, Close, Close Others, Close to Right, Split)
+ * Show context menu for a tab (right-click)
  * @param {MouseEvent} e - The contextmenu event
  * @param {string} id - Tab/terminal ID
  */
@@ -1424,9 +1180,9 @@ function showTabContextMenu(e, id) {
   e.preventDefault();
   e.stopPropagation();
 
-  const thisTab = document.querySelector(`.terminal-tab[data-id="${id}"]`);
-  const tabsContainer = thisTab?.closest('.pane-tabs');
-  const allTabs = tabsContainer ? Array.from(tabsContainer.querySelectorAll('.terminal-tab')) : [];
+  const tabsContainer = document.getElementById('terminals-tabs');
+  const allTabs = Array.from(tabsContainer.querySelectorAll('.terminal-tab'));
+  const thisTab = tabsContainer.querySelector(`.terminal-tab[data-id="${id}"]`);
   const thisIndex = allTabs.indexOf(thisTab);
   const tabsToRight = allTabs.slice(thisIndex + 1);
 
@@ -1439,11 +1195,6 @@ function showTabContextMenu(e, id) {
         shortcut: 'Double-click',
         icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
         onClick: () => startRenameTab(id)
-      },
-      {
-        label: t('tabs.aiRename'),
-        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.5 14H13v-3.5L9.5 17l-1-1 3.5-3.5H8.5V11h6v6z"/></svg>',
-        onClick: () => handleAiRename(id)
       },
       { separator: true },
       {
@@ -1458,7 +1209,7 @@ function showTabContextMenu(e, id) {
         onClick: () => {
           allTabs.forEach(tab => {
             const tabId = tab.dataset.id;
-            if (tabId != id) closeTerminal(tabId);
+            if (tabId !== id) closeTerminal(tabId);
           });
         }
       },
@@ -1469,76 +1220,7 @@ function showTabContextMenu(e, id) {
         onClick: () => {
           tabsToRight.forEach(tab => closeTerminal(tab.dataset.id));
         }
-      },
-      { separator: true },
-      {
-        label: t('tabs.splitRight'),
-        icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 3h8v18H3V3zm10 0h8v18h-8V3z"/></svg>',
-        disabled: PaneManager.getPaneCount() >= 3,
-        onClick: () => {
-          const currentPaneId = PaneManager.getPaneForTab(String(id));
-          const newPaneId = PaneManager.createPane(currentPaneId);
-          if (newPaneId) {
-            const sourceEmpty = PaneManager.moveTabToPane(String(id), newPaneId);
-            setActiveTerminal(id);
-            if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
-          }
-        }
-      },
-      // Move items — only when multiple panes exist
-      ...(PaneManager.getPaneCount() > 1 ? (() => {
-        const order = PaneManager.getPaneOrder();
-        const currentPaneId = PaneManager.getPaneForTab(String(id));
-        const currentIdx = order.indexOf(currentPaneId);
-
-        if (order.length === 2) {
-          // 2 panes: simple Move Right / Move Left
-          return [
-            {
-              label: t('tabs.moveLeft'),
-              icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>',
-              disabled: currentIdx === 0,
-              onClick: () => {
-                if (currentIdx > 0) {
-                  const targetPaneId = order[currentIdx - 1];
-                  const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
-                  setActiveTerminal(id);
-                  if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
-                }
-              }
-            },
-            {
-              label: t('tabs.moveRight'),
-              icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>',
-              disabled: currentIdx === order.length - 1,
-              onClick: () => {
-                if (currentIdx < order.length - 1) {
-                  const targetPaneId = order[currentIdx + 1];
-                  const sourceEmpty = PaneManager.moveTabToPane(String(id), targetPaneId);
-                  setActiveTerminal(id);
-                  if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
-                }
-              }
-            }
-          ];
-        } else {
-          // 3 panes: specific pane targets
-          return order
-            .filter(pId => pId !== currentPaneId)
-            .map((pId) => {
-              const paneNum = order.indexOf(pId) + 1;
-              return {
-                label: t('tabs.moveToPane').replace('{0}', paneNum),
-                icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 3h8v18H3V3zm10 0h8v18h-8V3z"/></svg>',
-                onClick: () => {
-                  const sourceEmpty = PaneManager.moveTabToPane(String(id), pId);
-                  setActiveTerminal(id);
-                  if (sourceEmpty) PaneManager.collapsePane(currentPaneId);
-                }
-              };
-            });
-        }
-      })() : [])
+      }
     ]
   });
 }
@@ -1552,54 +1234,19 @@ function setActiveTerminal(id) {
   const prevTermData = prevActiveId ? getTerminal(prevActiveId) : null;
   const prevProjectId = prevTermData?.project?.id;
 
-  // Capture scroll position of the outgoing terminal before switching
-  if (prevTermData && prevActiveId !== id) {
-    try {
-      if (prevTermData.mode === 'chat') {
-        const prevWrapper = document.querySelector(`.terminal-wrapper[data-id="${prevActiveId}"]`);
-        const messagesEl = prevWrapper?.querySelector('.chat-messages');
-        if (messagesEl) {
-          savedScrollPositions.set(prevActiveId, { scrollTop: messagesEl.scrollTop });
-        }
-      } else if (prevTermData.terminal?.buffer?.active) {
-        savedScrollPositions.set(prevActiveId, { viewportY: prevTermData.terminal.buffer.active.viewportY });
-      }
-    } catch (e) { /* scroll capture failed, not critical */ }
-  }
-
   // Blur previous terminal so its hidden xterm textarea doesn't capture cursor/input
   if (prevTermData && prevTermData.terminal && prevActiveId !== id) {
     try { prevTermData.terminal.blur(); } catch (e) {}
   }
 
   setActiveTerminalState(id);
-
-  const paneId = PaneManager.getPaneForTab(String(id));
-  if (paneId) {
-    const pane = PaneManager.getPanes().get(paneId);
-    if (pane) {
-      // Toggle active only within THIS pane's tab bar
-      pane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
-        t.classList.toggle('active', t.dataset.id == id));
-      // Toggle active only within THIS pane's content
-      pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
-        w.classList.toggle('active', w.dataset.id == id);
-        w.style.removeProperty('display');
-      });
-      // Update pane's tracked active tab
-      PaneManager.setPaneActiveTab(paneId, String(id));
-    }
-    // Set this pane as the focused pane
-    PaneManager.setActivePaneId(paneId);
-  } else {
-    // Fallback for tabs not yet registered (edge case during init)
-    document.querySelectorAll('.terminal-tab').forEach(t =>
-      t.classList.toggle('active', t.dataset.id == id));
-    document.querySelectorAll('.terminal-wrapper').forEach(w => {
-      w.classList.toggle('active', w.dataset.id == id);
-      w.style.removeProperty('display');
-    });
-  }
+  document.querySelectorAll('.terminal-tab').forEach(t => t.classList.toggle('active', t.dataset.id == id));
+  document.querySelectorAll('.terminal-wrapper').forEach(w => {
+    const isActive = w.dataset.id == id;
+    w.classList.toggle('active', isActive);
+    // Always clear inline display so CSS rules control visibility via .active class
+    w.style.removeProperty('display');
+  });
   const termData = getTerminal(id);
   if (termData) {
     if (termData.mode === 'chat') {
@@ -1610,31 +1257,16 @@ function setActiveTerminal(id) {
     } else if (termData.type !== 'file') {
       termData.fitAddon.fit();
       termData.terminal.focus();
-      // Auto-scroll to bottom on tab/project switch (Phase 20.1)
-      // Deferred: fit() triggers async reflow in xterm (especially for previously-hidden
-      // terminals after restore). A single RAF isn't enough — fit() queues a resize that
-      // xterm processes in the first frame, then reflows the buffer. The second RAF fires
-      // after the reflow completes, so scrollToBottom lands at the true end of content.
-      if (getSetting('autoScrollOnSwitch') !== false) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            try { termData.terminal.scrollToBottom(); } catch (e) { /* terminal gone */ }
-          });
-        });
-      }
     }
 
     // Handle project switch for time tracking
     const newProjectId = termData.project?.id;
     if (prevProjectId !== newProjectId) {
-      if (prevProjectId) stopProject(prevProjectId);
       if (newProjectId) heartbeat(newProjectId, 'terminal');
     }
 
-    // Record this terminal as last-active for its project
+    // Append to per-project activation history (browser-like tab-close)
     if (newProjectId) {
-      lastActivePerProject.set(newProjectId, id);
-      // Append to per-project activation history (browser-like tab-close)
       if (!tabActivationHistory.has(newProjectId)) {
         tabActivationHistory.set(newProjectId, []);
       }
@@ -1643,36 +1275,6 @@ function setActiveTerminal(id) {
         history.push(id);
         if (history.length > 50) history.shift();
       }
-    }
-
-    // Restore scroll position of the incoming terminal (deferred until DOM is visible)
-    const saved = savedScrollPositions.get(id);
-    if (saved) {
-      requestAnimationFrame(() => {
-        try {
-          if (termData.mode === 'chat') {
-            const wrapper = document.querySelector(`.terminal-wrapper[data-id="${id}"]`);
-            const messagesEl = wrapper?.querySelector('.chat-messages');
-            if (messagesEl && saved.scrollTop !== undefined) {
-              messagesEl.scrollTop = saved.scrollTop;
-            }
-          } else if (termData.terminal?.buffer?.active && saved.viewportY !== undefined) {
-            // Only restore xterm scroll position if auto-scroll-on-switch is disabled
-            if (getSetting('autoScrollOnSwitch') === false) {
-              const delta = saved.viewportY - termData.terminal.buffer.active.viewportY;
-              if (delta !== 0) termData.terminal.scrollLines(delta);
-            }
-          }
-        } catch (e) { /* scroll restore failed, not critical */ }
-      });
-    }
-
-    // Track active Claude tab for event routing (tab rename, session ID capture)
-    if (newProjectId && termData.mode === 'terminal' && !termData.isBasic) {
-      try {
-        const { notifyTabActivated } = require('../../events');
-        notifyTabActivated(newProjectId, id);
-      } catch (e) { /* events module not ready */ }
     }
 
     // Notify about active terminal change (used to update git buttons for worktrees)
@@ -1708,6 +1310,12 @@ function cleanupTerminalResources(termData) {
     termData.resizeObserver.disconnect();
   }
 
+  // Remove blur listener from key handler
+  if (termData.terminal && termData.terminal._blurListener) {
+    window.removeEventListener('blur', termData.terminal._blurListener);
+    termData.terminal._blurListener = null;
+  }
+
   // Dispose terminal
   if (termData.terminal) {
     termData.terminal.dispose();
@@ -1717,21 +1325,9 @@ function cleanupTerminalResources(termData) {
 /**
  * Close terminal
  */
-async function closeTerminal(id) {
+function closeTerminal(id) {
   // Get terminal info before closing
   const termData = getTerminal(id);
-
-  // Gate: confirm before closing a tab where Claude is actively working
-  if (termData && !termData.isBasic && termData.status === 'working' && isClaudeActive(id)) {
-    const confirmed = await showConfirm({
-      title: t('closeWarning.title'),
-      message: t('tabCloseWarning.message', { name: termData.name || 'Terminal' }),
-      confirmLabel: t('tabCloseWarning.closeAnyway'),
-      danger: true
-    });
-    if (!confirmed) return;
-  }
-
   const closedProjectIndex = termData?.projectIndex;
   const closedProjectPath = termData?.project?.path;
   const closedProjectId = termData?.project?.id;
@@ -1743,7 +1339,6 @@ async function closeTerminal(id) {
   }
 
   clearOutputSilenceTimer(id);
-  clearGsdActivityTimer(id);
   cancelScheduledReady(id);
   postEnterExtended.delete(id);
   postSpinnerExtended.delete(id);
@@ -1756,9 +1351,6 @@ async function closeTerminal(id) {
   terminalSubstatus.delete(id);
   lastTerminalData.delete(id);
   terminalContext.delete(id);
-  savedScrollPositions.delete(id);
-  // Note: do NOT delete from lastActivePerProject — the guard in filterByProject
-  // handles stale IDs via getTerminal(savedId) returning null.
   errorOverlays.delete(closedProjectIndex);
 
   // Kill and cleanup
@@ -1769,36 +1361,21 @@ async function closeTerminal(id) {
     }
     removeTerminal(id);
   } else if (termData && termData.type === 'file') {
-    // File tabs have no terminal process to kill; run markdown cleanup if set
+    // File tabs have no terminal process to kill; run cleanup if set
     if (termData.mdCleanup) termData.mdCleanup();
+    if (termData.viewerCleanup) termData.viewerCleanup();
     removeTerminal(id);
   } else {
     api.terminal.kill({ id });
     cleanupTerminalResources(termData);
     removeTerminal(id);
   }
-  // Capture pane ID before unregisterTab removes the tab from the pane
-  const closedPaneId = PaneManager.getPaneForTab(String(id));
-  const emptyPaneId = PaneManager.unregisterTab(String(id));
   document.querySelector(`.terminal-tab[data-id="${id}"]`)?.remove();
   document.querySelector(`.terminal-wrapper[data-id="${id}"]`)?.remove();
 
-  // Collapse pane if it's now empty (but not the last pane)
-  if (emptyPaneId && PaneManager.getPaneCount() > 1) {
-    PaneManager.collapsePane(emptyPaneId);
-  }
-
-  // Prefer the pane-local successor that unregisterTab already computed
-  let sameProjectTerminalId = null;
-  if (closedPaneId && !emptyPaneId) {
-    const closedPane = PaneManager.getPanes().get(closedPaneId);
-    if (closedPane?.activeTab) {
-      sameProjectTerminalId = closedPane.activeTab;
-    }
-  }
-
   // Walk back activation history to find the previously-active tab
-  if (!sameProjectTerminalId && closedProjectId) {
+  let sameProjectTerminalId = null;
+  if (closedProjectId) {
     const history = tabActivationHistory.get(closedProjectId);
     if (history) {
       // Walk from most-recent backward; skip the closed tab and already-removed tabs
@@ -1830,9 +1407,6 @@ async function closeTerminal(id) {
     });
   }
 
-  // Clean up Claude activity tracking for this terminal
-  removeClaudeTerminal(id);
-
   // Stop time tracking if no more terminals for this project
   if (!sameProjectTerminalId && closedProjectId) {
     stopProject(closedProjectId);
@@ -1860,25 +1434,22 @@ async function closeTerminal(id) {
  * Create a new terminal for a project
  */
 async function createTerminal(project, options = {}) {
-  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null, cliTool: explicitCliTool = null } = options;
+  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null, systemPrompt = null, tabTag = null } = options;
 
   // Determine mode: explicit > setting > default
   const mode = explicitMode || (runClaude ? (getSetting('defaultTerminalMode') || 'terminal') : 'terminal');
-  // Determine CLI tool: explicit > setting > default
-  const cliTool = explicitCliTool || (runClaude ? (getSetting('defaultCliTool') || 'claude') : null);
 
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
     const chatProject = overrideCwd ? { ...project, path: overrideCwd } : project;
-    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart });
+    return createChatTerminal(chatProject, { skipPermissions, name: customName, parentProjectId: overrideCwd ? project.id : null, resumeSessionId, initialPrompt, initialImages, initialModel, initialEffort, onSessionStart, systemPrompt, tabTag });
   }
 
   const result = await api.terminal.create({
     cwd: overrideCwd || project.path,
     runClaude,
     skipPermissions,
-    ...(resumeSessionId ? { resumeSessionId } : {}),
-    ...(cliTool && cliTool !== 'claude' ? { cliTool } : {})
+    ...(resumeSessionId ? { resumeSessionId } : {})
   });
 
   // Handle new response format { success, id, error }
@@ -1886,7 +1457,7 @@ async function createTerminal(project, options = {}) {
     if (!result.success) {
       console.error('Failed to create terminal:', result.error);
       if (callbacks.onNotification) {
-        callbacks.onNotification(`❌ ${t('common.error')}`, result.error || t('terminals.createError'), null);
+        callbacks.onNotification('info', result.error || t('terminals.createError'), null);
       }
       return null;
     }
@@ -1923,24 +1494,18 @@ async function createTerminal(project, options = {}) {
     isBasic: isBasicTerminal,
     mode: 'terminal',
     cwd: overrideCwd || project.path,
-    ...(cliTool && cliTool !== 'claude' ? { cliTool } : {}),
-    ...(resumeSessionId ? { claudeSessionId: resumeSessionId, originalSessionId: resumeSessionId } : {}),
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {}),
     ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
   };
 
   addTerminal(id, termData);
 
-  // Protect restored custom names from being overwritten by post-resume OSC titles
-  if (resumeSessionId && customName) {
-    restoreNameProtected.add(id);
-  }
-
   // Start time tracking for this project
   heartbeat(project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = PaneManager.getTabsContainer();
+  const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
   const isWorktreeTab = !!(overrideCwd && overrideCwd !== project.path);
   tab.className = `terminal-tab status-${initialStatus}${isBasicTerminal ? ' basic-terminal' : ''}${isWorktreeTab ? ' worktree-tab' : ''}`;
@@ -1963,12 +1528,11 @@ async function createTerminal(project, options = {}) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = PaneManager.getContentContainer();
+  const container = document.getElementById('terminals-container');
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
-  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   // Add loading overlay for Claude terminals
   if (!isBasicTerminal) {
@@ -1994,7 +1558,15 @@ async function createTerminal(project, options = {}) {
 
   terminal.open(wrapper);
   loadWebglAddon(terminal);
-  setTimeout(() => fitAddon.fit(), 100);
+  // Defer fit() until container has non-zero dimensions
+  setTimeout(() => {
+    const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
+    if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
+      fitAddon.fit();
+    } else {
+      requestAnimationFrame(() => fitAddon.fit());
+    }
+  }, 100);
   setActiveTerminal(id);
 
   // Prevent double-paste issue
@@ -2031,38 +1603,12 @@ async function createTerminal(project, options = {}) {
   });
 
   // IPC data handling via centralized dispatcher
-  let clearDebounce = null;
-  let lastDataTime = 0;
   registerTerminalHandler(id,
     (data) => {
-      const now = Date.now();
-      // Detect screen clear sequences (e.g. /clear) and wipe scrollback too.
-      // Only clear when in the normal buffer — Claude CLI's TUI uses \x1b[2J
-      // for redraws inside the alternate screen buffer, and clearing scrollback
-      // there would jump the viewport to the top while the user is reading.
-      // Debounce during rapid output to prevent scrollback thrashing from
-      // repeated clears (e.g. GSD web searches producing fast TUI redraws).
-      if (terminal.buffer.active.type === 'normal' &&
-          (data.data.includes('\x1b[2J') || data.data.includes('\x1b[3J') || data.data.includes('\x1bc'))) {
-        const rapid = (now - lastDataTime) < 100;
-        if (rapid) {
-          // During rapid output, debounce clear — only fire if output settles
-          if (clearDebounce) clearTimeout(clearDebounce);
-          clearDebounce = setTimeout(() => {
-            terminal.clear();
-            clearDebounce = null;
-          }, 200);
-        } else {
-          // Idle/slow output — clear immediately (user typed /clear)
-          if (clearDebounce) { clearTimeout(clearDebounce); clearDebounce = null; }
-          terminal.clear();
-        }
-      }
-      lastDataTime = now;
-      writePreservingScroll(terminal, data.data);
+      terminal.write(data.data);
       resetOutputSilenceTimer(id);
-      resetGsdActivityTimer(id);
-      claudeHeartbeat(id);
+      const td = getTerminal(id);
+      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     },
     () => closeTerminal(id)
   );
@@ -2093,9 +1639,16 @@ async function createTerminal(project, options = {}) {
       console.warn(`[TerminalManager] Resume watchdog fired for terminal ${id} (session ${resumeSessionId}) — starting fresh`);
       closeTerminal(id);
       createTerminal(project, {
-        runClaude: true,
+        runClaude,
         cwd: overrideCwd || project.path,
-        skipPermissions
+        skipPermissions,
+        name: customName,
+        mode: explicitMode,
+        initialPrompt,
+        initialImages,
+        initialModel,
+        initialEffort,
+        onSessionStart
       });
     }, RESUME_WATCHDOG_MS);
   }
@@ -2107,15 +1660,13 @@ async function createTerminal(project, options = {}) {
     const td = getTerminal(id);
     if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
-      // User sent new input — allow OSC title renames again for this terminal
-      restoreNameProtected.delete(id);
       cancelScheduledReady(id);
       updateTerminalStatus(id, 'working');
       if (scrapingEventCallback) scrapingEventCallback(id, 'input', {});
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title && getSetting('aiTabNaming') !== false) {
+        if (title) {
           // Update terminal tab name instead of window title
           updateTerminalTabName(id, title);
         }
@@ -2130,7 +1681,6 @@ async function createTerminal(project, options = {}) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
-    if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
     fitAddon.fit();
     api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
@@ -2150,7 +1700,6 @@ async function createTerminal(project, options = {}) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input') && !e.target.closest('.tab-mode-toggle')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
-  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
   tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Mode toggle button
@@ -2295,7 +1844,7 @@ function createTypeConsole(project, projectIndex) {
   heartbeat(project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = PaneManager.getTabsContainer();
+  const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
   tab.className = `terminal-tab ${tabClass} status-ready`;
   tab.dataset.id = id;
@@ -2308,11 +1857,10 @@ function createTypeConsole(project, projectIndex) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = PaneManager.getContentContainer();
+  const container = document.getElementById('terminals-container');
   const wrapper = document.createElement('div');
   wrapper.className = `terminal-wrapper ${wrapperClass}`;
   wrapper.dataset.id = id;
-  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   // Get panel HTML from type handler
   const panels = typeHandler.getTerminalPanels({ project, projectIndex });
@@ -2329,7 +1877,15 @@ function createTypeConsole(project, projectIndex) {
   const consoleView = wrapper.querySelector(consoleViewSelector);
   terminal.open(consoleView);
   loadWebglAddon(terminal);
-  setTimeout(() => fitAddon.fit(), 100);
+  // Defer fit() until container has non-zero dimensions
+  setTimeout(() => {
+    const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
+    if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
+      fitAddon.fit();
+    } else {
+      requestAnimationFrame(() => fitAddon.fit());
+    }
+  }, 100);
   setActiveTerminal(id);
 
   // Clipboard handlers + key handler for copy/paste
@@ -2380,9 +1936,12 @@ function createTypeConsole(project, projectIndex) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
-    if (!consoleView.offsetWidth || !consoleView.offsetHeight) return;
     fitAddon.fit();
-    api[ipcNamespace].resize({ projectIndex, cols: terminal.cols, rows: terminal.rows });
+    api[ipcNamespace].resize({
+      projectIndex,
+      cols: terminal.cols,
+      rows: terminal.rows
+    });
   });
   resizeObserver.observe(consoleView);
 
@@ -2407,7 +1966,6 @@ function createTypeConsole(project, projectIndex) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTypeConsole(id, projectIndex, typeId); };
-  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTypeConsole(id, projectIndex, typeId); } };
   tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   setupTabDragDrop(tab);
@@ -2494,7 +2052,7 @@ function getTypeConsoleTerminal(projectIndex, typeId) {
  */
 function writeTypeConsole(projectIndex, typeId, data) {
   const terminal = getTypeConsoleTerminal(projectIndex, typeId);
-  if (terminal) writePreservingScroll(terminal, data);
+  if (terminal) terminal.write(data);
 }
 
 /**
@@ -2765,46 +2323,6 @@ function filterByProject(projectIndex) {
     }
   });
 
-  // Check each pane for visible tabs — hide panes with zero visible tabs during filtering
-  const paneOrder = PaneManager.getPaneOrder();
-  for (const pId of paneOrder) {
-    const pane = PaneManager.getPanes().get(pId);
-    if (!pane) continue;
-    const visibleTabsInPane = Array.from(pane.tabsEl.querySelectorAll('.terminal-tab'))
-      .filter(tab => tab.style.display !== 'none');
-
-    if (visibleTabsInPane.length === 0) {
-      // Hide this pane (but don't collapse — filter may change)
-      pane.el.style.display = 'none';
-      const prevSibling = pane.el.previousElementSibling;
-      if (prevSibling && prevSibling.classList.contains('split-divider')) {
-        prevSibling.style.display = 'none';
-      }
-    } else {
-      pane.el.style.display = '';
-      const prevSibling = pane.el.previousElementSibling;
-      if (prevSibling && prevSibling.classList.contains('split-divider')) {
-        prevSibling.style.display = '';
-      }
-
-      // If pane's active tab is hidden, switch to first visible tab in this pane
-      const currentActive = PaneManager.getPaneActiveTab(pId);
-      const activeTabEl = currentActive ? pane.tabsEl.querySelector(`.terminal-tab[data-id="${currentActive}"]`) : null;
-      if (!activeTabEl || activeTabEl.style.display === 'none') {
-        const firstVisible = visibleTabsInPane[0];
-        if (firstVisible) {
-          PaneManager.setPaneActiveTab(pId, firstVisible.dataset.id);
-          pane.tabsEl.querySelectorAll('.terminal-tab').forEach(t =>
-            t.classList.toggle('active', t.dataset.id === firstVisible.dataset.id));
-          pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
-            w.classList.toggle('active', w.dataset.id === firstVisible.dataset.id);
-            w.style.removeProperty('display');
-          });
-        }
-      }
-    }
-  }
-
   if (visibleCount === 0) {
     emptyState.style.display = 'flex';
     if (projectIndex !== null) {
@@ -2833,44 +2351,7 @@ function filterByProject(projectIndex) {
     emptyState.style.display = 'none';
     const activeTab = document.querySelector(`.terminal-tab[data-id="${getActiveTerminal()}"]`);
     if (!activeTab || activeTab.style.display === 'none') {
-      let targetId = firstVisibleId;
-
-      // Try to restore the last-active tab for this project
-      const project = projects[projectIndex];
-      if (project) {
-        // Primary: in-memory per-project last-active tab (within-session switches)
-        const savedId = lastActivePerProject.get(project.id);
-        if (savedId && getTerminal(savedId)) {
-          const savedTab = tabsById.get(String(savedId));
-          if (savedTab && savedTab.style.display !== 'none') {
-            targetId = savedId;
-          }
-        }
-
-        // Secondary fallback: disk-based activeTabIndex (app restart path)
-        if (targetId === firstVisibleId) {
-          try {
-            const { loadSessionData } = require('../../services/TerminalSessionService');
-            const sessionData = loadSessionData();
-            const savedIdx = sessionData?.projects?.[project.id]?.activeTabIndex;
-            if (typeof savedIdx === 'number') {
-              // Collect visible terminal IDs in Map iteration order (matches save order)
-              const visibleIds = [];
-              terminals.forEach((td, id) => {
-                const tab = tabsById.get(String(id));
-                if (tab && tab.style.display !== 'none') {
-                  visibleIds.push(id);
-                }
-              });
-              if (savedIdx < visibleIds.length) {
-                targetId = visibleIds[savedIdx];
-              }
-            }
-          } catch (e) { /* session data unavailable, use firstVisibleId */ }
-        }
-      }
-
-      if (targetId) setActiveTerminal(targetId);
+      if (firstVisibleId) setActiveTerminal(firstVisibleId);
     }
   }
 }
@@ -3038,20 +2519,20 @@ const SESSION_SVG_DEFS = `<svg style="display:none" xmlns="http://www.w3.org/200
   <symbol id="s-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
   <symbol id="s-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 11V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v7"/><path d="M5 17h14"/><path d="M7 11l-2 6h14l-2-6"/></symbol>
   <symbol id="s-rename" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></symbol>
-  <symbol id="s-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 003.46-8.62 2.25 2.25 0 00-2.18-2.18 14.98 14.98 0 00-8.62 3.46m5.34 7.34L7.75 21.15m7.84-6.78L8.41 7.19m0 0L2.85 8.41a1.5 1.5 0 00-.44 2.48l10.7 10.7a1.5 1.5 0 002.48-.44l1.22-5.56"/></symbol>
 </svg>`;
 
 /**
  * ── Session Pins ──
  * Persist pinned session IDs in ~/.claude-terminal/session-pins.json
  */
+const { fileExists, fsp } = require('../../utils/fs-async');
 const _pinsFile = path.join(window.electron_nodeModules.os.homedir(), '.claude-terminal', 'session-pins.json');
 let _pinsCache = null;
 
-function loadPins() {
+async function loadPins() {
   if (_pinsCache) return _pinsCache;
   try {
-    const raw = fs.readFileSync(_pinsFile, 'utf8');
+    const raw = await fsp.readFile(_pinsFile, 'utf8');
     _pinsCache = JSON.parse(raw);
   } catch {
     _pinsCache = {};
@@ -3059,25 +2540,25 @@ function loadPins() {
   return _pinsCache;
 }
 
-function savePins() {
+async function savePins() {
   try {
-    fs.writeFileSync(_pinsFile, JSON.stringify(_pinsCache || {}, null, 2), 'utf8');
+    await fsp.writeFile(_pinsFile, JSON.stringify(_pinsCache || {}, null, 2), 'utf8');
   } catch { /* ignore write errors */ }
 }
 
-function isSessionPinned(sessionId) {
-  return !!loadPins()[sessionId];
+async function isSessionPinned(sessionId) {
+  return !!(await loadPins())[sessionId];
 }
 
-function toggleSessionPin(sessionId) {
-  const pins = loadPins();
+async function toggleSessionPin(sessionId) {
+  const pins = await loadPins();
   if (pins[sessionId]) {
     delete pins[sessionId];
   } else {
     pins[sessionId] = true;
   }
   _pinsCache = pins;
-  savePins();
+  await savePins();
   return !!pins[sessionId];
 }
 
@@ -3088,10 +2569,10 @@ function toggleSessionPin(sessionId) {
 const _namesFile = path.join(window.electron_nodeModules.os.homedir(), '.claude-terminal', 'session-names.json');
 let _namesCache = null;
 
-function loadSessionNames() {
+async function loadSessionNames() {
   if (_namesCache) return _namesCache;
   try {
-    const raw = fs.readFileSync(_namesFile, 'utf8');
+    const raw = await fsp.readFile(_namesFile, 'utf8');
     _namesCache = JSON.parse(raw);
   } catch {
     _namesCache = {};
@@ -3099,37 +2580,38 @@ function loadSessionNames() {
   return _namesCache;
 }
 
-function saveSessionNames() {
+async function saveSessionNames() {
   try {
-    fs.writeFileSync(_namesFile, JSON.stringify(_namesCache || {}, null, 2), 'utf8');
+    await fsp.writeFile(_namesFile, JSON.stringify(_namesCache || {}, null, 2), 'utf8');
   } catch { /* ignore write errors */ }
 }
 
-function getSessionCustomName(sessionId) {
-  return loadSessionNames()[sessionId] || '';
+async function getSessionCustomName(sessionId) {
+  return (await loadSessionNames())[sessionId] || '';
 }
 
-function setSessionCustomName(sessionId, name) {
-  const names = loadSessionNames();
+async function setSessionCustomName(sessionId, name) {
+  const names = await loadSessionNames();
   if (name) {
     names[sessionId] = name;
   } else {
     delete names[sessionId];
   }
   _namesCache = names;
-  saveSessionNames();
+  await saveSessionNames();
 }
 
 /**
  * Pre-process sessions: clean text once and cache display data
  */
-function preprocessSessions(sessions) {
+async function preprocessSessions(sessions) {
   const now = Date.now();
-  return sessions.map(session => {
+  const results = [];
+  for (const session of sessions) {
     const promptResult = cleanSessionText(session.firstPrompt);
     const summaryResult = cleanSessionText(session.summary);
     const skillName = promptResult.skillName || summaryResult.skillName;
-    const customName = getSessionCustomName(session.sessionId);
+    const customName = await getSessionCustomName(session.sessionId);
 
     let displayTitle = '';
     let displaySubtitle = '';
@@ -3159,9 +2641,10 @@ function preprocessSessions(sessions) {
     // Pre-build searchable text (lowercase, computed once)
     const searchText = (displayTitle + ' ' + displaySubtitle + ' ' + (session.gitBranch || '') + ' ' + customName).toLowerCase();
 
-    const pinned = isSessionPinned(session.sessionId);
-    return { ...session, displayTitle, displaySubtitle, isSkill, isRenamed, freshness, searchText, pinned };
-  });
+    const pinned = await isSessionPinned(session.sessionId);
+    results.push({ ...session, displayTitle, displaySubtitle, isSkill, isRenamed, freshness, searchText, pinned });
+  }
+  return results;
 }
 
 /**
@@ -3184,18 +2667,18 @@ function startInlineRename(titleEl, sessionId, sessionData, onDone) {
   input.focus();
   input.select();
 
-  function commit() {
+  async function commit() {
     const newName = input.value.trim();
     cleanup();
     if (newName && newName !== currentName) {
-      setSessionCustomName(sessionId, newName);
+      await setSessionCustomName(sessionId, newName);
       if (sessionData) {
         sessionData.displayTitle = newName;
         sessionData.isRenamed = true;
       }
     } else if (!newName) {
       // Clearing name removes custom name
-      setSessionCustomName(sessionId, '');
+      await setSessionCustomName(sessionId, '');
     }
     if (onDone) onDone();
   }
@@ -3236,15 +2719,14 @@ function buildSessionCardHtml(s, index) {
   const renamedClass = s.isRenamed ? ' session-card--renamed' : '';
   const skillClass = s.isSkill ? ' session-card-icon--skill' : '';
   const titleSkillClass = s.isSkill ? ' session-card-title--skill' : '';
-  const iconId = s.isGsd ? 's-rocket' : s.isSkill ? 's-bolt' : 's-chat';
+  const iconId = s.isSkill ? 's-bolt' : 's-chat';
   const pinTitle = s.pinned ? (t('sessions.unpin') || 'Unpin') : (t('sessions.pin') || 'Pin');
   const renameTitle = t('sessions.rename') || 'Rename';
 
-  const devIdPrefix = api.lifecycle.isDev ? `${s.sessionId.slice(0, 8)} ` : '';
   return `<div class="session-card${freshClass}${pinnedClass}${renamedClass}${animClass}" data-sid="${s.sessionId}" style="--ci:${index < MAX_ANIMATED ? index : 0}">
 <div class="session-card-icon${skillClass}"><svg width="16" height="16"><use href="#${iconId}"/></svg></div>
 <div class="session-card-body">
-<span class="session-card-title${titleSkillClass}">${devIdPrefix ? `<span class="session-card-devid">${devIdPrefix}</span>` : ''}${escapeHtml(truncateText(s.displayTitle, 80))}</span>
+<span class="session-card-title${titleSkillClass}">${escapeHtml(truncateText(s.displayTitle, 80))}</span>
 ${s.displaySubtitle ? `<span class="session-card-subtitle">${escapeHtml(truncateText(s.displaySubtitle, 120))}</span>` : ''}
 </div>
 <div class="session-card-meta">
@@ -3291,7 +2773,7 @@ async function renderSessionsPanel(project, emptyState) {
     }
 
     // Pre-process all sessions once (clean text, compute display data)
-    const processed = preprocessSessions(sessions);
+    const processed = await preprocessSessions(sessions);
 
     // Group by time
     const groups = groupSessionsByTime(processed);
@@ -3389,14 +2871,14 @@ async function renderSessionsPanel(project, emptyState) {
     }
 
     // Event delegation for card clicks (single listener on list)
-    listEl.addEventListener('click', (e) => {
+    listEl.addEventListener('click', async (e) => {
       // Pin button click
       const pinBtn = e.target.closest('.session-card-pin');
       if (pinBtn) {
         e.stopPropagation();
         const sid = pinBtn.dataset.pinSid;
         if (!sid) return;
-        const nowPinned = toggleSessionPin(sid);
+        const nowPinned = await toggleSessionPin(sid);
         const session = sessionMap.get(sid);
         if (session) session.pinned = nowPinned;
         renderSessionsPanel(project, emptyState);
@@ -3421,10 +2903,7 @@ async function renderSessionsPanel(project, emptyState) {
       const sessionId = card.dataset.sid;
       if (!sessionId) return;
       const skipPermissions = getSetting('skipPermissions') || false;
-      const session = sessionMap.get(sessionId);
-      // Pass name from session-names.json when present (covers haiku AI, slash command, manual rename)
-      const sessionName = session?.displayTitle || null;
-      resumeSession(project, sessionId, { skipPermissions, name: sessionName });
+      resumeSession(project, sessionId, { skipPermissions });
     });
 
     // New conversation button
@@ -3492,16 +2971,6 @@ async function renderSessionsPanel(project, emptyState) {
 async function resumeSession(project, sessionId, options = {}) {
   const { skipPermissions = false, name: sessionName = null } = options;
 
-  // GSD session resume — launch gsd -c in the project dir
-  if (sessionId === 'gsd-continue') {
-    return createTerminal(project, {
-      skipPermissions,
-      cliTool: 'gsd',
-      resumeSessionId: 'gsd-continue',
-      name: sessionName || 'GSD (resumed)'
-    });
-  }
-
   // If chat mode is active, resume via SDK
   const mode = getSetting('defaultTerminalMode') || 'terminal';
   if (mode === 'chat') {
@@ -3521,7 +2990,7 @@ async function resumeSession(project, sessionId, options = {}) {
     if (!result.success) {
       console.error('Failed to resume session:', result.error);
       if (callbacks.onNotification) {
-        callbacks.onNotification(`❌ ${t('common.error')}`, result.error || t('terminals.resumeError'), null);
+        callbacks.onNotification('info', result.error || t('terminals.resumeError'), null);
       }
       return null;
     }
@@ -3553,28 +3022,21 @@ async function resumeSession(project, sessionId, options = {}) {
     status: 'working',
     inputBuffer: '',
     isBasic: false,
-    claudeSessionId: sessionId,
-    originalSessionId: sessionId
+    claudeSessionId: sessionId
   };
 
   addTerminal(id, termData);
 
-  // Protect restored custom names from being overwritten by post-resume OSC titles
+  // If a saved name was passed, persist it immediately
   if (sessionName) {
-    restoreNameProtected.add(id);
-  }
-
-  // If a saved name was passed, persist it immediately — --resume does not emit
-  // a new OSC task name, so handleClaudeTitleChange will not call updateTerminalTabName.
-  if (sessionName) {
-    updateTerminalTabName(id, sessionName);
+    await setSessionCustomName(sessionId, sessionName);
   }
 
   // Start time tracking for this project
   heartbeat(project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = PaneManager.getTabsContainer();
+  const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
   tab.className = 'terminal-tab status-working';
   tab.dataset.id = id;
@@ -3585,18 +3047,25 @@ async function resumeSession(project, sessionId, options = {}) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = PaneManager.getContentContainer();
+  const container = document.getElementById('terminals-container');
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
-  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   document.getElementById('empty-terminals').style.display = 'none';
 
   terminal.open(wrapper);
   loadWebglAddon(terminal);
-  setTimeout(() => fitAddon.fit(), 100);
+  // Defer fit() until container has non-zero dimensions
+  setTimeout(() => {
+    const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
+    if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
+      fitAddon.fit();
+    } else {
+      requestAnimationFrame(() => fitAddon.fit());
+    }
+  }, 100);
   setActiveTerminal(id);
 
   // Prevent double-paste issue
@@ -3618,10 +3087,10 @@ async function resumeSession(project, sessionId, options = {}) {
   // IPC handlers via centralized dispatcher
   registerTerminalHandler(id,
     (data) => {
-      writePreservingScroll(terminal, data.data);
+      terminal.write(data.data);
       resetOutputSilenceTimer(id);
-      resetGsdActivityTimer(id);
-      claudeHeartbeat(id);
+      const td = getTerminal(id);
+      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     },
     () => closeTerminal(id)
   );
@@ -3639,14 +3108,12 @@ async function resumeSession(project, sessionId, options = {}) {
     const td = getTerminal(id);
     if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
-      // User sent new input — allow OSC title renames again for this terminal
-      restoreNameProtected.delete(id);
       cancelScheduledReady(id);
       updateTerminalStatus(id, 'working');
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title && getSetting('aiTabNaming') !== false) updateTerminalTabName(id, title);
+        if (title) updateTerminalTabName(id, title);
         updateTerminal(id, { inputBuffer: '' });
       }
     } else if (data === '\x7f' || data === '\b') {
@@ -3658,7 +3125,6 @@ async function resumeSession(project, sessionId, options = {}) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
-    if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
     fitAddon.fit();
     api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
@@ -3678,7 +3144,6 @@ async function resumeSession(project, sessionId, options = {}) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
-  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
   tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Enable drag & drop reordering
@@ -3738,7 +3203,7 @@ async function createTerminalWithPrompt(project, prompt) {
   addTerminal(id, termData);
 
   // Create tab
-  const tabsContainer = PaneManager.getTabsContainer();
+  const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
   tab.className = 'terminal-tab status-working';
   tab.dataset.id = id;
@@ -3749,18 +3214,25 @@ async function createTerminalWithPrompt(project, prompt) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = PaneManager.getContentContainer();
+  const container = document.getElementById('terminals-container');
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
-  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   document.getElementById('empty-terminals').style.display = 'none';
 
   terminal.open(wrapper);
   loadWebglAddon(terminal);
-  setTimeout(() => fitAddon.fit(), 100);
+  // Defer fit() until container has non-zero dimensions
+  setTimeout(() => {
+    const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
+    if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
+      fitAddon.fit();
+    } else {
+      requestAnimationFrame(() => fitAddon.fit());
+    }
+  }, 100);
   setActiveTerminal(id);
 
   // Prevent double-paste issue
@@ -3799,9 +3271,8 @@ async function createTerminalWithPrompt(project, prompt) {
   // IPC handlers via centralized dispatcher
   registerTerminalHandler(id,
     (data) => {
-      writePreservingScroll(terminal, data.data);
+      terminal.write(data.data);
       resetOutputSilenceTimer(id);
-      resetGsdActivityTimer(id);
     },
     () => closeTerminal(id)
   );
@@ -3822,7 +3293,7 @@ async function createTerminalWithPrompt(project, prompt) {
       if (td && td.inputBuffer.trim().length > 0) {
         postEnterExtended.add(id);
         const title = extractTitleFromInput(td.inputBuffer);
-        if (title && getSetting('aiTabNaming') !== false) updateTerminalTabName(id, title);
+        if (title) updateTerminalTabName(id, title);
         updateTerminal(id, { inputBuffer: '' });
       }
     } else if (data === '\x7f' || data === '\b') {
@@ -3834,7 +3305,6 @@ async function createTerminalWithPrompt(project, prompt) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
-    if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
     fitAddon.fit();
     api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
@@ -3853,7 +3323,6 @@ async function createTerminalWithPrompt(project, prompt) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
-  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
   tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Enable drag & drop reordering
@@ -3890,9 +3359,7 @@ function createMdRenderer(basePath) {
       },
       link({ href, text }) {
         const safeHref = escapeHtml((href || '').trim());
-        const isAnchor = safeHref.startsWith('#');
-        const title = isAnchor ? safeHref : `${t('mdViewer.ctrlClickToOpen')}: ${safeHref}`;
-        return `<a class="md-viewer-link" data-md-link="${safeHref}" title="${title}">${text || safeHref}</a>`;
+        return `<a class="md-viewer-link" data-md-link="${safeHref}" title="${t('mdViewer.ctrlClickToOpen')}">${text || safeHref}</a>`;
       },
       image({ href, title, text }) {
         const src = (href || '').startsWith('http') ? href
@@ -3944,7 +3411,7 @@ function buildMdToc(content) {
  * @param {string} filePath - Absolute path to the file
  * @param {Object} project - Project object
  */
-function openFileTab(filePath, project) {
+async function openFileTab(filePath, project) {
   // Check if file is already open → switch to existing tab
   const terminals = terminalsState.get().terminals;
   let existingId = null;
@@ -3967,20 +3434,24 @@ function openFileTab(filePath, project) {
   const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico', 'avif']);
   const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov']);
   const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'flac', 'aac', 'wma']);
+  const PDF_EXTENSIONS = new Set(['pdf']);
+  const MODEL_3D_EXTENSIONS = new Set(['obj', 'stl', 'gltf', 'glb']);
   const isImage = IMAGE_EXTENSIONS.has(ext);
   const isVideo = VIDEO_EXTENSIONS.has(ext);
   const isAudio = AUDIO_EXTENSIONS.has(ext);
-  const isMedia = isImage || isVideo || isAudio;
+  const isPdf = PDF_EXTENSIONS.has(ext);
+  const is3D = MODEL_3D_EXTENSIONS.has(ext);
+  const isMedia = isImage || isVideo || isAudio || isPdf || is3D;
   const isMarkdown = ext === 'md';
 
   // Read file content (skip for binary/media files)
   let content = '';
   let fileSize = 0;
   try {
-    const stat = fs.statSync(filePath);
+    const stat = await fsp.stat(filePath);
     fileSize = stat.size;
     if (!isMedia) {
-      content = fs.readFileSync(filePath, 'utf-8');
+      content = await fsp.readFile(filePath, 'utf-8');
     }
   } catch (e) {
     content = `Error reading file: ${e.message}`;
@@ -4004,7 +3475,7 @@ function openFileTab(filePath, project) {
   addTerminal(id, termData);
 
   // Create tab
-  const tabsContainer = PaneManager.getTabsContainer();
+  const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
   tab.className = 'terminal-tab file-tab status-ready';
   tab.dataset.id = id;
@@ -4016,11 +3487,10 @@ function openFileTab(filePath, project) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = PaneManager.getContentContainer();
+  const container = document.getElementById('terminals-container');
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper file-wrapper';
   wrapper.dataset.id = id;
-  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   // Build content based on file type
   let viewerBody;
@@ -4042,6 +3512,18 @@ function openFileTab(filePath, project) {
       <svg viewBox="0 0 24 24" fill="currentColor" width="64" height="64" style="opacity:0.3"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
       <audio controls src="${fileUrl}"></audio>
     </div>`;
+  } else if (isPdf) {
+    viewerBody = `
+    <div class="file-viewer-pdf" id="pdf-viewer-${id}">
+      <div class="file-viewer-pdf-toolbar"></div>
+      <div class="file-viewer-pdf-pages"></div>
+    </div>`;
+    termData.isPdf = true;
+  } else if (is3D) {
+    viewerBody = `
+    <div class="file-viewer-3d" id="three-viewer-${id}"></div>`;
+    termData.is3D = true;
+    termData.modelExt = ext;
   } else if (isMarkdown) {
     const basePath = path.dirname(filePath);
     const mdRenderer = createMdRenderer(basePath);
@@ -4058,7 +3540,7 @@ function openFileTab(filePath, project) {
       <div class="md-viewer-wrapper">
         <div class="md-viewer-toc${tocExpanded ? '' : ' collapsed'}" id="md-toc-${id}">
           <button class="md-toc-toggle" title="${t('mdViewer.toggleToc')}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
           </button>
           ${tocHtml}
         </div>
@@ -4109,6 +3591,30 @@ function openFileTab(filePath, project) {
   container.appendChild(wrapper);
   document.getElementById('empty-terminals').style.display = 'none';
 
+  // PDF viewer: lazy-load the pdf-viewer bundle
+  if (termData.isPdf) {
+    const pdfContainer = wrapper.querySelector('.file-viewer-pdf');
+    import('./dist/pdf-viewer.bundle.js').then(m => {
+      const viewer = m.renderPdf(pdfContainer, fileUrl);
+      termData.viewerCleanup = () => viewer.destroy();
+    }).catch(err => {
+      pdfContainer.querySelector('.file-viewer-pdf-pages').innerHTML =
+        `<div class="pdf-loading pdf-error">Failed to load PDF viewer: ${err.message}</div>`;
+    });
+  }
+
+  // 3D viewer: lazy-load the three-viewer bundle
+  if (termData.is3D) {
+    const threeContainer = wrapper.querySelector('.file-viewer-3d');
+    import('./dist/three-viewer.bundle.js').then(m => {
+      const viewer = m.render3D(threeContainer, fileUrl, termData.modelExt);
+      termData.viewerCleanup = () => viewer.destroy();
+    }).catch(err => {
+      threeContainer.innerHTML =
+        `<div class="file-viewer-3d-error">Failed to load 3D viewer: ${err.message}</div>`;
+    });
+  }
+
   // Markdown-specific: add toggle button and wire event handlers
   if (isMarkdown) {
     const header = wrapper.querySelector('.file-viewer-header');
@@ -4152,17 +3658,12 @@ function openFileTab(filePath, project) {
         return;
       }
 
-      // Link handling: anchor links scroll, external links require Ctrl+click
+      // Ctrl+click link gating
       const link = e.target.closest('[data-md-link]');
       if (link) {
         e.preventDefault();
-        const href = link.dataset.mdLink;
-        if (href.startsWith('#')) {
-          const slug = href.slice(1).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-          const target = wrapper.querySelector(`#md-h-${slug}`);
-          if (target) target.scrollIntoView({ behavior: 'smooth' });
-        } else if (e.ctrlKey) {
-          api.dialog.openExternal(href);
+        if (e.ctrlKey) {
+          api.dialog.openExternal(link.dataset.mdLink);
         }
         return;
       }
@@ -4195,14 +3696,13 @@ function openFileTab(filePath, project) {
     const unsubscribeWatch = api.dialog.onFileChanged((changedPath) => {
       if (changedPath !== filePath) return;
       clearTimeout(reloadTimer);
-      reloadTimer = setTimeout(() => {
+      reloadTimer = setTimeout(async () => {
         try {
-          const newContent = fs.readFileSync(filePath, 'utf-8');
+          const newContent = await fsp.readFile(filePath, 'utf-8');
           const bodyEl = document.getElementById(`md-body-${id}`);
           if (!bodyEl) return;
           const scroll = bodyEl.scrollTop;
-          const parsed = termData.mdRenderer.parse(newContent);
-          bodyEl.innerHTML = parsed;
+          bodyEl.innerHTML = termData.mdRenderer.parse(newContent);
           bodyEl.scrollTop = scroll;
           // Update TOC
           const tocEl = document.getElementById(`md-toc-${id}`);
@@ -4363,7 +3863,6 @@ function openFileTab(filePath, project) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
-  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
   tab.oncontextmenu = (e) => showTabContextMenu(e, id);
 
   // Enable drag & drop reordering
@@ -4458,7 +3957,7 @@ function focusPrevTerminal() {
  * Create a chat-mode terminal (Claude Agent SDK UI)
  */
 async function createChatTerminal(project, options = {}) {
-  const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, parentProjectId = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null } = options;
+  const { skipPermissions = false, name: customName = null, resumeSessionId = null, forkSession = false, resumeSessionAt = null, parentProjectId = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, systemPrompt = null, tabTag = null } = options;
 
   const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let _chatSessionId = null;
@@ -4477,20 +3976,14 @@ async function createChatTerminal(project, options = {}) {
     mode: 'chat',
     chatView: null,
     ...(parentProjectId ? { parentProjectId } : {}),
-    ...(resumeSessionId ? { claudeSessionId: resumeSessionId, originalSessionId: resumeSessionId } : {})
+    ...(resumeSessionId ? { claudeSessionId: resumeSessionId } : {})
   };
 
   addTerminal(id, termData);
-
-  // Protect restored custom names from being overwritten by post-resume OSC titles
-  if (resumeSessionId && customName) {
-    restoreNameProtected.add(id);
-  }
-
   heartbeat(parentProjectId || project.id, 'terminal');
 
   // Create tab
-  const tabsContainer = PaneManager.getTabsContainer();
+  const tabsContainer = document.getElementById('terminals-tabs');
   const tab = document.createElement('div');
   const mainProjectPath = parentProjectId ? projectsState.get().projects.find(p => p.id === parentProjectId)?.path : null;
   const isWorktreeChatTab = !!(mainProjectPath && project.path !== mainProjectPath);
@@ -4499,10 +3992,12 @@ async function createChatTerminal(project, options = {}) {
   tab.tabIndex = 0;
   tab.setAttribute('role', 'tab');
   const worktreeIconHtmlChat = isWorktreeChatTab ? `<span class="tab-worktree-icon" title="Worktree"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="4" r="1.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="4" cy="12" r="1.5"/><path d="M4 5.5v5M5.5 4h5M12 5.5v2.5a2 2 0 01-2 2H7"/></svg></span>` : '';
+  const tabTagHtml = tabTag ? `<span class="tab-tag" style="background:${tabTag.color || 'var(--accent)'}20;color:${tabTag.color || 'var(--accent)'};border:1px solid ${tabTag.color || 'var(--accent)'}40">${escapeHtml(tabTag.label)}</span>` : '';
   tab.innerHTML = `
     <span class="status-dot"></span>
     ${worktreeIconHtmlChat}
     <span class="tab-name">${escapeHtml(tabName)}</span>
+    ${tabTagHtml}
     <button class="tab-mode-toggle" title="${escapeHtml(t('chat.switchToTerminal'))}">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v12zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4-4 4z"/></svg>
     </button>
@@ -4510,49 +4005,52 @@ async function createChatTerminal(project, options = {}) {
   tabsContainer.appendChild(tab);
 
   // Create wrapper
-  const container = PaneManager.getContentContainer();
+  const container = document.getElementById('terminals-container');
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper chat-wrapper';
   wrapper.dataset.id = id;
   container.appendChild(wrapper);
-  PaneManager.registerTab(String(id), PaneManager.getDefaultPaneId());
 
   document.getElementById('empty-terminals').style.display = 'none';
+
+  // Apply per-project settings as defaults (explicit options take priority)
+  const projSettings = getProjectSettingsState(parentProjectId || project.id);
+  const effectiveSkipPermissions = skipPermissions || (projSettings.skipPermissions === true);
+  const effectiveModel = initialModel || projSettings.chatModel || null;
+  const effectiveEffort = initialEffort || projSettings.effortLevel || null;
 
   // Create ChatView inside wrapper
   const chatView = createChatView(wrapper, project, {
     terminalId: id,
-    skipPermissions,
+    skipPermissions: effectiveSkipPermissions,
     resumeSessionId,
     forkSession,
     resumeSessionAt,
     initialPrompt,
     initialImages,
-    initialModel,
-    initialEffort,
+    initialModel: effectiveModel,
+    initialEffort: effectiveEffort,
     builtinSystemPrompt: getBuiltinSystemPrompt(project.type),
+    ...(systemPrompt ? { systemPrompt } : {}),
     onSessionStart: (sid) => {
       _chatSessionId = sid;
       // Persist session ID on termData for TerminalSessionService (fresh sessions)
       updateTerminal(id, { claudeSessionId: sid });
       if (onSessionStart) onSessionStart(sid);
     },
-    onTabRename: (name) => {
+    onTabRename: async (name) => {
       const nameEl = tab.querySelector('.tab-name');
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
       if (data) data.name = name;
       // Propagate tab name to session-names.json (resume dialog)
       if (_chatSessionId && name) {
-        setSessionCustomName(_chatSessionId, name);
+        await setSessionCustomName(_chatSessionId, name);
       }
       // Notify remote PWA of tab rename
       if (_chatSessionId && api.remote?.notifyTabRenamed) {
         api.remote.notifyTabRenamed({ sessionId: _chatSessionId, tabName: name });
       }
-      // Phase 16: persist chat AI name (debounced)
-      const TerminalSessionService = require('../../services/TerminalSessionService');
-      TerminalSessionService.saveTerminalSessions();
     },
     onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
     onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),
@@ -4585,7 +4083,6 @@ async function createChatTerminal(project, options = {}) {
   tab.onclick = (e) => { if (!e.target.closest('.tab-close') && !e.target.closest('.tab-name-input') && !e.target.closest('.tab-mode-toggle')) setActiveTerminal(id); };
   tab.querySelector('.tab-name').ondblclick = (e) => { e.stopPropagation(); startRenameTab(id); };
   tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeTerminal(id); };
-  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTerminal(id); } };
   tab.oncontextmenu = (e) => showTabContextMenu(e, id);
   const modeToggleBtn = tab.querySelector('.tab-mode-toggle');
   if (modeToggleBtn) {
@@ -4618,7 +4115,6 @@ async function switchTerminalMode(id) {
     api.terminal.kill({ id });
     cleanupTerminalResources(termData);
     clearOutputSilenceTimer(id);
-  clearGsdActivityTimer(id);
     cancelScheduledReady(id);
   } else if (currentMode === 'chat') {
     // Destroy chat view
@@ -4638,6 +4134,7 @@ async function switchTerminalMode(id) {
     const chatView = createChatView(wrapper, project, {
       terminalId: id,
       skipPermissions: getSetting('skipPermissions') || false,
+      builtinSystemPrompt: getBuiltinSystemPrompt(project.type),
       onStatusChange: (status, substatus) => updateChatTerminalStatus(id, status, substatus),
       onSwitchTerminal: (dir) => callbacks.onSwitchTerminal?.(dir),
       onSwitchProject: (dir) => callbacks.onSwitchProject?.(dir),
@@ -4684,7 +4181,7 @@ async function switchTerminalMode(id) {
       wrapper.innerHTML = `<div class="terminal-error-state"><p>${escapeHtml(result.error || t('terminals.createError'))}</p></div>`;
       updateTerminal(id, { mode: 'terminal', chatView: null, terminal: null, fitAddon: null, status: 'error' });
       if (callbacks.onNotification) {
-        callbacks.onNotification(`❌ ${t('common.error')}`, result.error || t('terminals.createError'), null);
+        callbacks.onNotification('info', result.error || t('terminals.createError'), null);
       }
       return;
     }
@@ -4718,7 +4215,15 @@ async function switchTerminalMode(id) {
       if (td && td.status === 'loading') updateTerminalStatus(id, 'ready');
     }, 30000));
 
-    setTimeout(() => fitAddon.fit(), 100);
+    // Defer fit() until container has non-zero dimensions
+    setTimeout(() => {
+      const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
+      if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
+        fitAddon.fit();
+      } else {
+        requestAnimationFrame(() => fitAddon.fit());
+      }
+    }, 100);
 
     // Setup paste handler and key handler (use ptyId for PTY input routing)
     setupPasteHandler(wrapper, ptyId, 'terminal-input');
@@ -4737,10 +4242,10 @@ async function switchTerminalMode(id) {
     // IPC data handling - use the ptyId for IPC but id for state
     registerTerminalHandler(ptyId,
       (data) => {
-        writePreservingScroll(terminal, data.data);
+        terminal.write(data.data);
         resetOutputSilenceTimer(id);
-      resetGsdActivityTimer(id);
-        claudeHeartbeat(id);
+        const td = getTerminal(id);
+        if (td?.project?.id) heartbeat(td.project.id, 'terminal');
       },
       () => closeTerminal(id)
     );
@@ -4761,7 +4266,6 @@ async function switchTerminalMode(id) {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
       fitAddon.fit();
       api.terminal.resize({ id: ptyId, cols: terminal.cols, rows: terminal.rows });
     });
@@ -4804,18 +4308,14 @@ function cleanupProjectMaps(projectIndex) {
 }
 
 /**
- * Schedule a scroll-to-bottom for a restored terminal once PTY data goes silent.
- *
- * After app restart or --resume, PTY replay streams data through the adaptive batcher
- * (4-32ms per IPC batch) for an unbounded duration proportional to session history size.
- * A fixed timeout cannot reliably cover all sessions. Instead, we poll lastTerminalData
- * (already maintained per terminal) and scroll once 500ms of silence is observed, or
- * after 8s unconditionally.
+ * Schedule a scroll-to-bottom once PTY replay data goes silent.
+ * Uses the lastTerminalData map (already maintained per terminal) and scrolls
+ * once 300ms of silence is observed, or after 8s unconditionally.
  *
  * @param {string} id - Terminal ID
  */
 function scheduleScrollAfterRestore(id) {
-  const SILENCE_MS = 500;   // 500ms no new data = replay done (300ms was too aggressive for resume pauses)
+  const SILENCE_MS = 300;   // 300ms no new data = replay done
   const MAX_WAIT_MS = 8000; // hard fallback — scroll regardless after 8s
   const POLL_MS = 50;       // polling interval
 
@@ -4834,16 +4334,7 @@ function scheduleScrollAfterRestore(id) {
 
     if (silentFor >= SILENCE_MS || timedOut) {
       clearInterval(poll);
-      // Re-fit before scrolling: background terminals may have been sized at 0x0 while
-      // hidden, causing xterm to wrap content into too many rows and leave empty buffer
-      // space. fit() corrects dimensions and reflows the buffer, then RAF-deferred
-      // scrollToBottom lands at the true end of content.
-      if (td.fitAddon) {
-        try { td.fitAddon.fit(); } catch (e) { /* fit failed for hidden terminal */ }
-      }
-      requestAnimationFrame(() => {
-        try { td.terminal.scrollToBottom(); } catch (e) { /* terminal gone */ }
-      });
+      td.terminal.scrollToBottom();
     }
   }, POLL_MS);
 }
@@ -4896,7 +4387,5 @@ module.exports = {
   // Cleanup when a project is deleted
   cleanupProjectMaps,
   // Silence-based scroll scheduling for session restore
-  scheduleScrollAfterRestore,
-  // Restore protection check (used by wireSessionIdCapture)
-  isRestoreNameProtected
+  scheduleScrollAfterRestore
 };

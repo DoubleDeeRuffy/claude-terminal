@@ -43,7 +43,7 @@ class TerminalService {
    * @param {string} options.resumeSessionId - Session ID to resume
    * @returns {Object} - { success: boolean, id?: number, error?: string }
    */
-  create({ cwd, runClaude, skipPermissions, resumeSessionId, cliTool }) {
+  create({ cwd, runClaude, skipPermissions, resumeSessionId }) {
     const id = ++this.terminalId;
     let shellPath = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
     let shellArgs = process.platform === 'win32' ? ['-NoLogo', '-NoProfile'] : [];
@@ -62,22 +62,17 @@ class TerminalService {
       }
     }
 
-    // If running Claude/GSD, spawn it directly via cmd.exe /c (no shell banner, no prompt)
+    // If running Claude, spawn it directly via cmd.exe /c (no shell banner, no prompt)
     if (runClaude && process.platform === 'win32') {
-      const tool = cliTool || 'claude';
-      const toolArgs = [tool];
-      if (resumeSessionId) {
-        if (tool === 'gsd') {
-          toolArgs.push('-c');
-        } else {
-          toolArgs.push('--resume', resumeSessionId);
-        }
+      const claudeArgs = ['claude'];
+      if (resumeSessionId && /^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
+        claudeArgs.push('--resume', resumeSessionId);
       }
       if (skipPermissions) {
-        toolArgs.push('--dangerously-skip-permissions');
+        claudeArgs.push('--dangerously-skip-permissions');
       }
       shellPath = 'cmd.exe';
-      shellArgs = ['/c', ...toolArgs];
+      shellArgs = ['/c', ...claudeArgs];
     }
 
     let ptyProcess;
@@ -105,27 +100,17 @@ class TerminalService {
     this.terminals.set(id, ptyProcess);
 
     // Handle data output - adaptive batching to reduce IPC flooding
-    // 4ms flush when idle (responsive typing), 16ms normal, 50ms when flooding
-    // During rapid TUI redraws (e.g. GSD web searches), longer batching ensures
-    // complete screen redraws arrive in a single IPC message, preventing flicker.
+    // 4ms flush when idle (responsive typing), 16ms normal, 32ms when flooding
     let buffer = '';
     let flushScheduled = false;
     let lastFlush = Date.now();
-    let rapidCount = 0; // track consecutive rapid flushes
 
-    ptyProcess.onData(data => {
+    const dataDisposable = ptyProcess.onData(data => {
       buffer += data;
       if (!flushScheduled) {
         flushScheduled = true;
         const sinceLastFlush = Date.now() - lastFlush;
-        // Detect sustained rapid output (TUI redraws)
-        if (sinceLastFlush < 50) {
-          rapidCount = Math.min(rapidCount + 1, 10);
-        } else {
-          rapidCount = Math.max(rapidCount - 2, 0);
-        }
-        const flooding = rapidCount > 3 || buffer.length > 10000;
-        const delay = flooding ? 50 : sinceLastFlush > 100 ? 4 : 16;
+        const delay = buffer.length > 10000 ? 32 : sinceLastFlush > 100 ? 4 : 16;
         setTimeout(() => {
           this.sendToRenderer('terminal-data', { id, data: buffer });
           buffer = '';
@@ -136,28 +121,31 @@ class TerminalService {
     });
 
     // Handle exit
-    ptyProcess.onExit(() => {
+    const exitDisposable = ptyProcess.onExit(() => {
+      if (ptyProcess._exited) return;
+      ptyProcess._exited = true;
       try { ptyProcess.kill(); } catch (e) {}
       this.terminals.delete(id);
       this.sendToRenderer('terminal-exit', { id });
     });
 
-    // Run Claude/GSD CLI on non-Windows platforms (write command into shell)
+    // Store disposables for cleanup on kill()
+    ptyProcess._disposables = [dataDisposable, exitDisposable];
+
+    // Run Claude CLI on non-Windows platforms
     if (runClaude && process.platform !== 'win32') {
       setTimeout(() => {
-        const tool = cliTool || 'claude';
-        let cmd = tool;
+        let claudeCmd = 'claude';
         if (resumeSessionId) {
-          if (tool === 'gsd') {
-            cmd += ' -c';
-          } else if (/^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
-            cmd += ` --resume ${resumeSessionId}`;
+          // Validate session ID format to prevent shell injection via PTY
+          if (/^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
+            claudeCmd += ` --resume ${resumeSessionId}`;
           }
         }
         if (skipPermissions) {
-          cmd += ' --dangerously-skip-permissions';
+          claudeCmd += ' --dangerously-skip-permissions';
         }
-        try { ptyProcess.write(cmd + '\r'); } catch (e) {}
+        try { ptyProcess.write(claudeCmd + '\r'); } catch (e) {}
       }, 500);
     }
 
@@ -219,6 +207,7 @@ class TerminalService {
     if (!term) return;
 
     const pid = term.pid;
+    term._exited = true;
     this.terminals.delete(id);
 
     // Notify renderer before disposing listeners
@@ -251,6 +240,13 @@ class TerminalService {
     const pids = [];
     this.terminals.forEach((term, id) => {
       pids.push(term.pid);
+      // Dispose event listeners before killing
+      if (term._disposables) {
+        for (const d of term._disposables) {
+          try { d.dispose(); } catch (_) {}
+        }
+        term._disposables = null;
+      }
       try { term.kill(); } catch (_) {}
     });
     this.terminals.clear();
