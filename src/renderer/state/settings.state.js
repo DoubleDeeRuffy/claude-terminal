@@ -55,6 +55,7 @@ const defaultSettings = {
   tabsOrder: null, // null = canonical order, otherwise array of all tabIds in custom order
   parallelMaxAgents: 3, // Default number of parallel agents for Parallel Task Manager (1-10)
   autoClaudeMdUpdate: true, // Suggest CLAUDE.md updates after chat sessions
+  notificationSound: true, // Play a chime sound when notifications appear
 };
 
 const settingsState = new State({ ...defaultSettings });

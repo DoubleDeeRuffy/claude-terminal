@@ -665,6 +665,16 @@ async function renderSettingsTab(initialTab = 'general') {
             </div>
             <div class="settings-toggle-row">
               <div class="settings-toggle-label">
+                <div>${t('settings.notificationSound')}</div>
+                <div class="settings-toggle-desc">${t('settings.notificationSoundDesc')}</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="notification-sound-toggle" ${settings.notificationSound !== false ? 'checked' : ''}>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-label">
                 <div>${t('settings.aiCommitMessages')}</div>
                 <div class="settings-toggle-desc">${t('settings.aiCommitMessagesDesc')}</div>
               </div>
@@ -1634,6 +1644,8 @@ async function renderSettingsTab(initialTab = 'general') {
     const newRestoreTerminalSessions = restoreSessionsToggle ? restoreSessionsToggle.checked : true;
     const reduceMotionToggle = document.getElementById('reduce-motion-toggle');
     const newReduceMotion = reduceMotionToggle ? reduceMotionToggle.checked : false;
+    const notificationSoundToggle = document.getElementById('notification-sound-toggle');
+    const newNotificationSound = notificationSoundToggle ? notificationSoundToggle.checked : true;
     const aiCommitToggle = document.getElementById('ai-commit-toggle');
     const newAiCommitMessages = aiCommitToggle ? aiCommitToggle.checked : true;
     const tabRenameSlashToggle = document.getElementById('tab-rename-slash-toggle');
@@ -1687,6 +1699,7 @@ async function renderSettingsTab(initialTab = 'general') {
       compactProjects: newCompactProjects,
       restoreTerminalSessions: newRestoreTerminalSessions,
       reduceMotion: newReduceMotion,
+      notificationSound: newNotificationSound,
       aiCommitMessages: newAiCommitMessages,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',
       defaultCliTool: selectedCliTool?.dataset.cliTool || 'claude',

@@ -561,6 +561,8 @@
     "noCustomPresets": "Sin presets personalizados",
     "reduceMotion": "Desactivar animaciones",
     "reduceMotionDesc": "Eliminar todas las transiciones y animaciones de la interfaz",
+    "notificationSound": "Sonido de notificaci\u00f3n",
+    "notificationSoundDesc": "Reproducir un sonido cuando aparecen notificaciones",
     "aiCommitMessages": "Mensajes de commit con IA",
     "aiCommitMessagesDesc": "Usar GitHub Models (GPT-4o-mini) para generar mensajes de commit. Requiere conexión a GitHub.",
     "checkForUpdates": "Actualizaciones",
