@@ -523,9 +523,23 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
 })();
 
 // ========== NOTIFICATIONS ==========
+let _notifAudio = null;
+function _playNotificationSound() {
+  if (getSetting('notificationSound') === false) return;
+  try {
+    if (!_notifAudio) {
+      const soundPath = path.join(__dirname, 'resources', 'sounds', 'notification.wav');
+      _notifAudio = new Audio('file://' + soundPath.replace(/\\/g, '/'));
+    }
+    _notifAudio.currentTime = 0;
+    _notifAudio.play().catch(() => {});
+  } catch (_) {}
+}
+
 function showNotification(type, title, body, terminalId, extraOptions) {
   if (!isNotificationsEnabled()) return;
   if (document.hasFocus() && terminalsState.get().activeTerminal === terminalId) return;
+  _playNotificationSound();
   const { buttons, autoDismiss, meta } = extraOptions || {};
   const defaultButtons = [{ label: t('terminals.notifBtnShow'), action: 'show', style: 'primary' }];
   api.notification.show({
