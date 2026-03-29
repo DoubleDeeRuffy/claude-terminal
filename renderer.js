@@ -306,13 +306,16 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
             const cwd = fs.existsSync(tab.cwd) ? tab.cwd : project.path;
             // Prefer session-names.json (survives rotation overwrites) over terminal-sessions.json
             const sessionName = (tab.claudeSessionId && sessionNames[tab.claudeSessionId]) || tab.name || null;
+            // GSD resumes by cwd (gsd -c), no session ID needed — just flag as resume
+            const isGsdResume = tab.cliTool === 'gsd' && !tab.isBasic;
             restoredId = await TerminalManager.createTerminal(project, {
               runClaude: !tab.isBasic,
               cwd,
               mode: tab.mode || null,
               skipPermissions: settingsState.get().skipPermissions,
-              resumeSessionId: (!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null,
+              resumeSessionId: isGsdResume ? 'gsd-continue' : ((!tab.isBasic && tab.claudeSessionId) ? tab.claudeSessionId : null),
               name: sessionName,
+              ...(tab.cliTool ? { cliTool: tab.cliTool } : {}),
             });
           }
 
@@ -1215,6 +1218,20 @@ function createTerminalForProject(project) {
 function createBasicTerminalForProject(project) {
   TerminalManager.createTerminal(project, {
     runClaude: false
+  });
+}
+
+function createClaudeTerminalForProject(project) {
+  TerminalManager.createTerminal(project, {
+    skipPermissions: settingsState.get().skipPermissions,
+    cliTool: 'claude'
+  });
+}
+
+function createGsdTerminalForProject(project) {
+  TerminalManager.createTerminal(project, {
+    skipPermissions: settingsState.get().skipPermissions,
+    cliTool: 'gsd'
   });
 }
 
@@ -2157,6 +2174,8 @@ ProjectList.setExternalState({
 ProjectList.setCallbacks({
   onCreateTerminal: createTerminalForProject,
   onCreateBasicTerminal: createBasicTerminalForProject,
+  onCreateClaudeTerminal: createClaudeTerminalForProject,
+  onCreateGsdTerminal: createGsdTerminalForProject,
   onStartFivem: startFivemServer,
   onStopFivem: stopFivemServer,
   onOpenFivemConsole: openFivemConsole,

@@ -1229,9 +1229,9 @@
   min-height: 0;
 }
 
-.terminal-wrapper .xterm-viewport {
-  overflow-y: auto !important;
-}
+/* Do NOT override xterm-viewport overflow-y here.
+   xterm.js requires overflow-y: scroll (set in xterm.css) to keep the scrollbar
+   always present. Changing to 'auto' causes layout shifts that reset scroll to top. */
 
 /* Empty States */
 .empty-state {

@@ -103,6 +103,81 @@ async function extractSessionInfo(filePath) {
 }
 
 /**
+ * Get GSD sessions directory for a project.
+ * GSD encodes paths as --{path with / and : replaced by -}--
+ * @param {string} projectPath
+ * @returns {string}
+ */
+function getGsdSessionsDir(projectPath) {
+  const gsdDir = path.join(os.homedir(), '.gsd', 'sessions');
+  // Normalize to forward slashes first, then encode like GSD does
+  const normalized = projectPath.replace(/\\/g, '/');
+  const safePath = `--${normalized.replace(/^\//, '').replace(/[/:]/g, '-')}--`;
+  return path.join(gsdDir, safePath);
+}
+
+/**
+ * Get the most recent GSD session for a project as a pseudo-session entry.
+ * GSD only supports resuming the last session (gsd -c), so we return at most one.
+ * @param {string} projectPath
+ * @returns {Promise<Object|null>}
+ */
+async function getGsdSession(projectPath) {
+  try {
+    const gsdDir = getGsdSessionsDir(projectPath);
+    let files;
+    try {
+      files = await fs.promises.readdir(gsdDir);
+    } catch {
+      return null;
+    }
+
+    const jsonlFiles = files.filter(f => f.endsWith('.jsonl')).sort().reverse();
+    if (jsonlFiles.length === 0) return null;
+
+    // Most recent file — filename format: {timestamp}_{uuid}.jsonl
+    const latestFile = jsonlFiles[0];
+    const filePath = path.join(gsdDir, latestFile);
+    const stat = await fs.promises.stat(filePath);
+
+    if (stat.size < 200) return null;
+
+    // Read first few lines to get a summary
+    const head = await readFirstLines(filePath, 10);
+    let firstPrompt = '';
+    for (const line of head) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === 'custom_message' && obj.content) {
+          // Extract something useful from GSD auto-mode prompt
+          const match = obj.content.match(/## (?:Current Phase|Working Directory)\s*\n+(.+)/);
+          if (match) firstPrompt = match[1].trim();
+        }
+        if (obj.type === 'user' && obj.message) {
+          const content = obj.message.content;
+          if (typeof content === 'string' && content.trim()) {
+            firstPrompt = content;
+            break;
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    return {
+      sessionId: 'gsd-continue',
+      summary: 'GSD session (resume with gsd -c)',
+      firstPrompt: firstPrompt || '',
+      messageCount: 0,
+      modified: stat.mtime.toISOString(),
+      gitBranch: '',
+      isGsd: true
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get Claude sessions for a project by scanning .jsonl files directly
  * @param {string} projectPath - The project path
  * @returns {Promise<Array>} - Array of session objects
@@ -115,13 +190,11 @@ async function getClaudeSessions(projectPath) {
     try {
       files = await fs.promises.readdir(sessionsDir);
     } catch {
-      return [];
+      files = [];
     }
 
     // Filter .jsonl files only
     const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
-
-    if (jsonlFiles.length === 0) return [];
 
     // Get file stats and parse session info in parallel
     const sessionsPromises = jsonlFiles.map(async (file) => {
@@ -175,6 +248,12 @@ async function getClaudeSessions(projectPath) {
         }
       }
     } catch { /* index may not exist or be stale, that's ok */ }
+
+    // Inject GSD pseudo-session if available
+    const gsdSession = await getGsdSession(projectPath);
+    if (gsdSession) {
+      allSessions.push(gsdSession);
+    }
 
     // Sort by modified date (most recent first) and limit to 50
     return allSessions

@@ -22,6 +22,7 @@ const defaultSettings = {
   customPresets: [], // Custom quick action presets [{name, command, icon}]
   aiCommitMessages: true, // Use GitHub Models API for AI commit messages
   defaultTerminalMode: 'terminal', // 'terminal' or 'chat' - default mode for new Claude terminals
+  defaultCliTool: 'claude', // 'claude' or 'gsd' - default CLI tool for new terminals
   hooksEnabled: false, // Hooks installed in ~/.claude/settings.json
   hooksConsentShown: false, // User has seen the hooks consent prompt
   chatModel: null, // null = CLI default, or model ID string (e.g. 'claude-sonnet-4-6')

@@ -46,6 +46,8 @@ let dragState = { dragging: null, dropTarget: null };
 let callbacks = {
   onCreateTerminal: null,
   onCreateBasicTerminal: null,
+  onCreateClaudeTerminal: null,
+  onCreateGsdTerminal: null,
   onStartFivem: null,
   onStopFivem: null,
   onOpenFivemConsole: null,
@@ -311,6 +313,14 @@ function renderProjectHtml(project, depth) {
 
   // Main actions section
   menuItemsHtml += `
+    <button class="more-actions-item btn-launch-claude" data-project-id="${project.id}">
+      ${menuIcons.claude}
+      ${t('projects.launchClaude')}
+    </button>
+    <button class="more-actions-item btn-launch-gsd" data-project-id="${project.id}">
+      ${menuIcons.rocket}
+      ${t('projects.launchGsd')}
+    </button>
     <button class="more-actions-item btn-basic-terminal" data-project-id="${project.id}">
       ${menuIcons.terminal}
       ${t('projects.basicTerminal')}
@@ -817,6 +827,20 @@ function attachListeners(list) {
         const project = getProject(projectId);
         closeAllMoreActionsMenus();
         if (callbacks.onNewWorktree) callbacks.onNewWorktree(project);
+      } else if (btn.classList.contains('btn-launch-claude')) {
+        const project = getProject(projectId);
+        const projectIndex = getProjectIndex(projectId);
+        setSelectedProjectFilter(projectIndex);
+        closeAllMoreActionsMenus();
+        if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+        if (callbacks.onCreateClaudeTerminal) callbacks.onCreateClaudeTerminal(project);
+      } else if (btn.classList.contains('btn-launch-gsd')) {
+        const project = getProject(projectId);
+        const projectIndex = getProjectIndex(projectId);
+        setSelectedProjectFilter(projectIndex);
+        closeAllMoreActionsMenus();
+        if (callbacks.onRenderProjects) callbacks.onRenderProjects();
+        if (callbacks.onCreateGsdTerminal) callbacks.onCreateGsdTerminal(project);
       } else if (btn.classList.contains('btn-basic-terminal')) {
         const project = getProject(projectId);
         const projectIndex = getProjectIndex(projectId);

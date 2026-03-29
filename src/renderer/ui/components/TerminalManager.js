@@ -137,10 +137,57 @@ function loadWebglAddon(terminal) {
   }
 }
 
-// ── Output silence detection disabled ──
+// ── Scroll position preservation (write only) ──
+// When the user has scrolled up to read older output, terminal.write() can reset
+// the viewport. This saves the distance-from-bottom before write and restores it.
+// Only used for write — NOT for fit/resize which can change buffer geometry.
+function writePreservingScroll(terminal, data) {
+  const buf = terminal.buffer.active;
+  const wasScrolledUp = buf.viewportY < buf.baseY;
+  const savedOffset = buf.baseY - buf.viewportY;
+  terminal.write(data);
+  if (wasScrolledUp) {
+    const newTarget = terminal.buffer.active.baseY - savedOffset;
+    const delta = newTarget - terminal.buffer.active.viewportY;
+    if (delta !== 0) terminal.scrollLines(delta);
+  }
+}
+
+// ── Output silence detection disabled for Claude ──
 // Silence-based detection caused false "ready" during Claude's thinking phases
-function resetOutputSilenceTimer(_id) { /* no-op */ }
-function clearOutputSilenceTimer(_id) { /* no-op */ }
+function resetOutputSilenceTimer(_id) { /* no-op for Claude */ }
+function clearOutputSilenceTimer(_id) { /* no-op for Claude */ }
+
+// ── GSD output-based activity detection ──
+// GSD doesn't emit OSC titles or hooks, so we detect activity from PTY data flow.
+// When data flows → working. When output stops for GSD_SILENCE_MS → ready.
+const GSD_SILENCE_MS = 3000;
+const gsdSilenceTimers = new Map();
+function resetGsdActivityTimer(id) {
+  const td = getTerminal(id);
+  if (!td || td.cliTool !== 'gsd' || td.isBasic) return;
+
+  // Mark as working on any output
+  if (td.status !== 'working') {
+    updateTerminalStatus(id, 'working');
+    if (scrapingEventCallback) scrapingEventCallback(id, 'working', { tool: null });
+  }
+
+  // Reset silence timer
+  clearTimeout(gsdSilenceTimers.get(id));
+  gsdSilenceTimers.set(id, setTimeout(() => {
+    const current = getTerminal(id);
+    if (current && current.status === 'working') {
+      updateTerminalStatus(id, 'ready');
+      if (scrapingEventCallback) scrapingEventCallback(id, 'done', {});
+    }
+    gsdSilenceTimers.delete(id);
+  }, GSD_SILENCE_MS));
+}
+function clearGsdActivityTimer(id) {
+  clearTimeout(gsdSilenceTimers.get(id));
+  gsdSilenceTimers.delete(id);
+}
 
 // ── Ready state debounce (adaptive + content-verified) ──
 // Between tool calls, Claude briefly shows ✳ before starting next action.
@@ -1696,6 +1743,7 @@ async function closeTerminal(id) {
   }
 
   clearOutputSilenceTimer(id);
+  clearGsdActivityTimer(id);
   cancelScheduledReady(id);
   postEnterExtended.delete(id);
   postSpinnerExtended.delete(id);
@@ -1812,10 +1860,12 @@ async function closeTerminal(id) {
  * Create a new terminal for a project
  */
 async function createTerminal(project, options = {}) {
-  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null } = options;
+  const { skipPermissions = false, runClaude = true, name: customName = null, mode: explicitMode = null, cwd: overrideCwd = null, initialPrompt = null, initialImages = null, initialModel = null, initialEffort = null, onSessionStart = null, resumeSessionId = null, cliTool: explicitCliTool = null } = options;
 
   // Determine mode: explicit > setting > default
   const mode = explicitMode || (runClaude ? (getSetting('defaultTerminalMode') || 'terminal') : 'terminal');
+  // Determine CLI tool: explicit > setting > default
+  const cliTool = explicitCliTool || (runClaude ? (getSetting('defaultCliTool') || 'claude') : null);
 
   // Chat mode: skip PTY creation entirely
   if (mode === 'chat' && runClaude) {
@@ -1827,7 +1877,8 @@ async function createTerminal(project, options = {}) {
     cwd: overrideCwd || project.path,
     runClaude,
     skipPermissions,
-    ...(resumeSessionId ? { resumeSessionId } : {})
+    ...(resumeSessionId ? { resumeSessionId } : {}),
+    ...(cliTool && cliTool !== 'claude' ? { cliTool } : {})
   });
 
   // Handle new response format { success, id, error }
@@ -1872,6 +1923,7 @@ async function createTerminal(project, options = {}) {
     isBasic: isBasicTerminal,
     mode: 'terminal',
     cwd: overrideCwd || project.path,
+    ...(cliTool && cliTool !== 'claude' ? { cliTool } : {}),
     ...(resumeSessionId ? { claudeSessionId: resumeSessionId, originalSessionId: resumeSessionId } : {}),
     ...(initialPrompt ? { pendingPrompt: initialPrompt } : {}),
     ...(overrideCwd ? { parentProjectId: project.id } : {})
@@ -1979,14 +2031,37 @@ async function createTerminal(project, options = {}) {
   });
 
   // IPC data handling via centralized dispatcher
+  let clearDebounce = null;
+  let lastDataTime = 0;
   registerTerminalHandler(id,
     (data) => {
-      // Detect screen clear sequences (e.g. /clear) and wipe scrollback too
-      if (data.data.includes('\x1b[2J') || data.data.includes('\x1b[3J') || data.data.includes('\x1bc')) {
-        terminal.clear();
+      const now = Date.now();
+      // Detect screen clear sequences (e.g. /clear) and wipe scrollback too.
+      // Only clear when in the normal buffer — Claude CLI's TUI uses \x1b[2J
+      // for redraws inside the alternate screen buffer, and clearing scrollback
+      // there would jump the viewport to the top while the user is reading.
+      // Debounce during rapid output to prevent scrollback thrashing from
+      // repeated clears (e.g. GSD web searches producing fast TUI redraws).
+      if (terminal.buffer.active.type === 'normal' &&
+          (data.data.includes('\x1b[2J') || data.data.includes('\x1b[3J') || data.data.includes('\x1bc'))) {
+        const rapid = (now - lastDataTime) < 100;
+        if (rapid) {
+          // During rapid output, debounce clear — only fire if output settles
+          if (clearDebounce) clearTimeout(clearDebounce);
+          clearDebounce = setTimeout(() => {
+            terminal.clear();
+            clearDebounce = null;
+          }, 200);
+        } else {
+          // Idle/slow output — clear immediately (user typed /clear)
+          if (clearDebounce) { clearTimeout(clearDebounce); clearDebounce = null; }
+          terminal.clear();
+        }
       }
-      terminal.write(data.data);
+      lastDataTime = now;
+      writePreservingScroll(terminal, data.data);
       resetOutputSilenceTimer(id);
+      resetGsdActivityTimer(id);
       claudeHeartbeat(id);
     },
     () => closeTerminal(id)
@@ -2055,6 +2130,7 @@ async function createTerminal(project, options = {}) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
+    if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
     fitAddon.fit();
     api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
@@ -2304,12 +2380,9 @@ function createTypeConsole(project, projectIndex) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
+    if (!consoleView.offsetWidth || !consoleView.offsetHeight) return;
     fitAddon.fit();
-    api[ipcNamespace].resize({
-      projectIndex,
-      cols: terminal.cols,
-      rows: terminal.rows
-    });
+    api[ipcNamespace].resize({ projectIndex, cols: terminal.cols, rows: terminal.rows });
   });
   resizeObserver.observe(consoleView);
 
@@ -2421,7 +2494,7 @@ function getTypeConsoleTerminal(projectIndex, typeId) {
  */
 function writeTypeConsole(projectIndex, typeId, data) {
   const terminal = getTypeConsoleTerminal(projectIndex, typeId);
-  if (terminal) terminal.write(data);
+  if (terminal) writePreservingScroll(terminal, data);
 }
 
 /**
@@ -2965,6 +3038,7 @@ const SESSION_SVG_DEFS = `<svg style="display:none" xmlns="http://www.w3.org/200
   <symbol id="s-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
   <symbol id="s-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 11V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v7"/><path d="M5 17h14"/><path d="M7 11l-2 6h14l-2-6"/></symbol>
   <symbol id="s-rename" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></symbol>
+  <symbol id="s-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 003.46-8.62 2.25 2.25 0 00-2.18-2.18 14.98 14.98 0 00-8.62 3.46m5.34 7.34L7.75 21.15m7.84-6.78L8.41 7.19m0 0L2.85 8.41a1.5 1.5 0 00-.44 2.48l10.7 10.7a1.5 1.5 0 002.48-.44l1.22-5.56"/></symbol>
 </svg>`;
 
 /**
@@ -3162,7 +3236,7 @@ function buildSessionCardHtml(s, index) {
   const renamedClass = s.isRenamed ? ' session-card--renamed' : '';
   const skillClass = s.isSkill ? ' session-card-icon--skill' : '';
   const titleSkillClass = s.isSkill ? ' session-card-title--skill' : '';
-  const iconId = s.isSkill ? 's-bolt' : 's-chat';
+  const iconId = s.isGsd ? 's-rocket' : s.isSkill ? 's-bolt' : 's-chat';
   const pinTitle = s.pinned ? (t('sessions.unpin') || 'Unpin') : (t('sessions.pin') || 'Pin');
   const renameTitle = t('sessions.rename') || 'Rename';
 
@@ -3418,6 +3492,16 @@ async function renderSessionsPanel(project, emptyState) {
 async function resumeSession(project, sessionId, options = {}) {
   const { skipPermissions = false, name: sessionName = null } = options;
 
+  // GSD session resume — launch gsd -c in the project dir
+  if (sessionId === 'gsd-continue') {
+    return createTerminal(project, {
+      skipPermissions,
+      cliTool: 'gsd',
+      resumeSessionId: 'gsd-continue',
+      name: sessionName || 'GSD (resumed)'
+    });
+  }
+
   // If chat mode is active, resume via SDK
   const mode = getSetting('defaultTerminalMode') || 'terminal';
   if (mode === 'chat') {
@@ -3534,8 +3618,9 @@ async function resumeSession(project, sessionId, options = {}) {
   // IPC handlers via centralized dispatcher
   registerTerminalHandler(id,
     (data) => {
-      terminal.write(data.data);
+      writePreservingScroll(terminal, data.data);
       resetOutputSilenceTimer(id);
+      resetGsdActivityTimer(id);
       claudeHeartbeat(id);
     },
     () => closeTerminal(id)
@@ -3573,6 +3658,7 @@ async function resumeSession(project, sessionId, options = {}) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
+    if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
     fitAddon.fit();
     api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
@@ -3713,8 +3799,9 @@ async function createTerminalWithPrompt(project, prompt) {
   // IPC handlers via centralized dispatcher
   registerTerminalHandler(id,
     (data) => {
-      terminal.write(data.data);
+      writePreservingScroll(terminal, data.data);
       resetOutputSilenceTimer(id);
+      resetGsdActivityTimer(id);
     },
     () => closeTerminal(id)
   );
@@ -3747,6 +3834,7 @@ async function createTerminalWithPrompt(project, prompt) {
 
   // Resize handling
   const resizeObserver = new ResizeObserver(() => {
+    if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
     fitAddon.fit();
     api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
   });
@@ -4530,6 +4618,7 @@ async function switchTerminalMode(id) {
     api.terminal.kill({ id });
     cleanupTerminalResources(termData);
     clearOutputSilenceTimer(id);
+  clearGsdActivityTimer(id);
     cancelScheduledReady(id);
   } else if (currentMode === 'chat') {
     // Destroy chat view
@@ -4648,8 +4737,9 @@ async function switchTerminalMode(id) {
     // IPC data handling - use the ptyId for IPC but id for state
     registerTerminalHandler(ptyId,
       (data) => {
-        terminal.write(data.data);
+        writePreservingScroll(terminal, data.data);
         resetOutputSilenceTimer(id);
+      resetGsdActivityTimer(id);
         claudeHeartbeat(id);
       },
       () => closeTerminal(id)
@@ -4671,6 +4761,7 @@ async function switchTerminalMode(id) {
     });
 
     const resizeObserver = new ResizeObserver(() => {
+      if (!wrapper.offsetWidth || !wrapper.offsetHeight) return;
       fitAddon.fit();
       api.terminal.resize({ id: ptyId, cols: terminal.cols, rows: terminal.rows });
     });

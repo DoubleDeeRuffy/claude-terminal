@@ -86,11 +86,19 @@ contextBridge.exposeInMainWorld('electron_nodeModules', {
       throwIfBlocked(p);
       const result = fs.readdirSync(p, options);
       if (options && options.withFileTypes) {
-        return result.map(e => ({
-          name: e.name,
-          isDirectory: () => e.isDirectory(),
-          isFile: () => e.isFile()
-        }));
+        return result.map(e => {
+          let isDir = e.isDirectory();
+          let isF = e.isFile();
+          // Resolve symlinks so isDirectory/isFile reflect the target
+          if (e.isSymbolicLink()) {
+            try {
+              const stat = fs.statSync(path.join(p, e.name));
+              isDir = stat.isDirectory();
+              isF = stat.isFile();
+            } catch (_) {}
+          }
+          return { name: e.name, isDirectory: () => isDir, isFile: () => isF };
+        });
       }
       return result;
     },
@@ -135,11 +143,19 @@ contextBridge.exposeInMainWorld('electron_nodeModules', {
         throwIfBlocked(p);
         const result = await fs.promises.readdir(p, options);
         if (options && options.withFileTypes) {
-          return result.map(e => ({
-            name: e.name,
-            isDirectory: () => e.isDirectory(),
-            isFile: () => e.isFile()
-          }));
+          return result.map(e => {
+            let isDir = e.isDirectory();
+            let isF = e.isFile();
+            // Resolve symlinks so isDirectory/isFile reflect the target
+            if (e.isSymbolicLink()) {
+              try {
+                const stat = fs.statSync(path.join(p, e.name));
+                isDir = stat.isDirectory();
+                isF = stat.isFile();
+              } catch (_) {}
+            }
+            return { name: e.name, isDirectory: () => isDir, isFile: () => isF };
+          });
         }
         return result;
       },
@@ -227,6 +243,33 @@ contextBridge.exposeInMainWorld('electron_api', {
     stashApply: (params) => ipcRenderer.invoke('git-stash-apply', params),
     stashDrop: (params) => ipcRenderer.invoke('git-stash-drop', params),
     stashSave: (params) => ipcRenderer.invoke('git-stash-save', params),
+    // New git operations
+    deleteRemoteBranch: (params) => ipcRenderer.invoke('git-delete-remote-branch', params),
+    fetch: (params) => ipcRenderer.invoke('git-fetch', params),
+    renameBranch: (params) => ipcRenderer.invoke('git-rename-branch', params),
+    rebase: (params) => ipcRenderer.invoke('git-rebase', params),
+    rebaseAbort: (params) => ipcRenderer.invoke('git-rebase-abort', params),
+    rebaseContinue: (params) => ipcRenderer.invoke('git-rebase-continue', params),
+    fileHistory: (params) => ipcRenderer.invoke('git-file-history', params),
+    commitFileDiffs: (params) => ipcRenderer.invoke('git-commit-file-diffs', params),
+    commitFileDiff: (params) => ipcRenderer.invoke('git-commit-file-diff', params),
+    blame: (params) => ipcRenderer.invoke('git-blame', params),
+    tagList: (params) => ipcRenderer.invoke('git-tag-list', params),
+    tagCreate: (params) => ipcRenderer.invoke('git-tag-create', params),
+    tagDelete: (params) => ipcRenderer.invoke('git-tag-delete', params),
+    tagPush: (params) => ipcRenderer.invoke('git-tag-push', params),
+    remotes: (params) => ipcRenderer.invoke('git-remotes', params),
+    resolveConflict: (params) => ipcRenderer.invoke('git-resolve-conflict', params),
+    branchOrphanCommits: (params) => ipcRenderer.invoke('git-branch-orphan-commits', params),
+    discardFiles: (params) => ipcRenderer.invoke('git-discard-files', params),
+    stashPop: (params) => ipcRenderer.invoke('git-stash-pop', params),
+    stashShow: (params) => ipcRenderer.invoke('git-stash-show', params),
+    commitAmend: (params) => ipcRenderer.invoke('git-commit-amend', params),
+    rebaseInProgress: (params) => ipcRenderer.invoke('git-rebase-in-progress', params),
+    reset: (params) => ipcRenderer.invoke('git-reset', params),
+    searchHistory: (params) => ipcRenderer.invoke('git-search-history', params),
+    remoteAdd: (params) => ipcRenderer.invoke('git-remote-add', params),
+    remoteRemove: (params) => ipcRenderer.invoke('git-remote-remove', params),
     // Worktrees
     worktreeList: (params) => ipcRenderer.invoke('git-worktree-list', params),
     worktreeCreate: (params) => ipcRenderer.invoke('git-worktree-create', params),

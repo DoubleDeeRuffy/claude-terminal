@@ -118,6 +118,7 @@ function saveTerminalSessionsImmediate() {
           mode: td.mode || 'terminal',
           claudeSessionId: td.claudeSessionId || null,
           name: td.name || null,
+          ...(td.cliTool ? { cliTool: td.cliTool } : {}),
         };
       }
 

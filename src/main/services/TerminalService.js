@@ -43,7 +43,7 @@ class TerminalService {
    * @param {string} options.resumeSessionId - Session ID to resume
    * @returns {Object} - { success: boolean, id?: number, error?: string }
    */
-  create({ cwd, runClaude, skipPermissions, resumeSessionId }) {
+  create({ cwd, runClaude, skipPermissions, resumeSessionId, cliTool }) {
     const id = ++this.terminalId;
     let shellPath = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
     let shellArgs = process.platform === 'win32' ? ['-NoLogo', '-NoProfile'] : [];
@@ -62,17 +62,22 @@ class TerminalService {
       }
     }
 
-    // If running Claude, spawn it directly via cmd.exe /c (no shell banner, no prompt)
+    // If running Claude/GSD, spawn it directly via cmd.exe /c (no shell banner, no prompt)
     if (runClaude && process.platform === 'win32') {
-      const claudeArgs = ['claude'];
+      const tool = cliTool || 'claude';
+      const toolArgs = [tool];
       if (resumeSessionId) {
-        claudeArgs.push('--resume', resumeSessionId);
+        if (tool === 'gsd') {
+          toolArgs.push('-c');
+        } else {
+          toolArgs.push('--resume', resumeSessionId);
+        }
       }
       if (skipPermissions) {
-        claudeArgs.push('--dangerously-skip-permissions');
+        toolArgs.push('--dangerously-skip-permissions');
       }
       shellPath = 'cmd.exe';
-      shellArgs = ['/c', ...claudeArgs];
+      shellArgs = ['/c', ...toolArgs];
     }
 
     let ptyProcess;
@@ -100,17 +105,27 @@ class TerminalService {
     this.terminals.set(id, ptyProcess);
 
     // Handle data output - adaptive batching to reduce IPC flooding
-    // 4ms flush when idle (responsive typing), 16ms normal, 32ms when flooding
+    // 4ms flush when idle (responsive typing), 16ms normal, 50ms when flooding
+    // During rapid TUI redraws (e.g. GSD web searches), longer batching ensures
+    // complete screen redraws arrive in a single IPC message, preventing flicker.
     let buffer = '';
     let flushScheduled = false;
     let lastFlush = Date.now();
+    let rapidCount = 0; // track consecutive rapid flushes
 
     ptyProcess.onData(data => {
       buffer += data;
       if (!flushScheduled) {
         flushScheduled = true;
         const sinceLastFlush = Date.now() - lastFlush;
-        const delay = buffer.length > 10000 ? 32 : sinceLastFlush > 100 ? 4 : 16;
+        // Detect sustained rapid output (TUI redraws)
+        if (sinceLastFlush < 50) {
+          rapidCount = Math.min(rapidCount + 1, 10);
+        } else {
+          rapidCount = Math.max(rapidCount - 2, 0);
+        }
+        const flooding = rapidCount > 3 || buffer.length > 10000;
+        const delay = flooding ? 50 : sinceLastFlush > 100 ? 4 : 16;
         setTimeout(() => {
           this.sendToRenderer('terminal-data', { id, data: buffer });
           buffer = '';
@@ -127,20 +142,22 @@ class TerminalService {
       this.sendToRenderer('terminal-exit', { id });
     });
 
-    // Run Claude CLI on non-Windows platforms
+    // Run Claude/GSD CLI on non-Windows platforms (write command into shell)
     if (runClaude && process.platform !== 'win32') {
       setTimeout(() => {
-        let claudeCmd = 'claude';
+        const tool = cliTool || 'claude';
+        let cmd = tool;
         if (resumeSessionId) {
-          // Validate session ID format to prevent shell injection via PTY
-          if (/^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
-            claudeCmd += ` --resume ${resumeSessionId}`;
+          if (tool === 'gsd') {
+            cmd += ' -c';
+          } else if (/^[a-f0-9\-]{8,64}$/.test(resumeSessionId)) {
+            cmd += ` --resume ${resumeSessionId}`;
           }
         }
         if (skipPermissions) {
-          claudeCmd += ' --dangerously-skip-permissions';
+          cmd += ' --dangerously-skip-permissions';
         }
-        try { ptyProcess.write(claudeCmd + '\r'); } catch (e) {}
+        try { ptyProcess.write(cmd + '\r'); } catch (e) {}
       }, 500);
     }
 

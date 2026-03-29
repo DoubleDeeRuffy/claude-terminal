@@ -982,6 +982,35 @@ async function renderSettingsTab(initialTab = 'general') {
               </div>
             </div>
             </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">${t('settings.defaultCliTool')}</div>
+            <div class="settings-card">
+            <div class="execution-mode-selector">
+              <div class="execution-mode-card cli-tool-card ${(settings.defaultCliTool || 'claude') === 'claude' ? 'selected' : ''}" data-cli-tool="claude">
+                <div class="execution-mode-icon neutral">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                </div>
+                <div class="execution-mode-content">
+                  <div class="execution-mode-title">${t('settings.cliToolClaude')}</div>
+                  <div class="execution-mode-desc">${t('settings.cliToolClaudeDesc')}</div>
+                </div>
+                <div class="execution-mode-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+              </div>
+              <div class="execution-mode-card cli-tool-card ${settings.defaultCliTool === 'gsd' ? 'selected' : ''}" data-cli-tool="gsd">
+                <div class="execution-mode-icon neutral">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 003.46-8.62 2.25 2.25 0 00-2.18-2.18 14.98 14.98 0 00-8.62 3.46m5.34 7.34L7.75 21.15m7.84-6.78L8.41 7.19m0 0L2.85 8.41a1.5 1.5 0 00-.44 2.48l10.7 10.7a1.5 1.5 0 002.48-.44l1.22-5.56"/></svg>
+                </div>
+                <div class="execution-mode-content">
+                  <div class="execution-mode-title">${t('settings.cliToolGsd')}</div>
+                  <div class="execution-mode-desc">${t('settings.cliToolGsdDesc')}</div>
+                </div>
+                <div class="execution-mode-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+              </div>
+            </div>
+            </div>
+          </div>
+          <div class="settings-group">
             <div class="settings-toggle-row">
               <div class="settings-toggle-label">
                 <div>${t('settings.restoreTerminalSessions')}</div>
@@ -1303,9 +1332,9 @@ async function renderSettingsTab(initialTab = 'general') {
     };
   });
 
-  container.querySelectorAll('.execution-mode-card:not(.terminal-mode-card)').forEach(card => {
+  container.querySelectorAll('.execution-mode-card:not(.terminal-mode-card):not(.cli-tool-card)').forEach(card => {
     card.onclick = () => {
-      container.querySelectorAll('.execution-mode-card:not(.terminal-mode-card)').forEach(c => c.classList.remove('selected'));
+      container.querySelectorAll('.execution-mode-card:not(.terminal-mode-card):not(.cli-tool-card)').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       document.getElementById('dangerous-warning').style.display = card.dataset.mode === 'dangerous' ? 'flex' : 'none';
     };
@@ -1314,6 +1343,13 @@ async function renderSettingsTab(initialTab = 'general') {
   container.querySelectorAll('.terminal-mode-card').forEach(card => {
     card.onclick = () => {
       container.querySelectorAll('.terminal-mode-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+    };
+  });
+
+  container.querySelectorAll('.cli-tool-card').forEach(card => {
+    card.onclick = () => {
+      container.querySelectorAll('.cli-tool-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
     };
   });
@@ -1574,8 +1610,9 @@ async function renderSettingsTab(initialTab = 'general') {
   _cleanups.push(unsubProjects);
 
   const saveSettingsHandler = async () => {
-    const selectedMode = container.querySelector('.execution-mode-card:not(.terminal-mode-card).selected');
+    const selectedMode = container.querySelector('.execution-mode-card:not(.terminal-mode-card):not(.cli-tool-card).selected');
     const selectedTerminalMode = container.querySelector('.terminal-mode-card.selected');
+    const selectedCliTool = container.querySelector('.cli-tool-card.selected');
     const closeActionDropdown = document.getElementById('close-action-dropdown');
     const selectedThemeCard = container.querySelector('.theme-card.selected');
     const languageDropdown = document.getElementById('language-dropdown');
@@ -1652,6 +1689,7 @@ async function renderSettingsTab(initialTab = 'general') {
       reduceMotion: newReduceMotion,
       aiCommitMessages: newAiCommitMessages,
       defaultTerminalMode: selectedTerminalMode?.dataset.terminalMode || 'terminal',
+      defaultCliTool: selectedCliTool?.dataset.cliTool || 'claude',
       hooksEnabled: newHooksEnabled,
       enable1MContext: newEnable1MContext,
       showDotfiles: newShowDotfiles,
@@ -1729,7 +1767,7 @@ async function renderSettingsTab(initialTab = 'general') {
   container.querySelectorAll('.settings-toggle input, .settings-select').forEach(el => {
     el.addEventListener('change', autoSave);
   });
-  container.querySelectorAll('.execution-mode-card, .terminal-mode-card, .theme-card, .color-swatch').forEach(el => {
+  container.querySelectorAll('.execution-mode-card, .terminal-mode-card, .cli-tool-card, .theme-card, .color-swatch').forEach(el => {
     el.addEventListener('click', () => setTimeout(autoSave, 50));
   });
 

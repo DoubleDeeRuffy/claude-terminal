@@ -12,11 +12,32 @@ const _activeProcesses = new Set();
 
 /**
  * Build safe.directory args array for git
+ * Includes worktree parent repo when a .git file (not dir) points to a parent.
  * @param {string} cwd - Working directory
- * @returns {string[]} - Args array ['-c', 'safe.directory=...']
+ * @returns {string[]} - Args array ['-c', 'safe.directory=...', ...]
  */
 function safeDirArgs(cwd) {
-  return ['-c', `safe.directory=${cwd.replace(/\\/g, '/')}`];
+  const cwdNorm = cwd.replace(/\\/g, '/');
+  const args = ['-c', `safe.directory=${cwdNorm}`];
+  try {
+    const gitPath = path.join(cwd, '.git');
+    const stat = fs.statSync(gitPath);
+    if (stat.isFile()) {
+      // Worktree: .git is a file containing "gitdir: <path>"
+      const content = fs.readFileSync(gitPath, 'utf8').trim();
+      const match = content.match(/^gitdir:\s*(.+)$/);
+      if (match) {
+        const gitDir = path.resolve(cwd, match[1]);
+        const parentRepo = path.resolve(gitDir, '..', '..', '..').replace(/\\/g, '/');
+        if (parentRepo !== cwdNorm) {
+          args.push('-c', `safe.directory=${parentRepo}`);
+        }
+      }
+    }
+  } catch (_) {
+    // Not a worktree or .git doesn't exist
+  }
+  return args;
 }
 
 /**
@@ -1281,6 +1302,314 @@ function killAllGitProcesses() {
   _activeProcesses.clear();
 }
 
+// ── Resolve merge conflict ──
+
+async function resolveConflict(projectPath, filePath, strategy) {
+  if (strategy !== 'ours' && strategy !== 'theirs') {
+    return { success: false, error: 'Invalid strategy. Use "ours" or "theirs".' };
+  }
+  const checkoutResult = await spawnGit(projectPath, ['checkout', `--${strategy}`, '--', filePath]);
+  if (!checkoutResult.success) return checkoutResult;
+  const stageResult = await spawnGit(projectPath, ['add', '--', filePath]);
+  return stageResult;
+}
+
+// ── Branch orphan commit count ──
+
+async function getBranchOrphanCommitCount(projectPath, branch) {
+  const output = await execGit(projectPath, ['log', branch, '--not', '--remotes', '--exclude=' + branch, '--branches', '--oneline'], 10000);
+  if (!output) return 0;
+  return output.split('\n').filter(l => l.trim()).length;
+}
+
+// ── Delete remote branch ──
+
+async function deleteRemoteBranch(projectPath, branch, remote = 'origin') {
+  return execGit(projectPath, `push ${remote} --delete ${branch}`, 30000);
+}
+
+// ── Dedicated fetch ──
+
+async function gitFetch(projectPath, remote = 'origin') {
+  return execGit(projectPath, `fetch ${remote} --prune`, 30000);
+}
+
+// ── Branch rename ──
+
+async function renameBranch(projectPath, oldName, newName) {
+  return execGit(projectPath, `branch -m ${oldName} ${newName}`);
+}
+
+// ── Rebase ──
+
+async function gitRebase(projectPath, branch) {
+  return execGit(projectPath, `rebase ${branch}`, 60000);
+}
+
+async function gitRebaseAbort(projectPath) {
+  return execGit(projectPath, 'rebase --abort');
+}
+
+async function gitRebaseContinue(projectPath) {
+  return execGit(projectPath, 'rebase --continue');
+}
+
+// ── File history ──
+
+async function getFileHistory(projectPath, filePath, options = {}) {
+  const { skip = 0, limit = 30 } = options;
+  const output = await execGit(projectPath, `log --skip=${skip} -n ${limit} --pretty=format:"%H|%an|%aI|%s" -- "${filePath}"`, 15000);
+  if (!output) return [];
+  return output.split('\n').filter(Boolean).map(line => {
+    const parts = line.replace(/^"|"$/g, '').split('|');
+    return { hash: parts[0], author: parts[1], date: parts[2], message: parts.slice(3).join('|') };
+  });
+}
+
+// ── Commit file-by-file diffs ──
+
+async function getCommitFileDiffs(projectPath, commitHash) {
+  const statsOutput = await execGit(projectPath, `diff-tree --no-commit-id -r --numstat ${commitHash}`, 15000);
+  const files = [];
+  if (statsOutput) {
+    for (const line of statsOutput.split('\n').filter(Boolean)) {
+      const match = line.match(/^(\d+|-)\s+(\d+|-)\s+(.+)$/);
+      if (match) {
+        files.push({
+          additions: match[1] === '-' ? 0 : parseInt(match[1]) || 0,
+          deletions: match[2] === '-' ? 0 : parseInt(match[2]) || 0,
+          path: match[3]
+        });
+      }
+    }
+  }
+  return files;
+}
+
+async function getCommitFileDiff(projectPath, commitHash, filePath) {
+  const output = await execGit(projectPath, `diff ${commitHash}~1 ${commitHash} -- "${filePath}"`, 15000);
+  return output || '';
+}
+
+// ── Git blame ──
+
+async function gitBlame(projectPath, filePath) {
+  const output = await execGit(projectPath, `blame --porcelain "${filePath}"`, 30000);
+  if (!output) return [];
+  const lines = [];
+  let current = null;
+  const commits = {};
+  for (const line of output.split('\n')) {
+    const headerMatch = line.match(/^([a-f0-9]{40})\s+(\d+)\s+(\d+)/);
+    if (headerMatch) {
+      current = { hash: headerMatch[1], origLine: parseInt(headerMatch[2]), finalLine: parseInt(headerMatch[3]) };
+      if (!commits[current.hash]) commits[current.hash] = {};
+      continue;
+    }
+    if (current && line.startsWith('author ')) commits[current.hash].author = line.slice(7);
+    if (current && line.startsWith('author-time ')) commits[current.hash].timestamp = parseInt(line.slice(12));
+    if (current && line.startsWith('summary ')) commits[current.hash].summary = line.slice(8);
+    if (current && line.startsWith('\t')) {
+      lines.push({
+        line: current.finalLine,
+        hash: current.hash,
+        author: commits[current.hash]?.author || '',
+        timestamp: commits[current.hash]?.timestamp || 0,
+        summary: commits[current.hash]?.summary || '',
+        content: line.slice(1)
+      });
+      current = null;
+    }
+  }
+  return lines;
+}
+
+// ── Tags ──
+
+async function getTags(projectPath) {
+  const output = await execGit(projectPath, 'tag -l --sort=-creatordate --format=%(refname:short)|%(creatordate:iso-strict)|%(subject)');
+  if (!output) return [];
+  return output.split('\n').filter(Boolean).map(line => {
+    const [name, date, ...msgParts] = line.split('|');
+    return { name, date, message: msgParts.join('|') };
+  });
+}
+
+async function createTag(projectPath, name, message, commitHash) {
+  if (message) {
+    return execGit(projectPath, `tag -a "${name}" -m "${message}"${commitHash ? ' ' + commitHash : ''}`);
+  }
+  return execGit(projectPath, `tag "${name}"${commitHash ? ' ' + commitHash : ''}`);
+}
+
+async function deleteTag(projectPath, name) {
+  return execGit(projectPath, `tag -d "${name}"`);
+}
+
+async function pushTag(projectPath, name, remote = 'origin') {
+  return execGit(projectPath, `push ${remote} "${name}"`, 30000);
+}
+
+async function pushAllTags(projectPath, remote = 'origin') {
+  return execGit(projectPath, `push ${remote} --tags`, 30000);
+}
+
+// ── Discard file changes (git restore) ──
+
+async function gitDiscardFiles(projectPath, files) {
+  if (!files || files.length === 0) return { success: false, error: 'No files specified' };
+
+  const statusOutput = await execGit(projectPath, ['status', '--porcelain', '--', ...files]);
+  const untrackedFiles = [];
+  const trackedFiles = [];
+  if (statusOutput) {
+    for (const line of statusOutput.split('\n').filter(Boolean)) {
+      const status = line.substring(0, 2);
+      const filePath = line.substring(3).trim();
+      if (status === '??') {
+        untrackedFiles.push(filePath);
+      } else {
+        trackedFiles.push(filePath);
+      }
+    }
+  }
+
+  if (trackedFiles.length > 0) {
+    const result = await spawnGit(projectPath, ['restore', '--', ...trackedFiles]);
+    if (!result.success) return result;
+  }
+
+  for (const f of untrackedFiles) {
+    try {
+      const fullPath = path.join(projectPath, f);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(fullPath);
+      }
+    } catch (_) { /* ignore cleanup errors */ }
+  }
+
+  return { success: true, output: `Discarded ${files.length} file(s)` };
+}
+
+// ── Stash pop ──
+
+async function stashPop(projectPath, stashRef) {
+  const result = await spawnGit(projectPath, ['stash', 'pop', stashRef]);
+  if (!result.success) return result;
+  return { success: true, output: result.output || 'Stash popped.' };
+}
+
+// ── Stash show/preview ──
+
+async function stashShow(projectPath, stashRef) {
+  const output = await execGit(projectPath, ['stash', 'show', '-p', stashRef], 15000);
+  return output || '';
+}
+
+// ── Amend commit ──
+
+async function gitAmendCommit(projectPath, message) {
+  const args = ['commit', '--amend'];
+  if (message && message.trim()) {
+    args.push('-m', message.trim());
+  } else {
+    args.push('--no-edit');
+  }
+  const result = await spawnGit(projectPath, args);
+  if (!result.success) return result;
+  return { success: true, output: result.output || 'Commit amended.' };
+}
+
+// ── Rebase detection ──
+
+async function isRebaseInProgress(projectPath) {
+  const gitDir = await execGit(projectPath, 'rev-parse --git-dir');
+  if (!gitDir) return false;
+  const resolvedGitDir = path.resolve(projectPath, gitDir);
+  const rebaseMerge = path.join(resolvedGitDir, 'rebase-merge');
+  if (fs.existsSync(rebaseMerge)) return true;
+  const rebaseApply = path.join(resolvedGitDir, 'rebase-apply');
+  return fs.existsSync(rebaseApply);
+}
+
+// ── Git reset ──
+
+async function gitReset(projectPath, mode = 'soft', target = 'HEAD~1') {
+  const allowedModes = ['soft', 'mixed', 'hard'];
+  if (!allowedModes.includes(mode)) return { success: false, error: 'Invalid reset mode' };
+  const result = await spawnGit(projectPath, ['reset', `--${mode}`, target]);
+  if (!result.success) return result;
+  return { success: true, output: result.output || `Reset ${mode} to ${target}` };
+}
+
+// ── History search ──
+
+async function searchCommitHistory(projectPath, options = {}) {
+  const { grep, pickaxe, skip = 0, limit = 30, branch = '', allBranches = false } = options;
+  if (!grep && !pickaxe) return [];
+
+  const RS = '%x1e';
+  const format = `%H${RS}%h${RS}%s${RS}%an${RS}%ae${RS}%ar${RS}%aI${RS}%P${RS}%D`;
+  const args = ['log', `--skip=${skip}`, `-${limit}`, `--format=${format}`];
+
+  if (grep) {
+    args.push(`--grep=${grep}`, '-i');
+  }
+  if (pickaxe) {
+    args.push(`-S${pickaxe}`);
+  }
+  if (allBranches) {
+    args.push('--all');
+  }
+  if (branch) {
+    args.push(branch);
+  }
+
+  const output = await execGit(projectPath, args, 15000);
+  if (!output) return [];
+  return output.split('\n').filter(l => l.trim()).map(line => {
+    const parts = line.split('\x1e');
+    const [fullHash, hash, message, author, email, date, isoDate, parentStr, decorations] = parts;
+    const parents = parentStr ? parentStr.trim().split(' ').filter(Boolean) : [];
+    return { fullHash, hash, message, author, email, date, isoDate, parents, decorations: decorations || '' };
+  });
+}
+
+// ── Remote management ──
+
+async function addRemote(projectPath, name, url) {
+  const result = await spawnGit(projectPath, ['remote', 'add', name, url]);
+  if (!result.success) return result;
+  return { success: true, output: `Remote '${name}' added.` };
+}
+
+async function removeRemote(projectPath, name) {
+  const result = await spawnGit(projectPath, ['remote', 'remove', name]);
+  if (!result.success) return result;
+  return { success: true, output: `Remote '${name}' removed.` };
+}
+
+// ── Remotes listing ──
+
+async function getRemotes(projectPath) {
+  const output = await execGit(projectPath, 'remote -v');
+  if (!output) return [];
+  const map = new Map();
+  for (const line of output.split('\n').filter(Boolean)) {
+    const match = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/);
+    if (match) {
+      if (!map.has(match[1])) map.set(match[1], { name: match[1], fetchUrl: '', pushUrl: '' });
+      const remote = map.get(match[1]);
+      if (match[3] === 'fetch') remote.fetchUrl = match[2];
+      if (match[3] === 'push') remote.pushUrl = match[2];
+    }
+  }
+  return Array.from(map.values());
+}
+
 module.exports = {
   parseGitStatus,
   parseDiffNumstat,
@@ -1326,5 +1655,34 @@ module.exports = {
   pruneWorktrees,
   detectWorktree,
   diffWorktreeBranches,
-  diffWorktreeBranchesWithStats
+  diffWorktreeBranchesWithStats,
+  // New operations
+  deleteRemoteBranch,
+  gitFetch,
+  renameBranch,
+  gitRebase,
+  gitRebaseAbort,
+  gitRebaseContinue,
+  getFileHistory,
+  getCommitFileDiffs,
+  getCommitFileDiff,
+  gitBlame,
+  getTags,
+  createTag,
+  deleteTag,
+  pushTag,
+  pushAllTags,
+  getRemotes,
+  resolveConflict,
+  getBranchOrphanCommitCount,
+  // Discard, stash, amend, reset, search
+  gitDiscardFiles,
+  stashPop,
+  stashShow,
+  gitAmendCommit,
+  isRebaseInProgress,
+  gitReset,
+  searchCommitHistory,
+  addRemote,
+  removeRemote
 };
