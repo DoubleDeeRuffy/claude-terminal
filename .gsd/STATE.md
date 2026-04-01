@@ -1,25 +1,25 @@
 ---
 gsd_state_version: 1.0
-milestone: 1.1
+milestone: v1.1
 milestone_name: — Consolidations
-status: completed
-last_updated: "2026-03-08T10:36:14.538Z"
-last_activity: 2026-03-08 — 35-01 complete (Fix API utilization decimal-to-percentage conversion)
+status: verifying
+last_updated: "2026-04-01T20:25:40.671Z"
+last_activity: 2026-04-01
 progress:
-  total_phases: 12
-  completed_phases: 7
-  total_plans: 13
-  completed_plans: 10
+  total_phases: 13
+  completed_phases: 8
+  total_plans: 14
+  completed_plans: 11
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 35 (Fix-Usage) — COMPLETE
-Plan: 35-01 of 35-01 — 1 plan (complete)
-Status: Phase 35 complete, fixed API utilization decimal-to-percentage conversion
-Last activity: 2026-03-08 — 35-01 complete (Fix API utilization decimal-to-percentage conversion)
+Phase: 36 (fix-terminal-flickering-buffer-loss-and-blackouts-caused-by-scroll-to-top-changes) — COMPLETE
+Plan: 1 of 1 (complete)
+Status: Phase 36 complete — all plans done, ready for PR
+Last activity: 2026-04-01 -- Phase 36 complete (36-01-PLAN.md executed)
 
 ## Accumulated Context
 
@@ -49,6 +49,7 @@ Last activity: 2026-03-08 — 35-01 complete (Fix API utilization decimal-to-per
 - Phase 35 added: Fix-Usage — Usage display shows incorrect percentages
 - Phase 35 complete: Fixed API utilization decimal-to-percentage conversion (* 100) in UsageService
 - Phase 36 added: Fix terminal flickering, buffer loss, and blackouts caused by scroll-to-top changes
+- Phase 36 complete: Debounced writePreservingScroll (80ms), rapid-output guard suppressing terminal.clear() during Claude TUI redraws (3+ chunks < 150ms hysteresis)
 
 ### Pending Todos
 
