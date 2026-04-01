@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Consolidations
-status: verifying
-last_updated: "2026-04-01T20:25:40.671Z"
+status: completed
+last_updated: "2026-04-01T20:29:45.085Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 13
@@ -16,10 +16,10 @@ progress:
 
 ## Current Position
 
-Phase: 36 (fix-terminal-flickering-buffer-loss-and-blackouts-caused-by-scroll-to-top-changes) — COMPLETE
-Plan: 1 of 1 (complete)
+Phase: 36
+Plan: Not started
 Status: Phase 36 complete — all plans done, ready for PR
-Last activity: 2026-04-01 -- Phase 36 complete (36-01-PLAN.md executed)
+Last activity: 2026-04-01
 
 ## Accumulated Context
 
