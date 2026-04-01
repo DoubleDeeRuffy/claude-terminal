@@ -139,18 +139,44 @@ function loadWebglAddon(terminal) {
 
 // ── Scroll position preservation (write only) ──
 // When the user has scrolled up to read older output, terminal.write() can reset
-// the viewport. This saves the distance-from-bottom before write and restores it.
-// Only used for write — NOT for fit/resize which can change buffer geometry.
+// the viewport. This saves the distance-from-bottom before write and restores it
+// via a debounced timer — NOT per-write. During rapid Claude output the timer keeps
+// getting reset, so scrollLines() only fires once output settles (~80ms gap).
+// This eliminates the per-write viewport fighting and flickering.
+//
+// Per-terminal state: { scrollRestoreTimer, savedOffset, savedBufType }
+const scrollRestoreState = new WeakMap();
+
 function writePreservingScroll(terminal, data) {
   const buf = terminal.buffer.active;
   const wasScrolledUp = buf.viewportY < buf.baseY;
-  const savedOffset = buf.baseY - buf.viewportY;
-  terminal.write(data);
+
   if (wasScrolledUp) {
-    const newTarget = terminal.buffer.active.baseY - savedOffset;
-    const delta = newTarget - terminal.buffer.active.viewportY;
-    if (delta !== 0) terminal.scrollLines(delta);
+    // Capture current scroll offset from bottom and buffer type (guard vs alternate screen)
+    let state = scrollRestoreState.get(terminal);
+    if (!state) {
+      state = { scrollRestoreTimer: null, savedOffset: 0, savedBufType: 'normal' };
+      scrollRestoreState.set(terminal, state);
+    }
+    // Always refresh savedOffset on each write so the most recent position is used
+    state.savedOffset = buf.baseY - buf.viewportY;
+    state.savedBufType = buf.type;
+
+    // Reset the debounce timer — only fire once output has settled for 80ms
+    if (state.scrollRestoreTimer) clearTimeout(state.scrollRestoreTimer);
+    state.scrollRestoreTimer = setTimeout(() => {
+      state.scrollRestoreTimer = null;
+      const activeBuf = terminal.buffer.active;
+      // Guard: skip restoration if buffer type changed (e.g. alternate screen transition)
+      if (activeBuf.type !== state.savedBufType) return;
+      const newTarget = activeBuf.baseY - state.savedOffset;
+      const delta = newTarget - activeBuf.viewportY;
+      if (delta !== 0) terminal.scrollLines(delta);
+    }, 80);
   }
+
+  // Write data without any synchronous viewport manipulation
+  terminal.write(data);
 }
 
 // ── Output silence detection disabled for Claude ──
