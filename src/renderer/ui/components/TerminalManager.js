@@ -2738,6 +2738,7 @@ function filterByProject(projectIndex) {
 
   let visibleCount = 0;
   let firstVisibleId = null;
+  const visibleIds = new Set();
   const project = projects[projectIndex];
 
   const terminals = terminalsState.get().terminals;
@@ -2761,6 +2762,7 @@ function filterByProject(projectIndex) {
     }
     if (shouldShow) {
       visibleCount++;
+      visibleIds.add(String(id));
       if (!firstVisibleId) firstVisibleId = id;
     }
   });
@@ -2787,6 +2789,15 @@ function filterByProject(projectIndex) {
         prevSibling.style.display = '';
       }
 
+      // Clear stale inline display:none on wrappers that passed the shouldShow
+      // check, so CSS .terminal-wrapper/.active rules control visibility again.
+      // Only touch visible-project wrappers — other-project wrappers must stay hidden.
+      pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
+        if (visibleIds.has(w.dataset.id)) {
+          w.style.removeProperty('display');
+        }
+      });
+
       // If pane's active tab is hidden, switch to first visible tab in this pane
       const currentActive = PaneManager.getPaneActiveTab(pId);
       const activeTabEl = currentActive ? pane.tabsEl.querySelector(`.terminal-tab[data-id="${currentActive}"]`) : null;
@@ -2798,7 +2809,6 @@ function filterByProject(projectIndex) {
             t.classList.toggle('active', t.dataset.id === firstVisible.dataset.id));
           pane.contentEl.querySelectorAll('.terminal-wrapper').forEach(w => {
             w.classList.toggle('active', w.dataset.id === firstVisible.dataset.id);
-            w.style.removeProperty('display');
           });
         }
       }
