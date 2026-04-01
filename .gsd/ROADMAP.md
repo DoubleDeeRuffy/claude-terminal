@@ -136,3 +136,13 @@ Plans:
 
 Plans:
 - [ ] 35-01-PLAN.md — Fix utilization decimal-to-percentage conversion
+
+### Phase 36: Fix terminal flickering, buffer loss, and blackouts caused by scroll-to-top changes
+
+**Goal:** Fix three terminal rendering regressions: viewport flickering during rapid Claude output, scrollback buffer loss from stray terminal.clear() calls, and visual blackouts on tab switch.
+**Requirements**: [FLICKER-01] Debounced scroll preservation — replace per-write scrollLines with post-settle restoration; [FLICKER-02] Tightened clear-screen guard — suppress terminal.clear() during rapid Claude TUI redraws; [FLICKER-03] No tab-switch recovery needed — root cause prevention is sufficient.
+**Depends on:** Phase 35
+**Plans:** 1 plan
+
+Plans:
+- [ ] 36-01-PLAN.md — Debounced scroll preservation and tightened clear-screen guard
