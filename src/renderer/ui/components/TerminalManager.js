@@ -2059,27 +2059,45 @@ async function createTerminal(project, options = {}) {
   // IPC data handling via centralized dispatcher
   let clearDebounce = null;
   let lastDataTime = 0;
+  let rapidChunkCount = 0;
+  let rapidOutputActive = false;
+  let rapidCooldown = null;
   registerTerminalHandler(id,
     (data) => {
       const now = Date.now();
+
+      // Track rapid output: 3+ consecutive chunks arriving < 150ms apart activates
+      // the rapid flag. Deactivates after 500ms of silence. This distinguishes
+      // Claude CLI TUI redraws (sustained rapid output) from a user typing /clear
+      // quickly (1-2 chunks then idle).
+      const gap = now - lastDataTime;
+      if (gap < 150) {
+        rapidChunkCount++;
+        if (rapidChunkCount >= 3) rapidOutputActive = true;
+      } else {
+        rapidChunkCount = 0;
+      }
+      if (rapidCooldown) clearTimeout(rapidCooldown);
+      rapidCooldown = setTimeout(() => {
+        rapidOutputActive = false;
+        rapidChunkCount = 0;
+        rapidCooldown = null;
+      }, 500);
+
       // Detect screen clear sequences (e.g. /clear) and wipe scrollback too.
       // Only clear when in the normal buffer — Claude CLI's TUI uses \x1b[2J
       // for redraws inside the alternate screen buffer, and clearing scrollback
       // there would jump the viewport to the top while the user is reading.
-      // Debounce during rapid output to prevent scrollback thrashing from
-      // repeated clears (e.g. GSD web searches producing fast TUI redraws).
+      // During rapid Claude output, suppress terminal.clear() entirely — even a
+      // single clear() between alternate-screen transitions wipes scrollback.
       if (terminal.buffer.active.type === 'normal' &&
           (data.data.includes('\x1b[2J') || data.data.includes('\x1b[3J') || data.data.includes('\x1bc'))) {
-        const rapid = (now - lastDataTime) < 100;
-        if (rapid) {
-          // During rapid output, debounce clear — only fire if output settles
-          if (clearDebounce) clearTimeout(clearDebounce);
-          clearDebounce = setTimeout(() => {
-            terminal.clear();
-            clearDebounce = null;
-          }, 200);
+        if (rapidOutputActive) {
+          // Suppress terminal.clear() during rapid Claude TUI redraws.
+          // Cancel any pending debounced clear too.
+          if (clearDebounce) { clearTimeout(clearDebounce); clearDebounce = null; }
         } else {
-          // Idle/slow output — clear immediately (user typed /clear)
+          // Idle/slow output — user likely typed /clear. Clear immediately.
           if (clearDebounce) { clearTimeout(clearDebounce); clearDebounce = null; }
           terminal.clear();
         }
