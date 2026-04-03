@@ -2088,13 +2088,17 @@ async function createTerminal(project, options = {}) {
       // Only clear when in the normal buffer — Claude CLI's TUI uses \x1b[2J
       // for redraws inside the alternate screen buffer, and clearing scrollback
       // there would jump the viewport to the top while the user is reading.
-      // During rapid Claude output, suppress terminal.clear() entirely — even a
-      // single clear() between alternate-screen transitions wipes scrollback.
+      // During rapid Claude output, suppress terminal.clear() entirely to prevent
+      // both flickering and blackouts. Scrollback may accumulate TUI redraw
+      // artifacts during rapid output, but this is preferable to buffer loss or
+      // blackouts. The artifacts are transient — they stop accumulating when
+      // Claude finishes working.
       if (terminal.buffer.active.type === 'normal' &&
           (data.data.includes('\x1b[2J') || data.data.includes('\x1b[3J') || data.data.includes('\x1bc'))) {
         if (rapidOutputActive) {
           // Suppress terminal.clear() during rapid Claude TUI redraws.
-          // Cancel any pending debounced clear too.
+          // No deferred clear — it causes blackouts when firing in a different
+          // buffer state. Accept temporary scrollback artifacts over blackouts.
           if (clearDebounce) { clearTimeout(clearDebounce); clearDebounce = null; }
         } else {
           // Idle/slow output — user likely typed /clear. Clear immediately.
