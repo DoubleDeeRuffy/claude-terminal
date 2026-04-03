@@ -2665,7 +2665,7 @@ const SESSION_SVG_DEFS = `<svg style="display:none" xmlns="http://www.w3.org/200
  * ── Session Pins ──
  * Persist pinned session IDs in ~/.claude-terminal/session-pins.json
  */
-const { fileExists, fsp } = require('../../utils/fs-async');
+const fsp = window.electron_nodeModules.fs.promises;
 const _pinsFile = path.join(window.electron_nodeModules.os.homedir(), '.claude-terminal', 'session-pins.json');
 let _pinsCache = null;
 
