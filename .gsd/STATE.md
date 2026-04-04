@@ -2,24 +2,24 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Consolidations
-status: completed
-last_updated: "2026-04-01T20:29:45.085Z"
-last_activity: 2026-04-01
+status: executing
+last_updated: "2026-04-04T09:46:23.855Z"
+last_activity: 2026-04-04 -- Phase 37 execution started
 progress:
-  total_phases: 13
-  completed_phases: 8
-  total_plans: 14
-  completed_plans: 11
+  total_phases: 16
+  completed_phases: 10
+  total_plans: 19
+  completed_plans: 13
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 36
-Plan: Not started
-Status: Phase 36 complete — all plans done, ready for PR
-Last activity: 2026-04-01
+Phase: 37 (enhance-git-capabilities-commit-graph-branch-visualization-unpushed-file-tracking) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 37
+Last activity: 2026-04-04 -- Phase 37 execution started
 
 ## Accumulated Context
 
@@ -50,6 +50,9 @@ Last activity: 2026-04-01
 - Phase 35 complete: Fixed API utilization decimal-to-percentage conversion (* 100) in UsageService
 - Phase 36 added: Fix terminal flickering, buffer loss, and blackouts caused by scroll-to-top changes
 - Phase 36 complete: Debounced writePreservingScroll (80ms), rapid-output guard suppressing terminal.clear() during Claude TUI redraws (3+ chunks < 150ms hysteresis)
+- Phase 37 added: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
+- Phase 38 added: Post screenshots into claude-terminal chat
+- Phase 39 added: Fix empty pane disabled controls — no-terminal state causes button overlap/disabled
 
 ### Pending Todos
 

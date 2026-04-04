@@ -146,3 +146,35 @@ Plans:
 
 Plans:
 - [x] 36-01-PLAN.md — Debounced scroll preservation and tightened clear-screen guard
+
+### Phase 37: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
+
+**Goal:** Improve the git tab to match Rider's git UX quality: a resizable commit graph modal with filter toolbar, hierarchical branch treeview with Recent/Local/Remote sections and ahead/behind indicators, and current-branch button with push/pull arrow status.
+**Requirements**: [D-01..D-06] Commit graph modal (single-click access, resizable, persistent size, Rider-style lanes, reuse existing graph code); [D-07..D-11] Branch treeview (hierarchical, Recent/Local/Remote sections, ahead/behind counts, search bar, existing actions preserved); [D-12..D-14] Arrow indicators on branch button and branch tree.
+**Depends on:** Phase 36
+**Plans:** 3 plans
+
+Plans:
+- [ ] 37-01-PLAN.md — Backend git utilities, IPC, settings defaults, and i18n keys
+- [ ] 37-02-PLAN.md — Branch treeview with Recent/Local/Remote sections, search, and arrow indicators
+- [ ] 37-03-PLAN.md — Resizable commit graph modal with filter toolbar
+
+### Phase 38: Post screenshots into terminal (CLI mode)
+
+**Goal:** Add clipboard image paste support to the terminal tab — intercept Ctrl+V with images, show thumbnail preview bar, save to temp files, and inject file paths into the Claude CLI prompt on Enter.
+**Requirements**: [IMG-01] Clipboard image detection in paste event; [IMG-02] Preview bar with thumbnails; [IMG-03] Temp file save; [IMG-04] Max 5 image enforcement; [IMG-05] Path injection into terminal input on Enter.
+**Depends on:** Phase 37
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 38-01-PLAN.md — Terminal clipboard image paste with inline preview and temp file injection
+
+### Phase 39: Fix empty pane disabled controls
+
+**Goal:** Fix the state where opening a project with no terminal causes the new conversation/resume pane to overlap the top action buttons (resume, add-conversation, changes, git-branch) or leaves them disabled.
+**Requirements**: CSS-only fix — replace percentage heights with flex-based sizing on #empty-terminals and .sessions-panel.
+**Depends on:** Phase 38
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 39-01-PLAN.md — Fix #empty-terminals and .sessions-panel CSS overflow
