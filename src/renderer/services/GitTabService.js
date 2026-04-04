@@ -33,6 +33,11 @@ let historyBranchFilter = '';
 let historyAuthorFilter = '';
 let historyAllBranches = false;
 
+// Branch tracking data
+let branchTrackingData = []; // [{ name, upstream, ahead, behind }] from getBranchesWithTracking
+let recentBranchNames = [];  // string[] from getRecentBranches
+let branchSearchFilter = ''; // current search text
+
 // Worktree data
 let worktreesData = [];
 
@@ -177,7 +182,7 @@ function renderGitTab() {
 function renderSidebar() {
   renderProjectsList();
   renderQuickActions();
-  renderBranches();
+  renderBranches().catch(e => console.warn('renderBranches failed:', e));
   renderWorktrees();
   renderStashes();
 }
@@ -330,6 +335,35 @@ async function selectProjectById(projectId) {
   }
 }
 
+function buildArrowIndicators(ab) {
+  if (!ab || !ab.hasRemote) return '';
+  let html = '';
+  if (ab.ahead > 0) {
+    html += `<span class="git-arrow-ahead" title="${ab.ahead} ${t('gitTab.ahead')}">&#8593;<span class="git-arrow-count">${ab.ahead}</span></span>`;
+  }
+  if (ab.behind > 0) {
+    html += `<span class="git-arrow-behind" title="${ab.behind} ${t('gitTab.behind')}">&#8595;<span class="git-arrow-count">${ab.behind}</span></span>`;
+  }
+  if (ab.ahead === 0 && ab.behind === 0) {
+    html += '<span class="git-sync-status">&#10003;</span>';
+  }
+  return html;
+}
+
+function getBranchTrackingInfo(branchName) {
+  const info = branchTrackingData.find(b => b.name === branchName);
+  if (!info || !info.upstream) return '';
+  let html = '<span class="git-branch-tracking">';
+  if (info.ahead > 0) {
+    html += `<span class="ahead-badge">&#8593;${info.ahead}</span>`;
+  }
+  if (info.behind > 0) {
+    html += `<span class="behind-badge">&#8595;${info.behind}</span>`;
+  }
+  html += '</span>';
+  return html;
+}
+
 function renderQuickActions() {
   const container = document.getElementById('git-quick-actions');
   if (!container) return;
@@ -360,7 +394,7 @@ function renderQuickActions() {
     <div class="git-branch-display">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
       <span>${escapeHtml(currentBranch || 'HEAD')}</span>
-      ${aheadBehind?.hasRemote ? `<span class="git-sync-status">${aheadBehind.ahead === 0 && aheadBehind.behind === 0 ? '✓' : ''}</span>` : '<span class="git-no-remote">no remote</span>'}
+      ${aheadBehind?.hasRemote ? buildArrowIndicators(aheadBehind) : '<span class="git-no-remote">no remote</span>'}
     </div>
   `;
 
@@ -417,8 +451,10 @@ function renderBranchTreeNode(node, type, depth) {
     const shortName = branch.includes('/') ? branch.split('/').pop() : branch;
     const isLocal = type === 'local';
 
+    const trackingInfo = isLocal ? getBranchTrackingInfo(branch) : '';
     html += `<div class="git-branch-item ${isCurrent ? 'current' : ''} ${!isLocal ? 'remote' : ''}" data-branch="${escapeAttr(branch)}" data-type="${type}" style="padding-left:${8 + indent}px">
       <span class="git-branch-name">${isCurrent ? '<span class="git-branch-dot">●</span> ' : ''}${escapeHtml(shortName)}</span>
+      ${trackingInfo}
       <div class="git-branch-actions">
         ${!isCurrent && isLocal ? `<button class="git-branch-action-btn checkout" title="Checkout"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></button>` : ''}
         ${!isCurrent && isLocal ? `<button class="git-branch-action-btn merge" title="${t('gitTab.mergeBranch')}"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M17 20.41L18.41 19 15 15.59 13.59 17 17 20.41zM7.5 8H11v5.59L5.59 19 7 20.41l6-6V8h3.5L12 3.5 7.5 8z"/></svg></button>` : ''}
@@ -439,33 +475,114 @@ function countBranchesInNode(node) {
   return count;
 }
 
-function renderBranches() {
+async function renderBranches() {
   const container = document.getElementById('git-branches-list');
   if (!container || !branchesData) {
     if (container) container.innerHTML = '';
     return;
   }
 
-  let html = '';
-
-  // Local branches
-  if (branchesData.local?.length > 0) {
-    html += `<div class="git-branch-group-label">${t('gitTab.localBranches')}</div>`;
-    const localTree = buildBranchTree(branchesData.local);
-    html += renderBranchTreeNode(localTree, 'local', 0);
+  // Fetch tracking data and recent branches in parallel
+  const projectPath = selectedProject?.path;
+  if (projectPath) {
+    try {
+      const [tracking, recent] = await Promise.all([
+        api.git.branchesWithTracking({ projectPath }),
+        api.git.recentBranches({ projectPath, limit: 5 })
+      ]);
+      branchTrackingData = tracking || [];
+      recentBranchNames = recent || [];
+    } catch (e) {
+      console.warn('Failed to load branch tracking data:', e);
+    }
   }
 
-  // Remote branches (strip origin/ prefix for grouping, but keep full name in data-branch)
+  const searchFilter = branchSearchFilter.toLowerCase();
+  let html = '';
+
+  // Recent branches section (per D-08)
+  const validRecent = recentBranchNames.filter(b =>
+    branchesData.local.includes(b) &&
+    (!searchFilter || b.toLowerCase().includes(searchFilter))
+  );
+  if (validRecent.length > 0) {
+    html += `<div class="git-branch-section">
+      <div class="git-branch-section-header" data-section="recent">
+        <span class="chevron"><svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M7 10l5 5 5-5z"/></svg></span>
+        ${t('gitTab.recentBranches')}
+      </div>
+      <div class="git-branch-section-content" data-section-content="recent">`;
+    for (const branch of validRecent) {
+      const isCurrent = branch === currentBranch;
+      const shortName = branch.includes('/') ? branch.split('/').pop() : branch;
+      const trackingInfo = getBranchTrackingInfo(branch);
+      html += `<div class="git-branch-item ${isCurrent ? 'current' : ''}" data-branch="${escapeAttr(branch)}" data-type="local" style="padding-left:8px">
+        <span class="git-branch-name">${isCurrent ? '<span class="git-branch-dot">&#9679;</span> ' : ''}${escapeHtml(shortName)}</span>
+        ${trackingInfo}
+        <div class="git-branch-actions">
+          ${!isCurrent ? `<button class="git-branch-action-btn checkout" title="Checkout"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></button>` : ''}
+        </div>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+
+  // Local branches section (per D-08, hierarchical per D-07)
+  if (branchesData.local?.length > 0) {
+    const filteredLocal = searchFilter
+      ? branchesData.local.filter(b => b.toLowerCase().includes(searchFilter))
+      : branchesData.local;
+    if (filteredLocal.length > 0) {
+      html += `<div class="git-branch-section">
+        <div class="git-branch-section-header" data-section="local">
+          <span class="chevron"><svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M7 10l5 5 5-5z"/></svg></span>
+          ${t('gitTab.localBranches')}
+        </div>
+        <div class="git-branch-section-content" data-section-content="local">`;
+      const localTree = buildBranchTree(filteredLocal);
+      html += renderBranchTreeNode(localTree, 'local', 0);
+      html += '</div></div>';
+    }
+  }
+
+  // Remote branches section (per D-08)
   if (branchesData.remote?.length > 0) {
-    html += `<div class="git-branch-group-label">${t('gitTab.remoteBranches')}</div>`;
-    const remoteTree = buildBranchTree(branchesData.remote);
-    html += renderBranchTreeNode(remoteTree, 'remote', 0);
+    const filteredRemote = searchFilter
+      ? branchesData.remote.filter(b => b.toLowerCase().includes(searchFilter))
+      : branchesData.remote;
+    if (filteredRemote.length > 0) {
+      html += `<div class="git-branch-section">
+        <div class="git-branch-section-header" data-section="remote">
+          <span class="chevron"><svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M7 10l5 5 5-5z"/></svg></span>
+          ${t('gitTab.remoteBranches')}
+        </div>
+        <div class="git-branch-section-content" data-section-content="remote">`;
+      const remoteTree = buildBranchTree(filteredRemote);
+      html += renderBranchTreeNode(remoteTree, 'remote', 0);
+      html += '</div></div>';
+    }
   }
 
   container.innerHTML = html;
 
+  // Section header collapse toggle (delegated)
+  container.querySelectorAll('.git-branch-section-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const section = header.dataset.section;
+      const chevron = header.querySelector('.chevron');
+      const content = container.querySelector(`[data-section-content="${section}"]`);
+      if (chevron && content) {
+        chevron.classList.toggle('collapsed');
+        content.classList.toggle('collapsed');
+      }
+    });
+  });
+
   // Delegated click handler for branches
   container.onclick = (e) => {
+    // Skip if it's a section header click
+    if (e.target.closest('.git-branch-section-header')) return;
+
     const header = e.target.closest('.git-branch-folder-header');
     if (header) {
       e.stopPropagation();
@@ -489,6 +606,20 @@ function renderBranches() {
 
   // New branch button
   document.getElementById('git-btn-new-branch')?.addEventListener('click', handleCreateBranch);
+
+  // Branch search filter (per D-10)
+  const searchInput = document.getElementById('git-branch-search');
+  if (searchInput && !searchInput._searchBound) {
+    searchInput._searchBound = true;
+    let searchDebounce = null;
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        branchSearchFilter = e.target.value;
+        renderBranches().catch(e => console.warn('renderBranches search failed:', e));
+      }, 200);
+    });
+  }
 }
 
 // ========== WORKTREES ==========
@@ -1897,7 +2028,7 @@ async function handleDeleteBranch(branch) {
     if (result.success) {
       showToast(t('git.branchDeletedMsg', { name: branch }), 'success');
       await refreshBranches();
-      renderBranches();
+      await renderBranches();
     } else {
       showToast(result.error, 'error');
     }

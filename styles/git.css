@@ -1521,6 +1521,108 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
+/* Branch search */
+.git-branch-search-wrapper {
+  padding: 4px 8px;
+}
+
+.git-branch-search {
+  width: 100%;
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  outline: none;
+}
+
+.git-branch-search:focus {
+  border-color: var(--accent);
+}
+
+.git-branch-search::placeholder {
+  color: var(--text-muted);
+}
+
+/* Branch section headers */
+.git-branch-section-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px 2px;
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.git-branch-section-header .chevron {
+  margin-right: 4px;
+  transition: transform 0.15s;
+  display: inline-flex;
+}
+
+.git-branch-section-header .chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.git-branch-section-content.collapsed {
+  display: none;
+}
+
+/* Branch ahead/behind indicators */
+.git-branch-tracking {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-right: 4px;
+  font-size: var(--font-2xs);
+  flex-shrink: 0;
+}
+
+.git-branch-tracking .ahead-badge {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.git-branch-tracking .behind-badge {
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.git-branch-tracking .upstream-name {
+  color: var(--text-muted);
+  font-size: var(--font-2xs);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Current branch arrow indicators (D-12, D-13) */
+.git-arrow-ahead {
+  color: #22c55e;
+  font-weight: 700;
+  font-size: var(--font-xs);
+  margin-left: 4px;
+}
+
+.git-arrow-behind {
+  color: #3b82f6;
+  font-weight: 700;
+  font-size: var(--font-xs);
+  margin-left: 2px;
+}
+
+.git-arrow-count {
+  font-size: var(--font-2xs);
+  margin-left: 1px;
+}
+
 /* Stashes */
 .git-stash-item {
   display: flex;

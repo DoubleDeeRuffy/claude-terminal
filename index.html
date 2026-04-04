@@ -607,9 +607,17 @@
             <div class="git-sidebar-section git-sidebar-branches">
               <div class="git-sidebar-header">
                 <h3 data-i18n="git.branches">Branches</h3>
-                <button class="btn-icon btn-small" id="git-btn-new-branch" data-i18n-title="gitTab.newBranch" title="New branch">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                </button>
+                <div class="git-sidebar-header-actions">
+                  <button class="btn-icon btn-small" id="git-btn-commit-graph" data-i18n-title="gitTab.commitGraphTooltip" title="Open commit graph">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 3v18h18V3H3zm16 16H5V5h14v14zM7 12h2v5H7v-5zm4-3h2v8h-2V9zm4-2h2v10h-2V7z"/></svg>
+                  </button>
+                  <button class="btn-icon btn-small" id="git-btn-new-branch" data-i18n-title="gitTab.newBranch" title="New branch">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="git-branch-search-wrapper">
+                <input type="text" class="git-branch-search" id="git-branch-search" data-i18n-placeholder="gitTab.searchBranches" placeholder="Search branches...">
               </div>
               <div class="git-branches-list" id="git-branches-list"></div>
             </div>
