@@ -172,7 +172,7 @@ Plans:
 **Goal:** Fix the state where opening a project with no terminal causes the new conversation/resume pane to overlap the top action buttons (resume, add-conversation, changes, git-branch) or leaves them disabled.
 **Requirements**: CSS-only fix — replace percentage heights with flex-based sizing on #empty-terminals and .sessions-panel.
 **Depends on:** Phase 38
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 39-01-PLAN.md — Fix #empty-terminals and .sessions-panel CSS overflow
+- [x] 39-01-PLAN.md — Fix #empty-terminals and .sessions-panel CSS overflow
