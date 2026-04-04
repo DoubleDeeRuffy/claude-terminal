@@ -389,11 +389,85 @@ function showPrompt({ title, message = '', defaultValue = '', placeholder = '' }
   });
 }
 
+/**
+ * Add resize handles to a modal element for user-resizable modals.
+ * Creates invisible drag zones on all 4 edges and 4 corners.
+ * @param {HTMLElement} modalDialog - The .modal element (not the overlay)
+ * @param {Function} onResizeEnd - Callback with (width, height) in px when resize finishes
+ * @returns {Function} Cleanup function to remove event listeners
+ */
+function addResizeHandles(modalDialog, onResizeEnd) {
+  const handles = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+  for (const dir of handles) {
+    const handle = document.createElement('div');
+    handle.className = `modal-resize-handle modal-resize-${dir}`;
+    handle.dataset.direction = dir;
+    modalDialog.appendChild(handle);
+  }
+
+  modalDialog.classList.add('modal-resizable');
+
+  let startX, startY, startW, startH, startLeft, startTop, direction;
+
+  function onMouseDown(e) {
+    if (!e.target.classList.contains('modal-resize-handle')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    direction = e.target.dataset.direction;
+    const rect = modalDialog.getBoundingClientRect();
+    startX = e.clientX;
+    startY = e.clientY;
+    startW = rect.width;
+    startH = rect.height;
+    startLeft = rect.left;
+    startTop = rect.top;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  function onMouseMove(e) {
+    let newW = startW, newH = startH;
+    let newLeft = startLeft, newTop = startTop;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    if (direction.includes('e')) newW = Math.max(400, startW + dx);
+    if (direction.includes('w')) { newW = Math.max(400, startW - dx); newLeft = startLeft + dx; }
+    if (direction.includes('s')) newH = Math.max(300, startH + dy);
+    if (direction.includes('n')) { newH = Math.max(300, startH - dy); newTop = startTop + dy; }
+
+    modalDialog.style.width = newW + 'px';
+    modalDialog.style.height = newH + 'px';
+    if (direction.includes('w') || direction.includes('n')) {
+      modalDialog.style.position = 'fixed';
+      modalDialog.style.left = newLeft + 'px';
+      modalDialog.style.top = newTop + 'px';
+    }
+  }
+
+  function onMouseUp() {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    const rect = modalDialog.getBoundingClientRect();
+    if (onResizeEnd) onResizeEnd(Math.round(rect.width), Math.round(rect.height));
+  }
+
+  modalDialog.addEventListener('mousedown', onMouseDown);
+
+  // Return cleanup function
+  return () => {
+    modalDialog.removeEventListener('mousedown', onMouseDown);
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  };
+}
+
 module.exports = {
   createModal,
   showModal,
   closeModal,
   closeModalById,
   showConfirm,
-  showPrompt
+  showPrompt,
+  addResizeHandles
 };

@@ -9,7 +9,7 @@ const { escapeHtml } = require('../utils');
 const { sanitizeColor } = require('../utils/color');
 const { t } = require('../i18n');
 const Toast = require('../ui/components/Toast');
-const { showConfirm, createModal, showModal, closeModal } = require('../ui/components/Modal');
+const { showConfirm, createModal, showModal, closeModal, addResizeHandles } = require('../ui/components/Modal');
 
 // ========== STATE ==========
 let selectedProject = null;
@@ -37,6 +37,10 @@ let historyAllBranches = false;
 let branchTrackingData = []; // [{ name, upstream, ahead, behind }] from getBranchesWithTracking
 let recentBranchNames = [];  // string[] from getRecentBranches
 let branchSearchFilter = ''; // current search text
+
+// Commit graph modal state
+let graphModalData = [];     // separate cache from historyData
+let graphModalCleanup = null; // resize handles cleanup function
 
 // Worktree data
 let worktreesData = [];
@@ -606,6 +610,9 @@ async function renderBranches() {
 
   // New branch button
   document.getElementById('git-btn-new-branch')?.addEventListener('click', handleCreateBranch);
+
+  // Commit graph button (per D-01, D-02)
+  document.getElementById('git-btn-commit-graph')?.addEventListener('click', openCommitGraphModal);
 
   // Branch search filter (per D-10)
   const searchInput = document.getElementById('git-branch-search');
@@ -1688,6 +1695,218 @@ function setupHistoryInfiniteScroll() {
   }, { threshold: 0.1 });
 
   historyScrollObserver.observe(sentinel);
+}
+
+// ========== COMMIT GRAPH MODAL ==========
+
+async function openCommitGraphModal() {
+  if (!selectedProject?.path) return;
+
+  const { getSetting, setSetting } = require('../state/settings.state');
+
+  // Create modal with custom size (per D-03, D-04)
+  const savedWidth = getSetting('commitGraphWidth');
+  const savedHeight = getSetting('commitGraphHeight');
+
+  const modal = createModal({
+    id: 'commit-graph-modal',
+    title: t('gitTab.commitGraph'),
+    content: `<div class="commit-graph-loading">${t('gitTab.loadingGraph')}</div>`,
+    buttons: [],
+    size: 'large',
+    onClose: () => {
+      if (graphModalCleanup) { graphModalCleanup(); graphModalCleanup = null; }
+    }
+  });
+
+  // Apply custom size (per D-03 -- default 30vw x 50vh)
+  const modalDialog = modal.querySelector('.modal');
+  modalDialog.classList.add('commit-graph-modal');
+  if (savedWidth && savedHeight) {
+    modalDialog.style.width = savedWidth + 'px';
+    modalDialog.style.height = savedHeight + 'px';
+  } else {
+    modalDialog.style.width = '30vw';
+    modalDialog.style.height = '50vh';
+  }
+  // Ensure minimum sizes
+  modalDialog.style.minWidth = '400px';
+  modalDialog.style.minHeight = '300px';
+
+  showModal(modal);
+
+  // Add resize handles (per D-03, D-04)
+  graphModalCleanup = addResizeHandles(modalDialog, (width, height) => {
+    setSetting('commitGraphWidth', width);
+    setSetting('commitGraphHeight', height);
+  });
+
+  // Load commit data (per D-06 -- reuse computeGraphLanes/renderGraphSvg)
+  try {
+    const commits = await api.git.commitHistory({
+      projectPath: selectedProject.path,
+      allBranches: true,
+      limit: 200
+    });
+    graphModalData = commits || [];
+    renderGraphModalContent(modal);
+  } catch (e) {
+    const body = modal.querySelector('.modal-body');
+    if (body) body.innerHTML = `<div class="commit-graph-loading" style="color:var(--danger)">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderGraphModalContent(modal, filters = {}) {
+  const body = modal.querySelector('.modal-body');
+  if (!body || !graphModalData.length) {
+    if (body) body.innerHTML = `<div class="commit-graph-loading">${t('gitTab.noCommitsFound')}</div>`;
+    return;
+  }
+
+  // Filter commits
+  let filtered = graphModalData;
+  if (filters.search) {
+    const s = filters.search.toLowerCase();
+    filtered = filtered.filter(c =>
+      c.message.toLowerCase().includes(s) ||
+      c.hash.toLowerCase().includes(s) ||
+      c.author.toLowerCase().includes(s)
+    );
+  }
+  if (filters.author) {
+    filtered = filtered.filter(c => c.author === filters.author);
+  }
+  if (filters.branch) {
+    filtered = filtered.filter(c =>
+      c.decorations && c.decorations.includes(filters.branch)
+    );
+  }
+  // Date filter (per D-05): filter by date range using isoDate field
+  if (filters.dateFrom) {
+    filtered = filtered.filter(c => c.isoDate && c.isoDate >= filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    const endDate = filters.dateTo + 'T23:59:59';
+    filtered = filtered.filter(c => c.isoDate && c.isoDate <= endDate);
+  }
+  // Path filter (per D-05): filter by path substring in commit message
+  if (filters.path) {
+    const p = filters.path.toLowerCase();
+    filtered = filtered.filter(c =>
+      c.message.toLowerCase().includes(p)
+    );
+  }
+
+  // Compute graph lanes (per D-06 -- reuse existing function)
+  const rows = computeGraphLanes(filtered);
+  const maxLanes = Math.max(...rows.map(r => r.totalLanes), 1);
+
+  // Build toolbar (per D-05 -- search, branch, author, date, path filters)
+  const authors = [...new Set(graphModalData.map(c => c.author))].filter(Boolean).sort();
+  const localBranches = branchesData?.local || [];
+  // IMPORTANT: branchesData.remote already has origin/ stripped by getBranches() in git.js
+  const remoteBranches = branchesData?.remote || [];
+
+  let toolbarHtml = '<div class="commit-graph-toolbar">';
+  toolbarHtml += `<input type="text" class="graph-search" id="graph-search-input" placeholder="${t('gitTab.searchCommits')}" value="${escapeAttr(filters.search || '')}">`;
+  toolbarHtml += `<select class="graph-filter-author" id="graph-author-filter">`;
+  toolbarHtml += `<option value="">${t('gitTab.filterByAuthor')}</option>`;
+  for (const a of authors) {
+    toolbarHtml += `<option value="${escapeAttr(a)}" ${filters.author === a ? 'selected' : ''}>${escapeHtml(a)}</option>`;
+  }
+  toolbarHtml += '</select>';
+  toolbarHtml += `<select class="graph-filter-branch" id="graph-branch-filter">`;
+  toolbarHtml += `<option value="">${t('gitTab.filterByBranch')}</option>`;
+  for (const b of [...localBranches, ...remoteBranches]) {
+    toolbarHtml += `<option value="${escapeAttr(b)}" ${filters.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`;
+  }
+  toolbarHtml += '</select>';
+  toolbarHtml += `<input type="date" class="graph-filter-date" id="graph-date-from" title="${t('gitTab.filterByDate')}" value="${filters.dateFrom || ''}">`;
+  toolbarHtml += `<input type="date" class="graph-filter-date" id="graph-date-to" title="${t('gitTab.filterByDate')}" value="${filters.dateTo || ''}">`;
+  toolbarHtml += `<input type="text" class="graph-filter-path" id="graph-path-filter" placeholder="${t('gitTab.filterByPath')}" value="${escapeAttr(filters.path || '')}">`;
+  toolbarHtml += '</div>';
+
+  // Build rows (per D-05 -- hash + message + author + date on one row)
+  let rowsHtml = '<div class="commit-graph-content">';
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const c = row.commit;
+    const graphSvg = renderGraphSvg(row, maxLanes, i === 0, i === rows.length - 1);
+    const decos = renderDecorations(c.decorations);
+
+    rowsHtml += `<div class="commit-graph-row" data-hash="${escapeAttr(c.fullHash)}">
+      <div class="commit-graph-cell-graph">${graphSvg}</div>
+      <div class="commit-graph-cell-message">${decos}${escapeHtml(c.message)}</div>
+      <div class="commit-graph-cell-hash">${escapeHtml(c.hash)}</div>
+      <div class="commit-graph-cell-author">${escapeHtml(c.author)}</div>
+      <div class="commit-graph-cell-date">${escapeHtml(c.date)}</div>
+    </div>`;
+  }
+  rowsHtml += '</div>';
+
+  if (filtered.length === 0) {
+    rowsHtml = `<div class="commit-graph-loading">${t('gitTab.noCommitsFound')}</div>`;
+  }
+
+  body.innerHTML = toolbarHtml + rowsHtml;
+
+  // Wire filter events
+  let searchDebounce = null;
+  const searchInput = modal.querySelector('#graph-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        renderGraphModalContent(modal, {
+          ...filters,
+          search: searchInput.value
+        });
+        const newInput = modal.querySelector('#graph-search-input');
+        if (newInput) { newInput.focus(); newInput.selectionStart = newInput.selectionEnd = newInput.value.length; }
+      }, 300);
+    });
+  }
+
+  const authorSelect = modal.querySelector('#graph-author-filter');
+  if (authorSelect) {
+    authorSelect.addEventListener('change', () => {
+      renderGraphModalContent(modal, { ...filters, author: authorSelect.value || undefined });
+    });
+  }
+
+  const branchSelect = modal.querySelector('#graph-branch-filter');
+  if (branchSelect) {
+    branchSelect.addEventListener('change', () => {
+      renderGraphModalContent(modal, { ...filters, branch: branchSelect.value || undefined });
+    });
+  }
+
+  const dateFrom = modal.querySelector('#graph-date-from');
+  if (dateFrom) {
+    dateFrom.addEventListener('change', () => {
+      renderGraphModalContent(modal, { ...filters, dateFrom: dateFrom.value || undefined });
+    });
+  }
+
+  const dateTo = modal.querySelector('#graph-date-to');
+  if (dateTo) {
+    dateTo.addEventListener('change', () => {
+      renderGraphModalContent(modal, { ...filters, dateTo: dateTo.value || undefined });
+    });
+  }
+
+  let pathDebounce = null;
+  const pathInput = modal.querySelector('#graph-path-filter');
+  if (pathInput) {
+    pathInput.addEventListener('input', () => {
+      clearTimeout(pathDebounce);
+      pathDebounce = setTimeout(() => {
+        renderGraphModalContent(modal, { ...filters, path: pathInput.value || undefined });
+        const newInput = modal.querySelector('#graph-path-filter');
+        if (newInput) { newInput.focus(); newInput.selectionStart = newInput.selectionEnd = newInput.value.length; }
+      }, 300);
+    });
+  }
 }
 
 // ========== PULL REQUESTS SUB-TAB ==========
