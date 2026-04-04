@@ -474,6 +474,22 @@
   transform: rotate(180deg);
 }
 
+.filter-branch-arrows {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 2px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.filter-branch-arrows .git-arrow-ahead {
+  color: var(--success);
+}
+
+.filter-branch-arrows .git-arrow-behind {
+  color: var(--info);
+}
+
 /* Actions Dropdown */
 .actions-dropdown-wrapper {
   position: relative;
@@ -737,9 +753,51 @@
   font-weight: 500;
 }
 
+.branch-dropdown-search-wrapper {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.branch-dropdown-search {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.branch-dropdown-search:focus {
+  border-color: var(--accent);
+}
+
+.branch-dropdown-search::placeholder {
+  color: var(--text-muted);
+}
+
 .branch-dropdown-list {
   overflow-y: auto;
-  max-height: min(290px, calc(100vh - 120px));
+  max-height: min(350px, calc(100vh - 160px));
+}
+
+.branch-tracking-badges {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 4px;
+  font-size: 10px;
+}
+
+.branch-tracking-badges .ahead-badge {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.branch-tracking-badges .behind-badge {
+  color: var(--info);
+  font-weight: 600;
 }
 
 .branch-dropdown-item.current {

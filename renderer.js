@@ -3880,12 +3880,27 @@ async function showFilterGitActions(projectId) {
   filterBtnPush.classList.toggle('loading', !!gitOps.pushing);
   filterBtnPush.disabled = !!gitOps.pushing;
 
-  // Get current branch (use worktree path if active tab is a worktree)
+  // Get current branch and ahead/behind (use worktree path if active tab is a worktree)
   try {
-    const branch = await api.git.currentBranch({ projectPath: getEffectiveGitPath() || project.path });
+    const gitPath = getEffectiveGitPath() || project.path;
+    const [branch, aheadBehind] = await Promise.all([
+      api.git.currentBranch({ projectPath: gitPath }),
+      api.git.aheadBehind({ projectPath: gitPath }).catch(() => null)
+    ]);
     // Stale check: if user switched projects while we awaited, discard this result
     if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = branch || 'main';
+    // Add arrow indicators next to branch name
+    const arrowsEl = document.getElementById('filter-branch-arrows');
+    if (arrowsEl) arrowsEl.remove();
+    if (aheadBehind && aheadBehind.hasRemote && (aheadBehind.ahead > 0 || aheadBehind.behind > 0)) {
+      const arrows = document.createElement('span');
+      arrows.id = 'filter-branch-arrows';
+      arrows.className = 'filter-branch-arrows';
+      if (aheadBehind.ahead > 0) arrows.innerHTML += `<span class="git-arrow-ahead">&#8593;${aheadBehind.ahead}</span>`;
+      if (aheadBehind.behind > 0) arrows.innerHTML += `<span class="git-arrow-behind">&#8595;${aheadBehind.behind}</span>`;
+      filterBranchName.parentNode.insertBefore(arrows, filterBranchName.nextSibling);
+    }
   } catch (e) {
     if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = '...';
@@ -3956,18 +3971,55 @@ filterBtnBranch.onclick = async (e) => {
       branchDropdownList.innerHTML = `<div class="branch-dropdown-loading">${t('common.loading')}</div>`;
     }
 
+    // Setup search input
+    const searchInput = document.getElementById('branch-dropdown-search');
+    if (searchInput && !searchInput._bound) {
+      searchInput._bound = true;
+      let searchTimeout;
+      searchInput.oninput = () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          const filter = searchInput.value.toLowerCase().trim();
+          branchDropdownList.querySelectorAll('.branch-dropdown-item').forEach(item => {
+            const name = (item.dataset.branch || '').toLowerCase();
+            item.style.display = name.includes(filter) ? '' : 'none';
+          });
+          // Show/hide section titles based on visible items
+          branchDropdownList.querySelectorAll('.branch-dropdown-section-title').forEach(title => {
+            let next = title.nextElementSibling;
+            let hasVisible = false;
+            while (next && !next.classList.contains('branch-dropdown-section-title') && !next.classList.contains('branch-dropdown-header-row') && !next.classList.contains('branch-create-input-row')) {
+              if (next.classList.contains('branch-dropdown-item') && next.style.display !== 'none') hasVisible = true;
+              next = next.nextElementSibling;
+            }
+            title.style.display = hasVisible ? '' : 'none';
+          });
+        }, 150);
+      };
+      searchInput.onclick = (ev) => ev.stopPropagation();
+    }
+    if (searchInput) searchInput.value = '';
+
     try {
-      let branchesData, currentBranch;
+      let branchesData, currentBranch, trackingData, recentBranches;
       if (useCache) {
         branchesData = branchCache.data.branchesData;
         currentBranch = branchCache.data.currentBranch;
+        trackingData = branchCache.data.trackingData || [];
+        recentBranches = branchCache.data.recentBranches || [];
       } else {
         const gitPath = getEffectiveGitPath() || project.path;
-        [branchesData, currentBranch] = await Promise.all([
+        const results = await Promise.all([
           api.git.branches({ projectPath: gitPath }),
-          api.git.currentBranch({ projectPath: gitPath })
+          api.git.currentBranch({ projectPath: gitPath }),
+          api.git.branchesWithTracking({ projectPath: gitPath }).catch(() => []),
+          api.git.recentBranches({ projectPath: gitPath, count: 5 }).catch(() => [])
         ]);
-        branchCache = { projectId: currentFilterProjectId, data: { branchesData, currentBranch } };
+        branchesData = results[0];
+        currentBranch = results[1];
+        trackingData = results[2] || [];
+        recentBranches = results[3] || [];
+        branchCache = { projectId: currentFilterProjectId, data: { branchesData, currentBranch, trackingData, recentBranches } };
       }
 
       const { local = [], remote = [] } = branchesData;
@@ -3975,6 +4027,35 @@ filterBtnBranch.onclick = async (e) => {
       if (local.length === 0 && remote.length === 0) {
         branchDropdownList.innerHTML = `<div class="branch-dropdown-loading">${t('git.noBranchesFound')}</div>`;
         return;
+      }
+
+      // Helper: get tracking badge HTML for a branch
+      function getTrackingBadge(branchName) {
+        const info = trackingData.find(b => b.name === branchName);
+        if (!info || !info.upstream) return '';
+        let badge = '';
+        if (info.ahead > 0) badge += `<span class="ahead-badge">&#8593;${info.ahead}</span>`;
+        if (info.behind > 0) badge += `<span class="behind-badge">&#8595;${info.behind}</span>`;
+        return badge ? `<span class="branch-tracking-badges">${badge}</span>` : '';
+      }
+
+      // Helper: render a branch item
+      function renderBranchItem(branch, isCurrent, isRemote) {
+        const badge = isRemote ? '' : getTrackingBadge(branch);
+        return `
+          <div class="branch-dropdown-item ${isCurrent ? 'current' : ''} ${isRemote ? 'remote' : ''}" data-branch="${escapeHtml(branch)}" ${isRemote ? 'data-remote="true"' : ''}>
+            ${isRemote ? '<svg class="branch-remote-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>' : ''}
+            <span class="branch-dropdown-item-name">${escapeHtml(branch)}</span>
+            ${badge}
+            ${!isCurrent && !isRemote ? `<div class="branch-dropdown-actions">
+              <button class="branch-action-btn branch-merge-btn" data-action="merge" data-branch="${escapeHtml(branch)}" title="${t('git.mergedInto', { source: escapeHtml(branch), target: escapeHtml(currentBranch) })}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+              </button>
+              <button class="branch-action-btn branch-delete-btn" data-action="delete" data-branch="${escapeHtml(branch)}" title="${t('git.branchDeleted')}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>` : ''}
+          </div>`;
       }
 
       let html = '';
@@ -3995,35 +4076,25 @@ filterBtnBranch.onclick = async (e) => {
         </button>
       </div>`;
 
+      // Recent branches section
+      if (recentBranches.length > 0) {
+        const validRecent = recentBranches.filter(b => local.includes(b));
+        if (validRecent.length > 0) {
+          html += `<div class="branch-dropdown-section-title">${t('gitTab.recentBranches')}</div>`;
+          html += validRecent.map(branch => renderBranchItem(branch, branch === currentBranch, false)).join('');
+        }
+      }
+
       // Local branches section
       if (local.length > 0) {
         html += `<div class="branch-dropdown-section-title">${t('branches.localBranches')}</div>`;
-        html += local.map(branch => {
-          const isCurrent = branch === currentBranch;
-          return `
-          <div class="branch-dropdown-item ${isCurrent ? 'current' : ''}" data-branch="${escapeHtml(branch)}">
-            <span class="branch-dropdown-item-name">${escapeHtml(branch)}</span>
-            ${!isCurrent ? `<div class="branch-dropdown-actions">
-              <button class="branch-action-btn branch-merge-btn" data-action="merge" data-branch="${escapeHtml(branch)}" title="${t('git.mergedInto', { source: escapeHtml(branch), target: escapeHtml(currentBranch) })}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
-              </button>
-              <button class="branch-action-btn branch-delete-btn" data-action="delete" data-branch="${escapeHtml(branch)}" title="${t('git.branchDeleted')}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-            </div>` : ''}
-          </div>`;
-        }).join('');
+        html += local.map(branch => renderBranchItem(branch, branch === currentBranch, false)).join('');
       }
 
       // Remote branches section
       if (remote.length > 0) {
         html += `<div class="branch-dropdown-section-title remote">${t('branches.remoteBranches')}</div>`;
-        html += remote.map(branch => `
-          <div class="branch-dropdown-item remote" data-branch="${escapeHtml(branch)}" data-remote="true">
-            <svg class="branch-remote-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-            <span class="branch-dropdown-item-name">${escapeHtml(branch)}</span>
-          </div>
-        `).join('');
+        html += remote.map(branch => renderBranchItem(branch, false, true)).join('');
       }
 
       branchDropdownList.innerHTML = html;
