@@ -3880,27 +3880,32 @@ async function showFilterGitActions(projectId) {
   filterBtnPush.classList.toggle('loading', !!gitOps.pushing);
   filterBtnPush.disabled = !!gitOps.pushing;
 
-  // Get current branch and ahead/behind (use worktree path if active tab is a worktree)
+  // Get current branch and tracking info
   try {
     const gitPath = getEffectiveGitPath() || project.path;
-    const [branch, aheadBehind] = await Promise.all([
+    const [branch, trackingData] = await Promise.all([
       api.git.currentBranch({ projectPath: gitPath }),
-      api.git.aheadBehind({ projectPath: gitPath }).catch(() => null)
+      api.git.branchesWithTracking({ projectPath: gitPath }).catch(() => [])
     ]);
     // Stale check: if user switched projects while we awaited, discard this result
     if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = branch || 'main';
+    // Find current branch tracking info
+    const currentTracking = (trackingData || []).find(b => b.name === branch);
     // Add arrow indicators next to branch name
     const arrowsEl = document.getElementById('filter-branch-arrows');
     if (arrowsEl) arrowsEl.remove();
-    if (aheadBehind && aheadBehind.hasRemote && (aheadBehind.ahead > 0 || aheadBehind.behind > 0)) {
+    if (currentTracking && currentTracking.upstream && (currentTracking.ahead > 0 || currentTracking.behind > 0)) {
       const arrows = document.createElement('span');
       arrows.id = 'filter-branch-arrows';
       arrows.className = 'filter-branch-arrows';
-      if (aheadBehind.ahead > 0) arrows.innerHTML += `<span class="git-arrow-ahead">&#8593;${aheadBehind.ahead}</span>`;
-      if (aheadBehind.behind > 0) arrows.innerHTML += `<span class="git-arrow-behind">&#8595;${aheadBehind.behind}</span>`;
+      if (currentTracking.ahead > 0) arrows.innerHTML += `<span class="git-arrow-ahead">&#8593;${currentTracking.ahead}</span>`;
+      if (currentTracking.behind > 0) arrows.innerHTML += `<span class="git-arrow-behind">&#8595;${currentTracking.behind}</span>`;
       filterBranchName.parentNode.insertBefore(arrows, filterBranchName.nextSibling);
     }
+    // Color pull button blue when behind, push button green when ahead
+    filterBtnPull.classList.toggle('has-updates', !!(currentTracking && currentTracking.behind > 0));
+    filterBtnPush.classList.toggle('has-commits', !!(currentTracking && currentTracking.ahead > 0));
   } catch (e) {
     if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = '...';
