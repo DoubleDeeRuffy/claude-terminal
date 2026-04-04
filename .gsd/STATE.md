@@ -19,7 +19,7 @@ progress:
 Phase: 37 (enhance-git-capabilities-commit-graph-branch-visualization-unpushed-file-tracking) — EXECUTING
 Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-04-04
+Last activity: 2026-04-04 - Completed quick task 260404-guu: Disable modal collapse on click away
 
 ## Accumulated Context
 
@@ -53,6 +53,12 @@ Last activity: 2026-04-04
 - Phase 37 added: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
 - Phase 38 added: Post screenshots into claude-terminal chat
 - Phase 39 added: Fix empty pane disabled controls — no-terminal state causes button overlap/disabled
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260404-guu | Disable modal collapse on click away (new project wizard) | 2026-04-04 | pending | [260404-guu-adding-a-new-project-disable-modal-colla](./quick/260404-guu-adding-a-new-project-disable-modal-colla/) |
 
 ### Pending Todos
 

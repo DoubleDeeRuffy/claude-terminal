@@ -111,11 +111,13 @@ function showModal(title, content, footer = '') {
 }
 
 function closeModal() {
+  wizardModalOpen = false;
   document.getElementById('modal-overlay').classList.remove('active');
   document.getElementById('modal')?.classList.remove('modal--sessions');
 }
 
 // ========== LOCAL STATE ==========
+let wizardModalOpen = false;
 const localState = {
   fivemServers: new Map(),
   gitOperations: new Map(),
@@ -3204,7 +3206,7 @@ async function renameProjectUI(projectId) {
 // ========== SETTINGS TAB (extracted to SettingsPanel module) ==========
 
 document.getElementById('modal-close').onclick = closeModal;
-document.getElementById('modal-overlay').onclick = (e) => { if (e.target.id === 'modal-overlay') closeModal(); };
+document.getElementById('modal-overlay').onclick = (e) => { if (e.target.id === 'modal-overlay' && !wizardModalOpen) closeModal(); };
 
 // ========== SKILLS & AGENTS (extracted to SkillsAgentsPanel module) ==========
 // ========== PLUGINS (extracted to PluginsPanel module) ==========
@@ -3539,6 +3541,7 @@ document.getElementById('btn-new-project').onclick = () => {
       </div>
     </form>
   `);
+  wizardModalOpen = true;
 
   let selectedType = 'standalone';
   let selectedSource = 'folder';
