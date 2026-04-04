@@ -50,6 +50,8 @@ Last activity: 2026-04-01
 - Phase 35 complete: Fixed API utilization decimal-to-percentage conversion (* 100) in UsageService
 - Phase 36 added: Fix terminal flickering, buffer loss, and blackouts caused by scroll-to-top changes
 - Phase 36 complete: Debounced writePreservingScroll (80ms), rapid-output guard suppressing terminal.clear() during Claude TUI redraws (3+ chunks < 150ms hysteresis)
+- Phase 37 added: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
+- Phase 38 added: Post screenshots into claude-terminal chat
 
 ### Pending Todos
 
