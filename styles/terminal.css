@@ -1227,6 +1227,13 @@
   color: var(--text-secondary);
 }
 
+#empty-terminals {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  height: auto;
+}
+
 /* ========== FILE EXPLORER PANEL ========== */
 .file-explorer-panel {
   width: 280px;
