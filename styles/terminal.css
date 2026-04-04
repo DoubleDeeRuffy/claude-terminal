@@ -99,14 +99,14 @@
   opacity: 1;
 }
 
-/* Empty state sits outside pane area and overlays everything */
+/* Empty state sits outside pane area — below the header */
 .terminals-panel > .empty-state {
   position: absolute;
-  top: 0;
+  top: 36px;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 50;
+  z-index: 5;
 }
 
 .terminals-header {
@@ -115,6 +115,7 @@
   background: var(--bg-secondary);
   min-height: 0;
   position: relative;
+  z-index: 10;
 }
 
 .terminals-header:has(.terminals-filter[style*="flex"]) {
