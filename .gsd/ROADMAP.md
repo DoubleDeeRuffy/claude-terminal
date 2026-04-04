@@ -164,7 +164,7 @@ Plans:
 **Goal:** Add clipboard image paste support to the terminal tab — intercept Ctrl+V with images, show thumbnail preview bar, save to temp files, and inject file paths into the Claude CLI prompt on Enter.
 **Requirements**: [IMG-01] Clipboard image detection in paste event; [IMG-02] Preview bar with thumbnails; [IMG-03] Temp file save; [IMG-04] Max 5 image enforcement; [IMG-05] Path injection into terminal input on Enter.
 **Depends on:** Phase 37
-**Plans:** 1/1 plans complete
+**Plans:** 2/1 plans complete
 
 Plans:
 - [x] 38-01-PLAN.md — Terminal clipboard image paste with inline preview and temp file injection

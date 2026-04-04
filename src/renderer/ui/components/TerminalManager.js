@@ -98,6 +98,11 @@ let dragPlaceholder = null;
 const MAX_TERMINAL_IMAGES = 5;
 const TEMP_DIR = path.join(os.homedir(), '.claude-terminal', 'temp');
 
+// Guard against duplicate image paste: when pasteWithImageCheck detects an image
+// via the Clipboard API (keydown path), the browser also fires a paste DOM event.
+// This flag prevents setupPasteHandler from adding the same image a second time.
+let suppressNextPasteImage = false;
+
 /**
  * Get pending images array for a terminal, creating if needed.
  */
@@ -232,8 +237,14 @@ function savePendingImagesToTemp(terminalId) {
     const img = pending[i];
     const filePath = path.join(TEMP_DIR, `screenshot-${timestamp}-${i}.png`);
     try {
-      const buffer = Buffer.from(img.base64, 'base64');
-      fs.writeFileSync(filePath, buffer);
+      // Use atob + Uint8Array instead of Buffer.from — Buffer is not available
+      // in the browser-platform esbuild bundle (nodeIntegration: false)
+      const binaryStr = atob(img.base64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let j = 0; j < binaryStr.length; j++) {
+        bytes[j] = binaryStr.charCodeAt(j);
+      }
+      fs.writeFileSync(filePath, bytes);
       paths.push(filePath);
     } catch (err) {
       console.error('[TerminalManager] Failed to save temp image:', err);
@@ -858,6 +869,10 @@ function pasteWithImageCheck(terminalId, inputChannel = 'terminal-input') {
       for (const item of clipboardItems) {
         const imageType = item.types.find(t => t.startsWith('image/'));
         if (imageType) {
+          // Suppress the subsequent paste DOM event that the browser fires
+          // after this keydown-triggered Clipboard API read
+          suppressNextPasteImage = true;
+          setTimeout(() => { suppressNextPasteImage = false; }, 500);
           item.getType(imageType).then(blob => {
             const file = new File([blob], 'clipboard-image.png', { type: imageType });
             addTerminalImage(terminalId, file);
@@ -913,6 +928,12 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
     e.stopPropagation();
     // Check for images in clipboard FIRST (only for terminal-input, not fivem/webapp)
     if (inputChannel === 'terminal-input' && e.clipboardData) {
+      // If pasteWithImageCheck already handled the image via Clipboard API,
+      // skip the duplicate detection from the paste DOM event
+      if (suppressNextPasteImage) {
+        suppressNextPasteImage = false;
+        return;
+      }
       const imageItems = Array.from(e.clipboardData.items || [])
         .filter(i => i.type.startsWith('image/'));
       if (imageItems.length > 0) {

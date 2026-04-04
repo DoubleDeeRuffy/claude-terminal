@@ -2236,7 +2236,7 @@ body.hide-tab-mode-toggle .tab-mode-toggle {
   align-items: center;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-color);
-  max-height: 80px;
+  max-height: 112px;
   flex-shrink: 0;
 }
 
@@ -2246,8 +2246,8 @@ body.hide-tab-mode-toggle .tab-mode-toggle {
 
 .terminal-image-thumb {
   position: relative;
-  width: 64px;
-  height: 64px;
+  width: 96px;
+  height: 96px;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border-color);
