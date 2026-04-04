@@ -152,12 +152,12 @@ Plans:
 **Goal:** Improve the git tab to match Rider's git UX quality: a resizable commit graph modal with filter toolbar, hierarchical branch treeview with Recent/Local/Remote sections and ahead/behind indicators, and current-branch button with push/pull arrow status.
 **Requirements**: [D-01..D-06] Commit graph modal (single-click access, resizable, persistent size, Rider-style lanes, reuse existing graph code); [D-07..D-11] Branch treeview (hierarchical, Recent/Local/Remote sections, ahead/behind counts, search bar, existing actions preserved); [D-12..D-14] Arrow indicators on branch button and branch tree.
 **Depends on:** Phase 36
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 37-01-PLAN.md — Backend git utilities, IPC, settings defaults, and i18n keys
 - [x] 37-02-PLAN.md — Branch treeview with Recent/Local/Remote sections, search, and arrow indicators
-- [ ] 37-03-PLAN.md — Resizable commit graph modal with filter toolbar
+- [x] 37-03-PLAN.md — Resizable commit graph modal with filter toolbar
 
 ### Phase 38: Post screenshots into terminal (CLI mode)
 
