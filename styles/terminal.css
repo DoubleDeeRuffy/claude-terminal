@@ -2147,3 +2147,83 @@ mark.md-search-hit.md-search-current {
 body.hide-tab-mode-toggle .tab-mode-toggle {
   display: none !important;
 }
+
+/* ── Terminal image preview ── */
+
+.terminal-image-preview {
+  display: none;
+  gap: 8px;
+  padding: 8px 8px 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  max-height: 80px;
+  flex-shrink: 0;
+}
+
+.terminal-image-preview.visible {
+  display: flex;
+}
+
+.terminal-image-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.terminal-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.terminal-image-thumb.saving {
+  opacity: 0.5;
+}
+
+.terminal-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  border: none;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  padding: 0;
+}
+
+.terminal-image-thumb:hover .terminal-image-remove {
+  opacity: 1;
+}
+
+.terminal-image-remove:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.terminal-image-count {
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--accent-dim);
+  font-size: var(--font-2xs);
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1;
+  flex-shrink: 0;
+}

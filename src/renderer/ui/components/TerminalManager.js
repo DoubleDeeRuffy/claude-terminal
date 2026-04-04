@@ -5,7 +5,7 @@
 
 // Use preload API instead of direct ipcRenderer
 const api = window.electron_api;
-const { path, fs } = window.electron_nodeModules;
+const { path, fs, os } = window.electron_nodeModules;
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebglAddon } = require('@xterm/addon-webgl');
@@ -93,6 +93,206 @@ const ARROW_DEBOUNCE_MS = 100;
 // Drag & drop state for tab reordering
 let draggedTab = null;
 let dragPlaceholder = null;
+
+// ── Terminal image paste ──
+const MAX_TERMINAL_IMAGES = 5;
+const TEMP_DIR = path.join(os.homedir(), '.claude-terminal', 'temp');
+
+/**
+ * Get pending images array for a terminal, creating if needed.
+ */
+function getTerminalPendingImages(terminalId) {
+  const td = getTerminal(terminalId);
+  if (!td) return [];
+  if (!td.pendingImages) td.pendingImages = [];
+  return td.pendingImages;
+}
+
+/**
+ * Add a clipboard image blob to a terminal's pending images.
+ * Returns false if max reached or blob is invalid.
+ */
+function addTerminalImage(terminalId, file) {
+  const pending = getTerminalPendingImages(terminalId);
+  if (pending.length >= MAX_TERMINAL_IMAGES) return false;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (pending.length >= MAX_TERMINAL_IMAGES) return;
+    const dataUrl = reader.result;
+    const base64 = dataUrl.split(',')[1];
+    pending.push({ base64, mediaType: file.type, name: `screenshot-${pending.length + 1}`, dataUrl });
+    renderTerminalImagePreview(terminalId);
+  };
+  reader.readAsDataURL(file);
+  return true;
+}
+
+/**
+ * Remove an image from pending at given index.
+ */
+function removeTerminalImage(terminalId, index) {
+  const pending = getTerminalPendingImages(terminalId);
+  if (index >= 0 && index < pending.length) {
+    const removed = pending.splice(index, 1)[0];
+    if (removed.objectUrl) URL.revokeObjectURL(removed.objectUrl);
+  }
+  renderTerminalImagePreview(terminalId);
+}
+
+/**
+ * Render (or hide) the image preview bar for a terminal.
+ */
+function renderTerminalImagePreview(terminalId) {
+  const td = getTerminal(terminalId);
+  if (!td) return;
+
+  const wrapper = document.querySelector(`.terminal-wrapper[data-id="${terminalId}"]`);
+  if (!wrapper) return;
+
+  let previewBar = wrapper.querySelector('.terminal-image-preview');
+  if (!previewBar) {
+    // Create the preview bar DOM element
+    previewBar = document.createElement('div');
+    previewBar.className = 'terminal-image-preview';
+    previewBar.setAttribute('aria-live', 'polite');
+    // Insert before the xterm element
+    const xterm = wrapper.querySelector('.xterm');
+    if (xterm) {
+      wrapper.insertBefore(previewBar, xterm);
+    } else {
+      wrapper.prepend(previewBar);
+    }
+  }
+
+  const pending = td.pendingImages || [];
+
+  if (pending.length === 0) {
+    previewBar.classList.remove('visible');
+    previewBar.innerHTML = '';
+    // Trigger xterm refit
+    triggerTerminalRefit(td);
+    return;
+  }
+
+  previewBar.classList.add('visible');
+  let html = pending.map((img, i) => `
+    <div class="terminal-image-thumb" data-index="${i}">
+      <img src="${img.dataUrl}" alt="${t('terminals.screenshotAlt', { n: i + 1 })}" />
+      <button class="terminal-image-remove" data-index="${i}" tabindex="0" role="button"
+              aria-label="${t('terminals.removeImage', { n: i + 1 })}" title="${t('common.remove')}">&times;</button>
+    </div>
+  `).join('');
+
+  if (pending.length >= 2) {
+    html += `<span class="terminal-image-count">${pending.length}/${MAX_TERMINAL_IMAGES}</span>`;
+  }
+
+  previewBar.innerHTML = html;
+
+  // Bind remove button events
+  previewBar.querySelectorAll('.terminal-image-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeTerminalImage(terminalId, parseInt(btn.dataset.index));
+    });
+  });
+
+  // Trigger xterm refit
+  triggerTerminalRefit(td);
+}
+
+/**
+ * Trigger a refit on the terminal's fitAddon so xterm adjusts for the preview bar.
+ */
+function triggerTerminalRefit(td) {
+  if (td?.fitAddon) {
+    requestAnimationFrame(() => {
+      try { td.fitAddon.fit(); } catch (_) { /* ignore */ }
+    });
+  }
+}
+
+/**
+ * Save all pending images to temp files and return their absolute paths.
+ * Uses synchronous fs to avoid Enter-key timing issues.
+ */
+function savePendingImagesToTemp(terminalId) {
+  const pending = getTerminalPendingImages(terminalId);
+  if (pending.length === 0) return [];
+
+  try {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  } catch (_) { /* dir may exist */ }
+
+  const timestamp = Date.now();
+  const paths = [];
+
+  for (let i = 0; i < pending.length; i++) {
+    const img = pending[i];
+    const filePath = path.join(TEMP_DIR, `screenshot-${timestamp}-${i}.png`);
+    try {
+      const buffer = Buffer.from(img.base64, 'base64');
+      fs.writeFileSync(filePath, buffer);
+      paths.push(filePath);
+    } catch (err) {
+      console.error('[TerminalManager] Failed to save temp image:', err);
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Clear all pending images for a terminal and hide the preview bar.
+ */
+function clearTerminalImages(terminalId) {
+  const td = getTerminal(terminalId);
+  if (td) {
+    if (td.pendingImages) {
+      td.pendingImages.forEach(img => {
+        if (img.objectUrl) URL.revokeObjectURL(img.objectUrl);
+      });
+    }
+    td.pendingImages = [];
+  }
+  renderTerminalImagePreview(terminalId);
+}
+
+/**
+ * Handle image paste from clipboard event items.
+ */
+function handleTerminalImagePaste(terminalId, clipboardItems) {
+  const files = clipboardItems.map(item => item.getAsFile()).filter(Boolean);
+  for (const file of files) {
+    if (!addTerminalImage(terminalId, file)) break;
+  }
+}
+
+/**
+ * Clean up old temp screenshot files (older than 1 hour).
+ * Called on app startup.
+ */
+function cleanupTempScreenshots() {
+  try {
+    if (!fs.existsSync(TEMP_DIR)) return;
+    const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour ago
+    const files = fs.readdirSync(TEMP_DIR);
+    for (const file of files) {
+      if (!file.startsWith('screenshot-')) continue;
+      const filePath = path.join(TEMP_DIR, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.mtimeMs < cutoff) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (_) { /* ignore per-file errors */ }
+    }
+  } catch (_) { /* ignore cleanup errors */ }
+}
+
+// Run cleanup on module load (app startup)
+cleanupTempScreenshots();
 
 // ── Centralized IPC dispatcher (one listener for all terminals) ──
 const terminalDataHandlers = new Map();
@@ -642,6 +842,45 @@ function performPaste(terminalId, inputChannel = 'terminal-input') {
 }
 
 /**
+ * Check clipboard for images before falling through to text paste.
+ * Uses the async Clipboard API to inspect clipboard contents from keydown handlers
+ * (where we don't have access to ClipboardEvent.clipboardData).
+ */
+function pasteWithImageCheck(terminalId, inputChannel = 'terminal-input') {
+  if (inputChannel !== 'terminal-input') {
+    performPaste(terminalId, inputChannel);
+    return;
+  }
+
+  // Try the modern Clipboard API to check for images
+  if (navigator.clipboard && navigator.clipboard.read) {
+    navigator.clipboard.read().then(clipboardItems => {
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          item.getType(imageType).then(blob => {
+            const file = new File([blob], 'clipboard-image.png', { type: imageType });
+            addTerminalImage(terminalId, file);
+          }).catch(() => {
+            // Fall through to text paste on error
+            performPaste(terminalId, inputChannel);
+          });
+          return; // Found an image, handled it
+        }
+      }
+      // No images found — fall through to text paste
+      performPaste(terminalId, inputChannel);
+    }).catch(() => {
+      // Clipboard API failed (permissions, etc.) — fall through to text paste
+      performPaste(terminalId, inputChannel);
+    });
+  } else {
+    // No Clipboard API available — text paste only
+    performPaste(terminalId, inputChannel);
+  }
+}
+
+/**
  * Setup DOM-level clipboard shortcuts (capture phase, before xterm intercepts)
  * xterm.js 6.x handles Ctrl+Shift+V internally but fails in Electron — we must intercept first.
  */
@@ -655,7 +894,7 @@ function setupClipboardShortcuts(wrapper, terminal, terminalId, inputChannel = '
     if (e.key === 'V') {
       e.preventDefault();
       e.stopImmediatePropagation();
-      performPaste(terminalId, inputChannel);
+      pasteWithImageCheck(terminalId, inputChannel);
     } else if (e.key === 'C') {
       const selection = terminal.getSelection();
       if (selection) {
@@ -672,6 +911,15 @@ function setupPasteHandler(wrapper, terminalId, inputChannel = 'terminal-input')
   wrapper.addEventListener('paste', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // Check for images in clipboard FIRST (only for terminal-input, not fivem/webapp)
+    if (inputChannel === 'terminal-input' && e.clipboardData) {
+      const imageItems = Array.from(e.clipboardData.items || [])
+        .filter(i => i.type.startsWith('image/'));
+      if (imageItems.length > 0) {
+        handleTerminalImagePaste(terminalId, imageItems);
+        return;
+      }
+    }
     performPaste(terminalId, inputChannel);
   }, true);
 }
@@ -696,14 +944,14 @@ function setupRightClickHandler(wrapper, terminal, terminalId, inputChannel = 't
           .catch(() => api.app.clipboardWrite(selection));
         terminal.clearSelection();
       } else {
-        performPaste(terminalId, inputChannel);
+        pasteWithImageCheck(terminalId, inputChannel);
       }
       return;
     }
 
     // Priority 2: Legacy instant paste (Phase 02 behavior, enabled by default)
     if (ts.rightClickPaste?.enabled !== false && !getSetting('terminalContextMenu')) {
-      performPaste(terminalId, inputChannel);
+      pasteWithImageCheck(terminalId, inputChannel);
       return;
     }
 
@@ -731,7 +979,7 @@ function setupRightClickHandler(wrapper, terminal, terminalId, inputChannel = 't
             label: t('common.paste'),
             shortcut: 'Ctrl+V',
             icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>',
-            onClick: () => performPaste(terminalId, inputChannel)
+            onClick: () => pasteWithImageCheck(terminalId, inputChannel)
           },
           { separator: true },
           {
@@ -825,7 +1073,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
       const ctrlVCustomKey = ts.ctrlV?.key;
       if (ctrlVCustomKey && ctrlVCustomKey !== 'Ctrl+V') {
         if (eventKey === normalizeStoredKey(ctrlVCustomKey) && ts.ctrlV?.enabled !== false) {
-          performPaste(terminalId, inputChannel);
+          pasteWithImageCheck(terminalId, inputChannel);
           return false;
         }
       }
@@ -914,7 +1162,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
         const ctrlVRebound = ts.ctrlV?.key && ts.ctrlV.key !== 'Ctrl+V';
         if (!ctrlVRebound && e.key.toLowerCase() === 'v') {
           if (ts.ctrlV?.enabled !== false) {
-            performPaste(terminalId, inputChannel);
+            pasteWithImageCheck(terminalId, inputChannel);
           }
           return false;
         }
@@ -977,7 +1225,7 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
     }
     // Ctrl+Shift+V to paste (with anti-spam)
     if (e.ctrlKey && e.shiftKey && e.key === 'V' && e.type === 'keydown') {
-      performPaste(terminalId, inputChannel);
+      pasteWithImageCheck(terminalId, inputChannel);
       return false;
     }
 
@@ -1768,6 +2016,9 @@ async function closeTerminal(id) {
     return;
   }
 
+  // Clear any pending image attachments
+  clearTerminalImages(id);
+
   clearOutputSilenceTimer(id);
   clearGsdActivityTimer(id);
   cancelScheduledReady(id);
@@ -2150,9 +2401,42 @@ async function createTerminal(project, options = {}) {
 
   // Input handling
   terminal.onData(data => {
+    const td = getTerminal(id);
+
+    // Intercept Enter when images are pending — inject file paths into the prompt
+    if ((data === '\r' || data === '\n') && td?.pendingImages?.length > 0) {
+      // Save pending images to temp files synchronously
+      const filePaths = savePendingImagesToTemp(id);
+      if (filePaths.length > 0) {
+        // Quote paths with spaces for Windows compatibility
+        const pathsStr = filePaths.map(p => p.includes(' ') ? `"${p}"` : p).join(' ');
+        // Append file paths to the current prompt line, then Enter
+        api.terminal.input({ id, data: ` ${pathsStr}\r` });
+      } else {
+        // Save failed — just send Enter normally
+        api.terminal.input({ id, data });
+      }
+      // Clear images regardless
+      clearTerminalImages(id);
+
+      // Normal Enter processing (status, title, etc.)
+      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
+      cancelScheduledReady(id);
+      updateTerminalStatus(id, 'working');
+      if (scrapingEventCallback) scrapingEventCallback(id, 'input', {});
+      if (td && td.inputBuffer.trim().length > 0) {
+        postEnterExtended.add(id);
+        const title = extractTitleFromInput(td.inputBuffer);
+        if (title) {
+          updateTerminalTabName(id, title);
+        }
+        updateTerminal(id, { inputBuffer: '' });
+      }
+      return;
+    }
+
     api.terminal.input({ id, data });
     // Record activity for time tracking (resets idle timer)
-    const td = getTerminal(id);
     if (td?.project?.id) heartbeat(td.project.id, 'terminal');
     if (data === '\r' || data === '\n') {
       // User sent new input — allow OSC title renames again for this terminal

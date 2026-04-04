@@ -106,7 +106,10 @@
     "messages": "{count} msgs",
     "loading": "Initialisation de Claude Code...",
     "loadingHint": "Cela peut prendre quelques secondes",
-    "resumeSession": "Reprendre une session Claude"
+    "resumeSession": "Reprendre une session Claude",
+    "screenshotAlt": "Capture d'écran {n}",
+    "removeImage": "Supprimer l'image {n}",
+    "clipboardImageError": "Impossible de lire l'image du presse-papiers — essayez de recopier l'image"
   },
   "mcp": {
     "notFound": "MCP introuvable",
