@@ -52,6 +52,7 @@ Last activity: 2026-04-01
 - Phase 36 complete: Debounced writePreservingScroll (80ms), rapid-output guard suppressing terminal.clear() during Claude TUI redraws (3+ chunks < 150ms hysteresis)
 - Phase 37 added: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
 - Phase 38 added: Post screenshots into claude-terminal chat
+- Phase 39 added: Fix empty pane disabled controls — no-terminal state causes button overlap/disabled
 
 ### Pending Todos
 
