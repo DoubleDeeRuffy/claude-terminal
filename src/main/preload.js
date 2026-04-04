@@ -281,6 +281,8 @@ contextBridge.exposeInMainWorld('electron_api', {
     worktreeDiff: (params) => ipcRenderer.invoke('git-worktree-diff', params),
     worktreeDiffStats: (params) => ipcRenderer.invoke('git-worktree-diff-stats', params),
     generateSessionRecap: (context) => ipcRenderer.invoke('git-generate-session-recap', context),
+    branchesWithTracking: (params) => ipcRenderer.invoke('git-branches-with-tracking', params),
+    recentBranches: (params) => ipcRenderer.invoke('git-recent-branches', params),
   },
 
   // ==================== WEBAPP ====================

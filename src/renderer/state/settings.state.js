@@ -56,6 +56,8 @@ const defaultSettings = {
   parallelMaxAgents: 3, // Default number of parallel agents for Parallel Task Manager (1-10)
   autoClaudeMdUpdate: true, // Suggest CLAUDE.md updates after chat sessions
   notificationSound: true, // Play a chime sound when notifications appear
+  commitGraphWidth: null,   // null = use default 30vw
+  commitGraphHeight: null,  // null = use default 50vh
 };
 
 const settingsState = new State({ ...defaultSettings });

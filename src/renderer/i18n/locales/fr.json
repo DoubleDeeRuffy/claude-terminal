@@ -357,7 +357,21 @@
     "prTitleRequired": "Le titre de la PR est requis",
     "prCreated": "PR #{number} créée",
     "noProjects": "Aucun projet",
-    "pruneWorktrees": "Nettoyer les worktrees inactifs"
+    "pruneWorktrees": "Nettoyer les worktrees inactifs",
+    "commitGraph": "Graphe des commits",
+    "commitGraphTooltip": "Ouvrir le graphe des commits",
+    "recentBranches": "Récentes",
+    "searchBranches": "Rechercher des branches...",
+    "noRecentBranches": "Aucune branche récente",
+    "tracking": "suivi",
+    "notTracking": "non suivi",
+    "filterByBranch": "Filtrer par branche",
+    "filterByAuthor": "Filtrer par auteur",
+    "filterByDate": "Filtrer par date",
+    "filterByPath": "Filtrer par chemin",
+    "searchCommits": "Rechercher des commits...",
+    "loadingGraph": "Chargement du graphe des commits...",
+    "noCommitsFound": "Aucun commit ne correspond aux filtres"
   },
   "dashboard": {
     "openFolder": "Ouvrir dossier",

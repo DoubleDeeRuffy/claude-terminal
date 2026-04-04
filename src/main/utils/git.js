@@ -202,6 +202,55 @@ async function getAheadBehind(projectPath, branch, skipFetch = false) {
 }
 
 /**
+ * Get all local branches with their upstream tracking info and ahead/behind counts.
+ * Uses a single `git for-each-ref` call for efficiency.
+ * @param {string} projectPath - Path to the project
+ * @returns {Promise<Array<{name: string, upstream: string|null, ahead: number, behind: number}>>}
+ */
+async function getBranchesWithTracking(projectPath) {
+  const output = await execGit(projectPath, [
+    'for-each-ref',
+    '--format=%(refname:short)%(recordseparator)%(upstream:short)%(recordseparator)%(upstream:track)',
+    'refs/heads/'
+  ]);
+  if (!output) return [];
+  return output.split('\n').filter(l => l.trim()).map(line => {
+    const [name, upstream, track] = line.split('\x1e');
+    let ahead = 0, behind = 0;
+    if (track) {
+      const aheadMatch = track.match(/ahead (\d+)/);
+      const behindMatch = track.match(/behind (\d+)/);
+      if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
+      if (behindMatch) behind = parseInt(behindMatch[1], 10);
+    }
+    return { name, upstream: upstream || null, ahead, behind };
+  });
+}
+
+/**
+ * Get the N most recently checked-out branches from reflog.
+ * Parses `checkout: moving from X to Y` entries.
+ * @param {string} projectPath - Path to the project
+ * @param {number} limit - Maximum number of recent branches to return (default: 5)
+ * @returns {Promise<string[]>} - Array of branch names, most recent first
+ */
+async function getRecentBranches(projectPath, limit = 5) {
+  const output = await execGit(projectPath, ['reflog', '--format=%gs', '-n', '100']);
+  if (!output) return [];
+  const seen = new Set();
+  const recent = [];
+  for (const line of output.split('\n')) {
+    const match = line.match(/checkout: moving from \S+ to (\S+)/);
+    if (match && !seen.has(match[1])) {
+      seen.add(match[1]);
+      recent.push(match[1]);
+      if (recent.length >= limit) break;
+    }
+  }
+  return recent;
+}
+
+/**
  * Get list of all branches (local and remote)
  * @param {string} projectPath - Path to the project
  * @param {Object} options
@@ -1633,6 +1682,8 @@ module.exports = {
   countLinesOfCode,
   getProjectStats,
   getBranches,
+  getBranchesWithTracking,
+  getRecentBranches,
   getCurrentBranch,
   checkoutBranch,
   createBranch,
