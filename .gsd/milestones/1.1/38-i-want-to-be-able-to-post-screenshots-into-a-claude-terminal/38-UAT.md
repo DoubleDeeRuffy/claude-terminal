@@ -56,21 +56,29 @@ blocked: 0
   reason: "User reported: images are pasted 2 times instead of one time (duplicated)"
   severity: major
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "Two independent paste handlers both fire for Ctrl+V: (1) createTerminalKeyHandler (xterm keydown, line 1165) calls pasteWithImageCheck() which uses navigator.clipboard.read() to detect and add images, (2) setupPasteHandler (DOM paste event, line 910-925) catches the subsequent paste DOM event and calls handleTerminalImagePaste(). xterm's return false doesn't prevent the browser paste event."
+  fix: "Add a timestamp guard — set a flag in pasteWithImageCheck when image is detected, check it in setupPasteHandler to skip duplicate processing. Or: in setupPasteHandler, skip image handling entirely since pasteWithImageCheck already covers it."
+  artifacts:
+    - src/renderer/ui/components/TerminalManager.js:1165
+    - src/renderer/ui/components/TerminalManager.js:910-925
 
 - truth: "Enter key should inject temp file paths into terminal prompt text"
   status: failed
   reason: "User reported: File paths not injected into terminal input. Claude CLI doesn't see the screenshot."
   severity: major
   test: 4
-  artifacts: []
-  missing: []
+  root_cause: "The Enter intercept at line 2407-2435 sends file paths via api.terminal.input after the user's text. The logic appears correct (space + quoted paths + \\r sent to PTY). Possible causes: (a) Claude CLI doesn't recognize raw file paths as images — may need a specific syntax, (b) timing issue where paths arrive after Enter is processed, (c) the paths use Windows backslashes which CLI may not handle."
+  fix: "Verify that file paths are actually reaching the PTY by adding console.log. Convert backslashes to forward slashes. If Claude CLI doesn't recognize bare paths, investigate what format Claude Code expects for image references."
+  artifacts:
+    - src/renderer/ui/components/TerminalManager.js:2407-2435
+    - src/renderer/ui/components/TerminalManager.js:220-244
 
 - truth: "Thumbnails should be larger than 64x64 for usability"
   status: failed
   reason: "User reported: make the thumbnail bigger"
   severity: cosmetic
   test: 1
-  artifacts: []
-  missing: []
+  root_cause: "CSS sets .terminal-image-thumb img to 64x64. User wants larger thumbnails for better visibility."
+  fix: "Increase thumbnail size in terminal.css — e.g. 96x96 or 128x128."
+  artifacts:
+    - styles/terminal.css

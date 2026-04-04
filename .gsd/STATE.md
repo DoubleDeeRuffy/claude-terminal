@@ -3,23 +3,23 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Consolidations
 status: executing
-last_updated: "2026-04-04T13:02:07.875Z"
-last_activity: 2026-04-04
+last_updated: "2026-04-04T12:55:46.038Z"
+last_activity: 2026-04-04 -- Phase 38 execution started
 progress:
   total_phases: 16
   completed_phases: 10
-  total_plans: 19
-  completed_plans: 15
+  total_plans: 20
+  completed_plans: 16
 ---
 
 # Project State
 
 ## Current Position
 
-Phase: 37 (enhance-git-capabilities-commit-graph-branch-visualization-unpushed-file-tracking) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-04-04
+Phase: 38 (i-want-to-be-able-to-post-screenshots-into-a-claude-terminal) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 38
+Last activity: 2026-04-04 -- Phase 38 execution started
 
 ## Accumulated Context
 
@@ -53,6 +53,12 @@ Last activity: 2026-04-04
 - Phase 37 added: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
 - Phase 38 added: Post screenshots into claude-terminal chat
 - Phase 39 added: Fix empty pane disabled controls — no-terminal state causes button overlap/disabled
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260404-guu | Disable modal collapse on click away (new project wizard) | 2026-04-04 | ed59c5ba | [260404-guu-adding-a-new-project-disable-modal-colla](./quick/260404-guu-adding-a-new-project-disable-modal-colla/) |
 
 ### Pending Todos
 
