@@ -31,12 +31,11 @@ Declared values (must be multiples of 4):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Thumbnail gap from preview bar edge, remove-button inset |
-| sm | 8px | Gap between thumbnails, preview bar vertical padding |
-| md | 12px | Preview bar horizontal padding (matches chat-image-preview) |
+| xs | 4px | Thumbnail gap from preview bar edge, bottom padding of preview bar |
+| sm | 8px | Gap between thumbnails, preview bar vertical and horizontal padding |
 | lg | 16px | Not used this phase |
 
-Exceptions: 2px inset for remove button (matches existing `.chat-image-remove` top/right offset).
+Note: The remove button uses `top: 2px; right: 2px` inherited unchanged from the existing `.chat-image-remove` component in `chat.css`. No new CSS declaration is needed for this value — the terminal variant mirrors the chat pattern. This is not part of the phase spacing scale.
 
 ---
 
@@ -45,9 +44,9 @@ Exceptions: 2px inset for remove button (matches existing `.chat-image-remove` t
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Image count badge | var(--font-2xs) / 10px | 600 | 1.0 |
-| Preview bar label | var(--font-xs) / 11px | 400 | 1.2 |
+| Preview bar label | var(--font-2xs) / 10px | 400 | 1.2 |
 
-This phase introduces no new headings or body text. All existing terminal typography remains unchanged. The only new text elements are the image count indicator and the optional "Images attached" label.
+This phase introduces no new headings or body text. All existing terminal typography remains unchanged. The only new text elements are the image count indicator and the optional "Images attached" label. Both use var(--font-2xs) at 10px for consistency.
 
 ---
 
@@ -71,7 +70,7 @@ Accent reserved for: image count badge only (small pill showing "3/5" when multi
 
 **Position:** Directly above the xterm.js terminal viewport, inside the terminal tab content area. Horizontally spans the full terminal width. Slides down from the top edge with a 150ms ease transition.
 
-**Layout:** Flex row, `gap: 8px`, `padding: 8px 12px 4px`, `flex-wrap: wrap`. Matches `.chat-image-preview` layout exactly.
+**Layout:** Flex row, `gap: 8px`, `padding: 8px 8px 4px`, `flex-wrap: wrap`.
 
 **Visibility:** `display: none` by default. Set to `display: flex` when one or more images are pending.
 
@@ -91,7 +90,7 @@ Accent reserved for: image count badge only (small pill showing "3/5" when multi
 
 ### 3. Terminal Image Remove Button (`.terminal-image-remove`)
 
-**Position:** Absolute, `top: 2px`, `right: 2px` inside the thumbnail.
+**Position:** Absolute, `top: 2px`, `right: 2px` inside the thumbnail (mirrors existing `.chat-image-remove` — no new CSS value).
 
 **Dimensions:** 18x18px circle (`border-radius: 50%`).
 
@@ -163,7 +162,7 @@ Accent reserved for: image count badge only (small pill showing "3/5" when multi
 | Image count badge | "{count}/5" (e.g., "3/5") |
 | Empty state heading | not applicable — preview bar is hidden when empty |
 | Empty state body | not applicable |
-| Error state | "Failed to read clipboard image" — shown as a toast via existing Toast component |
+| Error state | "Failed to read clipboard image — try copying the image again" — shown as a toast via existing Toast component |
 | Max images reached | No explicit message — badge shows "5/5", further pastes are silently ignored |
 
 No destructive actions in this phase. Removing a thumbnail is lightweight and instant (no confirmation needed).
@@ -178,7 +177,7 @@ No destructive actions in this phase. Removing a thumbnail is lightweight and in
 | 1 image pending | Preview bar visible (80px). Single thumbnail. No count badge. |
 | 2-5 images pending | Preview bar visible. Thumbnails in row. Count badge shown ("2/5" through "5/5"). |
 | Sending (images being saved) | Thumbnails briefly show a subtle opacity reduction (0.5) during save. Preview bar clears after save completes. |
-| Error (clipboard read failed) | Toast notification: "Failed to read clipboard image". Preview bar unchanged. |
+| Error (clipboard read failed) | Toast notification: "Failed to read clipboard image — try copying the image again". Preview bar unchanged. |
 
 ---
 
