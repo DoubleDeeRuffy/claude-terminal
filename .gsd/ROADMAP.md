@@ -146,3 +146,33 @@ Plans:
 
 Plans:
 - [x] 36-01-PLAN.md — Debounced scroll preservation and tightened clear-screen guard
+
+### Phase 37: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 36
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 37 to break down)
+
+### Phase 38: i want to be able to post screenshots into a claude-terminal
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 37
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 38 to break down)
+
+### Phase 39: Fix empty pane disabled controls
+
+**Goal:** Fix the state where opening a project with no terminal causes the new conversation/resume pane to overlap the top action buttons (resume, add-conversation, changes, git-branch) or leaves them disabled.
+**Requirements**: CSS-only fix — replace percentage heights with flex-based sizing on #empty-terminals and .sessions-panel.
+**Depends on:** Phase 38
+**Plans:** 1 plan
+
+Plans:
+- [ ] 39-01-PLAN.md — Fix #empty-terminals and .sessions-panel CSS overflow
