@@ -3788,6 +3788,16 @@ let currentFilterProjectId = null;
 let currentFilterWorktreePath = null; // non-null when active tab is a worktree
 let branchCache = { projectId: null, data: null };
 
+// Refresh top-bar branch button, tracking badges, and pull/push button colors
+// Called by git tab after pull/push/fetch/checkout to keep top bar in sync
+function refreshFilterGitActions() {
+  if (currentFilterProjectId) {
+    branchCache = { projectId: null, data: null };
+    showFilterGitActions(currentFilterProjectId);
+  }
+}
+window.refreshFilterGitActions = refreshFilterGitActions;
+
 // Returns the git working directory: worktree path if active tab is a worktree, else project path
 function getEffectiveGitPath() {
   return currentFilterWorktreePath || getProject(currentFilterProjectId)?.path;

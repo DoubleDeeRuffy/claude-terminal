@@ -2177,6 +2177,7 @@ async function handlePull() {
     }
     await loadAllData(selectedProject);
     renderGitTab();
+    if (window.refreshFilterGitActions) window.refreshFilterGitActions();
   });
 }
 
@@ -2189,6 +2190,7 @@ async function handlePush() {
       showToast(t('git.pushSuccess'), 'success');
       await loadAllData(selectedProject);
       renderGitTab();
+      if (window.refreshFilterGitActions) window.refreshFilterGitActions();
     } else {
       showToast(result.error, 'error');
     }
@@ -2203,6 +2205,7 @@ async function handleFetch() {
     aheadBehind = info?.aheadBehind || aheadBehind;
     renderQuickActions();
     showToast(t('gitTab.fetchComplete'), 'success');
+    if (window.refreshFilterGitActions) window.refreshFilterGitActions();
   });
 }
 
@@ -2213,6 +2216,7 @@ async function handleCheckout(branch) {
       showToast(result.output || t('gitTab.switchedTo', { name: branch }), 'success');
       await loadAllData(selectedProject);
       renderGitTab();
+      if (window.refreshFilterGitActions) window.refreshFilterGitActions();
     } else {
       showToast(result.error, 'error');
     }
