@@ -3943,6 +3943,7 @@ filterBtnPull.onclick = async () => {
   if (currentFilterProjectId === projectId) {
     filterBtnPull.classList.remove('loading');
     filterBtnPull.disabled = false;
+    refreshFilterGitActions();
   }
 };
 
@@ -3959,6 +3960,7 @@ filterBtnPush.onclick = async () => {
   if (currentFilterProjectId === projectId) {
     filterBtnPush.classList.remove('loading');
     filterBtnPush.disabled = false;
+    refreshFilterGitActions();
   }
 };
 
