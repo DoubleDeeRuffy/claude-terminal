@@ -3798,6 +3798,13 @@ function refreshFilterGitActions() {
 }
 window.refreshFilterGitActions = refreshFilterGitActions;
 
+// Periodic refresh of top-bar git status (every 5 minutes)
+setInterval(() => {
+  if (currentFilterProjectId && filterGitActions.style.display !== 'none') {
+    refreshFilterGitActions();
+  }
+}, 5 * 60 * 1000);
+
 // Returns the git working directory: worktree path if active tab is a worktree, else project path
 function getEffectiveGitPath() {
   return currentFilterWorktreePath || getProject(currentFilterProjectId)?.path;
