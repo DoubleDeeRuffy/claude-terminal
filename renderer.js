@@ -3802,6 +3802,21 @@ window.refreshFilterGitActions = refreshFilterGitActions;
 setInterval(() => {
   if (currentFilterProjectId && filterGitActions.style.display !== 'none') {
     refreshFilterGitActions();
+    // Also refresh changes count badge
+    const gitPath = getEffectiveGitPath();
+    if (gitPath) {
+      api.git.statusQuick({ projectPath: gitPath }).then(status => {
+        if (!status || status.error) return;
+        const count = (status.files || []).length;
+        const badge = document.getElementById('changes-count');
+        const btn = document.getElementById('filter-btn-changes');
+        if (badge) {
+          badge.textContent = count;
+          badge.style.display = count > 0 ? 'inline' : 'none';
+        }
+        if (btn) btn.classList.toggle('has-changes', count > 0);
+      }).catch(() => {});
+    }
   }
 }, 5 * 60 * 1000);
 
