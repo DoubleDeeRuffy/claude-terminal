@@ -3985,19 +3985,35 @@ filterBtnBranch.onclick = async (e) => {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
           const filter = searchInput.value.toLowerCase().trim();
+          if (!filter) {
+            // Reset: show everything, restore collapsed state
+            branchDropdownList.querySelectorAll('.branch-dropdown-item, .branch-dropdown-folder, .branch-dropdown-section-title, .branch-dropdown-folder-content').forEach(el => {
+              el.style.display = '';
+            });
+            return;
+          }
+          // Show matching items, hide non-matching
           branchDropdownList.querySelectorAll('.branch-dropdown-item').forEach(item => {
             const name = (item.dataset.branch || '').toLowerCase();
             item.style.display = name.includes(filter) ? '' : 'none';
           });
-          // Show/hide section titles based on visible items
-          branchDropdownList.querySelectorAll('.branch-dropdown-section-title').forEach(title => {
-            let next = title.nextElementSibling;
-            let hasVisible = false;
-            while (next && !next.classList.contains('branch-dropdown-section-title') && !next.classList.contains('branch-dropdown-header-row') && !next.classList.contains('branch-create-input-row')) {
-              if (next.classList.contains('branch-dropdown-item') && next.style.display !== 'none') hasVisible = true;
-              next = next.nextElementSibling;
-            }
-            title.style.display = hasVisible ? '' : 'none';
+          // Show folders that contain visible items, expand them
+          branchDropdownList.querySelectorAll('.branch-dropdown-folder-content').forEach(content => {
+            const hasVisible = content.querySelector('.branch-dropdown-item:not([style*="display: none"])');
+            content.style.display = hasVisible ? '' : 'none';
+            content.classList.remove('collapsed');
+          });
+          branchDropdownList.querySelectorAll('.branch-dropdown-folder').forEach(folder => {
+            const folderId = folder.dataset.folderId;
+            const content = branchDropdownList.querySelector(`[data-folder-content="${folderId}"]`);
+            folder.style.display = (content && content.style.display !== 'none') ? '' : 'none';
+            folder.classList.remove('collapsed');
+          });
+          branchDropdownList.querySelectorAll('.branch-dropdown-section-title[data-folder-id]').forEach(title => {
+            const folderId = title.dataset.folderId;
+            const content = branchDropdownList.querySelector(`[data-folder-content="${folderId}"]`);
+            title.style.display = (content && content.style.display !== 'none') ? '' : 'none';
+            title.classList.remove('collapsed');
           });
         }, 150);
       };
@@ -4044,12 +4060,13 @@ filterBtnBranch.onclick = async (e) => {
         return badge ? `<span class="branch-tracking-badges">${badge}</span>` : '';
       }
 
-      // Helper: render a branch item
-      function renderBranchItem(branch, isCurrent, isRemote) {
+      // Helper: render a branch leaf item
+      function renderBranchItem(branch, isCurrent, isRemote, depth) {
         const badge = isRemote ? '' : getTrackingBadge(branch);
+        const indent = depth * 16;
         return `
-          <div class="branch-dropdown-item ${isCurrent ? 'current' : ''} ${isRemote ? 'remote' : ''}" data-branch="${escapeHtml(branch)}" ${isRemote ? 'data-remote="true"' : ''}>
-            ${isRemote ? '<svg class="branch-remote-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>' : ''}
+          <div class="branch-dropdown-item ${isCurrent ? 'current' : ''} ${isRemote ? 'remote' : ''}" data-branch="${escapeHtml(branch)}" ${isRemote ? 'data-remote="true"' : ''} style="padding-left: ${12 + indent}px">
+            <svg class="branch-leaf-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
             <span class="branch-dropdown-item-name">${escapeHtml(branch)}</span>
             ${badge}
             ${!isCurrent && !isRemote ? `<div class="branch-dropdown-actions">
@@ -4061,6 +4078,50 @@ filterBtnBranch.onclick = async (e) => {
               </button>
             </div>` : ''}
           </div>`;
+      }
+
+      // Build folder tree from branch names (split on /)
+      function buildTree(branches) {
+        const root = { children: {}, branches: [] };
+        for (const branch of branches) {
+          const parts = branch.split('/');
+          if (parts.length === 1) {
+            root.branches.push(branch);
+          } else {
+            let node = root;
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (!node.children[parts[i]]) node.children[parts[i]] = { children: {}, branches: [] };
+              node = node.children[parts[i]];
+            }
+            node.branches.push(branch);
+          }
+        }
+        return root;
+      }
+
+      // Render tree recursively
+      function renderTree(node, depth, isRemote) {
+        let out = '';
+        // Render folder children first
+        const folders = Object.keys(node.children).sort();
+        for (const folder of folders) {
+          const indent = depth * 16;
+          const folderId = `bd-folder-${depth}-${folder}`.replace(/[^a-zA-Z0-9-]/g, '_');
+          out += `<div class="branch-dropdown-folder" style="padding-left: ${12 + indent}px" data-folder-id="${folderId}">
+            <svg class="branch-folder-chevron" width="10" height="10" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+            <svg class="branch-folder-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+            <span class="branch-folder-name">${escapeHtml(folder)}</span>
+          </div>`;
+          out += `<div class="branch-dropdown-folder-content" data-folder-content="${folderId}">`;
+          out += renderTree(node.children[folder], depth + 1, isRemote);
+          out += '</div>';
+        }
+        // Render branch leaves
+        for (const branch of node.branches) {
+          const isCurrent = branch === currentBranch;
+          out += renderBranchItem(branch, isCurrent, isRemote, depth);
+        }
+        return out;
       }
 
       let html = '';
@@ -4081,28 +4142,59 @@ filterBtnBranch.onclick = async (e) => {
         </button>
       </div>`;
 
-      // Recent branches section
+      // Local branches section (top-level treeview entry)
+      if (local.length > 0) {
+        const localTree = buildTree(local);
+        html += `<div class="branch-dropdown-section-title" data-folder-id="bd-section-local">
+          <svg class="branch-folder-chevron section-chevron" width="10" height="10" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+          ${t('branches.localBranches')}
+        </div>`;
+        html += `<div class="branch-dropdown-folder-content" data-folder-content="bd-section-local">`;
+        html += renderTree(localTree, 1, false);
+        html += '</div>';
+      }
+
+      // Remote branches section (top-level treeview entry)
+      if (remote.length > 0) {
+        const remoteTree = buildTree(remote);
+        html += `<div class="branch-dropdown-section-title remote" data-folder-id="bd-section-remote">
+          <svg class="branch-folder-chevron section-chevron" width="10" height="10" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+          ${t('branches.remoteBranches')}
+        </div>`;
+        html += `<div class="branch-dropdown-folder-content" data-folder-content="bd-section-remote">`;
+        html += renderTree(remoteTree, 1, true);
+        html += '</div>';
+      }
+
+      // Recent branches at bottom
       if (recentBranches.length > 0) {
         const validRecent = recentBranches.filter(b => local.includes(b));
         if (validRecent.length > 0) {
-          html += `<div class="branch-dropdown-section-title">${t('gitTab.recentBranches')}</div>`;
-          html += validRecent.map(branch => renderBranchItem(branch, branch === currentBranch, false)).join('');
+          html += `<div class="branch-dropdown-section-title" data-folder-id="bd-section-recent">
+            <svg class="branch-folder-chevron section-chevron" width="10" height="10" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+            ${t('gitTab.recentBranches')}
+          </div>`;
+          html += `<div class="branch-dropdown-folder-content" data-folder-content="bd-section-recent">`;
+          html += validRecent.map(branch => renderBranchItem(branch, branch === currentBranch, false, 1)).join('');
+          html += '</div>';
         }
       }
 
-      // Local branches section
-      if (local.length > 0) {
-        html += `<div class="branch-dropdown-section-title">${t('branches.localBranches')}</div>`;
-        html += local.map(branch => renderBranchItem(branch, branch === currentBranch, false)).join('');
-      }
-
-      // Remote branches section
-      if (remote.length > 0) {
-        html += `<div class="branch-dropdown-section-title remote">${t('branches.remoteBranches')}</div>`;
-        html += remote.map(branch => renderBranchItem(branch, false, true)).join('');
-      }
-
       branchDropdownList.innerHTML = html;
+
+      // Wire folder toggle clicks
+      branchDropdownList.querySelectorAll('.branch-dropdown-folder, .branch-dropdown-section-title[data-folder-id]').forEach(folder => {
+        folder.onclick = (ev) => {
+          ev.stopPropagation();
+          const folderId = folder.dataset.folderId;
+          const content = branchDropdownList.querySelector(`[data-folder-content="${folderId}"]`);
+          if (content) {
+            const isOpen = !content.classList.contains('collapsed');
+            content.classList.toggle('collapsed', isOpen);
+            folder.classList.toggle('collapsed', isOpen);
+          }
+        };
+      });
 
       // Create branch toggle
       const createToggle = branchDropdownList.querySelector('#branch-create-toggle');
