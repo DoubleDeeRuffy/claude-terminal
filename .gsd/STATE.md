@@ -26,6 +26,7 @@ Last activity: 2026-04-04 -- Phase 38 execution started
 - v1.0 shipped 33 phases, 51 plans (2026-02-24 → 2026-02-27)
 - 6 open PRs pending upstream review
 - Phase numbering continues from 25
+- **v1.2 scaffolded in parallel** (milestone not yet active — will close v1.1 first). Tab System Rewrite with 3 phases: chat+SDK removal (GHOST, completed in worktree commit `d9395d6f`), split-pane removal, tab system rewrite. Executes in isolated worktree at `../claude-terminal-rewrite`. See [milestones/1.2/ROADMAP.md](milestones/1.2/ROADMAP.md).
 
 ### Roadmap Evolution
 
