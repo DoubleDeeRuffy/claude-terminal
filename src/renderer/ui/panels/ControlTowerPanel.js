@@ -482,7 +482,6 @@ function _scanTerminals() {
       if (td.project?.id && _agents.has(`hooks:${td.project.id}`)) return;
 
       const key = `terminal:${id}`;
-      console.log('[CT] scanTerminals → key:', key, 'status:', td.status);
       if (!_agents.has(key)) {
         const status = td.status === 'working' ? 'THINKING' : 'IDLE';
         _agents.set(key, {
@@ -1178,7 +1177,7 @@ function loadPanel(container) {
     _updateTimers();
     // Full re-render only if a status change happened (handled by event bus)
     // Just update timers+cost every tick for performance
-  }, 2000);
+  }, 5000);
 }
 
 function cleanup() {

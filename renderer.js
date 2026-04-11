@@ -3793,7 +3793,7 @@ let branchCache = { projectId: null, data: null };
 function refreshFilterGitActions() {
   if (currentFilterProjectId) {
     branchCache = { projectId: null, data: null };
-    showFilterGitActions(currentFilterProjectId);
+    showFilterGitActions(currentFilterProjectId, { skipFetch: true });
   }
 }
 window.refreshFilterGitActions = refreshFilterGitActions;
@@ -3801,7 +3801,8 @@ window.refreshFilterGitActions = refreshFilterGitActions;
 // Periodic refresh of top-bar git status (every 5 minutes)
 setInterval(() => {
   if (currentFilterProjectId && filterGitActions.style.display !== 'none') {
-    refreshFilterGitActions();
+    branchCache = { projectId: null, data: null };
+    showFilterGitActions(currentFilterProjectId); // fetches remote
     // Also refresh changes count badge
     const gitPath = getEffectiveGitPath();
     if (gitPath) {
@@ -3876,7 +3877,7 @@ function handleActiveTerminalChange(id, termData) {
 
 let _showFilterGitActionsVersion = 0;
 
-async function showFilterGitActions(projectId) {
+async function showFilterGitActions(projectId, { skipFetch = false } = {}) {
   const callVersion = ++_showFilterGitActionsVersion;
 
   const project = getProject(projectId);
@@ -3926,8 +3927,26 @@ async function showFilterGitActions(projectId) {
     if (arrowsEl) arrowsEl.remove();
 
     // Fetch full git info (includes remote fetch + ahead/behind) — runs in background
-    api.git.infoFull(gitPath).then(info => {
+    const syncEl = document.getElementById('filter-git-sync');
+    if (!skipFetch && syncEl) syncEl.style.display = '';
+    api.git.infoFull(gitPath, { skipFetch }).then(info => {
+      if (syncEl) syncEl.style.display = 'none';
       if (callVersion !== _showFilterGitActionsVersion) return;
+
+      // Update changes count badge from status files
+      const fileData = info?.files;
+      const changeCount = Array.isArray(fileData) ? fileData.length : (fileData?.all || []).length;
+      const badge = document.getElementById('changes-count');
+      const changesBtn = document.getElementById('filter-btn-changes');
+      if (badge) {
+        badge.textContent = changeCount;
+        badge.style.display = changeCount > 0 ? 'inline' : 'none';
+      }
+      if (changesBtn) changesBtn.classList.toggle('has-changes', changeCount > 0);
+
+      // Auto-refresh changes panel if it's open
+      GitChangesPanel.refreshGitChangesIfOpen();
+
       const ab = info?.aheadBehind;
       if (!ab || !ab.hasRemote) return;
 
@@ -3945,7 +3964,7 @@ async function showFilterGitActions(projectId) {
       // Color pull button blue when behind, push button green when ahead
       filterBtnPull.classList.toggle('has-updates', ab.behind > 0);
       filterBtnPush.classList.toggle('has-commits', ab.ahead > 0);
-    }).catch(() => {});
+    }).catch(() => { if (syncEl) syncEl.style.display = 'none'; });
   } catch (e) {
     if (callVersion !== _showFilterGitActionsVersion) return;
     filterBranchName.textContent = '...';

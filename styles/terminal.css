@@ -339,6 +339,20 @@
   animation: spin 1s linear infinite;
 }
 
+/* Sync/fetch indicator */
+.filter-git-sync {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--text-muted);
+}
+
+.filter-git-sync svg {
+  width: 12px;
+  height: 12px;
+  animation: spin 1.5s linear infinite;
+}
+
 /* CI/CD Compact Pill */
 .filter-ci-pill {
   display: flex;
@@ -2303,13 +2317,18 @@ body.hide-tab-mode-toggle .tab-mode-toggle {
 .terminal-image-preview {
   display: none;
   gap: 8px;
-  padding: 8px 8px 4px;
-  flex-wrap: wrap;
+  padding: 8px;
+  flex-wrap: nowrap;
   align-items: center;
   background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-  max-height: 112px;
-  flex-shrink: 0;
+  border-top: 1px solid var(--border-color);
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 10;
+  border-radius: var(--radius);
+  overflow-x: auto;
 }
 
 .terminal-image-preview.visible {
@@ -2318,8 +2337,8 @@ body.hide-tab-mode-toggle .tab-mode-toggle {
 
 .terminal-image-thumb {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 128px;
+  height: 128px;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border-color);

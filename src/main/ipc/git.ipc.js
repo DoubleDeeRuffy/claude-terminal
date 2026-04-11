@@ -28,9 +28,9 @@ function registerGitHandlers() {
   });
 
   // Get full git info for dashboard (comprehensive)
-  ipcMain.handle('git-info-full', async (event, projectPath) => {
+  ipcMain.handle('git-info-full', async (event, projectPath, options) => {
     try {
-      return await getGitInfoFull(projectPath);
+      return await getGitInfoFull(projectPath, options);
     } catch (err) {
       return { error: true, message: err.message };
     }

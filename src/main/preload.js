@@ -214,7 +214,7 @@ contextBridge.exposeInMainWorld('electron_api', {
   // ==================== GIT ====================
   git: {
     info: (projectPath) => ipcRenderer.invoke('git-info', projectPath),
-    infoFull: (projectPath) => ipcRenderer.invoke('git-info-full', projectPath),
+    infoFull: (projectPath, options) => ipcRenderer.invoke('git-info-full', projectPath, options),
     statusQuick: (params) => ipcRenderer.invoke('git-status-quick', params),
     statusDetailed: (params) => ipcRenderer.invoke('git-status-detailed', params),
     branches: (params) => ipcRenderer.invoke('git-branches', params),

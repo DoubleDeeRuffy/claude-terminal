@@ -54,20 +54,34 @@ function initializeServices(mainWindow) {
 // write JSON trigger files. This poller picks them up and executes them.
 
 let _mcpPollTimer = null;
+let _projectsCache = null;
+let _projectsCacheTime = 0;
+const PROJECTS_CACHE_TTL = 30000; // 30s — projects.json rarely changes
 
 function _resolveProjectIndex(projectId) {
-  const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
-  try {
-    if (!fs.existsSync(projFile)) return -1;
-    const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
-    return (data.projects || []).findIndex(p => p.id === projectId);
-  } catch (_) { return -1; }
+  const now = Date.now();
+  if (!_projectsCache || now - _projectsCacheTime > PROJECTS_CACHE_TTL) {
+    const projFile = path.join(require('os').homedir(), '.claude-terminal', 'projects.json');
+    try {
+      if (!fs.existsSync(projFile)) { _projectsCache = []; _projectsCacheTime = now; return -1; }
+      const data = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+      _projectsCache = data.projects || [];
+      _projectsCacheTime = now;
+    } catch (_) { return -1; }
+  }
+  return _projectsCache.findIndex(p => p.id === projectId);
 }
+
+const _knownDirs = new Set(); // dirs confirmed to exist — skip existsSync once known
 
 function _pollTriggerDir(dir, handler) {
   try {
-    if (!fs.existsSync(dir)) return;
+    if (!_knownDirs.has(dir)) {
+      if (!fs.existsSync(dir)) return;
+      _knownDirs.add(dir);
+    }
     const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+    if (files.length === 0) return; // fast path — nothing to process
     for (const file of files) {
       const filePath = path.join(dir, file);
       try {
@@ -135,7 +149,7 @@ function _startMcpTriggerPolling(mainWindow) {
         mainWindow.webContents.send('control-tower:interrupt', { projectId: data.projectId });
       }
     });
-  }, 2000);
+  }, 10000);
 }
 
 /**

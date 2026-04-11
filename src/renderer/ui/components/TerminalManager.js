@@ -128,6 +128,25 @@ function addTerminalImage(terminalId, file) {
     const base64 = dataUrl.split(',')[1];
     pending.push({ base64, mediaType: file.type, name: `screenshot-${pending.length + 1}`, dataUrl });
     renderTerminalImagePreview(terminalId);
+
+    // Save to temp file and write path into terminal immediately
+    try {
+      fs.mkdirSync(TEMP_DIR, { recursive: true });
+    } catch (_) { /* dir may exist */ }
+    const filePath = path.join(TEMP_DIR, `screenshot-${Date.now()}-${pending.length - 1}.png`);
+    try {
+      const binaryStr = atob(base64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let j = 0; j < binaryStr.length; j++) {
+        bytes[j] = binaryStr.charCodeAt(j);
+      }
+      fs.writeFileSync(filePath, bytes);
+      // Inject file path into terminal input immediately
+      const quotedPath = filePath.includes(' ') ? `"${filePath}"` : filePath;
+      api.terminal.input({ id: terminalId, data: ` ${quotedPath}` });
+    } catch (err) {
+      console.error('[TerminalManager] Failed to save temp image:', err);
+    }
   };
   reader.readAsDataURL(file);
   return true;
@@ -161,13 +180,8 @@ function renderTerminalImagePreview(terminalId) {
     previewBar = document.createElement('div');
     previewBar.className = 'terminal-image-preview';
     previewBar.setAttribute('aria-live', 'polite');
-    // Insert before the xterm element
-    const xterm = wrapper.querySelector('.xterm');
-    if (xterm) {
-      wrapper.insertBefore(previewBar, xterm);
-    } else {
-      wrapper.prepend(previewBar);
-    }
+    // Append to wrapper — positioned absolutely at bottom via CSS
+    wrapper.appendChild(previewBar);
   }
 
   const pending = td.pendingImages || [];
@@ -211,10 +225,36 @@ function renderTerminalImagePreview(terminalId) {
  * Trigger a refit on the terminal's fitAddon so xterm adjusts for the preview bar.
  */
 function triggerTerminalRefit(td) {
-  if (td?.fitAddon) {
-    requestAnimationFrame(() => {
+  if (!td) return;
+  // Find the xterm element and preview bar to adjust spacing
+  const wrapper = document.querySelector(`.terminal-wrapper[data-id="${td.id}"]`);
+  if (!wrapper) return;
+  const xtermEl = wrapper.querySelector('.xterm');
+  const previewBar = wrapper.querySelector('.terminal-image-preview');
+  if (!xtermEl) return;
+
+  const applyFit = () => {
+    if (td.fitAddon) {
       try { td.fitAddon.fit(); } catch (_) { /* ignore */ }
-    });
+    }
+    // Force xterm to repaint existing rows — fit() only resizes, doesn't redraw
+    if (td.terminal) {
+      try {
+        td.terminal.refresh(0, td.terminal.rows - 1);
+      } catch (_) { /* ignore */ }
+    }
+  };
+
+  if (previewBar && previewBar.classList.contains('visible')) {
+    // Wait for preview bar to render, then measure its height and shrink xterm
+    setTimeout(() => {
+      const barHeight = previewBar.offsetHeight || 148;
+      xtermEl.style.paddingBottom = `${barHeight + 4}px`;
+      setTimeout(applyFit, 20);
+    }, 50);
+  } else {
+    xtermEl.style.paddingBottom = '';
+    setTimeout(applyFit, 20);
   }
 }
 
@@ -865,13 +905,14 @@ function pasteWithImageCheck(terminalId, inputChannel = 'terminal-input') {
 
   // Try the modern Clipboard API to check for images
   if (navigator.clipboard && navigator.clipboard.read) {
+    // Set suppress flag BEFORE the async read — the browser fires the paste DOM event
+    // synchronously after keydown, so the flag must already be set when setupPasteHandler checks it
+    suppressNextPasteImage = true;
     navigator.clipboard.read().then(clipboardItems => {
       for (const item of clipboardItems) {
         const imageType = item.types.find(t => t.startsWith('image/'));
         if (imageType) {
-          // Suppress the subsequent paste DOM event that the browser fires
-          // after this keydown-triggered Clipboard API read
-          suppressNextPasteImage = true;
+          // Keep the flag set — reset via timeout
           setTimeout(() => { suppressNextPasteImage = false; }, 500);
           item.getType(imageType).then(blob => {
             const file = new File([blob], 'clipboard-image.png', { type: imageType });
@@ -883,10 +924,12 @@ function pasteWithImageCheck(terminalId, inputChannel = 'terminal-input') {
           return; // Found an image, handled it
         }
       }
-      // No images found — fall through to text paste
+      // No images found — clear suppress flag and fall through to text paste
+      suppressNextPasteImage = false;
       performPaste(terminalId, inputChannel);
     }).catch(() => {
-      // Clipboard API failed (permissions, etc.) — fall through to text paste
+      // Clipboard API failed (permissions, etc.) — clear suppress flag and fall through to text paste
+      suppressNextPasteImage = false;
       performPaste(terminalId, inputChannel);
     });
   } else {
@@ -1070,6 +1113,15 @@ function createTerminalKeyHandler(terminal, terminalId, inputChannel = 'terminal
   const _onBlur = () => { shiftHeld = false; };
   window.addEventListener('blur', _onBlur);
   return (e) => {
+    // Escape — clear pending images if any
+    if (e.key === 'Escape' && e.type === 'keydown') {
+      const td = getTerminal(terminalId);
+      if (td?.pendingImages?.length > 0) {
+        clearTerminalImages(terminalId);
+        return false;
+      }
+    }
+
     // Check rebound terminal shortcuts (ctrlC / ctrlV) at call-time — read from settings
     if (e.ctrlKey && e.type === 'keydown') {
       const ts = getSetting('terminalShortcuts') || {};
@@ -1495,6 +1547,9 @@ function updateTerminalTabName(id, name) {
   const termData = getTerminal(id);
   if (!termData) return;
 
+  // Enforce max tab name length
+  if (name && name.length > 30) name = name.slice(0, 30) + '…';
+
   // Track slash command renames for OSC overwrite protection
   if (name && name.startsWith('/')) {
     slashRenameTimestamps.set(id, Date.now());
@@ -1644,6 +1699,7 @@ function startRenameTab(id) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'tab-name-input';
+  input.maxLength = 30;
   input.value = currentName;
   nameSpan.replaceWith(input);
   input.focus();
@@ -2424,36 +2480,10 @@ async function createTerminal(project, options = {}) {
   terminal.onData(data => {
     const td = getTerminal(id);
 
-    // Intercept Enter when images are pending — inject file paths into the prompt
+    // When Enter is pressed with images pending, just clear the preview bar
+    // (file paths were already injected into the terminal on paste)
     if ((data === '\r' || data === '\n') && td?.pendingImages?.length > 0) {
-      // Save pending images to temp files synchronously
-      const filePaths = savePendingImagesToTemp(id);
-      if (filePaths.length > 0) {
-        // Quote paths with spaces for Windows compatibility
-        const pathsStr = filePaths.map(p => p.includes(' ') ? `"${p}"` : p).join(' ');
-        // Append file paths to the current prompt line, then Enter
-        api.terminal.input({ id, data: ` ${pathsStr}\r` });
-      } else {
-        // Save failed — just send Enter normally
-        api.terminal.input({ id, data });
-      }
-      // Clear images regardless
       clearTerminalImages(id);
-
-      // Normal Enter processing (status, title, etc.)
-      if (td?.project?.id) heartbeat(td.project.id, 'terminal');
-      cancelScheduledReady(id);
-      updateTerminalStatus(id, 'working');
-      if (scrapingEventCallback) scrapingEventCallback(id, 'input', {});
-      if (td && td.inputBuffer.trim().length > 0) {
-        postEnterExtended.add(id);
-        const title = extractTitleFromInput(td.inputBuffer);
-        if (title) {
-          updateTerminalTabName(id, title);
-        }
-        updateTerminal(id, { inputBuffer: '' });
-      }
-      return;
     }
 
     api.terminal.input({ id, data });
@@ -4901,6 +4931,7 @@ async function createChatTerminal(project, options = {}) {
       if (onSessionStart) onSessionStart(sid);
     },
     onTabRename: (name) => {
+      if (name && name.length > 30) name = name.slice(0, 30) + '…';
       const nameEl = tab.querySelector('.tab-name');
       if (nameEl) nameEl.textContent = name;
       const data = getTerminal(id);
