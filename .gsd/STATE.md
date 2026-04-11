@@ -1,59 +1,48 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: — Consolidations
-status: executing
-last_updated: "2026-04-04T12:55:46.038Z"
-last_activity: 2026-04-04 -- Phase 38 execution started
+milestone: v1.2
+milestone_name: — Tab System Rewrite
+status: planning
+last_updated: "2026-04-11T18:00:00.000Z"
+last_activity: 2026-04-11 -- v1.1 milestone archived and shipped
 progress:
-  total_phases: 16
-  completed_phases: 10
-  total_plans: 20
-  completed_plans: 16
+  total_phases: 3
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 1
 ---
 
 # Project State
 
+## Project Reference
+
+See: .gsd/PROJECT.md (updated 2026-04-11 after v1.1 completion)
+
+**Core value:** Fix tab system at the root with string IDs + v3 persistence format, and shrink the codebase by removing chat/SDK/split-pane.
+**Current focus:** v1.2 Phase 2 — Remove Split-Pane / PaneManager
+
 ## Current Position
 
-Phase: 38 (i-want-to-be-able-to-post-screenshots-into-a-claude-terminal) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 38
-Last activity: 2026-04-04 -- Phase 38 execution started
+Milestone: v1.2 Tab System Rewrite
+Phase: 2 (Remove Split-Pane / PaneManager) — ready to plan/execute
+Plan: 2A — Delete PaneManager + split-pane code
+Status: Phase 1 (GHOST) already landed in commit `d9395d6f`
+Last activity: 2026-04-11 -- v1.1 milestone archived and shipped
 
 ## Accumulated Context
 
-- v1.0 shipped 33 phases, 51 plans (2026-02-24 → 2026-02-27)
-- 6 open PRs pending upstream review
-- Phase numbering continues from 25
-- **v1.2 scaffolded in parallel** (milestone not yet active — will close v1.1 first). Tab System Rewrite with 3 phases: chat+SDK removal (GHOST, completed in worktree commit `d9395d6f`), split-pane removal, tab system rewrite. Executes in isolated worktree at `../claude-terminal-rewrite`. See [milestones/1.2/ROADMAP.md](milestones/1.2/ROADMAP.md).
+- **v1.0 shipped** 2026-02-27 — 33 phases, 51 plans (UX Fixes)
+- **v1.1 shipped** 2026-04-11 — 16 phases, 22 plans, 32 tasks (Consolidations). Known gaps: Phase 29 upstream PR pending, 29.1 unfixed, 31C/31D superseded, 32 tracking stale. See [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+- **v1.2 active** — Tab System Rewrite in isolated worktree `../claude-terminal-rewrite` off commit `52d9d17a`. Phase 1 (chat + Agent SDK removal) ghost-completed in `d9395d6f` (`+620 / −11,501` across 33 files).
+- **Fork-only execution for v1.2** — no upstream PRs planned
+- **6 open upstream PRs** from v1.0/v1.1 phases still pending review (fork diverges from upstream trajectory)
 
-### Roadmap Evolution
+### Open Tech Debt
 
-- Phase 25 added: Pane-Divider-Opts
-- Phase 26 added: MD-Files-Reopening
-- Phase 27 removed: Projects-Pane-Opts (decided not to pursue)
-- Phase 27 added: Rename-Tabs-Manually
-- Phase 28 added: Paste-Doubles-Linebreaks
-- Phase 29 added: Adjust-Idle-Recognization
-- Phase 30 added: Support-NSIS-Silent
-- Phase 31 added: Tab-Splitview (4 plans: infra, activation, triggers, persistence)
-- Phase 31A complete: PaneManager module with container accessors, all 14 getElementById calls refactored
-- Phase 31B complete: Pane-scoped setActiveTerminal, per-pane active tab tracking, pane-aware filterByProject
-- Phase 31C complete: Context menu Split Right/Move actions, drag-to-split with overlay, cross-pane tab reorder, auto-collapse
-- Phase 31D complete: v2 session format with paneLayout, pane-aware restore loop, backward-compatible v1 migration
-- Phase 32 added: Close-Warnings (warn before closing if Claude is actively working, show project + tab name)
-- Phase 33 added: Updater-Settings (configurable check interval, download mode, install mode)
-- Phase 33 complete: 3 updater settings dropdowns, settings-driven UpdaterService, manual download banner flow
-- Phase 34 added: AI-Rename-Menuitem in the tab contextmenu based on the existing ai-rename mechanism
-- Phase 34 complete: AI Rename context menu item with loading indicator and error revert, EN/FR i18n
-- Phase 35 added: Fix-Usage — Usage display shows incorrect percentages
-- Phase 35 complete: Fixed API utilization decimal-to-percentage conversion (* 100) in UsageService
-- Phase 36 added: Fix terminal flickering, buffer loss, and blackouts caused by scroll-to-top changes
-- Phase 36 complete: Debounced writePreservingScroll (80ms), rapid-output guard suppressing terminal.clear() during Claude TUI redraws (3+ chunks < 150ms hysteresis)
-- Phase 37 added: Enhance git capabilities — commit graph, branch visualization, unpushed file tracking
-- Phase 38 added: Post screenshots into claude-terminal chat
-- Phase 39 added: Fix empty pane disabled controls — no-terminal state causes button overlap/disabled
+- Phase 29 (v1.1) — heartbeat split: upstream PR pending
+- Phase 29.1 (v1.1) — cross-tab idle contamination: unfixed
+- Phase 32 (v1.1) — close warnings: implementation shipped, checkbox stale
+- Phase 37 (v1.1) — git tab polish: WIP commit `52d9d17a`, remaining polish deferred
 
 ### Quick Tasks Completed
 
